@@ -26,9 +26,9 @@ spec:
         env:
         - name: MARIADB_ROOT_PASSWORD
           valueFrom:
-            secretKeyRef:
-              name: cmmn-mariadb-secret
-              key: MYSQL_ROOT_PASSWORD
+            configMapKeyRef:
+              name: cmmn-mariadb-configmap
+              key: mysql_root_password
         volumeMounts:
         - name: mariadb-config
           mountPath: /etc/maysql/mariadb.cnf

@@ -3,6 +3,7 @@ kind: ConfigMap
 metadata:
   name: cmmn-mariadb-configmap
 data:
+  mysql_root_password: 1lZLY8tftTXvuse6HVUQ/UojfB7OTELv
   mariadb-config: |
     [mysqladmin]
     user=

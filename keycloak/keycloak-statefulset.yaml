@@ -28,26 +28,20 @@ spec:
           env:
             - name: KEYCLOAK_ADMIN_PASSWORD
               valueFrom:
-                secretKeyRef:
-                  name: keycloak-secret
-                  key: ADMIN_PASSWORD
+                configMapKeyRef:
+                  name: keycloak-configmap
+                  key: admin_password
             - name: KEYCLOAK_DATABASE_HOST
               value: "postgresql-0.postgresql-headless.dev.svc.cluster.local"
             - name: KEYCLOAK_DATABASE_NAME
-              valueFrom:
-                secretKeyRef:
-                  name: keycloak-secret
-                  key: KEYCLOAK_DATABASE_NAME
+              value: "keycloak"
             - name: KEYCLOAK_DATABASE_USER
-              valueFrom:
-                secretKeyRef:
-                  name: keycloak-secret
-                  key: KEYCLOAK_DATABASE_USER
+              value: "keycloak"
             - name: KEYCLOAK_DATABASE_PASSWORD
               valueFrom:
-                secretKeyRef:
-                  name: keycloak-secret
-                  key: KEYCLOAK_DATABASE_PASSWORD
+                configMapKeyRef:
+                  name: keycloak-configmap
+                  key: keycloakdb_password
             - name: KEYCLOAK_ENABLE_HTTPS
               value: "true"
             - name: KEYCLOAK_HTTPS_KEY_STORE_FILE
@@ -56,14 +50,14 @@ spec:
               value: /opt/bitnami/keycloak/keycloak-store/keycloaks.truststore.jks
             - name: KEYCLOAK_HTTPS_KEY_STORE_PASSWORD
               valueFrom:
-                secretKeyRef:
-                  name: keycloak-secret
-                  key: KEYCLOAK_STORE_PASSWORD
+                configMapKeyRef:
+                  name: keycloak-configmap
+                  key: keycloak_store_password
             - name: KEYCLOAK_HTTPS_TRUST_STORE_PASSWORD
               valueFrom:
-                secretKeyRef:
-                  name: keycloak-secret
-                  key: KEYCLOAK_STORE_PASSWORD
+                configMapKeyRef:
+                  name: keycloak-configmap
+                  key: keycloak_store_password
             - name: KEYCLOAK_HTTPS_CERTIFICATE_FILE
               value: /opt/bitnami/keycloak/tls/tls.crt
             - name: KEYCLOAK_HTTPS_CERTIFICATE_KEY_FILE
