@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-nginx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: admin-nginx
+  template:
+    metadata:
+      labels:
+        app: admin-nginx
+    spec:
+      setHostnameAsFQDN: true
+      containers:
+        - name: admin-nginx
+          image: nginx:latest
+          ports:
+            - containerPort: 80
+              protocol: TCP
+            - containerPort: 443
+              protocol: TCP
+          volumeMounts:
+            - mountPath: /etc/nginx/admin.oneinchmarket.co.kr/tls
+              name: tls
+              readOnly: true
+            - mountPath: /etc/nginx/admin.oneinchmarket.co.kr/tls-dhparam
+              name: tls-dhparam
+              readOnly: true
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+      volumes:
+        - name: tls
+          secret:
+            secretName: tls
+        - name: tls-dhparam
+          secret:
+            secretName: tls-dhparam
+        - name: nginx-config
+          configMap:
+            name: admin-nginx-configmap
+            items:
+              - key: nginx.conf
+                path: nginx.conf

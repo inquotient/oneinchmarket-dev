@@ -1,0 +1,54 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: admin-nginx-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: HTTPS
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: 
+        - oneinchmarket.co.kr
+      secretName: tls
+  rules:
+    - host: "admin.oneinchmarket.co.kr"
+      http:
+        paths:
+        - pathType: Prefix
+          path: "/"
+          backend:
+            service:
+              name: admin-nginx-nodeport
+              port:
+                number: 30443
+    - host: "auth.oneinchmarket.co.kr"
+      http:
+        paths:
+        - pathType: Prefix
+          path: "/"
+          backend:
+            service:
+              name: admin-nginx-nodeport
+              port:
+                number: 30443
+    - host: "gitlab.oneinchmarket.co.kr"
+      http:
+        paths:
+        - pathType: Prefix
+          path: "/"
+          backend:
+            service:
+              name: gitlab-nodeport
+              port:
+                number: 443
+    - host: "registry.gitlab.oneinchmarket.co.kr"
+      http:
+        paths:
+        - pathType: Prefix
+          path: "/"
+          backend:
+            service:
+              name: gitlab-nodeport
+              port:
+                number: 443

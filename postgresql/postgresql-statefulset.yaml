@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgresql
+spec:
+# whenDeleted를 Delete로 설정하면 pod가 지워지면 pvc도 같이 지워지도록 할 수 있다. 
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+  serviceName: postgresql-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgresql
+  template:
+    metadata:
+      labels:
+        app: postgresql
+    spec:
+      setHostnameAsFQDN: true
+      containers:
+        - name: postgresql
+          image: bitnami/postgresql:15.4.0-debian-11-r5
+          ports:
+            - containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                configMapKeyRef:
+                  name: postgresql-configmap
+                  key: postgresql_password
+          volumeMounts:
+            - name: pvc
+              mountPath: /bitnami/postgresql
+              subPath: postgresql
+            - name: postgresql-config
+              mountPath: /bitnami/postgresql/conf/pg_hba.conf
+              subPath: pg_hba.conf
+      volumes:
+        - name: postgresql-config
+          configMap:
+            name: postgresql-configmap
+            items:
+              - key: pghba-config
+                path: pg_hba.conf
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+  volumeClaimTemplates:
+    - metadata:
+        name: pvc
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 20Gi

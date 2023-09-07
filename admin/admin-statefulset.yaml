@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: admin
+spec:
+  serviceName: admin-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: admin
+  template:
+    metadata:
+      labels:
+        app: admin
+    spec:
+      setHostnameAsFQDN: true
+      containers:
+        - name: admin
+          image: registry.gitlab.oneinchmarket.co.kr/root/oneinchmarket-admin:latest
+          ports:
+            - containerPort: 3000
+              protocol: TCP
+          env:
+            - name: NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NEXTAUTH_URL
+              value: $(NAME).admin-headless.dev.svc.cluster.local
+          volumeMounts:
+            - name: server-config
+              mountPath: /app/node_modules/next/dist/server/lib/start-server.js
+              subPath: start-server.js
+            - name: tls
+              mountPath: /app/tls/
+              readOnly: true
+      volumes:
+        - name: server-config
+          configMap:
+            name: admin-configmap
+            items:
+              - key: start-server.js
+                path: start-server.js
+        - name: tls
+          secret:
+            secretName: tls
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0

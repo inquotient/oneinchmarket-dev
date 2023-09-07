@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: keycloak
+spec:
+# whenDeleted를 Delete로 설정하면 pod가 지워지면 pvc도 같이 지워지도록 할 수 있다. 
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+  serviceName: keycloak-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keycloak
+  template:
+    metadata:
+      labels:
+        app: keycloak
+    spec:
+      setHostnameAsFQDN: true
+      containers:
+        - name: keycloak
+          image: bitnami/keycloak:latest
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+            - containerPort: 8443
+              protocol: TCP
+          env:
+            - name: KEYCLOAK_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-secret
+                  key: ADMIN_PASSWORD
+            - name: KEYCLOAK_DATABASE_HOST
+              value: "postgresql-0.postgresql-headless.dev.svc.cluster.local"
+            - name: KEYCLOAK_DATABASE_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-secret
+                  key: KEYCLOAK_DATABASE_NAME
+            - name: KEYCLOAK_DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-secret
+                  key: KEYCLOAK_DATABASE_USER
+            - name: KEYCLOAK_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-secret
+                  key: KEYCLOAK_DATABASE_PASSWORD
+            - name: KEYCLOAK_ENABLE_HTTPS
+              value: "true"
+            - name: KEYCLOAK_HTTPS_KEY_STORE_FILE
+              value: /opt/bitnami/keycloak/keycloak-store/keycloaks.keystore.jks
+            - name: KEYCLOAK_HTTPS_TRUST_STORE_FILE
+              value: /opt/bitnami/keycloak/keycloak-store/keycloaks.truststore.jks
+            - name: KEYCLOAK_HTTPS_KEY_STORE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-secret
+                  key: KEYCLOAK_STORE_PASSWORD
+            - name: KEYCLOAK_HTTPS_TRUST_STORE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-secret
+                  key: KEYCLOAK_STORE_PASSWORD
+            - name: KEYCLOAK_HTTPS_CERTIFICATE_FILE
+              value: /opt/bitnami/keycloak/tls/tls.crt
+            - name: KEYCLOAK_HTTPS_CERTIFICATE_KEY_FILE
+              value: /opt/bitnami/keycloak/tls/tls.key
+          volumeMounts:
+            - name: pvc
+              mountPath: /bitnami
+              subPath: bitnami
+            - name: tls
+              mountPath: /opt/bitnami/keycloak/tls
+              readOnly: true
+            - name: keycloak-store
+              mountPath: /opt/bitnami/keycloak/keycloak-store
+              readOnly: true
+      volumes:
+        - name: keycloak-config
+          configMap:
+            name: keycloak-configmap
+        - name: tls
+          secret:
+            secretName: tls
+        - name: keycloak-store
+          secret:
+            secretName: keycloak-store
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+  volumeClaimTemplates:
+    - metadata:
+        name: pvc
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 20Gi  

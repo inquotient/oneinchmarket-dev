@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: gitlab
+spec:
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+  serviceName: gitlab-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gitlab
+  selector:
+    matchLabels:
+      app: gitlab
+  template:
+    metadata:
+      labels:
+        app: gitlab
+    spec:
+      setHostnameAsFQDN: true
+      containers:
+      - name: gitlab
+        image: gitlab/gitlab-ee:latest
+        ports:
+######### Reference
+######### https://docs.gitlab.com/ee/administration/package_information/defaults.html#fn:Sidekiq-health
+        - containerPort: 80
+          protocol: TCP
+        - containerPort: 443
+          protocol: TCP
+        volumeMounts:
+        - name: gitlab-config
+          mountPath: /etc/gitlab/gitlab.rb
+          subPath: gitlab.rb
+        - name: tls
+          mountPath: /etc/gitlab/tls
+          readOnly: true
+        - name: pvc
+          mountPath: /var/log/gitlab
+          subPath: gitlab
+        # resources:
+        #limits:
+        #memory: "4096Mi"
+        #cpu: "4000m"
+      volumes:
+        - name: gitlab-config
+          configMap:
+            name: gitlab-configmap
+            items:
+              - key: gitlab-config
+                path: gitlab.rb
+        - name: tls
+          secret:
+            secretName: tls
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+  volumeClaimTemplates:
+    - metadata:
+        name: pvc
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 20Gi

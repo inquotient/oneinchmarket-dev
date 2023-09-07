@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gitlab-configmap
+data:
+  gitlab-config: |
+    registry_external_url "https://registry.gitlab.oneinchmarket.co.kr"
+    external_url "https://gitlab.oneinchmarket.co.kr"
+    
+    nginx['redirect_http_to_https'] = true
+    nginx['ssl_certificate'] = "/etc/gitlab/tls/tls.crt"
+    nginx['ssl_certificate_key'] = "/etc/gitlab/tls/tls.key"
+    nginx['client_max_body_size'] = '1024m'
+
+    registry_nginx['redirect_http_to_https'] = true
+    registry_nginx['ssl_certificate'] = "/etc/gitlab/tls/tls.crt"
+    registry_nginx['ssl_certificate_key'] = "/etc/gitlab/tls/tls.key"
+    registry_nginx['client_max_body_size'] = '1024m'
+
+    letsencrypt['enable'] = false
+
+    postgresql['enable'] = false
+    postgresql['auto_restart_on_version_change'] = false
+
+    geo_postgresql['auto_restart_on_version_change'] = false
+
+    gitlab_rails['db_adapter'] = 'postgresql'
+    gitlab_rails['db_encoding'] = 'utf8'
+    gitlab_rails['db_host'] = 'postgresql-headless.dev.svc.cluster.local'
+    gitlab_rails['db_port'] = 5432
+    gitlab_rails['db_username'] = 'gitlab'
+    gitlab_rails['db_password'] = 'HYKWk/iZlJg6EYt4L6XooTSI2ErjeU1f'
+
+    puma['worker_processes'] = 0
+
+    sidekiq['max_concurrency'] = 10
+
+    prometheus_monitoring['enable'] = false
+
+    gitlab_rails['env'] = {
+      'MALLOC_CONF' => 'dirty_decay_ms:1000,muzzy_decay_ms:1000'
+    }
+
+    gitaly['env'] = {
+      'MALLOC_CONF' => 'dirty_decay_ms:1000,muzzy_decay_ms:1000',
+      'GITALY_COMMAND_SPAWN_MAX_PARALLEL' => '2'
+    }

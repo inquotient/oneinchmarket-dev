@@ -1,0 +1,135 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: admin-nginx-configmap
+data:
+  nginx.conf: |
+    user nginx;
+    worker_processes auto;
+    worker_rlimit_nofile 65535;
+
+    error_log  /var/log/nginx/error.log notice;
+    pid        /var/run/nginx.pid;
+
+    events {
+      # events블록 내에서 설정하는 worker connections를 설정할 때는 proxy서버를 통해 연결된 커넥션들을 포함한 클라이언트들의 모든 커넥션들의 숫자를 고려
+      # worker_rlimit_nofile의 수 초과불가
+      # default 512
+      worker_connections 65534;
+      use epoll;
+      multi_accept on;
+    }
+
+    http {
+      charset utf-8;
+      include       /etc/nginx/mime.types;
+      # 보안대책으로 에러화면의 nginx버전번호를 표시/비표시 on/off
+      server_tokens off;
+
+      log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for"';
+
+      upstream admin {
+        server admin-headless.dev.svc.cluster.local:3000;
+      }
+
+      server{
+        charset utf-8;
+        server_name admin.oneinchmarket.co.kr;
+
+        access_log  /var/log/nginx/admin.oneinchmarket.co.kr-access.log  main;
+
+        keepalive_timeout  65;
+
+        location / {
+            http2_push_preload on;
+            proxy_http_version 1.1;
+            proxy_pass https://admin;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header Connection "";
+            proxy_buffer_size   128k;
+            proxy_buffers   4 256k;
+            proxy_busy_buffers_size   256k;
+        }
+
+        listen [::]:443 ssl http2;
+        listen 443 ssl http2;
+        ssl_certificate /etc/nginx/admin.oneinchmarket.co.kr/tls/tls.crt;
+        ssl_certificate_key /etc/nginx/admin.oneinchmarket.co.kr/tls/tls.key;
+        ssl_ciphers HIGH:!aNULL:!ADH:!AECDH:!MD5;
+        ssl_protocols TLSv1 TLSv1.1 TLSv1.2 TLSv1.3;
+        ssl_stapling on;
+        ssl_stapling_verify on;
+        # SSL-TLS 협상 과정에서 서버에 설정한 암호 알고리즘을 우선하며 off 일 경우 알고리즘을 약화시켜서 공격할 수가 있으므로 on 으로 설정
+        ssl_prefer_server_ciphers   on;
+        # ssl_dhparam /etc/nginx/admin.oneinchmarket.co.kr/tls-dhparam/dhparam.pem;
+      }
+
+      server {
+        charset utf-8;
+        if ($host = admin.oneinchmarket.co.kr) {
+            return 301 https://$host$request_uri;
+        }
+        listen [::]:80;
+        listen 80;
+
+        server_name admin.oneinckmarket.co.kr;
+        return 404;
+      }
+
+      upstream auth {
+        server keycloak-nodeport.dev.svc.cluster.local:443;
+      }
+
+      server {
+        charset utf-8;
+        server_name auth.oneinchmarket.co.kr;
+
+        access_log  /var/log/nginx/auth.oneinchmarket.co.kr-access.log  main;
+
+        keepalive_timeout  65;
+
+        location / {
+            proxy_http_version 1.1;
+            proxy_pass https://auth;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header Connection "";
+            proxy_buffer_size   128k;
+            proxy_buffers   4 256k;
+            proxy_busy_buffers_size   256k;
+        }
+
+        listen [::]:443 ssl;
+        listen 443 ssl;
+        ssl_certificate /etc/nginx/admin.oneinchmarket.co.kr/tls/tls.crt;
+        ssl_certificate_key /etc/nginx/admin.oneinchmarket.co.kr/tls/tls.key;
+        ssl_ciphers HIGH:!aNULL:!ADH:!AECDH:!MD5;
+        ssl_protocols TLSv1 TLSv1.1 TLSv1.2 TLSv1.3;
+        ssl_stapling on;
+        ssl_stapling_verify on;
+        # SSL-TLS 협상 과정에서 서버에 설정한 암호 알고리즘을 우선하며 off 일 경우 알고리즘을 약화시켜서 공격할 수가 있으므로 on 으로 설정
+        ssl_prefer_server_ciphers   on;
+        # ssl_dhparam /etc/nginx/admin.oneinchmarket.co.kr/tls-dhparam/dhparam.pem;
+      }
+
+      server {
+        charset utf-8;
+        if ($host = auth.oneinchmarket.co.kr) {
+            return 301 https://$host$request_uri;
+        }
+        listen [::]:80;
+        listen 80;
+
+        server_name auth.oneinckmarket.co.kr;
+        return 404;
+      }
+    }
+
+

@@ -1,0 +1,225 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cmmn-mariadb-configmap
+data:
+  mariadb-config: |
+    [mysqladmin]
+    user=
+
+    [mysqld]
+    # bitnami의 mariadb에서는 컨테이너 실행 시에 unknown_variable로 인식하지만 콘솔에서는 확인가능
+    # server_id=1
+    skip_name_resolve
+    explicit_defaults_for_timestamp
+    basedir=/opt/bitnami/mariadb
+    port=3306
+    tmpdir=/opt/bitnami/mariadb/tmp
+    socket=/opt/bitnami/mariadb/tmp/mysql.sock
+    pid_file=/opt/bitnami/mariadb/tmp/mysqld.pid
+    max_allowed_packet=16M
+    bind_address=0.0.0.0
+    log_error=/opt/bitnami/mariadb/logs/mysqld.log
+    plugin_dir=/opt/bitnami/mariadb/lib/plugin
+    datadir=/bitnami/mariadb/data
+
+    default_storage_engine=innodb
+    default_tmp_storage_engine=innodb
+
+    table_open_cache=30000
+    table_open_cache_instances=16
+
+    open-files-limit=65535
+    default-time-zone='+09:00'
+
+    basedir=/opt/bitnami/mariadb
+
+    local_infile=OFF
+    # MySQL 5.6만 지원했으며 MariaDB는 11.2.0부터 지원
+    # 아직 11.2.0이 alpha 버전이라 컨테이너 공식이미지가 없음
+    # block_encryption_mode='aes-256-ecb'
+
+    core-file
+    # 비활성화시에 innodb 버퍼 풀 페이지를 제외하여 core file 크기를 감소시킴 MySQL 8.0에 추가됨
+    # innodb_buffer_pool_in_core_file=OFF
+
+    max_allowed_packet=67108864
+    explicit_defaults_for_timestamp=ON
+    sql-mode="STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION"
+
+    character_set_server=utf8mb4
+    # MySQL에서는 제공되는 collation_server=utf8mb4_0900_ai_ci
+    collation_server=utf8mb4_unicode_ci
+    character-set-filesystem=utf8mb4
+
+    skip-character-set-client-handshake
+
+    max_connections=8000
+    max_connect_errors=999999
+
+    # 로그인시에 user에게 여러 role을 할당할지 여부 mariadb의 경우 해당 옵션이 SQL 표준이 아니기 때문에 추가하지 않음
+    # active_all_roles_on_login=ON
+    
+    skip-name-resolve
+
+    # MySQL ngram 전문 검색에 사용되는 token size 설정 옵션
+    # MariaDB에는 Mroonga라는 전문검색이 기본 탑재
+    # ngram_token_size=2
+    max_heap_table_size=10M
+    tmp_table_size=10M
+    default_password_lifetime=0
+    
+    sysdate-is-now
+
+    #### InnoDB -------------------------------------------------------------------------------------------------------
+    # 운영에서는 64M
+    innodb_sort_buffer_size=5M
+    innodb_data_home_dir=/bitnami/mariadb/data
+    innodb_data_file_path=ibdata1:100M:autoextend
+    innodb_log_group_home_dir=/opt/bitnami/mariadb/logs/innodb-log
+
+    # 운영에서는 3
+    # MariaDB 10.5 버전부터는 redo log를 하나만 관리하기 정책이 바뀌며 deprecated
+    # innodb_log_files_in_group=2
+
+    # 운영에서는 2048M
+    innodb_log_file_size=1024M
+    innodb_file_per_table=ON
+
+    innodb_undo_directory=/opt/bitnami/mariadb/logs/innodb-undo/
+
+    innodb_undo_tablespaces=2
+    innodb_max_undo_log_size=536870912
+    innodb_undo_log_truncate=ON
+
+    innodb_status_output_locks=ON
+    innodb_print_all_deadlocks=ON
+
+    # 대부분의 경우 성능 향상을 보이지만 쿼리 실행 제어 쉽지 않다고 함
+    innodb_adaptive_hash_index=OFF
+
+    # 서버 사양의 70~80%, 운영에서는 20G
+    innodb_buffer_pool_size=200M
+
+    # 운영에서는 10
+    # MariaDB 10.5.1 버전부터는 deprecated 
+    # innodb_buffer_pool_instances=1
+
+    innodb_doublewrite=OFF
+    innodb_checksum_algorithm=CRC32
+    innodb_flush_log_at_trx_commit=0
+    innodb_flush_method=O_DIRECT_NO_FSYNC
+
+    # 운영에서는 1000
+    innodb_io_capacity=100
+    # 운영에서는 5000
+    innodb_io_capacity_max=400
+    innodb_ft_enable_stopword=OFF
+    innodb_cmp_per_index_enabled=ON
+
+    #### Performance schema ------------------------------------------------------------------------------------------
+    performance_schema=ON
+    performance-schema-instrument='stage/%=ON'
+    performance-schema-instrument='memory/%=ON'
+    performance-schema-instrument='wait/%=ON'
+
+    performance-schema-consumer-events_stages_current=ON
+    performance-schema-consumer-events_stages_history=ON
+    performance-schema-consumer-events_stages_history_long=ON
+    performance-schema-consumer-events_statements_history=OFF
+    performance-schema-consumer-events_statements_history_long=ON
+    performance-schema-consumer-events_waits_current=ON
+    performance-schema-consumer-events_waits_history=ON
+    performance-schema-consumer-events_waits_history_long=ON
+
+    performance_schema_events_stages_history_long_size=50000
+    performance_schema_events_stages_history_size=10
+    performance_schema_events_statements_history_long_size=50000
+    performance_schema_events_statements_history_size=10
+    performance_schema_events_waits_history_long_size=50000
+    performance_schema_events_waits_history_size=10
+
+    #### TDE (Encryption) ---------------------------------------------------------------------------------------------
+    # MySQL에서는 early-plugin-load=keyring_file.so
+    plugin_load_add=file_key_management.so
+    plugin_load_add=simple_password_check.so
+    # MySQL에서는 keyring_file_data = /mnt/tde/tde_master.key
+    file_key_management_encryption_algorithm=aes_cbc
+    file_key_management_filename=/mnt/tde/tde_master.enc
+    file_key_management_filekey=FILE:/mnt/tde/tde_master.key
+
+    #### Password validate --------------------------------------------------------------------------------------------
+    # MySQL에서는 validate_password plugin을 사용
+    # password_history=5
+    # validate_password.length=8
+    # validate_password.mixed_case_count=2
+    # validate_password.number_count=2
+    # validate_password.special_char_count=2
+    # validate_password.dictionary_file=prohibitive_dictionary.data
+    # validate_password.policy=STRONG
+    simple_password_check_digits=2
+    simple_password_check_other_characters=2
+    simple_password_check=ON
+
+    #### MySQL BinLog -------------------------------------------------------------------------------------------------
+    log-bin=/opt/bitnami/mariadb/logs/mysql-bin
+    sync_binlog=0
+    # MySQL 글로벌 트랜잭션 모드 활성화
+    # enforce_gtid_consistency=ON
+    # gtid-mode=ON
+    binlog_checksum=CRC32
+    # MySQL에서만 제공
+    # binlog_order_commits=ON
+    binlog_format=ROW
+    binlog_row_image=MINIMAL
+    max_binlog_size=104857600
+
+    #### MySQL Replica Options ----------------------------------------------------------------------------------------
+    # MySQL에서만 사용되다가 8.0.26버전에서 deprecated
+    # slave_parallel_type=LOGICAL_CLOCK
+    slave_parallel_workers=4
+    # MySQL에서만 사용되다가 8.0.26버전에서 deprecated
+    # slave_preserve_commit_order=1
+    slave_parallel_mode=conservative
+    # MySQL에서 사용하는 시스템 변수 binlog_rows_query_log_events=ON
+    binlog-annotate-row-events=ON
+    log_slave_updates
+
+    #### Relay Log ----------------------------------------------------------------------------------------------------
+    relay-log=/opt/bitnami/mariadb/logs/relay-bin
+    # MariaDB는 MySQL과는 다르게 relay log를 테이블에 기록하는 기능이 없다
+    # relay_log_info_repository=TABLE
+    relay_log_recovery=ON
+    relay_log_purge=ON
+
+    #### MySQL ErrorLog -----------------------------------------------------------------------------------------------
+    log_error=/opt/bitnami/mariadb/logs/error/mysqld.log
+    # MySQL 8.0 에서는 log_error_verbosity
+    log_warnings=1
+
+    #### MySQL Slow Log -----------------------------------------------------------------------------------------------
+    slow-query-log=1
+    long_query_time=1
+    # MySQL에만 있음
+    # log_slow_extra=1
+    log_slow_admin_statements=1
+    log_slow_slave_statements=1
+    slow_query_log_file=/opt/bitnami/mariadb/logs/slow/mysql-slow.log
+    general_log_file=/opt/bitnami/mariadb/logs/general/mysql_general.log
+
+    #### MySQL Log Expire ---------------------------------------------------------------------------------------------
+    binlog_expire_logs_seconds=259200
+    # MySQL에서만 사용
+    # log-raw
+    # log_timestamps=SYSTEM
+    
+    [client]
+    port=3306
+    socket=/opt/bitnami/mariadb/tmp/mysql.sock
+    default_character_set=utf8mb4
+    plugin_dir=/opt/bitnami/mariadb/lib/plugin
+
+    [manager]
+    port=3306
+    socket=/opt/bitnami/mariadb/tmp/mysql.sock
+    pid_file=/opt/bitnami/mariadb/tmp/mysqld.pid

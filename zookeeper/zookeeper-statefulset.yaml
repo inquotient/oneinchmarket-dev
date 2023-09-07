@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: zookeeper
+spec:
+# whenDeleted를 Delete로 설정하면 pod가 지워지면 pvc도 같이 지워지도록 할 수 있다. 
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+  serviceName: zookeeper-headless
+  replicas: 5
+  selector:
+    matchLabels:
+      app: zookeeper
+  template:
+    metadata:
+      labels:
+        app: zookeeper
+    spec:
+      setHostnameAsFQDN: true
+      containers:
+        - name: zookeeper
+          image: zookeeper:latest
+          ports:
+            - containerPort: 2181
+              protocol: TCP
+            - containerPort: 2888
+              protocol: TCP
+            - containerPort: 3888
+              protocol: TCP
+          lifecycle:
+            postStart:
+              exec:
+                command: ["/bin/sh", "-c", "echo $HOSTNAME | awk -F '-' '{print $2+1}' > /data/myid"]
+          env:
+            - name: ZOO_STANDALONE_ENABLED
+              value: "false"
+            - name: ZOO_SERVERS
+              value: "server.1=zookeeper-0.zookeeper-headless.dev.svc.cluster.local:2888:3888;2181 server.2=zookeeper-1.zookeeper-headless.dev.svc.cluster.local:2888:3888;2181 server.3=zookeeper-2.zookeeper-headless.dev.svc.cluster.local:2888:3888;2181 server.4=zookeeper-3.zookeeper-headless.dev.svc.cluster.local:2888:3888;2181 server.5=zookeeper-4.zookeeper-headless.dev.svc.cluster.local:2888:3888;2181"
+          volumeMounts:
+            - name: pvc
+              mountPath: /data
+              subPath: data
+            - name: pvc
+              mountPath: /datalog
+              subPath: datalog
+  volumeClaimTemplates:
+    - metadata:
+        name: pvc
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 20Gi

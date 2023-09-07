@@ -1,0 +1,168 @@
+[
+    {
+        "type": "record",
+        "name": "CommonData",
+        "namespace": "oneinchmarket.commonapi.domain.event",
+        "fields": [
+            {
+                "name": "enabled",
+                "type": [
+                    "null",
+                    "boolean"
+                ],
+                "default": null
+            },
+            {
+                "name": "deleted",
+                "type": [
+                    "null",
+                    "boolean"
+                ],
+                "default": null
+            },
+            {
+                "name": "creatorNo",
+                "type": [
+                    "null",
+                    "long"
+                ],
+                "default": null
+            },
+            {
+                "name": "createdAt",
+                "type": [
+                    {
+                        "type": "null"
+                    },
+                    {
+                        "type": "long",
+                        "logicalType": "local-timestamp-millis"
+                    }
+                ],
+                "default": null
+            },
+            {
+                "name": "modifierNo",
+                "type": [
+                    "null",
+                    "long"
+                ],
+                "default": null
+            },
+            {
+                "name": "modifiedAt",
+                "type": [
+                    {
+                        "type": "null"
+                    },
+                    {
+                        "type": "long",
+                        "logicalType": "local-timestamp-millis"
+                    }
+                ],
+                "default": null
+            }
+        ]
+    },
+    {
+        "type": "record",
+        "name": "MultiLanguageChanged",
+        "namespace": "oneinchmarket.commonapi.domain.event",
+        "fields": [
+            {
+                "name": "multiLanguageNo",
+                "type": [
+                    "null",
+                    "long"
+                ],
+                "default": null
+            },
+            {
+                "name": "multiLanguageId",
+                "type": [
+                    {
+                        "type": "null"
+                    },
+                    {
+                        "type": "string",
+                        "avro.java.string": "String"
+                    }
+                ],
+                "default": null
+            },
+            {
+                "name": "multiLanguageUsageType",
+                "type": [
+                    {
+                        "type": "null"
+                    },
+                    {
+                        "type": "string",
+                        "avro.java.string": "String"
+                    }
+                ],
+                "default": null
+            },
+            {
+                "name": "multiLanguageType",
+                "type": [
+                    {
+                        "type": "null"
+                    },
+                    {
+                        "type": "string",
+                        "avro.java.string": "String"
+                    }
+                ],
+                "default": null
+            },
+            {
+                "name": "multiLanguage",
+                "type": [
+                    {
+                        "type": "null"
+                    },
+                    {
+                        "type": "string",
+                        "avro.java.string": "String"
+                    }
+                ],
+                "default": null
+            },
+            {
+                "name": "multiLanguageDescription",
+                "type": [
+                    {
+                        "type": "null"
+                    },
+                    {
+                        "type": "string",
+                        "avro.java.string": "String"
+                    }
+                ],
+                "default": null
+            },
+            {
+                "name": "multiLanguageEventType",
+                "type": [
+                    {
+                        "type": "null"
+                    },
+                    {
+                        "type": "string",
+                        "avro.java.string": "String"
+                    }
+                ],
+                "default": null
+            },
+            {
+                "name": "commonData",
+                "type": [
+                    "null",
+                    "oneinchmarket.commonapi.domain.event.CommonData"
+                ],
+                "default": null
+            }
+        ]
+    }
+]

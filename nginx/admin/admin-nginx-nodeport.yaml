@@ -1,0 +1,15 @@
+apiVersion: v1 
+kind: Service
+metadata: 
+  name: admin-nginx-nodeport
+spec: 
+  ports: 
+    - name: admin-nginx-web-port 
+      port: 30080 
+      targetPort: 80 
+    - name: admin-nginx-secure-web-port 
+      port: 30443
+      targetPort: 443
+  selector: 
+    app: admin-nginx
+  type: NodePort

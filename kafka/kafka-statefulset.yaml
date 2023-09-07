@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+spec:
+# whenDeleted를 Delete로 설정하면 pod가 지워지면 pvc도 같이 지워지도록 할 수 있다. 
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+  serviceName: kafka-headless
+  replicas: 3
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+    spec:
+      setHostnameAsFQDN: true
+      containers:
+        - name: kafka
+          image: bitnami/kafka:latest
+          ports:
+            - containerPort: 9092
+              protocol: TCP
+            - containerPort: 9094
+              protocol: TCP
+          env:
+          - name: ALLOW_PLAINTEXT_LISTENER
+            value: "yes"
+          - name: KAFKA_CFG_ZOOKEEPER_CONNECT
+            value: "zookeeper-headless.dev.svc.cluster.local:2181"
+          - name: KAFKA_ENABLE_KRAFT
+            value: "no"
+          - name: KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP
+            value: "PLAINTEXT:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT"
+          - name: KAFKA_ZOOKEEPER_PROTOCOL
+            value: PLAINTEXT
+          - name: KAFKA_CFG_LISTENERS
+            value: "PLAINTEXT://:9094,INTERNAL://:9092"
+          - name: KAFKA_CFG_ADVERTISED_LISTENERS
+            value: "PLAINTEXT://:9094,INTERNAL://:9092"
+          - name: KAFKA_CFG_INTER_BROKER_LISTENER_NAME
+            value: INTERNAL
+          volumeMounts:
+            - name: pvc
+              mountPath: /bitnami/kafka/data
+              subPath: data    
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+  volumeClaimTemplates:
+    - metadata:
+        name: pvc
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 20Gi  

@@ -1,0 +1,40 @@
+# Please edit the object below. Lines beginning with a '#' will be ignored,
+# and an empty file will abort the edit. If an error occurs while saving this file will be
+# reopened with the relevant failures.
+#
+apiVersion: v1
+data:
+  Corefile: |
+    .:53 {
+        errors
+        health {
+           lameduck 5s
+        }
+        ready
+        # 아래의 rewrite문을 sudo kubectl -n kube-system edit configmap coredns 로 추가
+        # admin bff서버에서 auth.oneinchmarket.co.kr를 443포트로 매핑하여 bff서버의 url 유효성검증을 통과시키고
+        # keycloak sso 서버로 정상적으로 정상적으로 접근하기 위함
+        rewrite name auth.oneinchmarket.co.kr keycloak-nodeport.dev.svc.cluster.local
+        rewrite name gitlab.oneinchmarket.co.kr gitlab-nodeport.dev.svc.cluster.local
+        rewrite name registry.gitlab.oneinchmarket.co.kr gitlab-nodeport.dev.svc.cluster.local
+        kubernetes cluster.local in-addr.arpa ip6.arpa {
+           pods insecure
+           fallthrough in-addr.arpa ip6.arpa
+           ttl 30
+        }
+        prometheus :9153
+        forward . /etc/resolv.conf {
+           max_concurrent 1000
+        }
+        cache 30
+        loop
+        reload
+        loadbalance
+    }
+kind: ConfigMap
+metadata:
+  creationTimestamp: "2023-08-27T08:07:45Z"
+  name: coredns
+  namespace: kube-system
+  resourceVersion: "168920"
+  uid: 25b82a87-13bf-42c1-8f54-0d3329c98f66

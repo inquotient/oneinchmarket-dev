@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: cmmn-mariadb-headless
+  labels:
+    app: cmmn-mariadb
+spec:
+  ports:
+  - port: 3306
+    name: mariadb-port
+  clusterIP: None
+  selector:
+    app: cmmn-mariadb
