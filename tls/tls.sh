@@ -4,8 +4,8 @@ sudo kubectl create secret generic tls-dhparam --from-file=dhparam.pem -n dev -o
 sudo kubectl delete secret/tls -n dev
 sudo kubectl delete secret/tls-dhparam -n dev
 
-replace=$(sudo openssl rand -hex 32) yq -i '.data.KEYCLOAK_STORE_PASSWORD=env(replace)' ../keycloak/keycloak-secret.yaml
-yq '.data.KEYCLOAK_STORE_PASSWORD' ../keycloak/keycloak-secret.yaml
+replace=$(sudo openssl rand -hex 32 | base64; echo) yq -i '.data.KEYCLOAK_STORE_PASSWORD=env(replace)' ../keycloak/keycloak-secret.yaml
+yq '.data.KEYCLOAK_STORE_PASSWORD' ../keycloak/keycloak-secret.yaml | base64 -d; echo
 sudo openssl pkcs12 -export -in ./tls.crt -inkey ./tls.key -out keycloaks.p12
 # 위의 해쉬값을 비밀번호로 사용
 # keytool -importkeystore -deststorepass '암호화에 사용한 비밀번호' -destkeypass '암호화에 사용한 비밀번호' -destkeystore keycloaks.test.jks -srckeystore keycloaks.test.net.p12 -srcstoretype PKCS12 -alias 1

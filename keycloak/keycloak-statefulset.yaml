@@ -79,9 +79,6 @@ spec:
               mountPath: /opt/bitnami/keycloak/keycloak-store
               readOnly: true
       volumes:
-        - name: keycloak-config
-          configMap:
-            name: keycloak-configmap
         - name: tls
           secret:
             secretName: tls
