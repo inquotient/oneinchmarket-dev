@@ -4,5 +4,5 @@ metadata:
   name: keycloak-configmap
 data:
   admin_password: oxRvVn8df0CGWAN2T1tnPv0brM6/lTGq
-  keycloak_store_password: a92d0be882e0991d3e111f82d8367c7172339d8419a7c5c47a50ad44921bed46
+  keycloak_store_password: 8a52be528235fa7c07f764b0376de12293a0dbd43d9477ce8fea203e988e38d4
   keycloakdb_password: tKUN/T9BNxMsVbD5q8jEzIFs2OxCFIHd
