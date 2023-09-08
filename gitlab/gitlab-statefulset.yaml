@@ -36,8 +36,8 @@ spec:
         - name: tls
           mountPath: /etc/gitlab/tls
           readOnly: true
-        - name: registry-tls
-          mountPath: /etc/gitlab/registry-tls
+        - name: tls-registry
+          mountPath: /etc/gitlab/tls-registry
           readOnly: true
         - name: pvc
           mountPath: /var/log/gitlab
