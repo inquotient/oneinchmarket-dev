@@ -56,9 +56,9 @@ spec:
         - name: tls
           secret:
             secretName: tls
-        - name: registry-tls
+        - name: tls-registry
           secret:
-            secretName: registry-tls
+            secretName: tls-registry
       securityContext:
         runAsUser: 0
         runAsGroup: 0
