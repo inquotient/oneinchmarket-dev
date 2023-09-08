@@ -1,5 +1,7 @@
 sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout ./tls.key -out ./tls.crt -subj "/CN=*.oneinchmarket.co.kr"
+sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout ./registry-tls.key -out ./registry-tls.crt -subj "/CN=registry.gitlab.oneinchmarket.co.kr"
 sudo kubectl create secret tls --save-config tls --key ./tls.key --cert ./tls.crt -n dev
+sudo kubectl create secret tls --save-config tls-registry --key ./registry-tls.key --cert ./registry-tls.crt -n dev
 sudo kubectl create secret generic tls-dhparam --from-file=dhparam.pem -n dev -o json --dry-run=client | jq '.metadata.labels |= {"app.kubernetes.io/name": "ingress-nginx", "app.kubernetes.io/part-of": "ingress-nginx"}' | kubectl -n dev apply -f-
 sudo kubectl delete secret/tls -n dev
 sudo kubectl delete secret/tls-dhparam -n dev
