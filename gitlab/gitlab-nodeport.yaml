@@ -10,6 +10,9 @@ spec:
     - name: gitlab-secure-port
       port: 443
       targetPort: 443
+    - name: gitlab-registry-port
+      port: 5000
+      targetPort: 5000
   selector:
     app: gitlab
   type: NodePort

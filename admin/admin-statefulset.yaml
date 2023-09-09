@@ -34,6 +34,8 @@ spec:
             - name: tls
               mountPath: /app/tls/
               readOnly: true
+      imagePullSecrets:
+        - name: registry-key
       volumes:
         - name: server-config
           configMap:

@@ -1,9 +1,12 @@
 sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout ./tls.key -out ./tls.crt -subj "/CN=*.oneinchmarket.co.kr"
-sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout ./registry-tls.key -out ./registry-tls.crt -subj "/CN=registry.gitlab.oneinchmarket.co.kr"
+sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout ./gitlab-tls.key -out ./gitlab-tls.crt -subj "/CN=gitlab.oneinchmarket.co.kr" -addext "subjectAltName = DNS:gitlab.oneinchmarket.co.kr"
+sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout ./registry-tls.key -out ./registry-tls.crt -subj "/CN=registry.gitlab.oneinchmarket.co.kr" -addext "subjectAltName = DNS:registry.gitlab.oneinchmarket.co.kr"
 sudo kubectl create secret tls --save-config tls --key ./tls.key --cert ./tls.crt -n dev
+sudo kubectl create secret tls --save-config tls-gitlab --key ./gitlab-tls.key --cert ./gitlab-tls.crt -n dev
 sudo kubectl create secret tls --save-config tls-registry --key ./registry-tls.key --cert ./registry-tls.crt -n dev
 sudo kubectl create secret generic tls-dhparam --from-file=dhparam.pem -n dev -o json --dry-run=client | jq '.metadata.labels |= {"app.kubernetes.io/name": "ingress-nginx", "app.kubernetes.io/part-of": "ingress-nginx"}' | kubectl -n dev apply -f-
 sudo kubectl delete secret/tls -n dev
+sudo kubectl delete secret/tls-registry -n dev
 sudo kubectl delete secret/tls-dhparam -n dev
 
 replace=$(sudo openssl rand -hex 32 | base64; echo) yq -i '.data.KEYCLOAK_STORE_PASSWORD=env(replace)' ../keycloak/keycloak-secret.yaml
