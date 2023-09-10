@@ -35,11 +35,8 @@ spec:
         - name: gitlab-config
           mountPath: /etc/gitlab/gitlab.rb
           subPath: gitlab.rb
-        - name: tls-gitlab
-          mountPath: /etc/gitlab/tls-gitlab
-          readOnly: true
-        - name: tls-registry
-          mountPath: /etc/gitlab/tls-registry
+        - name: tls
+          mountPath: /etc/gitlab/tls
           readOnly: true
         - name: pvc
           mountPath: /var/log/gitlab
@@ -55,12 +52,9 @@ spec:
             items:
               - key: gitlab-config
                 path: gitlab.rb
-        - name: tls-gitlab
+        - name: tls
           secret:
-            secretName: tls-gitlab
-        - name: tls-registry
-          secret:
-            secretName: tls-registry
+            secretName: tls
       securityContext:
         runAsUser: 0
         runAsGroup: 0

@@ -13,7 +13,7 @@ spec:
       secretName: tls
     - hosts:
         - registry.gitlab.oneinchmarket.co.kr
-      secretName: tls-registry
+      secretName: tls
   rules:
     - host: "gitlab.oneinchmarket.co.kr"
       http:

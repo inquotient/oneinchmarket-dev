@@ -8,13 +8,13 @@ data:
     external_url "https://gitlab.oneinchmarket.co.kr"
     
     nginx['redirect_http_to_https'] = true
-    nginx['ssl_certificate'] = "/etc/gitlab/tls-gitlab/tls.crt"
-    nginx['ssl_certificate_key'] = "/etc/gitlab/tls-gitlab/tls.key"
+    nginx['ssl_certificate'] = "/etc/gitlab/tls/tls.crt"
+    nginx['ssl_certificate_key'] = "/etc/gitlab/tls/tls.key"
     nginx['client_max_body_size'] = '1024m'
 
     registry_nginx['redirect_http_to_https'] = true
-    registry_nginx['ssl_certificate'] = "/etc/gitlab/tls-registry/tls.crt"
-    registry_nginx['ssl_certificate_key'] = "/etc/gitlab/tls-registry/tls.key"
+    registry_nginx['ssl_certificate'] = "/etc/gitlab/tls/tls.crt"
+    registry_nginx['ssl_certificate_key'] = "/etc/gitlab/tls/tls.key"
     registry_nginx['client_max_body_size'] = '1024m'
 
     letsencrypt['enable'] = false

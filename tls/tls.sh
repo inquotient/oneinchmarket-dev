@@ -9,13 +9,13 @@ sudo kubectl delete secret/tls -n dev
 sudo kubectl delete secret/tls-registry -n dev
 sudo kubectl delete secret/tls-dhparam -n dev
 
-replace=$(sudo openssl rand -hex 32 | base64; echo) yq -i '.data.KEYCLOAK_STORE_PASSWORD=env(replace)' ../keycloak/keycloak-secret.yaml
-yq '.data.KEYCLOAK_STORE_PASSWORD' ../keycloak/keycloak-secret.yaml | base64 -d; echo
+replace=$(sudo openssl rand -hex 32) yq -i '.data.keycloak_store_password=env(replace)' ../keycloak/keycloak-configmap.yaml
+yq '.data.keycloak_store_password' ../keycloak/keycloak-configmap.yaml
 sudo openssl pkcs12 -export -in ./tls.crt -inkey ./tls.key -out keycloaks.p12
 # 위의 해쉬값을 비밀번호로 사용
 # keytool -importkeystore -deststorepass '암호화에 사용한 비밀번호' -destkeypass '암호화에 사용한 비밀번호' -destkeystore keycloaks.test.jks -srckeystore keycloaks.test.net.p12 -srcstoretype PKCS12 -alias 1
-keytool -importkeystore -deststorepass "$(yq '.data.KEYCLOAK_STORE_PASSWORD' ../keycloak/keycloak-secret.yaml)" -destkeypass "$(yq '.data.KEYCLOAK_STORE_PASSWORD' ../keycloak/keycloak-secret.yaml)" -destkeystore keycloaks.keystore.jks -srckeystore keycloaks.p12 -srcstoretype PKCS12 -alias 1
-keytool -importkeystore -deststorepass "$(yq '.data.KEYCLOAK_STORE_PASSWORD' ../keycloak/keycloak-secret.yaml)" -destkeypass "$(yq '.data.KEYCLOAK_STORE_PASSWORD' ../keycloak/keycloak-secret.yaml)" -destkeystore keycloaks.truststore.jks -srckeystore keycloaks.p12 -srcstoretype PKCS12 -alias 1
+keytool -importkeystore -deststorepass "$(yq '.data.keycloak_store_password' ../keycloak/keycloak-configmap.yaml)" -destkeypass "$(yq '.data.keycloak_store_password' ../keycloak/keycloak-configmap.yaml)" -destkeystore keycloaks.keystore.jks -srckeystore keycloaks.p12 -srcstoretype PKCS12 -alias 1
+keytool -importkeystore -deststorepass "$(yq '.data.keycloak_store_password' ../keycloak/keycloak-configmap.yaml)" -destkeypass "$(yq '.data.keycloak_store_password' ../keycloak/keycloak-configmap.yaml)" -destkeystore keycloaks.truststore.jks -srckeystore keycloaks.p12 -srcstoretype PKCS12 -alias 1
 keytool -importkeystore -srckeystore keycloaks.keystore.jks -destkeystore keycloaks.keystore.jks -deststoretype pkcs12
 keytool -importkeystore -srckeystore keycloaks.truststore.jks -destkeystore keycloaks.truststore.jks -deststoretype pkcs12
 sudo kubectl create secret generic keycloak-store --from-file=keycloaks.truststore.jks --from-file=keycloaks.keystore.jks -n dev
