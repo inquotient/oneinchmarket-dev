@@ -16,7 +16,7 @@ spec:
       setHostnameAsFQDN: true
       containers:
         - name: admin
-          image: registry.gitlab.oneinchmarket.co.kr/root/oneinchmarket-admin:latest
+          image: inquotient/oneinchmarket-admin:latest
           ports:
             - containerPort: 3000
               protocol: TCP
