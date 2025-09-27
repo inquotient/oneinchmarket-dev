@@ -62,6 +62,17 @@ spec:
               value: /opt/bitnami/keycloak/tls/tls.crt
             - name: KEYCLOAK_HTTPS_CERTIFICATE_KEY_FILE
               value: /opt/bitnami/keycloak/tls/tls.key
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                configMapKeyRef:
+                  name: keycloak-configmap
+                  key: admin_password
+            - name: KC_CACHE
+              value: "ispn"
+            - name: KC_CACHE_CONFIG_FILE
+              value: "cache-ispn.xml"
+            - name: KC_HTTP_RELATIVE_PATH
+              value: "/"
           volumeMounts:
             - name: pvc
               mountPath: /bitnami
@@ -76,6 +87,10 @@ spec:
         - name: keycloak-config
           configMap:
             name: keycloak-configmap
+            items: 
+              - key: run.sh
+                path: run.sh
+                mode: 0755
         - name: tls
           secret:
             secretName: tls
