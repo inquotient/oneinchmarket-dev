@@ -1,24 +1,24 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: kafka-ui-ingress
+  name: argocd-ingress
   annotations:
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/backend-protocol: HTTPS
 spec:
   ingressClassName: nginx
   tls:
     - hosts: 
-        - kafka-ui.oneinchmarket.co.kr
+        - argocd.oneinchmarket.co.kr
       secretName: tls
   rules:
-    - host: "kafka-ui.oneinchmarket.co.kr"
+    - host: "argocd.oneinchmarket.co.kr"
       http:
         paths:
         - pathType: Prefix
           path: "/"
           backend:
             service:
-              name: kafka-ui-nodeport
+              name: argocd-server
               port:
-                number: 18082
+                number: 443

@@ -32,23 +32,3 @@ spec:
               name: admin-nginx-nodeport
               port:
                 number: 30443
-    - host: "gitlab.oneinchmarket.co.kr"
-      http:
-        paths:
-        - pathType: Prefix
-          path: "/"
-          backend:
-            service:
-              name: gitlab-nodeport
-              port:
-                number: 443
-    - host: "registry.gitlab.oneinchmarket.co.kr"
-      http:
-        paths:
-        - pathType: Prefix
-          path: "/"
-          backend:
-            service:
-              name: gitlab-nodeport
-              port:
-                number: 443
