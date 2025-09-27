@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hbase-regionserver
+spec:
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+  serviceName: hbase-regionserver-headless
+  replicas: 3
+  selector:
+    matchLabels:
+      app: hbase-regionserver
+  template:
+    metadata:
+      labels:
+        app: hbase-regionserver
+    spec:
+      securityContext:
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+        - name: hbase-regionserver
+          image: hbase:2.6.3
+          command:
+            - bash
+            - -lc
+            - |
+              export HBASE_OPTS="-Djava.security.auth.login.config=$CLIENT_CONF"
+              export HBASE_OPTS="$HBASE_OPTS -Dzookeeper.sasl.client=false"
+              export HBASE_OPTS="$HBASE_OPTS -Dhbase.regionserver.hostname=$(hostname -f)"
+              export HBASE_MANAGES_ZK=false
+              export HBASE_MASTER_OPTS="-Djava.security.auth.login.config=$HBASE_SERVER_CONF"
+              export HBASE_REGIONSERVER_OPTS="-Djava.security.auth.login.config=$HBASE_SERVER_CONF"
+              hbase regionserver start
+          ports:
+            - containerPort: 16020
+              protocol: TCP
+            - containerPort: 16030
+              protocol: TCP
+          env:
+            - name: HBASE_CONF_DIR
+              value: /usr/local/hbase/conf
+            - name: HBASE_LOG_DIR
+              value: /hbase/logs
+            - name: HBASE_MANAGES_ZK
+              value: "false"
+          volumeMounts:
+            - name: hbase-config
+              mountPath: /usr/local/hbase/conf/hbase-site.xml
+              subPath: hbase-site.xml
+            - name: hbase-config
+              mountPath: /usr/local/hbase/conf/core-site.xml
+              subPath: core-site.xml
+            - name: pvc
+              mountPath: /hbase/logs
+          readinessProbe:
+            httpGet:
+              path: "/"
+              port: 16030
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 16020
+            initialDelaySeconds: 30
+            periodSeconds: 10
+      volumes:
+        - name: hbase-config
+          configMap:
+            name: hbase-configmap
+            items:
+              - key: hbase-site.xml
+                path: hbase-site.xml
+              - key: core-site.xml
+                path: core-site.xml
+  volumeClaimTemplates:
+    - metadata:
+        name: pvc
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 10Gi

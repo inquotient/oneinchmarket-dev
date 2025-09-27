@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hbase-hmaster
+spec:
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+  serviceName: hbase-hmaster-headless
+  replicas: 2
+  selector:
+    matchLabels:
+      app: hbase-hmaster
+  template:
+    metadata:
+      labels:
+        app: hbase-hmaster
+    spec:
+      securityContext:
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+        - name: hbase-hmaster
+          image: hbase:2.6.3
+          # 일부 이미지는 entrypoint가 이미 master를 fg로 띄우기도 합니다.
+          command:
+            - bash
+            - -lc
+            - |
+              export HBASE_OPTS="-Djava.security.auth.login.config=$CLIENT_CONF"
+              export HBASE_MANAGES_ZK=false
+              export HBASE_MASTER_OPTS="-Djava.security.auth.login.config=$HBASE_SERVER_CONF"
+              export HBASE_REGIONSERVER_OPTS="-Djava.security.auth.login.config=$HBASE_SERVER_CONF"
+              hbase master start
+          ports:
+            - containerPort: 16000
+              protocol: TCP
+            - containerPort: 16010
+              protocol: TCP
+          env:
+            - name: HBASE_CONF_DIR
+              value: /usr/local/hbase/conf
+            - name: HBASE_LOG_DIR
+              value: /hbase/logs
+            - name: HADOOP_USER_NAME
+              value: hbase
+            - name: HBASE_MANAGES_ZK
+              value: "false"
+          volumeMounts:
+            - name: hbase-config
+              mountPath: /usr/local/hbase/conf/hbase-site.xml
+              subPath: hbase-site.xml
+            - name: hbase-config
+              mountPath: /usr/local/hbase/conf/core-site.xml
+              subPath: core-site.xml
+            - name: pvc
+              mountPath: /hbase/logs
+      volumes:
+        - name: hbase-config
+          configMap:
+            name: hbase-configmap
+            items:
+              - key: hbase-site.xml
+                path: hbase-site.xml
+              - key: core-site.xml
+                path: core-site.xml
+  volumeClaimTemplates:
+    - metadata:
+        name: pvc
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 10Gi
