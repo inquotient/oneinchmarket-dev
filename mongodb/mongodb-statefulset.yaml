@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mongodb
+spec:
+# whenDeleted를 Delete로 설정하면 pod가 지워지면 pvc도 같이 지워지도록 할 수 있다. 
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+  serviceName: mongodb-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongodb
+  template:
+    metadata:
+      labels:
+        app: mongodb
+    spec:
+      setHostnameAsFQDN: true
+      containers:
+      - name: mongodb
+        image: percona/percona-server-mongodb:latest
+        ports:
+        - containerPort: 3306
+          protocol: TCP
+        env:
+        - name: MONGO_INITDB_ROOT_USERNAME
+          valueFrom:
+            configMapKeyRef:
+              name: mongodb-configmap
+              key: mongodb_initdb_root_username
+        - name: MONGO_INITDB_ROOT_PASSWORD
+          valueFrom:
+            configMapKeyRef:
+              name: mongodb-configmap
+              key: mongodb_initdb_root_password
+        volumeMounts:
+        - name: pvc
+          mountPath: /var/lib/mongo
+          subPath: mongo
+        - name: pvc
+          mountPath: /var/log/mongodb
+          subPath: mongodb
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+  volumeClaimTemplates:
+    - metadata:
+        name: pvc
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 20Gi
