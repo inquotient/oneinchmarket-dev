@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hadoop-datanode
+spec:
+  serviceName: hadoop-datanode-headless
+  replicas: 3
+  selector:
+    matchLabels:
+      app: hadoop-datanode
+  template:
+    metadata:
+      labels:
+        app: hadoop-datanode
+    spec:
+      containers:
+        - name: dn
+          image: apache/hadoop:3.4.1
+          command: ["bash","-lc","hdfs datanode"]
+          ports:
+            - containerPort: 9867
+              protocol: TCP
+            - containerPort: 9864
+              protocol: TCP
+          env:
+            - name: HADOOP_CONF_DIR
+              value: /opt/hadoop/etc/hadoop
+            - name: HADOOP_LOG_DIR
+              value: /hadoop/logs
+          volumeMounts:
+            - name: pvc
+              mountPath: /hadoop/dfs/data
+            - name: pvc
+              mountPath: /hadoop/logs
+            - name: hadoop-config
+              mountPath: /opt/hadoop/etc/hadoop
+      volumes:
+        - name: hadoop-config
+          configMap:
+            name: hadoop-configmap
+  volumeClaimTemplates:
+    - metadata:
+        name: pvc
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 50Gi

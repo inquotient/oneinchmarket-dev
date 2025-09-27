@@ -1,0 +1,1 @@
+sudo kubectl create -f hadoop-configmap.yaml -n dev

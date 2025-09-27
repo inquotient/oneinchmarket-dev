@@ -1,0 +1,90 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hadoop-configmap
+data:
+  core-site.xml: |
+    <configuration>
+      <property>
+        <name>fs.defaultFS</name>
+        <value>hdfs://hdfs-ns-kr</value>
+      </property>
+    </configuration>
+
+  hdfs-site.xml: |
+    <configuration>
+      <!-- Nameservice 정의 -->
+      <property>
+        <name>dfs.nameservices</name>
+        <value>hdfs-ns-kr</value>
+      </property>
+      <property>
+        <name>dfs.ha.namenodes.hdfs-ns-kr</name>
+        <value>nn1,nn2</value>
+      </property>
+
+      <!-- NN RPC/HTTP 주소 (StatefulSet Pod DNS 사용) -->
+      <property>
+        <name>dfs.namenode.rpc-address.hdfs-ns-kr.nn1</name>
+        <value>hadoop-namenode-0.hadoop-namenode-headless.dev.svc.cluster.local:8020</value>
+      </property>
+      <property>
+        <name>dfs.namenode.rpc-address.hdfs-ns-kr.nn2</name>
+        <value>hadoop-namenode-1.hadoop-namenode-headless.dev.svc.cluster.local:8020</value>
+      </property>
+      <property>
+        <name>dfs.namenode.http-address.hdfs-ns-kr.nn1</name>
+        <value>hadoop-namenode-0.hadoop-namenode-headless.dev.svc.cluster.local:9870</value>
+      </property>
+      <property>
+        <name>dfs.namenode.http-address.hdfs-ns-kr.nn2</name>
+        <value>hadoop-namenode-1.hadoop-namenode-headless.dev.svc.cluster.local:9870</value>
+      </property>
+
+      <property>
+        <name>dfs.namenode.name.dir</name>
+        <value>file:///hadoop/dfs/name</value>
+      </property>
+
+      <!-- HA Failover 설정 -->
+      <property>
+        <name>dfs.client.failover.proxy.provider.hdfs-ns-kr</name>
+        <value>org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider</value>
+      </property>
+      <property>
+        <name>ha.zookeeper.quorum</name>
+        <value>zookeeper-headless.dev.svc.cluster.local:2181</value>
+      </property>
+
+      <!-- Shared edits: JournalNode Quorum -->
+      <property>
+        <name>dfs.namenode.shared.edits.dir</name>
+        <value>qjournal://hadoop-journalnode-0.hadoop-journalnode-headless.dev.svc.cluster.local:8485;hadoop-journalnode-1.hadoop-journalnode-headless.dev.svc.cluster.local:8485;hadoop-journalnode-2.hadoop-journalnode-headless.dev.svc.cluster.local:8485;hadoop-journalnode-3.hadoop-journalnode-headless.dev.svc.cluster.local:8485;hadoop-journalnode-4.hadoop-journalnode-headless.dev.svc.cluster.local:8485/hdfs-ns-kr</value>
+      </property>
+
+      <property>
+        <name>dfs.ha.automatic-failover.enabled</name>
+        <value>true</value>
+      </property>
+
+      <property>
+        <name>dfs.ha.fencing.methods</name>
+        <value>shell(/bin/true)</value>
+      </property>
+
+      <property>
+        <name>dfs.namenode.router-fed.router.rpc-address</name>
+        <value>hadoop-rbf-router-headless.dev.svc.cluster.local:8888</value>
+      </property>
+
+      <!-- Replication 등 기본값 -->
+      <property>
+        <name>dfs.replication</name>
+        <value>3</value>
+      </property>
+
+      <property>
+        <name>dfs.namenode.ip-proxy-users</name>
+        <value>hadoop-rbf-router-headless.dev.svc.cluster.local</value>
+      </property>
+    </configuration>

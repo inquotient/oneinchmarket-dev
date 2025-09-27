@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: hadoop-datanode-headless
+spec:
+  ports:
+    - port: 9867
+      name: hadoop-datanode-ipc
+    - port: 9864
+      name: hadoop-datanode-http
+  clusterIP: None
+  selector:
+    app: hadoop-datanode

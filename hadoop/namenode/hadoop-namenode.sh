@@ -1,0 +1,1 @@
+sudo kubectl create -f hadoop-namenode-statefulset.yaml -f hadoop-namenode-headless.yaml -n dev

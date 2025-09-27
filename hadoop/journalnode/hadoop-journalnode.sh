@@ -1,0 +1,1 @@
+sudo kubectl create -f hadoop-journalnode-statefulset.yaml -f hadoop-journalnode-headless.yaml -n dev
