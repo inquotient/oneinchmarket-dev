@@ -1,0 +1,3 @@
+myenv=$(head -c 24 /dev/random | base64) yq e --inplace '.data.apicurio_registry_db_password=env(myenv)' apicurio-registry-configmap.yaml
+sudo kubectl apply -f apicurio-registry-configmap.yaml -f apicurio-registry-statefulset.yaml -f apicurio-registry-nodeport.yaml -f apicurio-registry-headless.yaml -n dev
+sudo kubectl -n dev port-forward svc/apicurio-registry-nodeport 58080:58080 > /dev/null 2>&1 &

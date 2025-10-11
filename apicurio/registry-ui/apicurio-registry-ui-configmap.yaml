@@ -1,0 +1,6 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apicurio-registry-ui-configmap
+data:
+  apicurio_registry_db_password: YBBmYwaxzzj7FxNcVxUAwkdR0q1LwQ7m

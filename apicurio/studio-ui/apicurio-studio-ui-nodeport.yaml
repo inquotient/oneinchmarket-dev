@@ -1,0 +1,12 @@
+apiVersion: v1 
+kind: Service
+metadata: 
+  name: apicurio-studio-ui-nodeport
+spec: 
+  ports: 
+    - name: apicurio-studio-ui-http-port 
+      port: 48080
+      targetPort: 8080 
+  selector: 
+    app: apicurio-studio-ui 
+  type: NodePort

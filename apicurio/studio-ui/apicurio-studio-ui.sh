@@ -1,0 +1,3 @@
+myenv=$(head -c 24 /dev/random | base64) yq e --inplace '.data.apicurio_studio_db_password=env(myenv)' apicurio-studio-ui-configmap.yaml
+sudo kubectl apply -f apicurio-studio-ui-configmap.yaml -f apicurio-studio-ui-statefulset.yaml -f apicurio-studio-ui-nodeport.yaml -f apicurio-studio-ui-headless.yaml -n dev
+sudo kubectl -n dev port-forward svc/apicurio-studio-ui-nodeport 48080:48080 > /dev/null 2>&1 &

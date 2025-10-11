@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: asapi-headless
+  labels:
+    app: apicurio-studio-api
+spec:
+  ports:
+  - port: 8080
+    name: apicurio-studio-api-port
+  - port: 8443
+    name: apicurio-studio-api-secure-port
+  clusterIP: None
+  selector:
+    app: apicurio-studio-api
