@@ -19,7 +19,7 @@ spec:
       setHostnameAsFQDN: true
       containers:
         - name: postgresql
-          image: bitnami/postgresql:15.4.0-debian-11-r5
+          image: bitnami/postgresql:latest
           ports:
             - containerPort: 5432
               protocol: TCP
