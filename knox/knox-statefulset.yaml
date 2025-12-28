@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: knox
+spec:
+  # whenDeleted를 Delete로 설정하면 pod가 지워지면 pvc도 같이 지워지도록 할 수 있다. 
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+  serviceName: knox-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: knox
+  template:
+    metadata:
+      labels:
+        app: knox
+    spec:
+      setHostnameAsFQDN: true
+      containers:
+        - name: knox
+          image: knox-gateway:2.1.0
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+            - containerPort: 8443
+              protocol: TCP
+          env:
+          - name: JAVA_HOME
+            value: "/opt/java/openjdk"
+          - name: JAVA
+            value: "/opt/java/openjdk/bin/java"
+          - name: MASTER_SECRET
+            valueFrom:
+              configMapKeyRef:
+                name: knox-configmap
+                key: knox_store_password
+          - name: KNOX_CERT
+            value: /home/knox/tls/tls.crt
+          - name: KNOX_KEY
+            value: /home/knox/tls/tls.key
+          - name: KEYSTORE_PASSWORD_FILE
+            value: /home/knox/knox_store_password
+          volumeMounts:
+            - name: knox-config
+              mountPath: /home/knox/knox-2.1.0/conf/gateway-site.xml
+              subPath: gateway-site.xml
+            - name: knox-config
+              mountPath: /home/knox/knox-2.1.0/conf/topologies/sandbox.xml
+              subPath: sandbox.xml
+            - name: knox-config
+              mountPath: /home/knox/knox-2.1.0/conf/topologies/knoxsso.xml
+              subPath: knoxsso.xml
+            - name: knox-config
+              mountPath: /home/knox/knox-2.1.0/conf/topologies/homepage.xml
+              subPath: homepage.xml
+            - name: knox-config
+              mountPath: /home/knox/knox-2.1.0/conf/shared-providers/default-providers.json
+              subPath: default-providers.json
+            - name: knox-config
+              mountPath: /home/knox/knox_store_password
+              subPath: knox_store_password
+            - name: knox-config
+              mountPath: /home/knox/knox/entrypoint.sh
+              subPath: entrypoint.sh
+            - name: knox-keytab
+              mountPath: /etc/security/keytabs
+              readOnly: true
+            - name: tls
+              mountPath: /home/knox/tls
+              readOnly: true
+      volumes:
+        - name: knox-config
+          configMap:
+            name: knox-configmap
+            defaultMode: 0777
+        - name: knox-keytab
+          secret:
+            secretName: knox-keytab
+        - name: knox-store
+          secret:
+            secretName: knox-store
+        - name: tls
+          secret:
+            secretName: tls
+  volumeClaimTemplates:
+    - metadata:
+        name: pvc
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 20Gi
