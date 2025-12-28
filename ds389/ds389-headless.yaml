@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ds389-headless
+  labels:
+    app: ds389
+spec:
+  ports:
+  ports:
+    - name: ldap
+      port: 3839
+      targetPort: 3839
+    - name: ldaps
+      port: 3636
+      targetPort: 3636
+  clusterIP: None
+  selector:
+    app: ds389
