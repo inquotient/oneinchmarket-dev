@@ -1,0 +1,12 @@
+apiVersion: v1 
+kind: Service
+metadata: 
+  name: ranger-admin-nodeport
+spec: 
+  ports: 
+    - name: ranger-admin-port 
+      port: 16080
+      targetPort: 6080 
+  selector: 
+    app: ranger-admin
+  type: NodePort

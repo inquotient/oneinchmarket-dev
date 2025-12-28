@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ranger-usersync-headless
+  labels:
+    app: ranger-usersync
+spec:
+  clusterIP: None
+  selector:
+    app: ranger-usersync

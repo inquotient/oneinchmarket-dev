@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ranger-usersync
+spec:
+# whenDeleted를 Delete로 설정하면 pod가 지워지면 pvc도 같이 지워지도록 할 수 있다. 
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+  serviceName: ranger-usersync-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ranger-usersync
+  template:
+    metadata:
+      labels:
+        app: ranger-usersync
+    spec:
+      setHostnameAsFQDN: true
+      containers:
+        - name: ranger-usersync
+          image: eclipse-temurin:8u452-b09-jdk-noble
+          command:
+            - bash
+            - -lc
+            - |
+              apt-get update && apt-get install -y python-is-python3
+              mkdir -p /etc/ranger
+              mkdir -p "$HADOOP_HOME"
+              mkdir -p /etc/ranger/ranger-2.7.0-usersync/logs
+              touch /etc/ranger/ranger-2.7.0-usersync/logs/auth.log
+              curl -fsSL https://downloads.apache.org/ranger/2.7.0/services/usersync/ranger-2.7.0-usersync.tar.gz | tar -xz -C /etc/ranger
+              rm /etc/ranger/ranger-2.7.0-usersync/install.properties
+              cat /install.properties >> /etc/ranger/ranger-2.7.0-usersync/install.properties
+              echo "rangerUsersync_password=$RANGERUSERSYNC_PASSWORD" >> /etc/ranger/ranger-2.7.0-usersync/install.properties
+              ln -s /etc/ranger/ranger-2.7.0-usersync/conf.dist /etc/ranger/ranger-2.7.0-usersync/conf
+              cd /etc/ranger/ranger-2.7.0-usersync
+              ./set_globals.sh
+              ./setup.sh
+              ./ranger-usersync-services.sh START
+              tail -f /etc/ranger/ranger-2.7.0-usersync/logs/usersync-ranger-usersync-0.ranger-usersync-headless.dev.svc.cluster.local-.log
+          env:
+            - name: RANGERUSERSYNC_PASSWORD
+              valueFrom:
+                configMapKeyRef:
+                  name: ranger-admin-configmap
+                  key: RANGERUSERSYNC_PASSWORD
+            - name: HADOOP_HOME
+              value: /etc/hadoop/conf
+          volumeMounts:
+            - name: ranger-usersync-config
+              mountPath: /install.properties
+              subPath: install.properties
+            - name: ranger-usersync-config
+              mountPath: /ranger-ugsync-site.xml
+              subPath: ranger-ugsync-site.xml
+#            - name: ranger-config
+#              mountPath: /etc/ranger/ranger-2.7.0-usersync/ranger-usersync.sh
+#              subPath: ranger-usersync.sh
+      volumes:
+        - name: ranger-usersync-config
+          configMap:
+            name: ranger-usersync-configmap
+            items:
+              - key: install.properties
+                path: install.properties
+              - key: ranger-ugsync-site.xml
+                path: ranger-ugsync-site.xml
+              - key: ranger-usersync
+                path: ranger-usersync.sh
+#        - name: ranger-admin-config
+#          configMap:
+#            name: ranger-admin-configmap
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+  volumeClaimTemplates:
+    - metadata:
+        name: pvc
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 20Gi
