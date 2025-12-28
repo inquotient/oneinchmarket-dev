@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kerberos-headless
+  labels:
+    app: kerberos
+spec:
+  ports:
+  ports:
+    - name: kerberos-udp
+      port: 88
+      protocol: UDP
+    - name: kerberos-tcp
+      port: 88
+      protocol: TCP
+    - name: kadmind
+      port: 749
+      protocol: TCP
+  clusterIP: None
+  selector:
+    app: kerberos

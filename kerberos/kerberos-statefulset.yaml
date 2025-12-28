@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kerberos
+spec:
+  # whenDeleted를 Delete로 설정하면 pod가 지워지면 pvc도 같이 지워지도록 할 수 있다. 
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+  serviceName: kerberos-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kerberos
+  template:
+    metadata:
+      labels:
+        app: kerberos
+    spec:
+      setHostnameAsFQDN: true
+      containers:
+        - name: kerberos
+          image: fedora:rawhide
+          imagePullPolicy: IfNotPresent
+          args:
+            - bash
+            - -lc
+            - |
+              dnf install -y krb5-server krb5-workstation && \
+              if [ ! -f /var/kerberos/krb5kdc/principal ]; then
+                echo "Initializing Kerberos DB"
+                kdb5_util create -s -r ONEINCHMARKET.CO.KR -P adminpassword
+              fi && \
+              krb5kdc && kadmind && tail -f /dev/null
+          securityContext:
+            privileged: true
+          ports:
+            - containerPort: 88
+              protocol: TCP
+            - containerPort: 88
+              protocol: UDP
+            - containerPort: 749
+              protocol: TCP
+          volumeMounts:
+            - name: kerberos-config
+              mountPath: /etc/krb5.conf
+              subPath: krb5.conf
+            - name: kerberos-config
+              mountPath: /var/kerberos/krb5kdc/kdc.conf
+              subPath: kdc.conf
+            - name: kerberos-config
+              mountPath: /var/kerberos/krb5kdc/kadm5.acl
+              subPath: kadm5.acl
+            - name: pvc
+              mountPath: /var/kerberos/krb5kdc
+      volumes:
+        - name: kerberos-config
+          configMap:
+            name: kerberos-configmap
+  volumeClaimTemplates:
+    - metadata:
+        name: pvc
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 20Gi
