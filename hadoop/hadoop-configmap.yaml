@@ -9,6 +9,66 @@ data:
         <name>fs.defaultFS</name>
         <value>hdfs://hdfs-ns-kr</value>
       </property>
+      <property>
+        <name>hadoop.security.group.mapping</name>
+        <value>org.apache.hadoop.security.LdapGroupsMapping</value>
+      </property>
+      <property>
+        <name>hadoop.security.group.mapping.ldap.url</name>
+        <value>ldap://ds389-headless.dev.svc.cluster.local:3389</value>
+      </property>
+      <property>
+        <name>hadoop.security.group.mapping.ldap.user.search.base</name>
+        <value>ou=users,dc=oneinchmarket,dc=co,dc=kr</value>
+      </property>
+
+      <property>
+        <name>hadoop.security.group.mapping.ldap.user.search.filter</name>
+        <value>(uid={0})</value>
+      </property>
+
+      <property>
+        <name>hadoop.security.group.mapping.ldap.group.search.base</name>
+        <value>ou=groups,dc=oneinchmarket,dc=co,dc=kr</value>
+      </property>
+
+      <property>
+        <name>hadoop.security.group.mapping.ldap.group.search.filter</name>
+        <value>(memberUid={0})</value>
+      </property>
+
+      <property>
+        <name>hadoop.security.group.mapping.ldap.group.name.attr</name>
+        <value>cn</value>
+      </property>
+      <property>
+        <name>hadoop.proxyuser.hive.hosts</name>
+        <value>*</value>
+      </property>
+
+      <property>
+        <name>hadoop.proxyuser.hive.groups</name>
+        <value>*</value>
+      </property>
+      <property>
+        <name>hadoop.proxyuser.knox.hosts</name>
+        <value>*</value>
+      </property>
+
+      <property>
+        <name>hadoop.proxyuser.knox.groups</name>
+        <value>*</value>
+      </property>
+
+      <property>
+        <name>hadoop.security.group.mapping.ldap.bind.user</name>
+        <value>cn=Directory Manager</value>
+      </property>
+
+      <property>
+        <name>hadoop.security.group.mapping.ldap.bind.password</name>
+        <value>DirectoryManagerPassword</value>
+      </property>
     </configuration>
 
   hdfs-site.xml: |
