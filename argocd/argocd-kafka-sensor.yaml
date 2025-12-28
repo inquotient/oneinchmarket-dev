@@ -1,0 +1,55 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Sensor
+metadata:
+  name: keycloak-kafka-sensor
+  namespace: argo-events
+spec:
+  template:
+    serviceAccountName: argo-events-sa   # Job 만들 권한 있는 SA
+  dependencies:
+    - name: kc-event
+      eventSourceName: keycloak-kafka-es
+      eventName: keycloak-events
+      filters:
+        data:
+          # Keycloak에서 보내는 JSON에 맞게 필터 (예시는 type/realm으로 가정)
+          - path: type
+            type: string
+            value:
+              - "USER_CREATE"
+          - path: realm
+            type: string
+            value:
+              - "knox"
+  triggers:
+    - template:
+        name: knox-ranger-sync-job
+        k8s:
+          operation: create
+          source:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                generateName: knox-ranger-sync-
+                namespace: data-sec
+              spec:
+                ttlSecondsAfterFinished: 600
+                template:
+                  spec:
+                    restartPolicy: Never
+                    containers:
+                    - name: runner
+                      image: your-registry/sync-tools:latest
+                      command: ["/bin/bash","-lc"]
+                      args:
+                        - >
+                          /opt/sync/gen_proxyuser_users.sh &&
+                          /opt/sync/apply_core_site.sh &&
+                          /opt/sync/kc_to_ranger_sync.py
+      retryStrategy:
+        steps: 3
+        backoff:
+          duration: "10s"
+          factor: 2
+          maxDuration: "5m"

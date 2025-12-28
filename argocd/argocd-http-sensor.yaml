@@ -1,0 +1,29 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Sensor
+metadata:
+  name: argocd-webhook-sensor
+  namespace: argocd
+spec:
+  dependencies:
+  - name: keycloak-knox
+    eventSourceName: keycloak-webhook
+    eventName: user-create
+
+  triggers:
+  - template:
+      name: run-workflow
+      argoWorkflow:
+        source:
+          resource:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Workflow
+            metadata:
+              generateName: keycloak-knox-user-create-event
+            spec:
+              entrypoint: main
+              templates:
+              - name: main
+                container:
+                  image: alpine
+                  command: ["/bin/sh", "-c"]
+                  args: ["echo Webhook received!"]
