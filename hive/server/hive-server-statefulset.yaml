@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hive-server
+spec:
+# whenDeleted를 Delete로 설정하면 pod가 지워지면 pvc도 같이 지워지도록 할 수 있다. 
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+  serviceName: hive-server-headless
+  replicas: 2
+  selector:
+    matchLabels:
+      app: hive-server
+  template:
+    metadata:
+      labels:
+        app: hive-server
+    spec:
+      setHostnameAsFQDN: true
+      containers:
+      - name: hive-server
+        image: apache/hive:4.2.0
+        command:
+          - bash
+          - -lc
+          - |
+            cd /opt/hive
+            curl -L -O https://archive.apache.org/dist/ranger/2.7.0/plugins/hive/ranger-2.7.0-hive-plugin.tar.gz
+            tar -xzf ./ranger-2.7.0-hive-plugin.tar.gz -C ./
+            cp -r ./ranger-2.7.0-hive-plugin/lib/* ./lib
+            rm ./lib/ranger-hive-plugin-impl/hppc-0.8.0.jar
+            rm ./lib/ranger-hive-plugin-impl/httpcore-4.4.14.jar
+            rm ./lib/ranger-hive-plugin-impl/joda-time-2.10.6.jar
+            /entrypoint.sh
+        env:
+        - name: SERVICE_NAME
+          value: "hiveserver2"
+        - name: SKIP_SCHEMA_INIT
+          value: "true"
+        - name: HADOOP_CONF_DIR
+          value: /opt/hadoop/etc/hadoop
+        ports:
+        - containerPort: 10000
+          protocol: TCP
+        - containerPort: 10001
+          protocol: TCP
+        volumeMounts:
+        - name: hive-server-config
+          mountPath: /opt/hive/conf/hive-site.xml
+          subPath: hive-site.xml
+        - name: hive-server-config
+          mountPath: /opt/hive/conf/xasecure-audit.xml
+          subPath: xasecure-audit.xml
+        - name: hive-server-config
+          mountPath: /opt/hive/conf/ranger-hive-security.xml
+          subPath: ranger-hive-security.xml
+        - name: hive-server-config
+          mountPath: /opt/hive/conf/ranger-policymgr-ssl.xml
+          subPath: ranger-policymgr-ssl.xml
+        - name: hadoop-config
+          mountPath: /opt/hadoop/etc/hadoop/core-site.xml
+          subPath: core-site.xml
+        - name: hadoop-config
+          mountPath: /opt/hadoop/etc/hadoop/hdfs-site.xml
+          subPath: hdfs-site.xml
+      volumes:
+        - name: hive-server-config
+          configMap:
+            name: hive-server-configmap
+            items:
+              - key: hive-server-config
+                path: hive-site.xml
+              - key: xasecure-audit.xml
+                path: xasecure-audit.xml
+              - key: ranger-hive-security.xml
+                path: ranger-hive-security.xml
+              - key: ranger-policymgr-ssl.xml
+                path: ranger-policymgr-ssl.xml
+        - name: hadoop-config
+          configMap:
+            name: hadoop-configmap
+            items:
+              - key: core-site.xml
+                path: core-site.xml
+              - key: hdfs-site.xml
+                path: hdfs-site.xml
+  volumeClaimTemplates:
+    - metadata:
+        name: pvc
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 20Gi
