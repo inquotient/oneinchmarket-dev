@@ -6,7 +6,7 @@ spec:
 # whenDeleted를 Delete로 설정하면 pod가 지워지면 pvc도 같이 지워지도록 할 수 있다. 
   persistentVolumeClaimRetentionPolicy:
     whenDeleted: Delete
-  serviceName: ar-headless
+  serviceName: arui-headless
   replicas: 1
   selector:
     matchLabels:
@@ -40,7 +40,7 @@ spec:
               name: apicurio-registry-ui-configmap
               key: apicurio_registry_db_password
         - name: REGISTRY_API_URL
-          value: "http://localhost:58080/apis/registry/v3"
+          value: "http://ar-headless.dev.svc.cluster.local:8080/apis/registry/v3"
 #        volumeMounts:
 #        - name: mariadb-config
 #          mountPath: /etc/maysql/mariadb.cnf
