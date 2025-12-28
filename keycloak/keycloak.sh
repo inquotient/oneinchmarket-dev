@@ -1,5 +1,7 @@
 myenv=$(head -c 24 /dev/random | base64) yq e --inplace '.data.admin_password=env(myenv)' keycloak-configmap.yaml
 myenv=$(head -c 24 /dev/random | base64) yq e --inplace '.data.keycloakdb_password=env(myenv)' keycloak-configmap.yaml
+replace=$(yq '.spec.rules[0].host' ../nginx/ingress/argocd-ingress.yaml) yq -i '.spec.template.spec.containers.[] | select(.name == "keycloak") | .env.[] | select(.name == "KC_SPI_EVENTS_LISTENER_HTTP_WEBHOOK_URL") | .value=env(replace) | parent | parent | parent | parent | parent | parent | parent' keycloak-statefulset.yaml
+replace=$(sudo kubectl -n argocd get secret webhook-secret -o jsonpath="{.data.webhook-secret}" | base64 -d) yq -i '.spec.template.spec.containers.[] | select(.name == "keycloak") | .env.[] | select(.name == "KC_SPI_EVENTS_LISTENER_HTTP_WEBHOOK_SECRET") | .value=env(replace) | parent | parent | parent | parent | parent | parent | parent' keycloak-statefulset.yaml
 sudo kill -9 $(ps -ef | grep "kubectl -n dev port-forward svc/keycloak-nodeport" | sed -n '2p' | gawk '{ print $2"\t"$3 }')
 sudo kubectl apply -f keycloak-configmap.yaml -f keycloak-statefulset.yaml -f keycloak-nodeport.yaml -f keycloak-headless.yaml -n dev
 sudo kubectl -n dev port-forward svc/keycloak-nodeport 18083:18083 > /dev/null 2>&1 &

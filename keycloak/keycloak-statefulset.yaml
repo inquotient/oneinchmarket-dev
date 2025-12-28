@@ -3,7 +3,7 @@ kind: StatefulSet
 metadata:
   name: keycloak
 spec:
-# whenDeleted를 Delete로 설정하면 pod가 지워지면 pvc도 같이 지워지도록 할 수 있다. 
+  # whenDeleted를 Delete로 설정하면 pod가 지워지면 pvc도 같이 지워지도록 할 수 있다. 
   persistentVolumeClaimRetentionPolicy:
     whenDeleted: Delete
   serviceName: keycloak-headless
@@ -17,6 +17,19 @@ spec:
         app: keycloak
     spec:
       setHostnameAsFQDN: true
+      initContainers:
+        - name: download-providers
+          image: fedora:latest
+          args:
+            - bash
+            - -lc
+            - |
+              cd /providers
+              curl -L -O https://repo1.maven.org/maven2/com/markstickel/keycloak/keycloak-kafka-publisher-event-listener-provider/1.0.0/keycloak-kafka-publisher-event-listener-provider-1.0.0.jar
+              curl -L -O https://repo1.maven.org/maven2/org/apache/kafka/kafka-clients/4.1.1/kafka-clients-4.1.1.jar
+          volumeMounts:
+            - name: providers
+              mountPath: /providers
       containers:
         - name: keycloak
           image: keycloak/keycloak:latest
@@ -25,7 +38,7 @@ spec:
             - -lc
             - |
               /opt/keycloak/bin/kc.sh show-config
-              /opt/keycloak/bin/kc.sh start --https-certificate-file=/opt/keycloak/tls/tls.crt --https-certificate-key-file=/opt/keycloak/tls/tls.key
+              /opt/keycloak/bin/kc.sh start --https-certificate-file=/opt/keycloak/tls/tls.crt --https-certificate-key-file=/opt/keycloak/tls/tls.key --verbose --
           ports:
             - containerPort: 8080
               protocol: TCP
@@ -69,6 +82,26 @@ spec:
               value: "cache-ispn.xml"
             - name: KC_HTTP_RELATIVE_PATH
               value: "/"
+            - name: KAFKA_TOPIC
+              value: "keycloak-events"
+            - name: KAFKA_BOOTSTRAP_SERVER
+              value: "kafka-br-headless.dev.svc.cluster.local:9092"
+            - name: KC_ADMIN_EVENTS_ENABLE
+              value: "true"
+            - name: KC_ADMIN_EVENTS_DETAILS_ENABLED
+              value: "true"
+            - name: KC_EVENT_LISTENERS
+              value: "kafka"
+#            - name: KC_SPI_EVENTS_LISTENER_HTTP_PUT_KEYCLOAK_KNOX_USER_URL
+#              value: "argocd.oneinchmarket.co.kr"
+#            - name: KC_SPI_EVENTS_LISTENER_HTTP_WEBHOOK_SECRET
+#              value: "cfbf9996ddb2200a08de3fea3bfb841b6fbebd799a1518eee2ee084b0443aa73"
+            - name: KC_SPI_EVENTS_LISTENER_KAFKA_TOPIC_EVENTS
+              value: "keycloak-events"
+            - name: KC_SPI_EVENTS_LISTENER_KAFKA_BOOTSTRAP_SERVERS
+              value: "kafka-br-headless.dev.svc.cluster.local:9092"
+            - name: KC_SPI_EVENTS_LISTENER_KAFKA_ACKS
+              value: "1"
           volumeMounts:
             - name: pvc
               mountPath: /bitnami
@@ -79,11 +112,13 @@ spec:
             - name: keycloak-store
               mountPath: /opt/keycloak/truststores
               readOnly: true
+            - name: providers
+              mountPath: /opt/keycloak/providers
       volumes:
         - name: keycloak-config
           configMap:
             name: keycloak-configmap
-            items: 
+            items:
               - key: run.sh
                 path: run.sh
                 mode: 0755
@@ -93,6 +128,8 @@ spec:
         - name: keycloak-store
           secret:
             secretName: keycloak-store
+        - name: providers
+          emptyDir: {}
   volumeClaimTemplates:
     - metadata:
         name: pvc
@@ -102,4 +139,4 @@ spec:
         storageClassName: standard
         resources:
           requests:
-            storage: 20Gi  
+            storage: 20Gi
