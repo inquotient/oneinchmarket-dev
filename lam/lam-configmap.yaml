@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lam-configmap
+data:
+  LDAP_SERVER: "ldaps://ds389-headless.dev.svc.cluster.local:3389"
+  LDAP_BASE_DN: "dc=oneinchmarket,dc=co,dc=kr"
+  # LAM 프로필 이름 (원하면 변경 가능)
+  LAM_PROFILE: "oneinchmarket"
+  # 로그인용 기본 관리자 DN (예: Directory Manager)
+  LAM_ADMIN_DN: "cn=Directory Manager"
+  # 세션/쿠키용 암호화 키 (아무 문자열이나, 길게)
+  LAM_SECURE_KEY: "change_this_to_random_long_string"
+  LAM_ADMIN_PASSWORD: "DirectoryManagerPassword"

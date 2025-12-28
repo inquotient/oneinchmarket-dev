@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: lam-headless
+  labels:
+    app: lam
+spec:
+  ports:
+    - name: lam-http-port
+      port: 80
+  clusterIP: None
+  selector:
+    app: lam
