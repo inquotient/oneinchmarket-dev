@@ -22,3 +22,10 @@ spec:
               name: argocd-server
               port:
                 number: 443
+#        - pathType: Prefix
+#          path: "/webhook/keycloak-knox-user"
+#          backend:
+#            service:
+#              name: argocd-server
+#              port:
+#                number: 12000
