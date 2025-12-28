@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: akhq
+spec:
+# whenDeleted를 Delete로 설정하면 pod가 지워지면 pvc도 같이 지워지도록 할 수 있다. 
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+  serviceName: akhq-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: akhq
+  template:
+    metadata:
+      labels:
+        app: akhq
+    spec:
+      setHostnameAsFQDN: true
+      containers:
+      - name: akhq
+        image: tchiotludo/akhq:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 4000
+          protocol: TCP
+        - containerPort: 8080
+          protocol: TCP
+#        env:
+#        - name: APICURIO_STORAGE_KIND
+#          value: "sql"
+        volumeMounts:
+        - name: application-config
+          mountPath: /app/application.yml
+          subPath: application.yml
+      volumes:
+        - name: application-config
+          configMap:
+            name: akhq-configmap
+            items:
+              - key: application-config
+                path: application.yml
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+  volumeClaimTemplates:
+    - metadata:
+        name: pvc
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 20Gi
