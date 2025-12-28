@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: solr
+spec:
+# whenDeleted를 Delete로 설정하면 pod가 지워지면 pvc도 같이 지워지도록 할 수 있다. 
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+  serviceName: solr-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: solr
+  template:
+    metadata:
+      labels:
+        app: solr
+    spec:
+      setHostnameAsFQDN: true
+      containers:
+        - name: solr
+          image: apache/solr:9.10.0-slim
+          ports:
+            - containerPort: 8983
+              protocol: TCP
+          volumeMounts:
+            - name: solr-config
+              mountPath: /config/schema
+              readOnly: true
+      volumes:
+        - name: solr-config
+          configMap:
+            name: solr-configmap
+            items:
+              - key: managed-schema
+                path: managed-schema
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+  volumeClaimTemplates:
+    - metadata:
+        name: pvc
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 20Gi
