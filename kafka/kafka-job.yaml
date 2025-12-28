@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kafka-create-topics
+spec:
+  backoffLimit: 3        # 실패 시 재시도 횟수
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: create-topics
+          image: apache/kafka:4.1.1
+          command:
+            - bash
+            - -lc
+            - |
+              set -e
+
+              BOOTSTRAP="kafka-br-headless.dev.svc.cluster.local:9092"
+
+              echo "[INIT] Wait for Kafka..."
+              # 최대 5분(60*5s)까지 대기
+              for i in $(seq 1 60); do
+                /opt/kafka/bin/kafka-topics.sh --bootstrap-server "$BOOTSTRAP" --list >/dev/null 2>&1 && break
+                echo "[INIT] ($i) Kafka not ready yet..."
+                sleep 5
+              done
+
+              echo "[INIT] Create topics if not exists"
+
+              # 예시 토픽들
+              /opt/kafka/bin/kafka-topics.sh \
+                --bootstrap-server "$BOOTSTRAP" \
+                --create \
+                --if-not-exists \
+                --topic keycloak-events \
+                --partitions 3 \
+                --replication-factor 1
+
+              echo "[INIT] All topics created (or already existed)."

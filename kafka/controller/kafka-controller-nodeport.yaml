@@ -1,12 +1,12 @@
 apiVersion: v1 
 kind: Service
 metadata: 
-  name: kafka-nodeport
+  name: kafka-ctrl-nodeport
 spec: 
   ports: 
-    - name: kafka-port 
-      port: 19094
+    - name: kafka-ctrl-port 
+      port: 29094
       targetPort: 9094 
   selector: 
-    app: kafka
+    app: kafka-ctrl
   type: NodePort
