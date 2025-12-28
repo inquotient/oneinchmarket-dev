@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: freeipa-headless
+  labels:
+    app: freeipa
+spec:
+  ports:
+  - port: 389
+    name: freeipa-ldap-port
+  - port: 636
+    name: freeipa-ldaps-port
+  - port: 88
+    name: freeipa-kerberos-port
+  - port: 749
+    name: freeipa-kerberos-admin-port
+  - port: 80
+    name: freeipa-http-port
+  - port: 443
+    name: freeipa-https-port
+  clusterIP: None
+  selector:
+    app: freeipa

@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: freeipa
+spec:
+  # whenDeleted를 Delete로 설정하면 pod가 지워지면 pvc도 같이 지워지도록 할 수 있다. 
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+  serviceName: freeipa-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: freeipa
+  template:
+    metadata:
+      labels:
+        app: freeipa
+    spec:
+      setHostnameAsFQDN: true
+      securityContext:
+        fsGroup: 389
+      containers:
+        - name: freeipa
+          image: freeipa-systemd:latest
+          imagePullPolicy: IfNotPresent
+          command:
+          - /usr/sbin/init
+          securityContext:
+            privileged: true
+          ports:
+            - containerPort: 389
+              protocol: TCP
+            - containerPort: 636
+              protocol: TCP
+            - containerPort: 88
+              protocol: TCP
+            - containerPort: 464
+              protocol: TCP
+            - containerPort: 749
+              protocol: TCP
+            - containerPort: 80
+              protocol: TCP
+            - containerPort: 443
+              protocol: TCP
+          env:
+            - name: IPA_SERVER_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: IPA_SERVER_INSTALL_OPTS
+              value: "-U -r ONEINCHMARKET.CO.KR --setup-dns --no-forwarders --no-ntp"
+            - name: IPA_SERVER_HOSTNAME
+              valueFrom:
+                configMapKeyRef:
+                  name: freeipa-configmap
+                  key: IPA_SERVER_HOSTNAME
+            - name: IPA_DOMAIN
+              valueFrom:
+                configMapKeyRef:
+                  name: freeipa-configmap
+                  key: IPA_DOMAIN
+            - name: IPA_REALM
+              valueFrom:
+                configMapKeyRef:
+                  name: freeipa-configmap
+                  key: IPA_REALM
+            - name: IPA_ADMIN_PASSWORD
+              valueFrom:
+                configMapKeyRef:
+                  name: freeipa-configmap
+                  key: IPA_ADMIN_PASSWORD
+            - name: IPA_DM_PASSWORD
+              valueFrom:
+                configMapKeyRef:
+                  name: freeipa-configmap
+                  key: IPA_DM_PASSWORD
+  volumeClaimTemplates:
+    - metadata:
+        name: pvc
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 20Gi
