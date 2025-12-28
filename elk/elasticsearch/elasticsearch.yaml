@@ -1,0 +1,137 @@
+apiVersion: elasticsearch.k8s.elastic.co/v1
+kind: Elasticsearch
+metadata:
+  name: elasticsearch
+spec:
+  version: 9.2.3
+  http:
+    tls:
+      certificate:
+        secretName: es-custom-cert
+  nodeSets:
+  - name: all
+    count: 1
+    config:
+      node.roles: ["master", "data", "ingest"]
+    podTemplate:
+      spec:
+        containers:
+          - name: elasticsearch
+            env:
+              - name: ES_JAVA_OPTS
+                value: "-Xms512m -Xmx512m"
+    volumeClaimTemplates:
+    - metadata:
+        name: elasticsearch-data
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 20Gi
+        storageClassName: standard
+#  - name: master
+#    count: 3
+#    config:
+#      node.roles: ["master"]
+#    podTemplate:
+#      spec:
+#        containers:
+#          - name: elasticsearch
+#            env:
+#              - name: ES_JAVA_OPTS
+#                value: "-Xms512m -Xmx512m"
+#    volumeClaimTemplates:
+#    - metadata:
+#        name: elasticsearch-data
+#      spec:
+#        accessModes:
+#        - ReadWriteOnce
+#        resources:
+#          requests:
+#            storage: 10Gi
+#        storageClassName: standard
+#  - name: data
+#    count: 7
+#    config:
+#      node.roles: ["data"]
+#    podTemplate:
+#      spec:
+#        containers:
+#          - name: elasticsearch
+#            env:
+#              - name: ES_JAVA_OPTS
+#                value: "-Xms512m -Xmx512m"
+#    volumeClaimTemplates:
+#    - metadata:
+#        name: elasticsearch-data
+#      spec:
+#        accessModes:
+#        - ReadWriteOnce
+#        resources:
+#          requests:
+#            storage: 10Gi
+#        storageClassName: standard
+#  - name: ingest
+#    count: 2
+#    config:
+#      node.roles: ["ingest"]
+#    podTemplate:
+#      spec:
+#        containers:
+#          - name: elasticsearch
+#            env:
+#              - name: ES_JAVA_OPTS
+#                value: "-Xms512m -Xmx512m"
+#    volumeClaimTemplates:
+#    - metadata:
+#        name: elasticsearch-data
+#      spec:
+#        accessModes:
+#        - ReadWriteOnce
+#        resources:
+#          requests:
+#            storage: 10Gi
+#        storageClassName: standard
+#  - name: ingest
+#    count: 2
+#    config:
+#      node.roles: ["ingest"]
+#    podTemplate:
+#      spec:
+#        containers:
+#          - name: elasticsearch
+#            env:
+#              - name: ES_JAVA_OPTS
+#                value: "-Xms512m -Xmx512m"
+#    volumeClaimTemplates:
+#    - metadata:
+#        name: elasticsearch-data
+#      spec:
+#        accessModes:
+#        - ReadWriteOnce
+#        resources:
+#          requests:
+#            storage: 10Gi
+#        storageClassName: standard
+#  - name: coordinating
+#    count: 2
+#    config:
+#      node.roles: []
+#    podTemplate:
+#      spec:
+#        containers:
+#          - name: elasticsearch
+#            env:
+#              - name: ES_JAVA_OPTS
+#                value: "-Xms512m -Xmx512m"
+#    volumeClaimTemplates:
+#    - metadata:
+#        name: elasticsearch-data
+#      spec:
+#        accessModes:
+#        - ReadWriteOnce
+#        resources:
+#          requests:
+#            storage: 10Gi
+#        storageClassName: standard
