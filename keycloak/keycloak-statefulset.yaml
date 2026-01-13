@@ -62,7 +62,7 @@ spec:
                   name: keycloak-configmap
                   key: keycloakdb_password
             - name: KC_DB_SCHEMA
-              value: "keycloak"
+              value: "public"
             - name: KC_HTTP_ENABLED
               value: "true"
             - name: KC_HOSTNAME_STRICT
