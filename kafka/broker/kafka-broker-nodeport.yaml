@@ -5,8 +5,8 @@ metadata:
 spec: 
   ports: 
     - name: kafka-br-port 
-      port: 19094
-      targetPort: 9094 
+      port: 19092
+      targetPort: 9092
   selector: 
     app: kafka-br
   type: NodePort
