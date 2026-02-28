@@ -1,0 +1,125 @@
+# 7-6: Falco 규칙 테스트 매니페스트
+# 각 테스트 Pod는 Falco 탐지 규칙을 트리거함
+# 실행: kubectl apply -f 06-falco-test.yaml
+# 확인: kubectl logs -l app=falco -n kube-system --tail=20
+# 정리: kubectl delete -f 06-falco-test.yaml
+
+# Test 1: 컨테이너 내 쉘 실행 → WARNING 예상
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: falco-test-shell
+  namespace: dev
+  labels:
+    app.kubernetes.io/name: falco-test
+    app.kubernetes.io/component: security-verification
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: falco-test-shell
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: shell-test
+          image: busybox:latest
+          command: ["/bin/sh", "-c", "echo 'Falco shell detection test' && sleep 5"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
+---
+# Test 2: 민감 파일 읽기 시도 → WARNING 예상
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: falco-test-sensitive-read
+  namespace: dev
+  labels:
+    app.kubernetes.io/name: falco-test
+    app.kubernetes.io/component: security-verification
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: falco-test-sensitive-read
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: read-test
+          image: busybox:latest
+          command: ["/bin/sh", "-c", "cat /etc/passwd 2>/dev/null || true && sleep 5"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
+---
+# Test 3: K8s Secret 파일 접근 → WARNING 예상
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: falco-test-secret-access
+  namespace: dev
+  labels:
+    app.kubernetes.io/name: falco-test
+    app.kubernetes.io/component: security-verification
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: falco-test-secret-access
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: secret-test
+          image: busybox:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              ls /var/run/secrets/kubernetes.io/serviceaccount/ 2>/dev/null || true
+              cat /var/run/secrets/kubernetes.io/serviceaccount/token 2>/dev/null | head -c 50 || true
+              sleep 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
