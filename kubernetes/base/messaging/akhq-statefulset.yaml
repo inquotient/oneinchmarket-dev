@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: akhq
+  labels:
+    app.kubernetes.io/name: akhq
+    app.kubernetes.io/component: messaging
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  serviceName: akhq-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: akhq
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: akhq
+        app.kubernetes.io/component: messaging
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: akhq
+          image: tchiotludo/akhq:latest
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: config
+              mountPath: /app/application.yml
+              subPath: application.yml
+      volumes:
+        - name: config
+          configMap:
+            name: akhq-config

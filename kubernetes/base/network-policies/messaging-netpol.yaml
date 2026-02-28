@@ -1,0 +1,56 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-kafka-access
+  labels:
+    app.kubernetes.io/name: allow-kafka-access
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kafka-broker
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: application
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: akhq
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: kafka-rest
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: schema-reg
+      ports:
+        - protocol: TCP
+          port: 9092
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-akhq-access
+  labels:
+    app.kubernetes.io/name: allow-akhq-access
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: akhq
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: nginx
+      ports:
+        - protocol: TCP
+          port: 8080

@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  # PostgreSQL
+  - postgresql-statefulset.yaml
+  - postgresql-headless.yaml
+  - postgresql-configmap.yaml
+  - postgresql-secret.enc.yaml
+  # MariaDB
+  - mariadb-statefulset.yaml
+  - mariadb-headless.yaml
+  - mariadb-configmap.yaml
+  - mariadb-secret.enc.yaml
+  # MongoDB
+  - mongodb-statefulset.yaml
+  - mongodb-headless.yaml
+  - mongodb-secret.enc.yaml
+  # Redis
+  - redis-statefulset.yaml
+  - redis-headless.yaml
+  - redis-secret.enc.yaml
+
+commonLabels:
+  app.kubernetes.io/part-of: oneinchmarket

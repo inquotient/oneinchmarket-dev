@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: cmmn-api
+  labels:
+    app.kubernetes.io/name: cmmn-api
+    app.kubernetes.io/component: application
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  serviceName: cmmn-api-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cmmn-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cmmn-api
+        app.kubernetes.io/component: application
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/managed-by: kustomize
+    spec:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: cmmn-api
+          image: inquotient/cmmn-api:latest
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: DB_HOST
+              value: "jdbc:mariadb://mariadb-headless:3306/cmmn"
+            - name: DB_USERNAME
+              value: "cmmn-api"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: cmmn-api-secret
+                  key: db-password
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            periodSeconds: 10

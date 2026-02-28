@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgresql-config
+  labels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: oneinchmarket
+data:
+  POSTGRESQL_USERNAME: "postgres"
+  POSTGRESQL_DATABASE: "oneinchmarket"

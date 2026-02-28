@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mariadb-config
+  labels:
+    app.kubernetes.io/name: mariadb
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: oneinchmarket
+data:
+  MARIADB_DATABASE: "cmmn"
+  MARIADB_USER: "cmmn-api"

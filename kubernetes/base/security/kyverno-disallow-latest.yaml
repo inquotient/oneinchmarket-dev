@@ -1,0 +1,35 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-latest-tag
+  labels:
+    app.kubernetes.io/name: disallow-latest-tag
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    policies.kyverno.io/title: Disallow Latest Tag
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      Container images should use a specific version tag rather than :latest.
+      This policy audits containers using the :latest tag in dev.
+      NOTE: In production, change validationFailureAction to Enforce.
+spec:
+  # In dev, set to Audit to allow flexibility during development.
+  # For production overlays, change to: validationFailureAction: Enforce
+  validationFailureAction: Audit
+  background: true
+  rules:
+    - name: validate-image-tag
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        message: "Container images must not use the :latest tag. Use a specific version tag instead."
+        pattern:
+          spec:
+            containers:
+              - image: "!*:latest"

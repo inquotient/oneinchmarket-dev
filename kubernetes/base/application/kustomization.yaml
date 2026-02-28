@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - admin-statefulset.yaml
+  - admin-headless.yaml
+  - admin-configmap.yaml
+  - cmmn-api-statefulset.yaml
+  - cmmn-api-headless.yaml
+  - cmmn-api-secret.enc.yaml
+  - nginx-deployment.yaml
+  - nginx-service.yaml
+  - nginx-configmap.yaml

@@ -1,0 +1,51 @@
+apiVersion: elasticsearch.k8s.elastic.co/v1
+kind: Elasticsearch
+metadata:
+  name: elasticsearch
+  labels:
+    app.kubernetes.io/name: elasticsearch
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  version: "8.17.0"
+  nodeSets:
+    - name: default
+      count: 3
+      config:
+        node.roles: ["master", "data", "ingest"]
+        xpack.security.enabled: true
+      podTemplate:
+        metadata:
+          labels:
+            app.kubernetes.io/name: elasticsearch
+            app.kubernetes.io/component: observability
+            app.kubernetes.io/part-of: oneinchmarket
+        spec:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: elasticsearch
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 1000m
+                  memory: 4Gi
+                limits:
+                  cpu: 2000m
+                  memory: 8Gi
+      volumeClaimTemplates:
+        - metadata:
+            name: elasticsearch-data
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            storageClassName: standard
+            resources:
+              requests:
+                storage: 20Gi

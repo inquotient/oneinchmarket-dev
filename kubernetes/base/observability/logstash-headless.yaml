@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: logstash-headless
+  labels:
+    app.kubernetes.io/name: logstash
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - port: 5044
+      targetPort: beats
+      protocol: TCP
+      name: beats
+    - port: 9600
+      targetPort: api
+      protocol: TCP
+      name: api
+  selector:
+    app.kubernetes.io/name: logstash

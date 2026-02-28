@@ -1,17 +1,15 @@
 # OneinchMarket v2 - Kustomize Base
-# Phase 3에서 각 서비스 매니페스트 추가 예정
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-resources: []
-  # Phase 3에서 추가:
-  # - data-lakehouse/
-  # - messaging/
-  # - database/
-  # - security/
-  # - observability/
-  # - devops/
-  # - application/
-  # - service-mesh/
-  # - network-policies/
-  # - rotation/
+resources:
+  - data-lakehouse/
+  - messaging/
+  - database/
+  - security/
+  - observability/
+  - devops/
+  - application/
+  - service-mesh/
+  - network-policies/
+  - rotation/

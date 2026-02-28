@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: gitlab
+  labels:
+    app.kubernetes.io/name: gitlab
+    app.kubernetes.io/component: devops
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  serviceName: gitlab-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gitlab
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gitlab
+        app.kubernetes.io/component: devops
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/managed-by: kustomize
+    spec:
+      securityContext:
+        runAsUser: 998
+        runAsGroup: 998
+        fsGroup: 998
+        # GitLab EE requires root privileges during startup for internal service initialization.
+        # runAsNonRoot is set to false as an exception for this workload.
+        runAsNonRoot: false
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: gitlab
+          image: gitlab/gitlab-ee:latest
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+            - name: https
+              containerPort: 443
+              protocol: TCP
+            - name: ssh
+              containerPort: 22
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: gitlab-config
+            - secretRef:
+                name: gitlab-secret
+          resources:
+            requests:
+              cpu: 500m
+              memory: 2Gi
+            limits:
+              cpu: 2000m
+              memory: 4Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          livenessProbe:
+            httpGet:
+              path: /-/liveness
+              port: 80
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /-/readiness
+              port: 80
+            periodSeconds: 10
+          startupProbe:
+            httpGet:
+              path: /-/liveness
+              port: 80
+            failureThreshold: 60
+            periodSeconds: 10
+          volumeMounts:
+            - name: gitlab-data
+              mountPath: /var/opt/gitlab
+  volumeClaimTemplates:
+    - metadata:
+        name: gitlab-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 50Gi

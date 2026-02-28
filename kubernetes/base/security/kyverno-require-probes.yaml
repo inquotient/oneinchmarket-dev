@@ -1,0 +1,46 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-health-probes
+  labels:
+    app.kubernetes.io/name: require-health-probes
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    policies.kyverno.io/title: Require Health Probes
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      All containers should define livenessProbe and readinessProbe to enable
+      proper health monitoring and traffic management by Kubernetes.
+spec:
+  validationFailureAction: Audit
+  background: true
+  rules:
+    - name: validate-liveness-probe
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        message: "All containers must define a livenessProbe."
+        pattern:
+          spec:
+            containers:
+              - livenessProbe:
+                  "+(httpGet | tcpSocket | exec | grpc)": "*"
+    - name: validate-readiness-probe
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        message: "All containers must define a readinessProbe."
+        pattern:
+          spec:
+            containers:
+              - readinessProbe:
+                  "+(httpGet | tcpSocket | exec | grpc)": "*"

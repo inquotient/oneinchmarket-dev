@@ -1,0 +1,78 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: rotate-postgresql-password
+  labels:
+    app.kubernetes.io/name: rotate-postgresql-password
+    app.kubernetes.io/component: rotation
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  schedule: "0 3 1,15 * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: rotate-postgresql-password
+            app.kubernetes.io/component: rotation
+            app.kubernetes.io/part-of: oneinchmarket
+            app.kubernetes.io/managed-by: kustomize
+        spec:
+          serviceAccountName: secret-rotator
+          restartPolicy: OnFailure
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: rotate-postgresql
+              image: bitnami/postgresql:latest
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -euo pipefail
+
+                  echo "Generating new password..."
+                  NEW_PASSWORD=$(head -c 32 /dev/urandom | base64 | tr -d '=+/' | head -c 24)
+
+                  echo "Updating PostgreSQL password..."
+                  PGPASSWORD="${CURRENT_PASSWORD}" psql \
+                    -h postgresql-headless \
+                    -U postgres \
+                    -c "ALTER USER postgres WITH PASSWORD '${NEW_PASSWORD}';"
+
+                  echo "Patching Kubernetes secret..."
+                  ENCODED_PASSWORD=$(echo -n "${NEW_PASSWORD}" | base64)
+                  kubectl patch secret postgresql-secret \
+                    -p "{\"data\":{\"postgres-password\":\"${ENCODED_PASSWORD}\"}}"
+
+                  echo "Password rotation completed successfully."
+              env:
+                - name: CURRENT_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgresql-secret
+                      key: postgres-password
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 200m
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL

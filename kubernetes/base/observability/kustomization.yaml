@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  # Elasticsearch (ECK Operator)
+  - elasticsearch.yaml
+  # Kibana (ECK Operator)
+  - kibana.yaml
+  # Logstash
+  - logstash-statefulset.yaml
+  - logstash-headless.yaml
+  - logstash-configmap.yaml
+  # Filebeat
+  - filebeat-daemonset.yaml
+  - filebeat-configmap.yaml
+  # Secrets
+  - elasticsearch-secret.enc.yaml
+
+commonLabels:
+  app.kubernetes.io/part-of: oneinchmarket

@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hive-metastore
+  labels:
+    app.kubernetes.io/name: hive-metastore
+    app.kubernetes.io/component: data-lakehouse
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  serviceName: hive-metastore-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hive-metastore
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hive-metastore
+        app.kubernetes.io/component: data-lakehouse
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: hive-metastore
+          image: apache/hive:4.0.1
+          ports:
+            - containerPort: 9083
+              name: thrift
+              protocol: TCP
+          env:
+            - name: SERVICE_NAME
+              value: metastore
+            - name: DB_DRIVER
+              value: postgres
+            - name: SERVICE_OPTS
+              value: >-
+                -Djavax.jdo.option.ConnectionDriverName=org.postgresql.Driver
+                -Djavax.jdo.option.ConnectionURL=jdbc:postgresql://postgresql-headless:5432/hive_metastore
+                -Djavax.jdo.option.ConnectionUserName=hive
+                -Djavax.jdo.option.ConnectionPassword=$(DB_PASSWORD)
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hive-metastore-secret
+                  key: db-password
+          envFrom:
+            - configMapRef:
+                name: hive-metastore-config
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+          startupProbe:
+            tcpSocket:
+              port: thrift
+            failureThreshold: 30
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: thrift
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: thrift
+            periodSeconds: 10
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: hive-config
+              mountPath: /opt/hive/conf/hive-site.xml
+              subPath: hive-site.xml
+      volumes:
+        - name: hive-config
+          configMap:
+            name: hive-metastore-config
+            items:
+              - key: hive-site.xml
+                path: hive-site.xml

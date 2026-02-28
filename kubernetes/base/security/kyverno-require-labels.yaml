@@ -1,0 +1,38 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-standard-labels
+  labels:
+    app.kubernetes.io/name: require-standard-labels
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    policies.kyverno.io/title: Require Standard Labels
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: low
+    policies.kyverno.io/description: >-
+      All resources should have the standard Kubernetes labels
+      app.kubernetes.io/name and app.kubernetes.io/part-of for consistent
+      identification and grouping.
+spec:
+  validationFailureAction: Audit
+  background: true
+  rules:
+    - name: validate-standard-labels
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+                - Deployment
+                - StatefulSet
+                - Service
+                - ConfigMap
+      validate:
+        message: "Resources must have labels 'app.kubernetes.io/name' and 'app.kubernetes.io/part-of'."
+        pattern:
+          metadata:
+            labels:
+              app.kubernetes.io/name: "?*"
+              app.kubernetes.io/part-of: "?*"
