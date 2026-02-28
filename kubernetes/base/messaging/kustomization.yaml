@@ -14,3 +14,6 @@ resources:
   - akhq/akhq-statefulset.yaml
   - akhq/akhq-headless.yaml
   - akhq/akhq-configmap.yaml
+
+commonAnnotations:
+  argocd.argoproj.io/sync-wave: "2"

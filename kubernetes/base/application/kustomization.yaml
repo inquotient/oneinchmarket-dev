@@ -11,3 +11,6 @@ resources:
   - nginx/nginx-deployment.yaml
   - nginx/nginx-service.yaml
   - nginx/nginx-configmap.yaml
+
+commonAnnotations:
+  argocd.argoproj.io/sync-wave: "6"

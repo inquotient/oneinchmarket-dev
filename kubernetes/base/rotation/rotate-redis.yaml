@@ -1,0 +1,77 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: rotate-redis-password
+  labels:
+    app.kubernetes.io/name: rotate-redis-password
+    app.kubernetes.io/component: rotation
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  schedule: "15 3 1,15 * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: rotate-redis-password
+            app.kubernetes.io/component: rotation
+            app.kubernetes.io/part-of: oneinchmarket
+        spec:
+          serviceAccountName: secret-rotator
+          restartPolicy: OnFailure
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: rotate-redis
+              image: bitnami/redis-cluster:latest
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -euo pipefail
+
+                  echo "[1/3] Generating new password..."
+                  NEW_PASSWORD=$(head -c 32 /dev/urandom | base64 | tr -d '=+/' | head -c 24)
+
+                  echo "[2/3] Updating Redis password on all cluster nodes..."
+                  for i in $(seq 0 5); do
+                    redis-cli -h redis-${i}.redis-headless -a "${CURRENT_PASSWORD}" \
+                      CONFIG SET requirepass "${NEW_PASSWORD}" || true
+                    redis-cli -h redis-${i}.redis-headless -a "${NEW_PASSWORD}" \
+                      CONFIG SET masterauth "${NEW_PASSWORD}" || true
+                  done
+
+                  echo "[3/3] Patching Kubernetes secret..."
+                  ENCODED_PASSWORD=$(echo -n "${NEW_PASSWORD}" | base64)
+                  kubectl patch secret redis-secret \
+                    -p "{\"data\":{\"redis-password\":\"${ENCODED_PASSWORD}\"}}"
+
+                  echo "Redis password rotation completed."
+              env:
+                - name: CURRENT_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: redis-secret
+                      key: redis-password
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 200m
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL

@@ -2,20 +2,6 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  # Keycloak
-  - keycloak/keycloak-statefulset.yaml
-  - keycloak/keycloak-headless.yaml
-  - keycloak/keycloak-configmap.yaml
-  - keycloak/keycloak-secret.enc.yaml
-
-  # Kyverno Policies
-  - kyverno/kyverno-disallow-root.yaml
-  - kyverno/kyverno-require-resources.yaml
-  - kyverno/kyverno-disallow-latest.yaml
-  - kyverno/kyverno-disallow-privilege-escalation.yaml
-  - kyverno/kyverno-require-labels.yaml
-  - kyverno/kyverno-require-probes.yaml
-
-  # Pod Security Standards - Namespaces
-  - namespaces/namespace-dev.yaml
-  - namespaces/namespace-prod.yaml
+  - keycloak/
+  - kyverno/
+  - namespaces/

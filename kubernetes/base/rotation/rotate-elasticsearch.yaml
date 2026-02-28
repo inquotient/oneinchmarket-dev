@@ -1,0 +1,77 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: rotate-elasticsearch-password
+  labels:
+    app.kubernetes.io/name: rotate-elasticsearch-password
+    app.kubernetes.io/component: rotation
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  schedule: "10 3 1,15 * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: rotate-elasticsearch-password
+            app.kubernetes.io/component: rotation
+            app.kubernetes.io/part-of: oneinchmarket
+        spec:
+          serviceAccountName: secret-rotator
+          restartPolicy: OnFailure
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: rotate-elasticsearch
+              image: curlimages/curl:latest
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+
+                  echo "[1/3] Generating new password..."
+                  NEW_PASSWORD=$(head -c 32 /dev/urandom | base64 | tr -d '=+/' | head -c 24)
+
+                  echo "[2/3] Updating Elasticsearch password..."
+                  curl -sf -X PUT \
+                    "https://elasticsearch-es-http:9200/_security/user/elastic/_password" \
+                    -H "Content-Type: application/json" \
+                    -u "elastic:${CURRENT_PASSWORD}" \
+                    -d "{\"password\": \"${NEW_PASSWORD}\"}" \
+                    --cacert /etc/elasticsearch/certs/ca.crt
+
+                  echo "[3/3] Patching Kubernetes secret..."
+                  ENCODED_PASSWORD=$(echo -n "${NEW_PASSWORD}" | base64)
+                  kubectl patch secret elasticsearch-secret \
+                    -p "{\"data\":{\"elastic-password\":\"${ENCODED_PASSWORD}\"}}"
+
+                  echo "Elasticsearch password rotation completed."
+              env:
+                - name: CURRENT_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: elasticsearch-secret
+                      key: elastic-password
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 200m
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL

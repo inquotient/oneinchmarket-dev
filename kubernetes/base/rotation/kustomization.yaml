@@ -2,5 +2,20 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
+  # RBAC
   - secret-rotator-rbac.yaml
+  # Database Rotation (매월 1일, 15일)
   - rotate-postgresql.yaml
+  - rotate-mariadb.yaml
+  - rotate-mongodb.yaml
+  - rotate-redis.yaml
+  # Infrastructure Rotation
+  - rotate-elasticsearch.yaml
+  - rotate-minio.yaml
+  # Admin Rotation (90일 주기)
+  - rotate-admin.yaml
+  # Git Sync (로테이션 30분 후)
+  - rotation-git-sync.yaml
+
+commonAnnotations:
+  argocd.argoproj.io/sync-wave: "8"

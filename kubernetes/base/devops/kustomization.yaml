@@ -6,3 +6,6 @@ resources:
   - gitlab/gitlab-headless.yaml
   - gitlab/gitlab-configmap.yaml
   - gitlab/gitlab-secret.enc.yaml
+
+commonAnnotations:
+  argocd.argoproj.io/sync-wave: "5"

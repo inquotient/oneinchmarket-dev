@@ -1,0 +1,81 @@
+# Argo Events - Keycloak User Event Sensor
+apiVersion: argoproj.io/v1alpha1
+kind: Sensor
+metadata:
+  name: keycloak-event-sensor
+  namespace: argo-events
+  labels:
+    app.kubernetes.io/name: keycloak-event-sensor
+    app.kubernetes.io/component: events
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  template:
+    serviceAccountName: argo-events-sa
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+  dependencies:
+    - name: keycloak-user-event
+      eventSourceName: keycloak-kafka-es
+      eventName: keycloak-events
+      filters:
+        data:
+          - path: type
+            type: string
+            value:
+              - "REGISTER"
+              - "UPDATE_PROFILE"
+              - "DELETE_ACCOUNT"
+  triggers:
+    - template:
+        name: user-sync-job
+        k8s:
+          operation: create
+          source:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                generateName: keycloak-user-sync-
+                namespace: dev
+              spec:
+                ttlSecondsAfterFinished: 600
+                backoffLimit: 3
+                template:
+                  spec:
+                    serviceAccountName: argo-events-sa
+                    restartPolicy: OnFailure
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 1000
+                      runAsGroup: 1000
+                      seccompProfile:
+                        type: RuntimeDefault
+                    containers:
+                      - name: sync
+                        image: curlimages/curl:latest
+                        command: ["/bin/sh", "-c"]
+                        args:
+                          - |
+                            echo "Keycloak user event received, triggering sync..."
+                            echo "Event type: $EVENT_TYPE"
+                        env:
+                          - name: EVENT_TYPE
+                            value: ""
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          capabilities:
+                            drop: ["ALL"]
+                        resources:
+                          requests:
+                            cpu: 50m
+                            memory: 32Mi
+                          limits:
+                            cpu: 200m
+                            memory: 128Mi
+      retryStrategy:
+        steps: 3
+        backoff:
+          duration: 10s
+          factor: 2
+          maxDuration: 5m

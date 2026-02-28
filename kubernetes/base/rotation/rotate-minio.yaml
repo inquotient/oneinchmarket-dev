@@ -1,0 +1,80 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: rotate-minio-password
+  labels:
+    app.kubernetes.io/name: rotate-minio-password
+    app.kubernetes.io/component: rotation
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  schedule: "15 3 1,15 * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: rotate-minio-password
+            app.kubernetes.io/component: rotation
+            app.kubernetes.io/part-of: oneinchmarket
+        spec:
+          serviceAccountName: secret-rotator
+          restartPolicy: OnFailure
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: rotate-minio
+              image: minio/mc:latest
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+
+                  echo "[1/3] Generating new secret key..."
+                  NEW_SECRET=$(head -c 32 /dev/urandom | base64 | tr -d '=+/' | head -c 32)
+
+                  echo "[2/3] Updating MinIO credentials..."
+                  mc alias set myminio https://minio-headless:9000 \
+                    "${MINIO_ACCESS_KEY}" "${CURRENT_SECRET}" --insecure
+                  mc admin user svcacct edit myminio "${MINIO_ACCESS_KEY}" \
+                    --secret-key "${NEW_SECRET}" --insecure
+
+                  echo "[3/3] Patching Kubernetes secret..."
+                  ENCODED_SECRET=$(echo -n "${NEW_SECRET}" | base64)
+                  kubectl patch secret minio-secret \
+                    -p "{\"data\":{\"minio-secret-key\":\"${ENCODED_SECRET}\"}}"
+
+                  echo "MinIO password rotation completed."
+              env:
+                - name: MINIO_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: minio-secret
+                      key: minio-access-key
+                - name: CURRENT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: minio-secret
+                      key: minio-secret-key
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 200m
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL

@@ -1,0 +1,49 @@
+# ArgoCD AppProject - OneinchMarket
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: oneinchmarket
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: argocd
+spec:
+  description: OneinchMarket Infrastructure Project
+
+  sourceRepos:
+    - "https://gitlab.oneinchmarket.co.kr/infra/oneinchmarket-infra.git"
+
+  destinations:
+    - namespace: dev
+      server: https://kubernetes.default.svc
+    - namespace: prod
+      server: https://kubernetes.default.svc
+    - namespace: argocd
+      server: https://kubernetes.default.svc
+
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: kyverno.io
+      kind: ClusterPolicy
+    - group: policy
+      kind: PodDisruptionBudget
+    - group: networking.k8s.io
+      kind: NetworkPolicy
+
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: "*"
+    - group: apps
+      kind: "*"
+    - group: batch
+      kind: "*"
+    - group: rbac.authorization.k8s.io
+      kind: "*"
+    - group: elasticsearch.k8s.elastic.co
+      kind: Elasticsearch
+    - group: kibana.k8s.elastic.co
+      kind: Kibana
+
+  orphanedResources:
+    warn: true

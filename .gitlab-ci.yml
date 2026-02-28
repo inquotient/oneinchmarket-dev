@@ -1,0 +1,211 @@
+# OneinchMarket v2 - GitLab CI/CD Pipeline
+# Trivy 이미지 스캔 + Cosign 서명 + Kustomize 검증
+
+stages:
+  - validate
+  - build
+  - scan
+  - sign
+  - mirror
+  - deploy
+
+variables:
+  REGISTRY: registry.oneinchmarket.co.kr
+  TRIVY_SEVERITY: "HIGH,CRITICAL"
+  TRIVY_EXIT_CODE: "1"
+
+# ──────────────────────────────────────────
+# Stage: validate - Kustomize 매니페스트 검증
+# ──────────────────────────────────────────
+kustomize-validate:
+  stage: validate
+  image: registry.k8s.io/kustomize/kustomize:v5.4.3
+  script:
+    - kustomize build kubernetes/overlays/dev > /dev/null
+    - kustomize build kubernetes/overlays/prod > /dev/null
+    - echo "Kustomize validation passed"
+  rules:
+    - changes:
+        - kubernetes/**/*
+
+kubeconform-validate:
+  stage: validate
+  image: ghcr.io/yannh/kubeconform:latest
+  script:
+    - kustomize build kubernetes/overlays/dev | kubeconform -strict -summary
+    - kustomize build kubernetes/overlays/prod | kubeconform -strict -summary
+  rules:
+    - changes:
+        - kubernetes/**/*
+  allow_failure: true
+
+# ──────────────────────────────────────────
+# Stage: build - 자체 이미지 빌드
+# ──────────────────────────────────────────
+.build-template: &build-template
+  stage: build
+  image: docker:latest
+  services:
+    - docker:dind
+  before_script:
+    - docker login -u "${CI_REGISTRY_USER}" -p "${CI_REGISTRY_PASSWORD}" "${REGISTRY}"
+  script:
+    - docker build -t "${REGISTRY}/${IMAGE_NAME}:${CI_COMMIT_SHA}" -f "${DOCKERFILE}" "${CONTEXT}"
+    - docker push "${REGISTRY}/${IMAGE_NAME}:${CI_COMMIT_SHA}"
+    - docker tag "${REGISTRY}/${IMAGE_NAME}:${CI_COMMIT_SHA}" "${REGISTRY}/${IMAGE_NAME}:latest"
+    - docker push "${REGISTRY}/${IMAGE_NAME}:latest"
+
+build-admin:
+  <<: *build-template
+  variables:
+    IMAGE_NAME: inquotient/admin
+    DOCKERFILE: v1/admin/Dockerfile
+    CONTEXT: v1/admin
+  rules:
+    - changes:
+        - v1/admin/**/*
+
+build-cmmn-api:
+  <<: *build-template
+  variables:
+    IMAGE_NAME: inquotient/cmmn-api
+    DOCKERFILE: v1/cmmn-api/Dockerfile
+    CONTEXT: v1/cmmn-api
+  rules:
+    - changes:
+        - v1/cmmn-api/**/*
+
+# ──────────────────────────────────────────
+# Stage: scan - Trivy 이미지/매니페스트 취약점 스캔
+# ──────────────────────────────────────────
+trivy-image-scan:
+  stage: scan
+  image: aquasec/trivy:latest
+  script:
+    - trivy image --severity ${TRIVY_SEVERITY} --exit-code ${TRIVY_EXIT_CODE}
+        --format table "${REGISTRY}/${IMAGE_NAME}:${CI_COMMIT_SHA}"
+  parallel:
+    matrix:
+      - IMAGE_NAME:
+          - inquotient/admin
+          - inquotient/cmmn-api
+  rules:
+    - changes:
+        - v1/admin/**/*
+        - v1/cmmn-api/**/*
+  allow_failure: false
+
+trivy-config-scan:
+  stage: scan
+  image: aquasec/trivy:latest
+  script:
+    - trivy config --severity ${TRIVY_SEVERITY} --exit-code ${TRIVY_EXIT_CODE}
+        kubernetes/
+  rules:
+    - changes:
+        - kubernetes/**/*
+  allow_failure: false
+
+trivy-filesystem-scan:
+  stage: scan
+  image: aquasec/trivy:latest
+  script:
+    - trivy fs --severity ${TRIVY_SEVERITY} --security-checks vuln,secret,misconfig .
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  allow_failure: true
+
+# ──────────────────────────────────────────
+# Stage: sign - Cosign 이미지 서명
+# ──────────────────────────────────────────
+cosign-sign:
+  stage: sign
+  image: bitnami/cosign:latest
+  script:
+    - echo "${COSIGN_KEY}" > /tmp/cosign.key
+    - cosign sign --key /tmp/cosign.key
+        "${REGISTRY}/${IMAGE_NAME}:${CI_COMMIT_SHA}"
+    - rm -f /tmp/cosign.key
+  parallel:
+    matrix:
+      - IMAGE_NAME:
+          - inquotient/admin
+          - inquotient/cmmn-api
+  variables:
+    COSIGN_PASSWORD: "${COSIGN_KEY_PASSWORD}"
+  rules:
+    - changes:
+        - v1/admin/**/*
+        - v1/cmmn-api/**/*
+  needs:
+    - trivy-image-scan
+
+# ──────────────────────────────────────────
+# Stage: mirror - 외부 이미지 미러링
+# ──────────────────────────────────────────
+mirror-images:
+  stage: mirror
+  image: quay.io/skopeo/stable:latest
+  before_script:
+    - skopeo login -u "${CI_REGISTRY_USER}" -p "${CI_REGISTRY_PASSWORD}" "${REGISTRY}"
+  script:
+    - |
+      IMAGES=(
+        "docker.io/bitnami/postgresql:latest"
+        "docker.io/bitnami/mariadb:latest"
+        "docker.io/percona/percona-server-mongodb:latest"
+        "docker.io/bitnami/redis-cluster:latest"
+        "quay.io/keycloak/keycloak:latest"
+        "docker.io/apache/kafka:latest"
+        "docker.io/tchiotludo/akhq:latest"
+        "docker.io/apicurio/apicurio-registry:latest"
+        "docker.io/minio/minio:latest"
+        "docker.io/trinodb/trino:latest"
+        "docker.io/apache/hive:latest"
+        "docker.io/library/nginx:latest"
+        "docker.elastic.co/logstash/logstash:latest"
+        "docker.elastic.co/beats/filebeat:latest"
+      )
+
+      for img in "${IMAGES[@]}"; do
+        name=$(echo "$img" | sed 's|.*/||')
+        echo "Mirroring: $img → ${REGISTRY}/mirror/${name}"
+        skopeo copy "docker://${img}" "docker://${REGISTRY}/mirror/${name}" --all || true
+      done
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  allow_failure: true
+
+# ──────────────────────────────────────────
+# Stage: deploy - ArgoCD Sync 트리거
+# ──────────────────────────────────────────
+deploy-dev:
+  stage: deploy
+  image: argoproj/argocd:latest
+  script:
+    - argocd login "${ARGOCD_SERVER}" --username admin
+        --password "${ARGOCD_PASSWORD}" --insecure
+    - argocd app sync oneinchmarket-dev --prune --timeout 300
+    - argocd app wait oneinchmarket-dev --timeout 600
+  environment:
+    name: dev
+  rules:
+    - if: $CI_COMMIT_BRANCH == "v2"
+      changes:
+        - kubernetes/**/*
+
+deploy-prod:
+  stage: deploy
+  image: argoproj/argocd:latest
+  script:
+    - argocd login "${ARGOCD_SERVER}" --username admin
+        --password "${ARGOCD_PASSWORD}" --insecure
+    - argocd app sync oneinchmarket-prod --prune --timeout 300
+    - argocd app wait oneinchmarket-prod --timeout 600
+  environment:
+    name: prod
+  rules:
+    - if: $CI_COMMIT_BRANCH == "v2"
+      changes:
+        - kubernetes/**/*
+  when: manual

@@ -1,0 +1,17 @@
+# Argo Events - EventSource Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak-kafka-es-svc
+  namespace: argo-events
+  labels:
+    app.kubernetes.io/name: keycloak-kafka-es-svc
+    app.kubernetes.io/component: events
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  selector:
+    eventsource-name: keycloak-kafka-es
+  ports:
+    - port: 12000
+      targetPort: 12000
+      protocol: TCP

@@ -6,3 +6,6 @@ resources:
   - database-netpol.yaml
   - messaging-netpol.yaml
   - observability-netpol.yaml
+
+commonAnnotations:
+  argocd.argoproj.io/sync-wave: "0"

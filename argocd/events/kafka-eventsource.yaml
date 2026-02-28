@@ -1,0 +1,21 @@
+# Argo Events - Kafka EventSource for Keycloak Events
+apiVersion: argoproj.io/v1alpha1
+kind: EventSource
+metadata:
+  name: keycloak-kafka-es
+  namespace: argo-events
+  labels:
+    app.kubernetes.io/name: keycloak-kafka-es
+    app.kubernetes.io/component: events
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  kafka:
+    keycloak-events:
+      url: kafka-0.kafka-headless.dev.svc.cluster.local:9092
+      topic: keycloak-events
+      consumerGroup: keycloak-argo-consumer
+      jsonBody: true
+      connectionBackoff:
+        duration: 10s
+        steps: 5
+        factor: 2

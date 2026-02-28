@@ -1,0 +1,132 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: rotate-admin-passwords
+  labels:
+    app.kubernetes.io/name: rotate-admin-passwords
+    app.kubernetes.io/component: rotation
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  schedule: "20 3 1 */3 *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: rotate-admin-passwords
+            app.kubernetes.io/component: rotation
+            app.kubernetes.io/part-of: oneinchmarket
+        spec:
+          serviceAccountName: secret-rotator
+          restartPolicy: OnFailure
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: rotate-admin
+              image: curlimages/curl:latest
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+
+                  # === Keycloak Admin Password ===
+                  echo "[1/3] Rotating Keycloak admin password..."
+                  NEW_KC_PW=$(head -c 32 /dev/urandom | base64 | tr -d '=+/' | head -c 24)
+
+                  TOKEN=$(curl -sf -X POST \
+                    "https://keycloak-headless:8443/realms/master/protocol/openid-connect/token" \
+                    -d "client_id=admin-cli&username=admin&password=${KC_CURRENT_PASSWORD}&grant_type=password" \
+                    --insecure | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+
+                  ADMIN_ID=$(curl -sf -H "Authorization: Bearer ${TOKEN}" \
+                    "https://keycloak-headless:8443/admin/realms/master/users?username=admin" \
+                    --insecure | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
+
+                  curl -sf -X PUT -H "Authorization: Bearer ${TOKEN}" \
+                    -H "Content-Type: application/json" \
+                    "https://keycloak-headless:8443/admin/realms/master/users/${ADMIN_ID}/reset-password" \
+                    -d "{\"type\":\"password\",\"value\":\"${NEW_KC_PW}\",\"temporary\":false}" \
+                    --insecure
+
+                  ENCODED_KC_PW=$(echo -n "${NEW_KC_PW}" | base64)
+                  kubectl patch secret keycloak-secret \
+                    -p "{\"data\":{\"admin-password\":\"${ENCODED_KC_PW}\"}}"
+                  echo "Keycloak admin password rotated."
+
+                  # === GitLab Admin Password ===
+                  echo "[2/3] Rotating GitLab admin password..."
+                  NEW_GL_PW=$(head -c 32 /dev/urandom | base64 | tr -d '=+/' | head -c 24)
+
+                  curl -sf -X PUT \
+                    "https://gitlab-headless/api/v4/users/1" \
+                    -H "PRIVATE-TOKEN: ${GL_CURRENT_TOKEN}" \
+                    -d "password=${NEW_GL_PW}" \
+                    --insecure
+
+                  ENCODED_GL_PW=$(echo -n "${NEW_GL_PW}" | base64)
+                  kubectl patch secret gitlab-secret \
+                    -p "{\"data\":{\"admin-password\":\"${ENCODED_GL_PW}\"}}"
+                  echo "GitLab admin password rotated."
+
+                  # === ArgoCD Admin Password ===
+                  echo "[3/3] Rotating ArgoCD admin password..."
+                  NEW_ARGO_PW=$(head -c 32 /dev/urandom | base64 | tr -d '=+/' | head -c 24)
+
+                  ARGO_TOKEN=$(curl -sf -X POST \
+                    "https://argocd-server.argocd/api/v1/session" \
+                    -H "Content-Type: application/json" \
+                    -d "{\"username\":\"admin\",\"password\":\"${ARGO_CURRENT_PASSWORD}\"}" \
+                    --insecure | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+
+                  curl -sf -X PUT \
+                    "https://argocd-server.argocd/api/v1/account/password" \
+                    -H "Authorization: Bearer ${ARGO_TOKEN}" \
+                    -H "Content-Type: application/json" \
+                    -d "{\"currentPassword\":\"${ARGO_CURRENT_PASSWORD}\",\"newPassword\":\"${NEW_ARGO_PW}\"}" \
+                    --insecure
+
+                  ENCODED_ARGO_PW=$(echo -n "${NEW_ARGO_PW}" | base64)
+                  kubectl patch secret argocd-admin-secret \
+                    -p "{\"data\":{\"admin-password\":\"${ENCODED_ARGO_PW}\"}}"
+                  echo "ArgoCD admin password rotated."
+
+                  echo "All admin password rotations completed."
+              env:
+                - name: KC_CURRENT_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: keycloak-secret
+                      key: admin-password
+                - name: GL_CURRENT_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: gitlab-secret
+                      key: admin-token
+                - name: ARGO_CURRENT_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: argocd-admin-secret
+                      key: admin-password
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 200m
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
