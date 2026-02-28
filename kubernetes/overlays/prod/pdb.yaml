@@ -1,0 +1,104 @@
+# PodDisruptionBudgets - Prod 환경 가용성 보장
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: postgresql-pdb
+  labels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgresql
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: kafka-pdb
+  labels:
+    app.kubernetes.io/name: kafka
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafka
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: elasticsearch-pdb
+  labels:
+    app.kubernetes.io/name: elasticsearch
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: elasticsearch
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: redis-pdb
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  minAvailable: 4
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: mongodb-pdb
+  labels:
+    app.kubernetes.io/name: mongodb
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mongodb
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: keycloak-pdb
+  labels:
+    app.kubernetes.io/name: keycloak
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: keycloak
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: mariadb-pdb
+  labels:
+    app.kubernetes.io/name: mariadb
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mariadb
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: nginx-pdb
+  labels:
+    app.kubernetes.io/name: nginx
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nginx

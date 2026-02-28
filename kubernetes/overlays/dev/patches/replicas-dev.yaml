@@ -1,0 +1,15 @@
+# Dev 환경: 최소 레플리카 (비용 절감)
+# base에서 replicas > 1인 서비스를 dev에서는 축소
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+spec:
+  replicas: 1
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+spec:
+  replicas: 1

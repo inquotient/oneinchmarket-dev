@@ -2,10 +2,57 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
+namespace: prod
+
 resources:
   - ../../base
+  - namespace.yaml
+  - pdb.yaml
 
-# Phase 4에서 추가:
-# patches: []
-# images: []   ← 이미지 태그 핀닝
-# generators: []
+patches:
+  - path: patches/replicas-prod.yaml
+  - path: patches/storage-prod.yaml
+  - path: patches/kyverno-enforce-latest.yaml
+
+# 이미지 태그 핀닝 - Prod에서는 특정 버전으로 고정
+images:
+  - name: bitnami/postgresql
+    newTag: "16.4.0"
+  - name: bitnami/mariadb
+    newTag: "11.4.3"
+  - name: percona/percona-server-mongodb
+    newTag: "7.0.14"
+  - name: bitnami/redis-cluster
+    newTag: "7.4.1"
+  - name: keycloak/keycloak
+    newTag: "26.0.7"
+  - name: apache/kafka
+    newTag: "4.1.1"
+  - name: tchiotludo/akhq
+    newTag: "0.25.1"
+  - name: apicurio/apicurio-registry
+    newTag: "3.0.4"
+  - name: minio/minio
+    newTag: "RELEASE.2024-11-07T00-52-20Z"
+  - name: trinodb/trino
+    newTag: "465"
+  - name: apache/hive
+    newTag: "4.0.1"
+  - name: gitlab/gitlab-ee
+    newTag: "17.6.2-ee.0"
+  - name: inquotient/admin
+    newTag: "1.0.0"
+  - name: inquotient/cmmn-api
+    newTag: "1.0.0"
+  - name: nginx
+    newTag: "1.27.3"
+  - name: docker.elastic.co/logstash/logstash
+    newTag: "8.17.0"
+  - name: docker.elastic.co/beats/filebeat
+    newTag: "8.17.0"
+
+commonLabels:
+  environment: prod
+
+commonAnnotations:
+  app.kubernetes.io/instance: oneinchmarket-prod

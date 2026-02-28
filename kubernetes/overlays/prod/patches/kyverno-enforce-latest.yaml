@@ -1,0 +1,7 @@
+# Prod 환경: latest 태그 정책을 Audit → Enforce로 전환
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-latest-tag
+spec:
+  validationFailureAction: Enforce

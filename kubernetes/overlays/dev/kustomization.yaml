@@ -2,9 +2,19 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
+namespace: dev
+
 resources:
   - ../../base
+  - namespace.yaml
 
-# Phase 4에서 추가:
-# patches: []
-# generators: []
+patches:
+  - path: patches/replicas-dev.yaml
+  - path: patches/resources-dev.yaml
+  - path: patches/storage-dev.yaml
+
+commonLabels:
+  environment: dev
+
+commonAnnotations:
+  app.kubernetes.io/instance: oneinchmarket-dev
