@@ -1,2 +1,0 @@
-sudo kubectl apply -f hive-server-configmap.yaml -f hive-server-statefulset.yaml -f hive-server-nodeport.yaml -f hive-server-headless.yaml -n dev
-sudo kubectl -n dev port-forward svc/hive-server-nodeport 20000:10000 > /dev/null 2>&1 &

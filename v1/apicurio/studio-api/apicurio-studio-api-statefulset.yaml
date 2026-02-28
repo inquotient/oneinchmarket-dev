@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: apicurio-studio-api
+spec:
+# whenDeleted를 Delete로 설정하면 pod가 지워지면 pvc도 같이 지워지도록 할 수 있다. 
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+  serviceName: asapi-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: apicurio-studio-api
+  template:
+    metadata:
+      labels:
+        app: apicurio-studio-api
+    spec:
+      setHostnameAsFQDN: true
+      containers:
+      - name: apicurio-studio-api
+        image: apicurio/apicurio-studio-api:latest
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+        - containerPort: 8443
+          protocol: TCP
+        env:
+        - name: APICURIO_KC_AUTH_URL
+          value: "http://keycloak-headless.dev.svc.cluster.local:8080"
+        - name: APICURIO_KC_REALM
+          value: "apicurio"
+        - name: APICURIO_KC_CLIENT_ID
+          value: "apicurio-api"
+        - name: APICURIO_KC_SSL_REQUIRED
+          value: "NONE"
+        - name: APICURIO_KC_DISABLE_TRUST_MANAGER
+          value: "true"
+        - name: APICURIO_DB_DRIVER_NAME
+          value: "postgresql"
+        - name: APICURIO_DB_CONNECTION_URL
+          value: "jdbc:postgresql://postgresql-0.postgresql-headless.dev.svc.cluster.local:5432/apicurio_studio"
+        - name: APICURIO_DB_USER_NAME
+          value: "apicurio_studio"
+        - name: APICURIO_DB_PASSWORD
+          valueFrom:
+            configMapKeyRef:
+              name: apicurio-studio-api-configmap
+              key: apicurio_studio_db_password
+        - name: APICURIO_DB_INITIALIZE
+          value: "true"
+        - name: APICURIO_DB_TYPE
+          value: "postgresql9"
+        - name: APICURIO_GITLAB_API_URL
+          value: "gitlab-headless.dev.svc.cluster.local"
+#        volumeMounts:
+#        - name: mariadb-config
+#          mountPath: /etc/maysql/mariadb.cnf
+#          subPath: my.cnf
+#        - name: apicurio-studio-api-tde-volume
+#          mountPath: /mnt/tde
+#        - name: pvc
+#          mountPath: /bitnami/mariadb/data
+#          subPath: data
+#        - name: pvc
+#          mountPath: /opt/bitnami/mariadb/tmp
+#          subPath: tmp
+#        - name: pvc
+#          mountPath: /opt/bitnami/mariadb/logs
+#          subPath: logs
+#      volumes:
+#        - name: mariadb-config
+#          configMap:
+#            name: apicurio-studio-api-configmap
+#            items:
+#              - key: mariadb-config
+#                path: my.cnf
+#        - name: apicurio-studio-api-tde-volume
+#          hostPath:
+#            path: /home/ahnjisoo/mariadb/cmmn/tde
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+  volumeClaimTemplates:
+    - metadata:
+        name: pvc
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 20Gi

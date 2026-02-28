@@ -1,0 +1,12 @@
+apiVersion: v1 
+kind: Service
+metadata: 
+  name: schema-reg-nodeport
+spec: 
+  ports: 
+    - name: schema-reg-port 
+      port: 18081
+      targetPort: 8081
+  selector: 
+    app: schema-reg
+  type: NodePort

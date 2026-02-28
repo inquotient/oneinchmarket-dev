@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: jenkins
+spec:
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+  serviceName: jenkins-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jenkins
+  selector:
+    matchLabels:
+      app: jenkins
+  template:
+    metadata:
+      labels:
+        app: jenkins
+    spec:
+      setHostnameAsFQDN: true
+      containers:
+      - name: jenkins
+        image: jenkins/jenkins:latest
+        ports:
+######### Reference
+######### https://docs.jenkins.com/ee/administration/package_information/defaults.html#fn:Sidekiq-health
+        - containerPort: 8080
+          protocol: TCP
+        - containerPort: 8443
+          protocol: TCP
+        - containerPort: 50000
+          protocol: TCP
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+  volumeClaimTemplates:
+    - metadata:
+        name: pvc
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 20Gi

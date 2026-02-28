@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: freeipa-configmap
+data:
+  IPA_SERVER_HOSTNAME: ipa.oneinchmarket.co.kr
+  IPA_SERVER_IP: "127.0.0.1"
+  IPA_DOMAIN: oneinchmarket.co.kr
+  IPA_REALM: ONEINCHMARKET.CO.KR
+  IPA_ADMIN_PASSWORD: "B1HWVSoBjfab/WH9KdsdLv6xtnzM2ieB"
+  IPA_DM_PASSWORD: "xUs4jEpbZw6j1QQIHnUEENrSW0QlcWRb"

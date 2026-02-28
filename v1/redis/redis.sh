@@ -1,0 +1,2 @@
+replace=$(seq 1 $(yq '.spec.replicas' redis-statefulset.yaml) | awk -v HOSTNAME="$(yq '.metadata.name' redis-statefulset.yaml)" -v SERVICENAME="$(yq '.metadata.name' redis-headless.yaml)" '{print HOSTNAME "-" $1-1 "." SERVICENAME ".dev.svc.cluster.local"}' | xargs echo) yq -i '.spec.template.spec.containers.[] | select(.name == "redis") | .env.[] | select(.name == "REDIS_NODES") | .value=env(replace) | parent | parent | parent | parent | parent | parent | parent | parent' redis-statefulset.yaml
+sudo kubectl create -f redis-statefulset.yaml -f redis-headless.yaml -n dev

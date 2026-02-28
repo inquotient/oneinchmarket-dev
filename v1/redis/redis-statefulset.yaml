@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+spec:
+  # whenDeleted를 Delete로 설정하면 pod가 지워지면 pvc도 같이 지워지도록 할 수 있다. 
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+  serviceName: redis-headless
+  replicas: 6
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      setHostnameAsFQDN: true
+      containers:
+        - name: redis
+          image: bitnami/redis-cluster:latest
+          ports:
+            - containerPort: 6379
+              protocol: TCP
+            - containerPort: 16379
+              protocol: TCP
+          lifecycle:
+            postStart:
+              exec:
+                command: ["/bin/sh", "-c", "echo $HOSTNAME | awk -F '.' '{print $1}' | awk -v REPLICAS=$REPLICAS -v REDIS_CLUSTER_REPLICAS='export REDIS_CLUSTER_REPLICAS=1' -v REDIS_CLUSTER_CREATOR='export REDIS_CLUSTER_CREATOR=yes' -F '-' '{if($2+1==REPLICAS) {print REDIS_CLUSTER_REPLICAS; print REDIS_CLUSTER_CREATOR}}' >> /opt/bitnami/scripts/redis-cluster-env.sh"]
+          volumeMounts:
+            - name: pvc
+              mountPath: /bitnami
+              subPath: bitnami
+          env:
+            - name: ALLOW_EMPTY_PASSWORD
+              value: "yes"
+            - name: REDIS_NODES
+              value: "redis-0.redis-headless.dev.svc.cluster.local redis-1.redis-headless.dev.svc.cluster.local redis-2.redis-headless.dev.svc.cluster.local redis-3.redis-headless.dev.svc.cluster.local redis-4.redis-headless.dev.svc.cluster.local redis-5.redis-headless.dev.svc.cluster.local"
+            - name: REPLICAS
+              value: "6"
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+  volumeClaimTemplates:
+    - metadata:
+        name: pvc
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 20Gi

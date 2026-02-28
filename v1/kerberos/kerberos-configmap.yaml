@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kerberos-configmap
+data:
+  krb5.conf: |
+    [libdefaults]
+      default_realm = ONEINCHMARKET.CO.KR
+      dns_lookup_realm = false
+      dns_lookup_kdc = false
+      ticket_lifetime = 24h
+      renew_lifetime = 7d
+      forwardable = true
+
+    [realms]
+      ONEINCHMARKET.CO.KR = {
+        kdc = kerberos-headless.dev.svc.cluster.local
+        admin_server = kerberos-headless.dev.svc.cluster.local
+      }
+
+    [domain_realm]
+      .oneinchmarket.co.kr = ONEINCHMARKET.CO.KR
+      oneinchmarket.co.kr = ONEINCHMARKET.CO.KR
+
+  kdc.conf: |
+    [kdcdefaults]
+      kdc_ports = 88
+      kdc_tcp_ports = 88
+
+    [realms]
+      ONEINCHMARKET.CO.KR = {
+        database_name = /var/kerberos/krb5kdc/principal
+        admin_keytab = /var/kerberos/krb5kdc/kadm5.keytab
+        acl_file = /var/kerberos/krb5kdc/kadm5.acl
+        key_stash_file = /var/kerberos/krb5kdc/.k5.ONEINCHMARKET.CO.KR
+        max_life = 24h
+        max_renewable_life = 7d
+      }
+
+  kadm5.acl: |
+    */admin@ONEINCHMARKET.CO.KR *

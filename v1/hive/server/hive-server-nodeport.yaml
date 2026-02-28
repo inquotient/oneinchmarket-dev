@@ -1,0 +1,15 @@
+apiVersion: v1 
+kind: Service
+metadata: 
+  name: hive-server-nodeport
+spec: 
+  ports: 
+    - name: hive-server-port
+      port: 20000
+      targetPort: 10000 
+    - name: hive-server-http-port
+      port: 20001
+      targetPort: 10001 
+  selector: 
+    app: hive-server 
+  type: NodePort

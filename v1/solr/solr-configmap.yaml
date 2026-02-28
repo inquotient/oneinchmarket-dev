@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: solr-configmap
+data:
+  managed-schema: |
+    {
+      "name": "ranger_audits",
+      "version": 1.6,
+      "uniqueKey": "id",
+      "fieldTypes": [
+        { "name": "string", "class": "solr.StrField", "sortMissingLast": true },
+        { "name": "text_general", "class": "solr.TextField", "positionIncrementGap": 100,
+          "analyzer": {
+            "tokenizer": { "class": "solr.StandardTokenizerFactory" },
+            "filters": [{ "class": "solr.LowerCaseFilterFactory" }]
+          }
+        },
+        { "name": "tlong", "class": "solr.TrieLongField", "precisionStep": "0" }
+      ],
+      "fields": [
+        { "name": "id", "type": "string", "stored": true, "required": true },
+        { "name": "repo", "type": "string", "stored": true },
+        { "name": "repoType", "type": "string", "stored": true },
+        { "name": "user", "type": "string", "stored": true },
+        { "name": "action", "type": "string", "stored": true },
+        { "name": "access", "type": "string", "stored": true },
+        { "name": "resource", "type": "text_general", "stored": true },
+        { "name": "evtTime", "type": "tlong", "stored": true },
+        { "name": "result", "type": "string", "stored": true }
+      ]
+    }

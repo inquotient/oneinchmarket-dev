@@ -1,3 +1,0 @@
-sudo kill -9 $(ps -ef | grep "kubectl -n dev port-forward svc/hadoop-rbf-router-nodeport" | sed -n '2p' | gawk '{ print $2"\t"$3 }')
-sudo kubectl create -f hadoop-rbf-router-configmap.yaml -f hadoop-rbf-router-pvc.yaml -f hadoop-rbf-router-deployment.yaml -f hadoop-rbf-router-headless.yaml -f hadoop-rbf-router-nodeport.yaml -n dev
-sudo kubectl -n dev port-forward svc/hadoop-rbf-router-nodeport 60071:60071 > /dev/null 2>&1 &

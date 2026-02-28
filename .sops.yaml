@@ -1,0 +1,3 @@
+creation_rules:
+  - path_regex: kubernetes/.*\.enc\.yaml$
+    age: "age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"

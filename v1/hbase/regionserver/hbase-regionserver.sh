@@ -1,0 +1,2 @@
+sudo kubectl create -f hbase-regionserver-statefulset.yaml -f hbase-regionserver-headless.yaml -f hbase-regionserver-nodeport.yaml -n dev
+sudo kubectl -n dev port-forward svc/hbase-regionserver-nodeport 26030:16030 > /dev/null 2>&1 &

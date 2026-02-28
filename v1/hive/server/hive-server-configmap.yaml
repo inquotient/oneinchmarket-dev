@@ -1,0 +1,221 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hive-server-configmap
+data:
+  hive-server-config: |
+    <?xml version="1.0"?>
+    <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+    <configuration>
+
+      <!-- ===== Metastore 연결 ===== -->
+      <property>
+        <name>hive.metastore.uris</name>
+        <value>thrift://hive-metastore-headless.dev.svc.cluster.local:9083</value>
+      </property>
+
+      <property>
+        <name>fs.defaultFS</name>
+        <value>hdfs://hdfs-ns-kr</value>
+      </property>
+
+      <property>
+        <name>hive.metastore.warehouse.dir</name>
+        <value>/warehouse/tables</value>
+      </property>
+
+      <!-- ===== HiveServer2 기본 설정 ===== -->
+      <property>
+        <name>hive.server2.thrift.port</name>
+        <value>10000</value>
+      </property>
+
+      <property>
+        <name>hive.server2.transport.mode</name>
+        <value>http</value>
+      </property>
+
+      <property>
+        <name>hive.server2.thrift.http.port</name>
+        <value>10001</value>
+      </property>
+
+      <property>
+        <name>hive.server2.thrift.http.path</name>
+        <value>cliservice</value>
+      </property>
+
+      <!-- Knox 앞단 인증(SSO) 가정 → HS2는 NONE -->
+      <!--<property>
+        <name>hive.server2.authentication</name>
+        <value>NONE</value>
+      </property> -->
+
+      <!-- HDFS 권한/Ranger 적용을 위한 impersonation -->
+      <!-- <property>
+        <name>hive.server2.enable.doAs</name>
+        <value>true</value>
+      </property> -->
+
+      <!-- ===== Zookeeper 기반 HS2 서비스 디스커버리 (선택, ZK 이미 존재 가정) ===== -->
+      <property>
+        <name>hive.server2.support.dynamic.service.discovery</name>
+        <value>true</value>
+      </property>
+
+      <property>
+        <name>hive.zookeeper.quorum</name>
+        <value>zookeeper-headless.dev.svc.cluster.local:2181</value>
+      </property>
+
+      <property>
+        <name>hive.server2.zookeeper.namespace</name>
+        <value>hiveserver2</value>
+      </property>
+
+      <!-- ===== 실행 엔진 (운영 기준: Tez 추천) ===== -->
+      <property>
+        <name>hive.execution.engine</name>
+        <value>mr</value>
+      </property>
+
+      <!-- ===== 세션/리소스 관리 ===== -->
+      <property>
+        <name>hive.server2.thrift.max.worker.threads</name>
+        <value>500</value>
+      </property>
+
+      <property>
+        <name>hive.server2.idle.session.timeout</name>
+        <value>3600000</value> <!-- 1시간 -->
+      </property>
+
+      <property>
+        <name>hive.server2.session.check.interval</name>
+        <value>60000</value> <!-- 60초 -->
+      </property>
+
+      <property>
+        <name>mapreduce.framework.name</name>
+        <value>local</value>
+      </property>
+
+      <property>
+        <name>mapreduce.jobtracker.address</name>
+        <value>local</value>
+      </property>
+
+      <!-- (선택) 불필요한 부가작업 끄기 -->
+      <property>
+        <name>hive.cbo.enable</name>
+        <value>false</value>
+      </property>
+      <property>
+        <name>hive.stats.autogather</name>
+        <value>false</value>
+      </property>
+
+      <!-- Ranger 권한 체크 ON -->
+      <property>
+        <name>hive.security.authorization.enabled</name>
+        <value>true</value>
+      </property>
+
+      <!-- Ranger Hive Authorizer -->
+      <property>
+        <name>hive.security.authorization.manager</name>
+        <value>org.apache.ranger.authorization.hive.authorizer.RangerHiveAuthorizerFactory</value>
+      </property>
+
+      <!-- 유저 인증자 -->
+      <property>
+        <name>hive.security.authenticator.manager</name>
+        <value>org.apache.hadoop.hive.ql.security.SessionStateUserAuthenticator</value>
+      </property>
+
+      <!-- Knox/Ranger/HDFS까지 일관되게 하려면 강력 추천 -->
+      <property>
+        <name>hive.server2.enable.doAs</name>
+        <value>true</value>
+      </property>
+
+      <!-- (중요) Ranger 서비스 이름: Ranger Admin에 만든 Hive 서비스명과 일치 -->
+      <property>
+        <name>ranger.plugin.hive.service.name</name>
+        <value>dev_hive</value>
+      </property>
+
+      <!-- Ranger plugin 핵심: Admin URL이 비면 bound must be positive 터짐 -->
+      <property>
+        <name>ranger.plugin.hive.policy.rest.url</name>
+        <value>http://ranger-admin-headless.dev.svc.cluster.local:6080</value>
+      </property>
+
+      <property>
+        <name>ranger.plugin.hive.policy.pollIntervalMs</name>
+        <value>30000</value>
+      </property>
+    </configuration>
+  xasecure-audit.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <configuration>
+
+      <!-- Audit Enable -->
+      <property>
+        <name>xasecure.audit.is.enabled</name>
+        <value>true</value>
+      </property>
+
+      <!-- Solr audit -->
+      <property>
+        <name>xasecure.audit.destination.solr</name>
+        <value>true</value>
+      </property>
+      <property>
+        <name>xasecure.audit.solr.urls</name>
+        <value>http://solr-headless.dev.svc.cluster.local:8983/solr/ranger_audits</value>
+      </property>
+
+      <!-- Async 설정(선택) -->
+      <property>
+        <name>xasecure.audit.async</name>
+        <value>true</value>
+      </property>
+      <property>
+        <name>xasecure.audit.async.max.queue.size</name>
+        <value>10240</value>
+      </property>
+
+    </configuration>
+  ranger-hive-security.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <configuration>
+      <property>
+        <name>ranger.plugin.hive.service.name</name>
+        <value>dev_hive</value>
+      </property>
+      <property>
+        <name>ranger.plugin.hive.policy.rest.url</name>
+        <value>http://ranger-admin-headless.dev.svc.cluster.local:6080</value>
+      </property>
+      <property>
+        <name>ranger.plugin.hive.policy.pollIntervalMs</name>
+        <value>30000</value>
+      </property>
+      <property>
+        <name>ranger.plugin.hive.policy.rest.client.connection.timeoutMs</name>
+        <value>120000</value>
+      </property>
+      <property>
+        <name>ranger.plugin.hive.policy.rest.client.read.timeoutMs</name>
+        <value>120000</value>
+      </property>
+    </configuration>
+  ranger-policymgr-ssl.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <configuration>
+      <property>
+        <name>xasecure.policymgr.clientssl.enabled</name>
+        <value>false</value>
+      </property>
+    </configuration>

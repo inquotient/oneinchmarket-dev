@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: schema-reg
+spec:
+# whenDeleted를 Delete로 설정하면 pod가 지워지면 pvc도 같이 지워지도록 할 수 있다. 
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+  serviceName: schema-reg-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: schema-reg
+  template:
+    metadata:
+      labels:
+        app: schema-reg
+    spec:
+      setHostnameAsFQDN: true
+      containers:
+        - name: schema-reg
+          image: bitnami/schema-registry:latest
+          ports:
+            - containerPort: 8081
+              protocol: TCP
+          env:
+          - name: SCHEMA_REGISTRY_KAFKA_BROKERS
+            value: "PLAINTEXT://kafka-headless.dev.svc.cluster.local:9092"
+          volumeMounts:
+            - name: pvc
+              mountPath: /bitnami
+              subPath: bitnami    
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+  volumeClaimTemplates:
+    - metadata:
+        name: pvc
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 20Gi  

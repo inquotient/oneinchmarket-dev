@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ar-headless
+  labels:
+    app: apicurio-registry
+spec:
+  ports:
+  - port: 8080
+    name: apicurio-registry-port
+  - port: 8443
+    name: apicurio-registry-secure-port
+  clusterIP: None
+  selector:
+    app: apicurio-registry

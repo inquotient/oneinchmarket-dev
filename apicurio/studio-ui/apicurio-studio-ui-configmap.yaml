@@ -1,6 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: apicurio-studio-ui-configmap
-data:
-  apicurio_studio_db_password: t5E54TQQOoseQqfjK9dl2i3uDId2Xw/w

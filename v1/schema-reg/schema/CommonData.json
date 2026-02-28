@@ -1,0 +1,65 @@
+{
+    "type": "record",
+    "name": "CommonData",
+    "namespace": "oneinchmarket.commonapi.domain.event",
+    "fields": [
+        {
+            "name": "enabled",
+            "type": [
+                "null",
+                "boolean"
+            ],
+            "default": null
+        },
+        {
+            "name": "deleted",
+            "type": [
+                "null",
+                "boolean"
+            ],
+            "default": null
+        },
+        {
+            "name": "creatorNo",
+            "type": [
+                "null",
+                "long"
+            ],
+            "default": null
+        },
+        {
+            "name": "createdAt",
+            "type": [
+                {
+                    "type": "null"
+                },
+                {
+                    "type": "long",
+                    "logicalType": "local-timestamp-millis"
+                }
+            ],
+            "default": null
+        },
+        {
+            "name": "modifierNo",
+            "type": [
+                "null",
+                "long"
+            ],
+            "default": null
+        },
+        {
+            "name": "modifiedAt",
+            "type": [
+                {
+                    "type": "null"
+                },
+                {
+                    "type": "long",
+                    "logicalType": "local-timestamp-millis"
+                }
+            ],
+            "default": null
+        }
+    ]
+}

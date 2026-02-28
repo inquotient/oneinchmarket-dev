@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: apicurio-registry-ui
+spec:
+# whenDeleted를 Delete로 설정하면 pod가 지워지면 pvc도 같이 지워지도록 할 수 있다. 
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+  serviceName: arui-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: apicurio-registry-ui
+  template:
+    metadata:
+      labels:
+        app: apicurio-registry-ui
+    spec:
+      setHostnameAsFQDN: true
+      containers:
+      - name: apicurio-registry-ui
+        image: apicurio/apicurio-registry-ui:latest
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+        - containerPort: 8443
+          protocol: TCP
+        env:
+        - name: APICURIO_STORAGE_KIND
+          value: "sql"
+        - name: APICURIO_STORAGE_SQL_KIND
+          value: "postgresql"
+        - name: APICURIO_DATASOURCE_URL
+          value: "jdbc:postgresql://postgresql-0.postgresql-headless.dev.svc.cluster.local:5432/apicurio_registry"
+        - name: APICURIO_DATASOURCE_USERNAME
+          value: "apicurio_registry"
+        - name: APICURIO_DATASOURCE_PASSWORD
+          valueFrom:
+            configMapKeyRef:
+              name: apicurio-registry-ui-configmap
+              key: apicurio_registry_db_password
+        - name: REGISTRY_API_URL
+          value: "http://ar-headless.dev.svc.cluster.local:8080/apis/registry/v3"
+#        volumeMounts:
+#        - name: mariadb-config
+#          mountPath: /etc/maysql/mariadb.cnf
+#          subPath: my.cnf
+#        - name: apicurio-registry-ui-tde-volume
+#          mountPath: /mnt/tde
+#        - name: pvc
+#          mountPath: /bitnami/mariadb/data
+#          subPath: data
+#        - name: pvc
+#          mountPath: /opt/bitnami/mariadb/tmp
+#          subPath: tmp
+#        - name: pvc
+#          mountPath: /opt/bitnami/mariadb/logs
+#          subPath: logs
+#      volumes:
+#        - name: mariadb-config
+#          configMap:
+#            name: apicurio-registry-ui-configmap
+#            items:
+#              - key: mariadb-config
+#                path: my.cnf
+#        - name: apicurio-registry-ui-tde-volume
+#          hostPath:
+#            path: /home/ahnjisoo/mariadb/cmmn/tde
+  volumeClaimTemplates:
+    - metadata:
+        name: pvc
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 20Gi

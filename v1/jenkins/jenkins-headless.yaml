@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: jenkins-headless
+  labels:
+    app: jenkins
+spec:
+  ports:
+  - port: 8080
+    name: jenkins-web-port
+  - port: 8443
+    name: jenkins-secure-port
+  - port: 50000
+    name: jenkins-jnpl-port
+  clusterIP: None
+  selector:
+    app: jenkins

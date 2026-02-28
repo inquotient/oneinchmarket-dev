@@ -1,2 +1,0 @@
-sudo kubectl create -f hbase-hmaster-statefulset.yaml -f hbase-hmaster-headless.yaml -f hbase-hmaster-nodeport.yaml -n dev
-sudo kubectl -n dev port-forward svc/hbase-hmaster-nodeport 26010:26010 > /dev/null 2>&1 &

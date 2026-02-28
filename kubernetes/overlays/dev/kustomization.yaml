@@ -1,0 +1,10 @@
+# OneinchMarket v2 - Dev Overlay
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+# Phase 4에서 추가:
+# patches: []
+# generators: []

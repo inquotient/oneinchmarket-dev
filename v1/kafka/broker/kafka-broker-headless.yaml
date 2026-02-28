@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-br-headless
+  labels:
+    app: kafka-br
+spec:
+  ports:
+  - port: 9092
+    name: kafka-br-listner
+  - port: 9094
+    name: kafka-br-internal
+  clusterIP: None
+  selector:
+    app: kafka-br

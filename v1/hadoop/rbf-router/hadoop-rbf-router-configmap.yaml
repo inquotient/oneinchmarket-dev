@@ -1,0 +1,109 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hadoop-rbf-router-configmap
+data:
+  core-site.xml: |
+    <configuration>
+      <property>
+        <name>fs.defaultFS</name>
+        <value>hdfs://hadoop-rbf-router-headless.dev.svc.cluster.local:8888</value>
+      </property>
+      <property>
+        <name>hadoop.security.dns.caching</name>
+        <value>false</value>
+      </property>
+    </configuration>
+  hdfs-rbf-site.xml: |
+    <configuration>
+      <!-- 논리 nameservices (여러 리전 묶음 가정) -->
+      <property>
+        <name>dfs.nameservices</name>
+        <value>hdfs-ns-kr</value>
+      </property>
+      <property>
+        <name>dfs.ha.namenodes.hdfs-ns-kr</name>
+        <value>nn1,nn2</value>
+      </property>
+
+      <!-- 각 네임서비스의 NN RPC 주소 (예: 현 리전은 hdfs-ns, 타리전은 별도) -->
+      <property>
+        <name>dfs.federation.router.namenode.router-rpc-address</name>
+        <value>hadoop-namenode-headless.dev.svc.cluster.local:8020</value>
+      </property>
+      <property>
+        <name>dfs.namenode.rpc-address.hdfs-ns-kr.nn1</name>
+        <value>hadoop-namenode-0.hadoop-namenode-headless.dev.svc.cluster.local:8020</value>
+      </property>
+      <property>
+        <name>dfs.namenode.rpc-address.hdfs-ns-kr.nn2</name>
+        <value>hadoop-namenode-1.hadoop-namenode-headless.dev.svc.cluster.local:8020</value>
+      </property>
+      <property>
+        <name>dfs.client.failover.proxy.provider.hdfs-ns-kr</name>
+        <value>org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider</value>
+      </property>
+
+      <!-- (권장) 자동 페일오버 on -->
+      <property>
+        <name>dfs.ha.automatic-failover.enabled</name>
+        <value>true</value>
+      </property>
+      <property>
+        <name>ha.zk.quorum</name>
+        <value>zookeeper-headless.dev.svc.cluster.local:2181</value>
+        <!-- 여러 대면 쉼표로: zk-0:2181,zk-1:2181,zk-2:2181 -->
+      </property>
+
+      <property>
+        <name>hadoop.zk.address</name>
+        <value>zookeeper-headless.dev.svc.cluster.local:2181</value>
+        <!-- 여러 대면 쉼표로: zk-0:2181,zk-1:2181,zk-2:2181 -->
+      </property>
+
+      <property>
+        <name>dfs.namenode.http-address.hdfs-ns-kr.nn1</name>
+        <value>hadoop-namenode-0.hadoop-namenode-headless.dev.svc.cluster.local:9870</value>
+      </property>
+      <property>
+        <name>dfs.namenode.http-address.hdfs-ns-kr.nn2</name>
+        <value>hadoop-namenode-1.hadoop-namenode-headless.dev.svc.cluster.local:9870</value>
+      </property>
+
+      <property>
+        <name>dfs.federation.router.rpc-address</name>
+        <value>0.0.0.0:8888</value>
+      </property>
+      <property>
+        <name>dfs.federation.router.http-address</name>
+        <value>0.0.0.0:50071</value>
+      </property>
+      <property>
+        <name>dfs.federation.router.admin-address</name>
+        <value>0.0.0.0:8111</value>
+      </property>
+      <property>
+        <name>dfs.federation.router.default.nameserviceId</name>
+        <value>hdfs-ns-kr</value>
+      </property>
+      <property>
+        <name>dfs.federation.router.namenodes</name>
+        <value>hdfs-ns-kr:nn1,hdfs-ns-kr:nn2</value>
+      </property>
+      <property>
+        <name>dfs.federation.router.store.driver.class</name>
+        <value>org.apache.hadoop.hdfs.server.federation.store.driver.impl.StateStoreZooKeeperImpl</value>
+      </property>
+      <property>
+        <name>dfs.federation.router.quota.enable</name>
+        <value>true</value>
+      </property>
+      <property>
+        <name>dfs.federation.router.monitor.localnamenode.enable</name>
+        <value>false</value>
+      </property>
+      <property>
+        <name>dfs.federation.router.monitor.namenode</name>
+        <value>hdfs-ns-kr.nn1,hdfs-ns-kr.nn2</value>
+      </property>
+    </configuration>

@@ -1,0 +1,33 @@
+# SOPS 복호화된 평문 Secret (암호화된 .enc.yaml만 커밋)
+*.dec.yaml
+
+# age 키 (절대 커밋 금지)
+keys.txt
+*.age
+
+# TLS 개인키/인증서 (Secret으로 관리)
+*.key
+*.crt
+*.p12
+*.jks
+*.jks.old
+*.pem
+
+# MariaDB TDE 키
+**/tde/
+
+# 바이너리
+**/kubectl
+
+# OS/IDE
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Terraform/OpenTofu
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars.json
