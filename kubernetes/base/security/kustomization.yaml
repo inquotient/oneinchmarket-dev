@@ -3,19 +3,19 @@ kind: Kustomization
 
 resources:
   # Keycloak
-  - keycloak-statefulset.yaml
-  - keycloak-headless.yaml
-  - keycloak-configmap.yaml
-  - keycloak-secret.enc.yaml
+  - keycloak/keycloak-statefulset.yaml
+  - keycloak/keycloak-headless.yaml
+  - keycloak/keycloak-configmap.yaml
+  - keycloak/keycloak-secret.enc.yaml
 
   # Kyverno Policies
-  - kyverno-disallow-root.yaml
-  - kyverno-require-resources.yaml
-  - kyverno-disallow-latest.yaml
-  - kyverno-disallow-privilege-escalation.yaml
-  - kyverno-require-labels.yaml
-  - kyverno-require-probes.yaml
+  - kyverno/kyverno-disallow-root.yaml
+  - kyverno/kyverno-require-resources.yaml
+  - kyverno/kyverno-disallow-latest.yaml
+  - kyverno/kyverno-disallow-privilege-escalation.yaml
+  - kyverno/kyverno-require-labels.yaml
+  - kyverno/kyverno-require-probes.yaml
 
   # Pod Security Standards - Namespaces
-  - namespace-dev.yaml
-  - namespace-prod.yaml
+  - namespaces/namespace-dev.yaml
+  - namespaces/namespace-prod.yaml

@@ -3,14 +3,14 @@ kind: Kustomization
 
 resources:
   # Kafka KRaft
-  - kafka-statefulset.yaml
-  - kafka-headless.yaml
-  - kafka-configmap.yaml
+  - kafka/kafka-statefulset.yaml
+  - kafka/kafka-headless.yaml
+  - kafka/kafka-configmap.yaml
   # Apicurio Registry
-  - apicurio-statefulset.yaml
-  - apicurio-headless.yaml
-  - apicurio-secret.enc.yaml
+  - apicurio/apicurio-statefulset.yaml
+  - apicurio/apicurio-headless.yaml
+  - apicurio/apicurio-secret.enc.yaml
   # AKHQ
-  - akhq-statefulset.yaml
-  - akhq-headless.yaml
-  - akhq-configmap.yaml
+  - akhq/akhq-statefulset.yaml
+  - akhq/akhq-headless.yaml
+  - akhq/akhq-configmap.yaml

@@ -3,23 +3,23 @@ kind: Kustomization
 
 resources:
   # PostgreSQL
-  - postgresql-statefulset.yaml
-  - postgresql-headless.yaml
-  - postgresql-configmap.yaml
-  - postgresql-secret.enc.yaml
+  - postgresql/postgresql-statefulset.yaml
+  - postgresql/postgresql-headless.yaml
+  - postgresql/postgresql-configmap.yaml
+  - postgresql/postgresql-secret.enc.yaml
   # MariaDB
-  - mariadb-statefulset.yaml
-  - mariadb-headless.yaml
-  - mariadb-configmap.yaml
-  - mariadb-secret.enc.yaml
+  - mariadb/mariadb-statefulset.yaml
+  - mariadb/mariadb-headless.yaml
+  - mariadb/mariadb-configmap.yaml
+  - mariadb/mariadb-secret.enc.yaml
   # MongoDB
-  - mongodb-statefulset.yaml
-  - mongodb-headless.yaml
-  - mongodb-secret.enc.yaml
+  - mongodb/mongodb-statefulset.yaml
+  - mongodb/mongodb-headless.yaml
+  - mongodb/mongodb-secret.enc.yaml
   # Redis
-  - redis-statefulset.yaml
-  - redis-headless.yaml
-  - redis-secret.enc.yaml
+  - redis/redis-statefulset.yaml
+  - redis/redis-headless.yaml
+  - redis/redis-secret.enc.yaml
 
 commonLabels:
   app.kubernetes.io/part-of: oneinchmarket

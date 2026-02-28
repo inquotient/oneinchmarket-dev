@@ -2,7 +2,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  - gitlab-statefulset.yaml
-  - gitlab-headless.yaml
-  - gitlab-configmap.yaml
-  - gitlab-secret.enc.yaml
+  - gitlab/gitlab-statefulset.yaml
+  - gitlab/gitlab-headless.yaml
+  - gitlab/gitlab-configmap.yaml
+  - gitlab/gitlab-secret.enc.yaml

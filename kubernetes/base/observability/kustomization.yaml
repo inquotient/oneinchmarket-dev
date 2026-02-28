@@ -3,18 +3,18 @@ kind: Kustomization
 
 resources:
   # Elasticsearch (ECK Operator)
-  - elasticsearch.yaml
+  - elasticsearch/elasticsearch.yaml
   # Kibana (ECK Operator)
-  - kibana.yaml
+  - kibana/kibana.yaml
   # Logstash
-  - logstash-statefulset.yaml
-  - logstash-headless.yaml
-  - logstash-configmap.yaml
+  - logstash/logstash-statefulset.yaml
+  - logstash/logstash-headless.yaml
+  - logstash/logstash-configmap.yaml
   # Filebeat
-  - filebeat-daemonset.yaml
-  - filebeat-configmap.yaml
+  - filebeat/filebeat-daemonset.yaml
+  - filebeat/filebeat-configmap.yaml
   # Secrets
-  - elasticsearch-secret.enc.yaml
+  - elasticsearch/elasticsearch-secret.enc.yaml
 
 commonLabels:
   app.kubernetes.io/part-of: oneinchmarket

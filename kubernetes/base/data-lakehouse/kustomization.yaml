@@ -3,18 +3,18 @@ kind: Kustomization
 
 resources:
   # MinIO - Object Storage
-  - minio-statefulset.yaml
-  - minio-headless.yaml
-  - minio-secret.enc.yaml
+  - minio/minio-statefulset.yaml
+  - minio/minio-headless.yaml
+  - minio/minio-secret.enc.yaml
   # Trino - Query Engine
-  - trino-statefulset.yaml
-  - trino-headless.yaml
-  - trino-configmap.yaml
+  - trino/trino-statefulset.yaml
+  - trino/trino-headless.yaml
+  - trino/trino-configmap.yaml
   # Hive Metastore - Metadata Service
-  - hive-metastore-statefulset.yaml
-  - hive-metastore-headless.yaml
-  - hive-metastore-configmap.yaml
-  - hive-metastore-secret.enc.yaml
+  - hive-metastore/hive-metastore-statefulset.yaml
+  - hive-metastore/hive-metastore-headless.yaml
+  - hive-metastore/hive-metastore-configmap.yaml
+  - hive-metastore/hive-metastore-secret.enc.yaml
 
 commonLabels:
   app.kubernetes.io/part-of: oneinchmarket

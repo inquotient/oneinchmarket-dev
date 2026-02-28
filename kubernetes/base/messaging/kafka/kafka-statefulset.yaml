@@ -31,7 +31,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: kafka
-          image: apache/kafka:4.1.1
+          image: apache/kafka:latest
           ports:
             - containerPort: 9092
               name: plaintext
