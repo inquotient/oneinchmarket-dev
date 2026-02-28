@@ -1,0 +1,121 @@
+# Elasticsearch ILM (Index Lifecycle Management) 초기 설정 Job
+# ILM 정책 + 인덱스 템플릿 생성
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: elasticsearch-ilm-setup
+  labels:
+    app.kubernetes.io/name: elasticsearch-ilm-setup
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: elasticsearch-ilm-setup
+        app.kubernetes.io/component: observability
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ilm-setup
+          image: curlimages/curl:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+
+              ES_URL="https://elasticsearch-es-http:9200"
+              AUTH="elastic:${ES_PASSWORD}"
+              OPTS="--cacert /etc/elasticsearch/certs/ca.crt -sf"
+
+              echo "[1/3] Creating ILM policy..."
+              curl ${OPTS} -X PUT "${ES_URL}/_ilm/policy/oneinchmarket-ilm" \
+                -u "${AUTH}" -H "Content-Type: application/json" -d '{
+                "policy": {
+                  "phases": {
+                    "hot": {
+                      "min_age": "0ms",
+                      "actions": {
+                        "rollover": {
+                          "max_size": "10gb",
+                          "max_age": "7d"
+                        },
+                        "set_priority": { "priority": 100 }
+                      }
+                    },
+                    "warm": {
+                      "min_age": "7d",
+                      "actions": {
+                        "shrink": { "number_of_shards": 1 },
+                        "forcemerge": { "max_num_segments": 1 },
+                        "set_priority": { "priority": 50 }
+                      }
+                    },
+                    "delete": {
+                      "min_age": "30d",
+                      "actions": {
+                        "delete": {}
+                      }
+                    }
+                  }
+                }
+              }'
+
+              echo "[2/3] Creating index templates..."
+              for IDX in logstash falco-alerts keycloak-events trivy-reports; do
+                curl ${OPTS} -X PUT "${ES_URL}/_index_template/${IDX}-template" \
+                  -u "${AUTH}" -H "Content-Type: application/json" -d "{
+                  \"index_patterns\": [\"${IDX}-*\"],
+                  \"template\": {
+                    \"settings\": {
+                      \"number_of_shards\": 1,
+                      \"number_of_replicas\": 1,
+                      \"index.lifecycle.name\": \"oneinchmarket-ilm\",
+                      \"index.lifecycle.rollover_alias\": \"${IDX}\"
+                    }
+                  }
+                }"
+                echo " -> ${IDX} template created"
+              done
+
+              echo "[3/3] Creating initial write aliases..."
+              for IDX in logstash falco-alerts keycloak-events trivy-reports; do
+                curl ${OPTS} -X PUT "${ES_URL}/${IDX}-000001" \
+                  -u "${AUTH}" -H "Content-Type: application/json" -d "{
+                  \"aliases\": {
+                    \"${IDX}\": { \"is_write_index\": true }
+                  }
+                }" 2>/dev/null || echo " -> ${IDX} index already exists"
+              done
+
+              echo "=== ILM setup completed ==="
+          env:
+            - name: ES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: elasticsearch-secret
+                  key: elastic-password
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

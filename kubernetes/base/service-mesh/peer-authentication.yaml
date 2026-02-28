@@ -1,0 +1,39 @@
+# Istio Ambient Mode - Strict mTLS (메시 전역)
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: istio-system
+  labels:
+    app.kubernetes.io/component: service-mesh
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  mtls:
+    mode: STRICT
+---
+# Dev namespace - mTLS Strict
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: dev
+  labels:
+    app.kubernetes.io/component: service-mesh
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  mtls:
+    mode: STRICT
+---
+# Prod namespace - mTLS Strict
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: prod
+  labels:
+    app.kubernetes.io/component: service-mesh
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  mtls:
+    mode: STRICT

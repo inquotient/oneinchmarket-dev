@@ -1,0 +1,149 @@
+# Istio AuthorizationPolicy - 서비스 간 접근 제어
+# 기본 정책: 명시적으로 허용된 통신만 가능
+
+# Database 접근 제어 - DB는 허용된 서비스만 접속
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-database-access
+  labels:
+    app.kubernetes.io/component: service-mesh
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: database
+  action: ALLOW
+  rules:
+    # Keycloak → PostgreSQL
+    - from:
+        - source:
+            principals: ["cluster.local/ns/*/sa/keycloak"]
+      to:
+        - operation:
+            ports: ["5432"]
+    # Hive Metastore → PostgreSQL
+    - from:
+        - source:
+            principals: ["cluster.local/ns/*/sa/hive-metastore"]
+      to:
+        - operation:
+            ports: ["5432"]
+    # Apicurio → PostgreSQL
+    - from:
+        - source:
+            principals: ["cluster.local/ns/*/sa/apicurio"]
+      to:
+        - operation:
+            ports: ["5432"]
+    # GitLab → PostgreSQL
+    - from:
+        - source:
+            principals: ["cluster.local/ns/*/sa/gitlab"]
+      to:
+        - operation:
+            ports: ["5432"]
+    # Admin/CMMN-API → MariaDB
+    - from:
+        - source:
+            principals:
+              - "cluster.local/ns/*/sa/admin"
+              - "cluster.local/ns/*/sa/cmmn-api"
+      to:
+        - operation:
+            ports: ["3306"]
+    # Application → MongoDB
+    - from:
+        - source:
+            principals:
+              - "cluster.local/ns/*/sa/admin"
+              - "cluster.local/ns/*/sa/cmmn-api"
+      to:
+        - operation:
+            ports: ["27017"]
+    # Application → Redis
+    - from:
+        - source:
+            principals:
+              - "cluster.local/ns/*/sa/keycloak"
+              - "cluster.local/ns/*/sa/admin"
+              - "cluster.local/ns/*/sa/cmmn-api"
+      to:
+        - operation:
+            ports: ["6379"]
+---
+# Messaging 접근 제어 - Kafka
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-messaging-access
+  labels:
+    app.kubernetes.io/component: service-mesh
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafka
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - "cluster.local/ns/*/sa/akhq"
+              - "cluster.local/ns/*/sa/apicurio"
+              - "cluster.local/ns/*/sa/logstash"
+              - "cluster.local/ns/*/sa/admin"
+              - "cluster.local/ns/*/sa/cmmn-api"
+              - "cluster.local/ns/argo-events/sa/argo-events-sa"
+      to:
+        - operation:
+            ports: ["9092", "9093"]
+---
+# Observability 접근 제어 - Elasticsearch
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-observability-access
+  labels:
+    app.kubernetes.io/component: service-mesh
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: elasticsearch
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - "cluster.local/ns/*/sa/kibana"
+              - "cluster.local/ns/*/sa/logstash"
+              - "cluster.local/ns/*/sa/filebeat"
+              - "cluster.local/ns/*/sa/falcosidekick"
+              - "cluster.local/ns/*/sa/trivy-scanner"
+      to:
+        - operation:
+            ports: ["9200"]
+---
+# Data Lakehouse 접근 제어 - MinIO
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-datalakehouse-access
+  labels:
+    app.kubernetes.io/component: service-mesh
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: minio
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - "cluster.local/ns/*/sa/trino"
+              - "cluster.local/ns/*/sa/hive-metastore"
+      to:
+        - operation:
+            ports: ["9000", "9001"]

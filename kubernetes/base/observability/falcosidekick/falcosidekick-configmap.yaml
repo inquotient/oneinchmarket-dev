@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: falcosidekick-config
+  labels:
+    app.kubernetes.io/name: falcosidekick
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+data:
+  config.yaml: |
+    # Falcosidekick Configuration
+    # Falco 이벤트를 Elasticsearch + Slack으로 라우팅
+
+    debug: false
+    customfields:
+      cluster: oneinchmarket
+      environment: dev
+
+    elasticsearch:
+      hostport: "https://elasticsearch-es-http:9200"
+      index: "falco-alerts"
+      type: "_doc"
+      minimumpriority: "warning"
+      mutualtls: false
+      checkcert: false
+      username: "elastic"
+      password: ""
+
+    slack:
+      webhookurl: ""
+      minimumpriority: "error"
+      messageformat: |
+        *Priority*: {{ .Priority }}
+        *Rule*: {{ .Rule }}
+        *Output*: {{ .Output }}
+        *Namespace*: {{ index .OutputFields "k8s.ns.name" }}
+        *Pod*: {{ index .OutputFields "k8s.pod.name" }}
+        *Container*: {{ index .OutputFields "container.name" }}
+
+    kafka:
+      hostport: "kafka-headless:9092"
+      topic: "falco-alerts"
+      minimumpriority: "error"
+
+    webui:
+      url: ""

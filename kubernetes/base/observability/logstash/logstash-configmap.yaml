@@ -10,18 +10,87 @@ data:
   logstash.yml: |
     http.host: "0.0.0.0"
     monitoring.enabled: false
+    pipeline.workers: 2
+    pipeline.batch.size: 125
+
   pipeline.conf: |
     input {
+      # Filebeat → 애플리케이션/시스템 로그
       beats {
         port => 5044
       }
+
+      # Kafka → Keycloak 이벤트 + Falco 알림
+      kafka {
+        bootstrap_servers => "kafka-headless:9092"
+        topics => ["keycloak-events", "falco-alerts"]
+        group_id => "logstash-siem"
+        codec => json
+        consumer_threads => 2
+        decorate_events => "basic"
+        add_field => { "[@metadata][pipeline]" => "kafka" }
+      }
     }
+
+    filter {
+      # Falco 알림 처리
+      if [@metadata][pipeline] == "kafka" and [kafka][topic] == "falco-alerts" {
+        mutate {
+          add_field => { "[@metadata][target_index]" => "falco-alerts" }
+          add_field => { "event.kind" => "alert" }
+          add_field => { "event.module" => "falco" }
+        }
+        date {
+          match => ["time", "ISO8601"]
+          target => "@timestamp"
+        }
+      }
+
+      # Keycloak 이벤트 처리
+      else if [@metadata][pipeline] == "kafka" and [kafka][topic] == "keycloak-events" {
+        mutate {
+          add_field => { "[@metadata][target_index]" => "keycloak-events" }
+          add_field => { "event.kind" => "event" }
+          add_field => { "event.module" => "keycloak" }
+        }
+      }
+
+      # Filebeat 로그 처리
+      else {
+        mutate {
+          add_field => { "[@metadata][target_index]" => "logstash" }
+        }
+
+        # K8s 메타데이터 파싱
+        if [kubernetes][namespace] {
+          mutate {
+            add_field => { "k8s.namespace" => "%{[kubernetes][namespace]}" }
+            add_field => { "k8s.pod" => "%{[kubernetes][pod][name]}" }
+            add_field => { "k8s.container" => "%{[kubernetes][container][name]}" }
+          }
+        }
+
+        # JSON 로그 파싱 시도
+        if [message] =~ /^\{/ {
+          json {
+            source => "message"
+            target => "parsed"
+            skip_on_invalid_json => true
+          }
+        }
+      }
+    }
+
     output {
       elasticsearch {
         hosts => ["https://elasticsearch-es-http:9200"]
         user => "elastic"
         password => "${ES_PASSWORD}"
         ssl_certificate_verification => false
-        index => "logstash-%{+YYYY.MM.dd}"
+        index => "%{[@metadata][target_index]}-%{+YYYY.MM.dd}"
+        ilm_enabled => true
+        ilm_rollover_alias => "%{[@metadata][target_index]}"
+        ilm_pattern => "{now/d}-000001"
+        ilm_policy => "oneinchmarket-ilm"
       }
     }

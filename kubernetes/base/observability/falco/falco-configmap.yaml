@@ -1,0 +1,144 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: falco-config
+  labels:
+    app.kubernetes.io/name: falco
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+data:
+  falco.yaml: |
+    rules_file:
+      - /etc/falco/falco_rules.yaml
+      - /etc/falco/rules.d/custom-rules.yaml
+
+    json_output: true
+    json_include_output_property: true
+    log_stderr: true
+    log_syslog: false
+    log_level: info
+    priority: warning
+    buffered_outputs: false
+    syscall_event_drops:
+      actions:
+        - log
+        - alert
+      rate: 0.03333
+      max_burst: 1
+
+    http_output:
+      enabled: true
+      url: "http://falcosidekick:2801"
+      keep_alive: true
+
+    grpc:
+      enabled: false
+
+    webserver:
+      enabled: true
+      listen_port: 8765
+
+  custom-rules.yaml: |
+    # OneinchMarket 커스텀 Falco 탐지 규칙
+
+    # 1. 컨테이너 내 쉘 실행 탐지
+    - rule: Terminal shell in container
+      desc: 컨테이너 내에서 터미널 쉘이 실행됨
+      condition: >
+        spawned_process and container and
+        proc.name in (bash, sh, zsh, ash) and
+        not proc.pname in (healthcheck, node, java, python, python3, ruby)
+      output: >
+        쉘 실행 탐지
+        (user=%user.name container=%container.name
+        image=%container.image.repository
+        command=%proc.cmdline
+        pod=%k8s.pod.name ns=%k8s.ns.name)
+      priority: WARNING
+      tags: [container, shell, mitre_execution]
+
+    # 2. 민감 파일 수정 시도
+    - rule: Modify sensitive files in container
+      desc: 컨테이너 내 /etc 하위 민감 파일 수정 시도
+      condition: >
+        open_write and container and
+        (fd.name startswith /etc/passwd or
+         fd.name startswith /etc/shadow or
+         fd.name startswith /etc/sudoers or
+         fd.name startswith /etc/pam.d) and
+        not proc.name in (sed, tee, useradd, usermod)
+      output: >
+        민감 파일 수정 시도
+        (file=%fd.name user=%user.name
+        container=%container.name
+        image=%container.image.repository
+        pod=%k8s.pod.name ns=%k8s.ns.name)
+      priority: ERROR
+      tags: [filesystem, mitre_persistence]
+
+    # 3. 비정상 아웃바운드 연결
+    - rule: Unexpected outbound connection from container
+      desc: 컨테이너에서 내부 네트워크 외부로 연결 시도
+      condition: >
+        outbound and container and
+        not fd.sip in (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) and
+        not k8s.ns.name in (kube-system, istio-system)
+      output: >
+        비정상 외부 연결
+        (container=%container.name
+        connection=%fd.name
+        image=%container.image.repository
+        pod=%k8s.pod.name ns=%k8s.ns.name)
+      priority: ERROR
+      tags: [network, mitre_exfiltration]
+
+    # 4. 컨테이너 탈출 시도
+    - rule: Container escape attempt
+      desc: 컨테이너 탈출 시도 (nsenter, mount, unshare 등)
+      condition: >
+        spawned_process and container and
+        proc.name in (nsenter, mount, unshare, chroot, pivot_root)
+      output: >
+        컨테이너 탈출 시도!
+        (container=%container.name
+        command=%proc.cmdline
+        user=%user.name
+        image=%container.image.repository
+        pod=%k8s.pod.name ns=%k8s.ns.name)
+      priority: CRITICAL
+      tags: [container, escape, mitre_privilege_escalation]
+
+    # 5. 암호화폐 채굴 탐지
+    - rule: Crypto mining detection
+      desc: 암호화폐 채굴 프로세스 또는 마이닝풀 연결
+      condition: >
+        (spawned_process and container and
+         proc.name in (xmrig, minerd, minergate, cpuminer, cgminer, bfgminer)) or
+        (outbound and container and
+         fd.sport in (3333, 4444, 5555, 8333, 14444, 14433))
+      output: >
+        암호화폐 채굴 의심
+        (container=%container.name
+        process=%proc.name
+        command=%proc.cmdline
+        image=%container.image.repository
+        pod=%k8s.pod.name ns=%k8s.ns.name)
+      priority: CRITICAL
+      tags: [crypto, mining, mitre_resource_hijacking]
+
+    # 6. K8s Secret 접근 탐지
+    - rule: Read sensitive Kubernetes files
+      desc: 컨테이너 내에서 마운트된 K8s Secret 파일 읽기 시도
+      condition: >
+        open_read and container and
+        (fd.name startswith /var/run/secrets/kubernetes.io or
+         fd.name startswith /etc/kubernetes) and
+        not k8s.ns.name in (kube-system, istio-system)
+      output: >
+        K8s Secret 파일 접근
+        (file=%fd.name
+        container=%container.name
+        pod=%k8s.pod.name ns=%k8s.ns.name)
+      priority: WARNING
+      tags: [secrets, mitre_credential_access]

@@ -4,6 +4,7 @@ kind: Kustomization
 resources:
   # Elasticsearch (ECK Operator)
   - elasticsearch/elasticsearch.yaml
+  - elasticsearch/elasticsearch-ilm.yaml
   # Kibana (ECK Operator)
   - kibana/kibana.yaml
   # Logstash
@@ -13,6 +14,18 @@ resources:
   # Filebeat
   - filebeat/filebeat-daemonset.yaml
   - filebeat/filebeat-configmap.yaml
+  # Falco - Runtime Threat Detection
+  - falco/falco-daemonset.yaml
+  - falco/falco-configmap.yaml
+  - falco/falco-rbac.yaml
+  # Falcosidekick - Alert Routing
+  - falcosidekick/falcosidekick-deployment.yaml
+  - falcosidekick/falcosidekick-service.yaml
+  - falcosidekick/falcosidekick-configmap.yaml
+  - falcosidekick/falcosidekick-secret.enc.yaml
+  # Trivy - Weekly Image Scan
+  - trivy/trivy-cronjob.yaml
+  - trivy/trivy-rbac.yaml
   # Secrets
   - elasticsearch/elasticsearch-secret.enc.yaml
 
