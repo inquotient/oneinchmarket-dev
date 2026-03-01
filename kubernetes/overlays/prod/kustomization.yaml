@@ -22,7 +22,7 @@ images:
     newTag: "11.4.3"
   - name: percona/percona-server-mongodb
     newTag: "7.0.14"
-  - name: bitnami/redis-cluster
+  - name: bitnami/redis
     newTag: "7.4.1"
   - name: keycloak/keycloak
     newTag: "26.0.7"

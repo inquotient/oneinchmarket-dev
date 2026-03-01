@@ -31,7 +31,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: redis
-          image: bitnami/redis-cluster:latest
+          image: bitnami/redis:latest
           ports:
             - containerPort: 6379
               name: redis
@@ -45,12 +45,6 @@ spec:
                 secretKeyRef:
                   name: redis-secret
                   key: redis-password
-            - name: REDIS_NODES
-              value: "redis-0.redis-headless redis-1.redis-headless redis-2.redis-headless redis-3.redis-headless redis-4.redis-headless redis-5.redis-headless"
-            - name: REDIS_CLUSTER_CREATOR
-              value: "yes"
-            - name: REDIS_CLUSTER_REPLICAS
-              value: "1"
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
