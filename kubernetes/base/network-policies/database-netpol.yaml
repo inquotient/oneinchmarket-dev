@@ -102,6 +102,9 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: keycloak
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: gitlab
       ports:
         - protocol: TCP
           port: 6379

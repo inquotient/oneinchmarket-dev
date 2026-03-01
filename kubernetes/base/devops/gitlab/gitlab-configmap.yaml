@@ -20,6 +20,7 @@ data:
     gitlab_rails['db_port'] = 5432
     gitlab_rails['db_database'] = 'gitlab'
     gitlab_rails['db_username'] = 'gitlab'
+    gitlab_rails['db_password'] = ENV['GITLAB_DB_PASSWORD']
 
     redis['enable'] = false
     gitlab_rails['redis_host'] = 'redis-headless'

@@ -48,8 +48,17 @@ spec:
           envFrom:
             - configMapRef:
                 name: gitlab-config
-            - secretRef:
-                name: gitlab-secret
+          env:
+            - name: GITLAB_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: gitlab-secret
+                  key: db-password
+            - name: GITLAB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: gitlab-secret
+                  key: root-password
           resources:
             requests:
               cpu: 500m
