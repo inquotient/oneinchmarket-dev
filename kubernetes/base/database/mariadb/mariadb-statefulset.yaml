@@ -42,6 +42,11 @@ spec:
                 secretKeyRef:
                   name: mariadb-secret
                   key: root-password
+            - name: MARIADB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mariadb-secret
+                  key: app-password
           envFrom:
             - configMapRef:
                 name: mariadb-config
