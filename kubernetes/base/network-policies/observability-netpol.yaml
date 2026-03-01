@@ -18,6 +18,10 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: nginx
+        # ECK operator (elastic-system namespace) needs access
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: elastic-system
       ports:
         - protocol: TCP
           port: 5601
@@ -78,6 +82,13 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: filebeat
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: elasticsearch-ilm-setup
+        # ECK operator (elastic-system namespace) needs API access
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: elastic-system
       ports:
         - protocol: TCP
           port: 9200

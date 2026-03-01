@@ -14,7 +14,6 @@ spec:
       count: 3
       config:
         node.roles: ["master", "data", "ingest"]
-        xpack.security.enabled: true
       podTemplate:
         metadata:
           labels:

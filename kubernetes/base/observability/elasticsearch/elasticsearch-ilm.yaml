@@ -106,8 +106,12 @@ spec:
             - name: ES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: elasticsearch-secret
-                  key: elastic-password
+                  name: elasticsearch-es-elastic-user
+                  key: elastic
+          volumeMounts:
+            - name: es-certs
+              mountPath: /etc/elasticsearch/certs
+              readOnly: true
           resources:
             requests:
               cpu: 50m
@@ -119,3 +123,7 @@ spec:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
+      volumes:
+        - name: es-certs
+          secret:
+            secretName: elasticsearch-es-http-certs-public
