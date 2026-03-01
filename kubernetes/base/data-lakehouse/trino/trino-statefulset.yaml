@@ -36,6 +36,17 @@ spec:
             - containerPort: 8080
               name: http
               protocol: TCP
+          env:
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: root-user
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: root-password
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -73,3 +84,16 @@ spec:
         - name: trino-config
           configMap:
             name: trino-config
+            items:
+              - key: config.properties
+                path: config.properties
+              - key: jvm.config
+                path: jvm.config
+              - key: node.properties
+                path: node.properties
+              - key: log.properties
+                path: log.properties
+              - key: catalog-iceberg.properties
+                path: catalog/iceberg.properties
+              - key: catalog-hive.properties
+                path: catalog/hive.properties
