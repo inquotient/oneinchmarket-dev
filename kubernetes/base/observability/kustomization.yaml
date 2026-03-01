@@ -22,12 +22,12 @@ resources:
   - falcosidekick/falcosidekick-deployment.yaml
   - falcosidekick/falcosidekick-service.yaml
   - falcosidekick/falcosidekick-configmap.yaml
-  - falcosidekick/falcosidekick-secret.enc.yaml
+  # - falcosidekick/falcosidekick-secret.enc.yaml  # SOPS: re-enable after ArgoCD SOPS plugin setup
   # Trivy - Weekly Image Scan
   - trivy/trivy-cronjob.yaml
   - trivy/trivy-rbac.yaml
   # Secrets
-  - elasticsearch/elasticsearch-secret.enc.yaml
+  # - elasticsearch/elasticsearch-secret.enc.yaml  # SOPS: re-enable after ArgoCD SOPS plugin setup
 
 commonLabels:
   app.kubernetes.io/part-of: oneinchmarket

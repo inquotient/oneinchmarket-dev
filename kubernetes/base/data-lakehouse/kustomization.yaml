@@ -5,7 +5,7 @@ resources:
   # MinIO - Object Storage
   - minio/minio-statefulset.yaml
   - minio/minio-headless.yaml
-  - minio/minio-secret.enc.yaml
+  # - minio/minio-secret.enc.yaml  # SOPS: re-enable after ArgoCD SOPS plugin setup
   # Trino - Query Engine
   - trino/trino-statefulset.yaml
   - trino/trino-headless.yaml
@@ -14,7 +14,7 @@ resources:
   - hive-metastore/hive-metastore-statefulset.yaml
   - hive-metastore/hive-metastore-headless.yaml
   - hive-metastore/hive-metastore-configmap.yaml
-  - hive-metastore/hive-metastore-secret.enc.yaml
+  # - hive-metastore/hive-metastore-secret.enc.yaml  # SOPS: re-enable after ArgoCD SOPS plugin setup
 
 commonLabels:
   app.kubernetes.io/part-of: oneinchmarket

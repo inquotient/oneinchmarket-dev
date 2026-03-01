@@ -6,20 +6,20 @@ resources:
   - postgresql/postgresql-statefulset.yaml
   - postgresql/postgresql-headless.yaml
   - postgresql/postgresql-configmap.yaml
-  - postgresql/postgresql-secret.enc.yaml
+  # - postgresql/postgresql-secret.enc.yaml  # SOPS: re-enable after ArgoCD SOPS plugin setup
   # MariaDB
   - mariadb/mariadb-statefulset.yaml
   - mariadb/mariadb-headless.yaml
   - mariadb/mariadb-configmap.yaml
-  - mariadb/mariadb-secret.enc.yaml
+  # - mariadb/mariadb-secret.enc.yaml  # SOPS: re-enable after ArgoCD SOPS plugin setup
   # MongoDB
   - mongodb/mongodb-statefulset.yaml
   - mongodb/mongodb-headless.yaml
-  - mongodb/mongodb-secret.enc.yaml
+  # - mongodb/mongodb-secret.enc.yaml  # SOPS: re-enable after ArgoCD SOPS plugin setup
   # Redis
   - redis/redis-statefulset.yaml
   - redis/redis-headless.yaml
-  - redis/redis-secret.enc.yaml
+  # - redis/redis-secret.enc.yaml  # SOPS: re-enable after ArgoCD SOPS plugin setup
 
 commonLabels:
   app.kubernetes.io/part-of: oneinchmarket

@@ -5,7 +5,7 @@ resources:
   - gitlab/gitlab-statefulset.yaml
   - gitlab/gitlab-headless.yaml
   - gitlab/gitlab-configmap.yaml
-  - gitlab/gitlab-secret.enc.yaml
+  # - gitlab/gitlab-secret.enc.yaml  # SOPS: re-enable after ArgoCD SOPS plugin setup
 
 commonAnnotations:
   argocd.argoproj.io/sync-wave: "5"

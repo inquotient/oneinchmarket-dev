@@ -5,7 +5,7 @@ resources:
   - keycloak-statefulset.yaml
   - keycloak-headless.yaml
   - keycloak-configmap.yaml
-  - keycloak-secret.enc.yaml
+  # - keycloak-secret.enc.yaml  # SOPS: re-enable after ArgoCD SOPS plugin setup
 
 commonAnnotations:
   argocd.argoproj.io/sync-wave: "4"

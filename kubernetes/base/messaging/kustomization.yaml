@@ -9,7 +9,7 @@ resources:
   # Apicurio Registry
   - apicurio/apicurio-statefulset.yaml
   - apicurio/apicurio-headless.yaml
-  - apicurio/apicurio-secret.enc.yaml
+  # - apicurio/apicurio-secret.enc.yaml  # SOPS: re-enable after ArgoCD SOPS plugin setup
   # AKHQ
   - akhq/akhq-statefulset.yaml
   - akhq/akhq-headless.yaml

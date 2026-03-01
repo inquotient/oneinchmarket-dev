@@ -7,7 +7,7 @@ resources:
   - admin/admin-configmap.yaml
   - cmmn-api/cmmn-api-statefulset.yaml
   - cmmn-api/cmmn-api-headless.yaml
-  - cmmn-api/cmmn-api-secret.enc.yaml
+  # - cmmn-api/cmmn-api-secret.enc.yaml  # SOPS: re-enable after ArgoCD SOPS plugin setup
   - nginx/nginx-deployment.yaml
   - nginx/nginx-service.yaml
   - nginx/nginx-configmap.yaml
