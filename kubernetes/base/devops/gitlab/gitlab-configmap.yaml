@@ -31,3 +31,4 @@ data:
     sidekiq['concurrency'] = 10
 
     prometheus_monitoring['enable'] = false
+    gitlab_rails['monitoring_whitelist'] = ['0.0.0.0/0', '::1/128']

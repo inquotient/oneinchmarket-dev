@@ -95,8 +95,7 @@ spec:
               port: 80
             periodSeconds: 10
           startupProbe:
-            httpGet:
-              path: /-/liveness
+            tcpSocket:
               port: 80
             failureThreshold: 120
             periodSeconds: 10
