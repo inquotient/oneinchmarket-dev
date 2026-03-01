@@ -5,8 +5,8 @@ kind: Kustomization
 namespace: prod
 
 resources:
-  - ../../base
   - namespace.yaml
+  - ../../base
   - pdb.yaml
 
 patches:

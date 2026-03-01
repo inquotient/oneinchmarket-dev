@@ -5,8 +5,8 @@ kind: Kustomization
 namespace: dev
 
 resources:
-  - ../../base
   - namespace.yaml
+  - ../../base
 
 patches:
   - path: patches/replicas-dev.yaml
