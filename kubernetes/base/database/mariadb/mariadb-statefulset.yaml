@@ -83,6 +83,15 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /bitnami/mariadb/data
+            - name: conf
+              mountPath: /opt/bitnami/mariadb/conf
+            - name: tmp
+              mountPath: /opt/bitnami/mariadb/tmp
+      volumes:
+        - name: conf
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
   volumeClaimTemplates:
     - metadata:
         name: data

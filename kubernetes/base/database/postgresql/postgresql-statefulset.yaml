@@ -80,8 +80,12 @@ spec:
               mountPath: /bitnami/postgresql
             - name: conf
               mountPath: /opt/bitnami/postgresql/conf
+            - name: tmp
+              mountPath: /opt/bitnami/postgresql/tmp
       volumes:
         - name: conf
+          emptyDir: {}
+        - name: tmp
           emptyDir: {}
   volumeClaimTemplates:
     - metadata:
