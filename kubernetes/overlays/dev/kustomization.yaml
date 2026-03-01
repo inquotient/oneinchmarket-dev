@@ -12,6 +12,7 @@ patches:
   - path: patches/replicas-dev.yaml
   - path: patches/resources-dev.yaml
   - path: patches/storage-dev.yaml
+  - path: patches/kafka-dev.yaml
 
 commonLabels:
   environment: dev

@@ -32,6 +32,13 @@ spec:
       containers:
         - name: kafka
           image: apache/kafka:latest
+          command:
+            - /bin/bash
+            - -c
+            - |
+              export KAFKA_NODE_ID=${HOSTNAME##*-}
+              export KAFKA_ADVERTISED_LISTENERS="PLAINTEXT://${HOSTNAME}.kafka-headless:9092"
+              /etc/kafka/docker/run
           ports:
             - containerPort: 9092
               name: plaintext
