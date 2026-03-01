@@ -15,5 +15,14 @@ module "vultr" {
   env          = var.env
   network_cidr = var.network_cidr
   subnet_cidr  = var.subnet_cidr
-  region       = var.location
+  region       = local.vultr_region
+}
+
+locals {
+  vultr_region = lookup({
+    "sin" = "sgp"
+    "sgp" = "sgp"
+    "icn" = "icn"
+    "kor" = "icn"
+  }, var.location, "sgp")
 }

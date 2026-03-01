@@ -15,6 +15,11 @@ variable "worker_spec" {
   default = { cpu = 8, memory = 32 }
 }
 
+variable "bastion_plan" {
+  type    = string
+  default = "vc2-1c-1gb"
+}
+
 variable "location" {
   type = string
 }
@@ -41,4 +46,23 @@ variable "network_cidr" {
 variable "subnet_cidr" {
   type    = string
   default = "10.0.1.0/24"
+}
+
+# Provider API keys - 환경변수로 설정 (TF_VAR_vultr_api_key, TF_VAR_hcloud_token 등)
+variable "vultr_api_key" {
+  type      = string
+  default   = ""
+  sensitive = true
+}
+
+variable "hcloud_token" {
+  type      = string
+  default   = ""
+  sensitive = true
+}
+
+variable "hetzner_dns_token" {
+  type      = string
+  default   = ""
+  sensitive = true
 }

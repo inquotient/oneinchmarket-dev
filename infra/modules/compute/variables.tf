@@ -20,9 +20,15 @@ variable "worker_spec" {
   default = { cpu = 8, memory = 32 }
 }
 
+variable "bastion_plan" {
+  type        = string
+  default     = "vc2-1c-1gb"
+  description = "Vultr plan for bastion (WireGuard VPN only)"
+}
+
 variable "location" {
   type        = string
-  description = "Region identifier (sin, sgp, icn, fsn, etc.)"
+  description = "Region identifier (sin, sgp, icn, kor, fsn, etc.)"
 }
 
 variable "ssh_public_key" {
@@ -32,4 +38,19 @@ variable "ssh_public_key" {
 variable "env" {
   type    = string
   default = "dev"
+}
+
+variable "vpc_ids" {
+  type    = list(string)
+  default = []
+}
+
+variable "bastion_firewall_group_id" {
+  type    = string
+  default = ""
+}
+
+variable "k3s_firewall_group_id" {
+  type    = string
+  default = ""
 }

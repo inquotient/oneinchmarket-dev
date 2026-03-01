@@ -28,6 +28,10 @@ keys.txt
 
 # Terraform/OpenTofu
 .terraform/
+.terraform.lock.hcl
 *.tfstate
 *.tfstate.backup
 *.tfvars.json
+.env
+kubeconfig.yaml
+wireguard-client.conf
