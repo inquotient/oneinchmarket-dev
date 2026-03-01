@@ -8,6 +8,6 @@ metadata:
     app.kubernetes.io/part-of: oneinchmarket
     app.kubernetes.io/managed-by: kustomize
     # istio.io/dataplane-mode: ambient  # Disabled: ztunnel HBONE connection issue
-    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce: baseline  # baseline for GitLab EE (requires root)
     pod-security.kubernetes.io/audit: restricted
     pod-security.kubernetes.io/warn: restricted
