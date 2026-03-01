@@ -48,6 +48,17 @@ spec:
                 secretKeyRef:
                   name: cmmn-api-secret
                   key: db-password
+            - name: SPRING_DATA_REDIS_HOST
+              value: "redis-headless"
+            - name: SPRING_DATA_REDIS_PORT
+              value: "6379"
+            - name: SPRING_DATA_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: redis-password
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              value: "kafka-headless:9092"
           resources:
             requests:
               cpu: 100m

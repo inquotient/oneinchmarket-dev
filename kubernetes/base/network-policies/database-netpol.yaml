@@ -105,6 +105,9 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: gitlab
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: application
       ports:
         - protocol: TCP
           port: 6379
