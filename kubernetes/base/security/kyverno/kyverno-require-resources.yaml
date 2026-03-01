@@ -15,7 +15,7 @@ metadata:
       All containers must specify resource requests and limits for CPU and memory
       to ensure proper scheduling and prevent resource exhaustion.
 spec:
-  validationFailureAction: Enforce
+  validationFailureAction: Audit
   background: true
   rules:
     - name: validate-resource-requests

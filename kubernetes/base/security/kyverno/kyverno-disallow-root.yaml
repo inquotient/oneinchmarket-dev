@@ -15,7 +15,7 @@ metadata:
       Containers must not run as the root user. This policy validates that
       all containers set securityContext.runAsNonRoot to true.
 spec:
-  validationFailureAction: Enforce
+  validationFailureAction: Audit
   background: true
   rules:
     - name: validate-run-as-non-root

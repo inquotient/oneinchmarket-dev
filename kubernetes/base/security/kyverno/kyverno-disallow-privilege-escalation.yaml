@@ -16,7 +16,7 @@ metadata:
       should not be allowed. This policy ensures that all containers set
       allowPrivilegeEscalation to false.
 spec:
-  validationFailureAction: Enforce
+  validationFailureAction: Audit
   background: true
   rules:
     - name: validate-privilege-escalation

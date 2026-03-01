@@ -13,6 +13,7 @@ patches:
   - path: patches/replicas-prod.yaml
   - path: patches/storage-prod.yaml
   - path: patches/kyverno-enforce-latest.yaml
+  - path: patches/kyverno-enforce-security.yaml
 
 # 이미지 태그 핀닝 - Prod에서는 특정 버전으로 고정
 images:
