@@ -10,7 +10,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/name: kafka-broker
+      app.kubernetes.io/name: kafka
   policyTypes:
     - Ingress
   ingress:

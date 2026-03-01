@@ -29,20 +29,15 @@ data:
         sendfile on;
         keepalive_timeout 65;
 
-        upstream admin_backend {
-            server admin-headless:3000;
-        }
-
-        upstream cmmn_api_backend {
-            server cmmn-api-headless:8080;
-        }
+        resolver kube-dns.kube-system.svc.cluster.local valid=10s;
 
         server {
             listen 80;
             server_name _;
 
             location / {
-                proxy_pass http://admin_backend;
+                set $admin_upstream http://admin-headless:3000;
+                proxy_pass $admin_upstream;
                 proxy_set_header Host $host;
                 proxy_set_header X-Real-IP $remote_addr;
                 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -50,7 +45,8 @@ data:
             }
 
             location /api/ {
-                proxy_pass http://cmmn_api_backend;
+                set $cmmn_api_upstream http://cmmn-api-headless:8080;
+                proxy_pass $cmmn_api_upstream;
                 proxy_set_header Host $host;
                 proxy_set_header X-Real-IP $remote_addr;
                 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
