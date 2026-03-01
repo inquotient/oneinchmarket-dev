@@ -29,6 +29,22 @@ spec:
         fsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+        - name: download-postgres-driver
+          image: busybox:1.36
+          command:
+            - /bin/sh
+            - -c
+            - |
+              wget -O /driver/postgresql-42.7.3.jar \
+                https://jdbc.postgresql.org/download/postgresql-42.7.3.jar
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: postgres-driver
+              mountPath: /driver
       containers:
         - name: hive-metastore
           image: apache/hive:4.0.1
@@ -37,21 +53,31 @@ spec:
               name: thrift
               protocol: TCP
           env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hive-metastore-secret
+                  key: db-password
             - name: SERVICE_NAME
               value: metastore
             - name: DB_DRIVER
               value: postgres
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: root-user
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: root-password
             - name: SERVICE_OPTS
               value: >-
                 -Djavax.jdo.option.ConnectionDriverName=org.postgresql.Driver
                 -Djavax.jdo.option.ConnectionURL=jdbc:postgresql://postgresql-headless:5432/hive_metastore
                 -Djavax.jdo.option.ConnectionUserName=hive
                 -Djavax.jdo.option.ConnectionPassword=$(DB_PASSWORD)
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: hive-metastore-secret
-                  key: db-password
           envFrom:
             - configMapRef:
                 name: hive-metastore-config
@@ -86,6 +112,9 @@ spec:
             - name: hive-config
               mountPath: /opt/hive/conf/hive-site.xml
               subPath: hive-site.xml
+            - name: postgres-driver
+              mountPath: /opt/hive/lib/postgresql-42.7.3.jar
+              subPath: postgresql-42.7.3.jar
       volumes:
         - name: hive-config
           configMap:
@@ -93,3 +122,5 @@ spec:
             items:
               - key: hive-site.xml
                 path: hive-site.xml
+        - name: postgres-driver
+          emptyDir: {}
