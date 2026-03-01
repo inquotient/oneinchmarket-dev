@@ -14,6 +14,25 @@ patches:
   - path: patches/storage-dev.yaml
   - path: patches/kafka-dev.yaml
   - path: patches/akhq-dev.yaml
+  # ECK CRDs: kustomize commonLabels can't reach into CRD podTemplate fields
+  - target:
+      group: elasticsearch.k8s.elastic.co
+      version: v1
+      kind: Elasticsearch
+      name: elasticsearch
+    patch: |
+      - op: add
+        path: /spec/nodeSets/0/podTemplate/metadata/labels/environment
+        value: dev
+  - target:
+      group: kibana.k8s.elastic.co
+      version: v1
+      kind: Kibana
+      name: kibana
+    patch: |
+      - op: add
+        path: /spec/podTemplate/metadata/labels/environment
+        value: dev
 
 commonLabels:
   environment: dev

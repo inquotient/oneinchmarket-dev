@@ -78,6 +78,14 @@ spec:
       ports:
         - protocol: TCP
           port: 9200
+    # ES inter-node transport for cluster formation
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: elasticsearch
+      ports:
+        - protocol: TCP
+          port: 9300
 ---
 # Falcosidekick 접근 허용 - Falco DaemonSet → Falcosidekick
 apiVersion: networking.k8s.io/v1

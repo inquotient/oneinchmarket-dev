@@ -27,7 +27,7 @@ spec:
       serviceAccountName: filebeat
       containers:
         - name: filebeat
-          image: docker.elastic.co/beats/filebeat:latest
+          image: docker.elastic.co/beats/filebeat:8.17.0
           env:
             - name: ELASTICSEARCH_HOST
               value: "https://elasticsearch-es-http:9200"
