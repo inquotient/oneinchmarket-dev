@@ -35,7 +35,7 @@ spec:
       containers:
         - name: keycloak
           image: keycloak/keycloak:latest
-          command: ["start"]
+          args: ["start-dev"]
           ports:
             - name: http
               containerPort: 8080
