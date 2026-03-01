@@ -28,14 +28,22 @@ spec:
       containers:
         - name: filebeat
           image: docker.elastic.co/beats/filebeat:8.17.0
+          args:
+            - "-e"
+            - "-c"
+            - "/usr/share/filebeat/filebeat.yml"
           env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
             - name: ELASTICSEARCH_HOST
               value: "https://elasticsearch-es-http:9200"
             - name: ES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: elasticsearch-secret
-                  key: elastic-password
+                  name: elasticsearch-es-elastic-user
+                  key: elastic
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

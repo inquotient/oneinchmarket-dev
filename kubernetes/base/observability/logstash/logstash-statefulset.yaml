@@ -45,8 +45,8 @@ spec:
             - name: ES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: elasticsearch-secret
-                  key: elastic-password
+                  name: elasticsearch-es-elastic-user
+                  key: elastic
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
