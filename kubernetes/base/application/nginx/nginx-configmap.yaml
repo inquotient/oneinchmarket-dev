@@ -36,7 +36,7 @@ data:
             server_name _;
 
             location / {
-                set $admin_upstream http://admin-headless:3000;
+                set $admin_upstream http://admin-headless.dev.svc.cluster.local:3000;
                 proxy_pass $admin_upstream;
                 proxy_set_header Host $host;
                 proxy_set_header X-Real-IP $remote_addr;
@@ -45,7 +45,7 @@ data:
             }
 
             location /api/ {
-                set $cmmn_api_upstream http://cmmn-api-headless:8080;
+                set $cmmn_api_upstream http://cmmn-api-headless.dev.svc.cluster.local:8080;
                 proxy_pass $cmmn_api_upstream;
                 proxy_set_header Host $host;
                 proxy_set_header X-Real-IP $remote_addr;
