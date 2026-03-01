@@ -25,6 +25,7 @@ data:
     redis['enable'] = false
     gitlab_rails['redis_host'] = 'redis-headless'
     gitlab_rails['redis_port'] = 6379
+    gitlab_rails['redis_password'] = ENV['REDIS_PASSWORD']
 
     puma['worker_processes'] = 0
     sidekiq['concurrency'] = 10
