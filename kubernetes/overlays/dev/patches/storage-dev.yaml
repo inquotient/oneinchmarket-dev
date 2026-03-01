@@ -21,7 +21,7 @@ metadata:
 spec:
   volumeClaimTemplates:
     - metadata:
-        name: data
+        name: gitlab-data
       spec:
         accessModes: ["ReadWriteOnce"]
         storageClassName: standard
