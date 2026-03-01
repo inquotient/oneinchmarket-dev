@@ -9,7 +9,7 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
 data:
   falco.yaml: |
-    rules_file:
+    rules_files:
       - /etc/falco/falco_rules.yaml
       - /etc/falco/rules.d/custom-rules.yaml
 
@@ -82,7 +82,7 @@ data:
       desc: 컨테이너에서 내부 네트워크 외부로 연결 시도
       condition: >
         outbound and container and
-        not fd.sip in (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) and
+        not fd.snet in (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) and
         not k8s.ns.name in (kube-system, istio-system)
       output: >
         비정상 외부 연결

@@ -75,6 +75,9 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: trivy-image-scan
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: filebeat
       ports:
         - protocol: TCP
           port: 9200
