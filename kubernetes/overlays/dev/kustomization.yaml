@@ -13,6 +13,7 @@ patches:
   - path: patches/resources-dev.yaml
   - path: patches/storage-dev.yaml
   - path: patches/kafka-dev.yaml
+  - path: patches/akhq-dev.yaml
 
 commonLabels:
   environment: dev
