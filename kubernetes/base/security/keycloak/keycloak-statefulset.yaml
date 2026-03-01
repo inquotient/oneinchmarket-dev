@@ -43,6 +43,9 @@ spec:
             - name: https
               containerPort: 8443
               protocol: TCP
+            - name: management
+              containerPort: 9000
+              protocol: TCP
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -72,17 +75,17 @@ spec:
           livenessProbe:
             httpGet:
               path: /health/live
-              port: 8080
+              port: 9000
             periodSeconds: 10
           readinessProbe:
             httpGet:
               path: /health/ready
-              port: 8080
+              port: 9000
             periodSeconds: 10
           startupProbe:
             httpGet:
               path: /health/started
-              port: 8080
+              port: 9000
             failureThreshold: 60
             periodSeconds: 5
           volumeMounts:
