@@ -26,11 +26,12 @@ spec:
                 - Pod
       validate:
         message: "All containers must define a livenessProbe."
-        pattern:
-          spec:
-            containers:
-              - livenessProbe:
-                  "+(httpGet | tcpSocket | exec | grpc)": "*"
+        deny:
+          conditions:
+            any:
+              - key: "{{ request.object.spec.containers[?livenessProbe == null] | length(@) }}"
+                operator: GreaterThan
+                value: 0
     - name: validate-readiness-probe
       match:
         any:
@@ -39,8 +40,9 @@ spec:
                 - Pod
       validate:
         message: "All containers must define a readinessProbe."
-        pattern:
-          spec:
-            containers:
-              - readinessProbe:
-                  "+(httpGet | tcpSocket | exec | grpc)": "*"
+        deny:
+          conditions:
+            any:
+              - key: "{{ request.object.spec.containers[?readinessProbe == null] | length(@) }}"
+                operator: GreaterThan
+                value: 0
