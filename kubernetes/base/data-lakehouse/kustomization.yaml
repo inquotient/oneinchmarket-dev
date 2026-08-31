@@ -16,6 +16,19 @@ resources:
   - hive-metastore/hive-metastore-configmap.yaml
   # - hive-metastore/hive-metastore-secret.enc.yaml  # SOPS: re-enable after ArgoCD SOPS plugin setup
 
+  # Spark - 배치 ETL · 대화형 세션 (작업 수단. ETL 잡 자체는 TODO-42 미결)
+  - spark/spark-defaults-configmap.yaml
+  - spark/spark-rbac.yaml
+  - spark/spark-history-statefulset.yaml
+  - spark/spark-history-headless.yaml
+  - spark/spark-connect-statefulset.yaml
+  - spark/spark-connect-headless.yaml
+  # Apache Livy - REST 세션 게이트웨이 (Jupyter/Zeppelin 백엔드)
+  - livy/livy-configmap.yaml
+  - livy/livy-rbac.yaml
+  - livy/livy-statefulset.yaml
+  - livy/livy-headless.yaml
+
 commonLabels:
   app.kubernetes.io/part-of: oneinchmarket
 

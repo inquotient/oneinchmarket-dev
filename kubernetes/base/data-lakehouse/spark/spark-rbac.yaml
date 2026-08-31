@@ -1,0 +1,75 @@
+# Spark on Kubernetes 는 driver 가 executor 파드를 직접 생성·삭제한다.
+# Livy 는 다시 driver 파드를 생성하므로 SA 를 분리한다 (livy/livy-rbac.yaml).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spark-driver
+  labels:
+    app.kubernetes.io/name: spark
+    app.kubernetes.io/component: data-lakehouse
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spark-connect
+  labels:
+    app.kubernetes.io/name: spark-connect
+    app.kubernetes.io/component: data-lakehouse
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spark-history
+  labels:
+    app.kubernetes.io/name: spark-history
+    app.kubernetes.io/component: data-lakehouse
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spark-executor-manager
+  labels:
+    app.kubernetes.io/name: spark
+    app.kubernetes.io/component: data-lakehouse
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+rules:
+  # driver 가 executor 파드를 만들고 지운다
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "create", "delete", "deletecollection"]
+  - apiGroups: [""]
+    resources: ["pods/log", "pods/status"]
+    verbs: ["get", "list"]
+  # executor 간 통신용 headless service, 설정 전달용 configmap
+  - apiGroups: [""]
+    resources: ["services", "configmaps"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spark-executor-manager
+  labels:
+    app.kubernetes.io/name: spark
+    app.kubernetes.io/component: data-lakehouse
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: spark-executor-manager
+subjects:
+  - kind: ServiceAccount
+    name: spark-driver
+  - kind: ServiceAccount
+    name: spark-connect

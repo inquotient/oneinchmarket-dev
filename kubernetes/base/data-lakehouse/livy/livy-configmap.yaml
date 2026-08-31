@@ -1,0 +1,56 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: livy-config
+  labels:
+    app.kubernetes.io/name: livy
+    app.kubernetes.io/component: data-lakehouse
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+data:
+  livy.conf: |
+    # Livy 0.9.0-incubating · Spark on Kubernetes (LIVY-702, Spark 3.5 는 LIVY-1010)
+    livy.server.host                     = 0.0.0.0
+    livy.server.port                     = 8998
+    livy.spark.master                    = k8s://https://kubernetes.default.svc.cluster.local:443
+    livy.spark.deploy-mode               = cluster
+
+    # ── 세션 폭주 통제 (G40)
+    # Livy 는 세션마다 별도 driver 파드를 띄운다. 세션 1개 = driver 1Gi + executor N×2Gi.
+    # 로컬 64GB 예산에서는 상한을 반드시 건다.
+    livy.server.session.max-creation     = 3
+    livy.server.session.timeout          = 1h
+    livy.server.session.timeout-check    = true
+    livy.server.session.state-retain.sec = 600
+
+    # ── 재시작 시 세션 복구
+    livy.server.recovery.mode                = recovery
+    livy.server.recovery.state-store          = filesystem
+    livy.server.recovery.state-store.url      = s3a://warehouse/livy-recovery
+
+    livy.repl.enable-hive-context        = true
+    livy.file.local-dir-whitelist        = /opt/spark/jobs
+
+    # 인증은 앞단 oauth2-proxy(Keycloak OIDC)가 담당한다.
+    # Livy 자체는 SPNEGO/Kerberos 만 네이티브 지원하므로 사용하지 않는다.
+    livy.server.auth.type                =
+
+    # ── Spark 로 전달되는 설정 (livy.spark.* → spark.*)
+    livy.spark.kubernetes.container.image                             = oneinch/spark-iceberg:latest
+    livy.spark.kubernetes.authenticate.driver.serviceAccountName      = spark-driver
+    livy.spark.kubernetes.driver.podTemplateFile                      = /opt/spark/conf/driver-pod-template.yaml
+    livy.spark.kubernetes.executor.podTemplateFile                    = /opt/spark/conf/executor-pod-template.yaml
+    livy.spark.dynamicAllocation.enabled                              = true
+    livy.spark.dynamicAllocation.minExecutors                         = 0
+    livy.spark.dynamicAllocation.maxExecutors                         = 2
+
+    # [검증 필요] Livy 0.9.0 의 Kubernetes 전용 튜닝 키
+    # (앱 조회 타임아웃·UI 프록시 등)는 릴리스 문서와 대조 후 추가한다.
+
+  log4j.properties: |
+    log4j.rootCategory=INFO, console
+    log4j.appender.console=org.apache.log4j.ConsoleAppender
+    log4j.appender.console.target=System.out
+    log4j.appender.console.layout=org.apache.log4j.PatternLayout
+    log4j.appender.console.layout.ConversionPattern=%d{yy/MM/dd HH:mm:ss} %p %c{1}: %m%n
+    log4j.logger.org.apache.livy=INFO

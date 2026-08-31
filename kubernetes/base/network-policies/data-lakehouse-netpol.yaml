@@ -1,0 +1,161 @@
+# G13 부분 해소 — MinIO·Hive Metastore 는 지금까지 대상 NetworkPolicy 가 없었다.
+# default-deny 는 ingress 만 차단하므로 egress 규칙은 두지 않는다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-minio-access
+  labels:
+    app.kubernetes.io/name: allow-minio-access
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: minio
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # Trino · Hive Metastore · Spark(History/Connect/driver/executor) · Livy
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: data-lakehouse
+      ports:
+        - protocol: TCP
+          port: 9000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-hive-metastore-access
+  labels:
+    app.kubernetes.io/name: allow-hive-metastore-access
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: hive-metastore
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: data-lakehouse
+      ports:
+        - protocol: TCP
+          port: 9083
+---
+# Spark Connect — gRPC. 인증은 Istio AuthorizationPolicy 가 담당하고
+# NetworkPolicy 는 네임스페이스 내부로 도달 범위를 좁히는 역할만 한다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-spark-connect-access
+  labels:
+    app.kubernetes.io/name: allow-spark-connect-access
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: spark-connect
+  policyTypes:
+    - Ingress
+  ingress:
+    # 클라이언트 gRPC
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: application
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: oauth2-proxy
+      ports:
+        - protocol: TCP
+          port: 15002
+    # executor → driver RPC · BlockManager (spark-connect-statefulset 에서 고정)
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: spark-executor
+      ports:
+        - protocol: TCP
+          port: 7078
+        - protocol: TCP
+          port: 7079
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-livy-access
+  labels:
+    app.kubernetes.io/name: allow-livy-access
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: livy
+  policyTypes:
+    - Ingress
+  ingress:
+    # Livy 는 자체 인증을 쓰지 않는다. oauth2-proxy 만 통과시킨다.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: oauth2-proxy
+      ports:
+        - protocol: TCP
+          port: 8998
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-spark-history-access
+  labels:
+    app.kubernetes.io/name: allow-spark-history-access
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: spark-history
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: oauth2-proxy
+      ports:
+        - protocol: TCP
+          port: 18080
+---
+# Spark driver(Livy 세션·ETL Job)가 만든 executor 는 driver 로 되돌아온다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-spark-driver-rpc
+  labels:
+    app.kubernetes.io/name: allow-spark-driver-rpc
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: spark-driver
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: spark-executor

@@ -1,0 +1,113 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spark-config
+  labels:
+    app.kubernetes.io/name: spark
+    app.kubernetes.io/component: data-lakehouse
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+data:
+  # 네 실행 경로(ETL Job · History · Connect · Livy)가 공유하는 단일 설정.
+  # 카탈로그 좌표는 trino-configmap.yaml:31-41 및 hive-metastore-configmap.yaml 과 일치해야 한다.
+  spark-defaults.conf: |
+    spark.master                                    k8s://https://kubernetes.default.svc.cluster.local:443
+    spark.submit.deployMode                         cluster
+    spark.kubernetes.container.image                oneinch/spark-iceberg:latest
+    spark.kubernetes.authenticate.driver.serviceAccountName  spark-driver
+    spark.kubernetes.driver.podTemplateFile         /opt/spark/conf/driver-pod-template.yaml
+    spark.kubernetes.executor.podTemplateFile       /opt/spark/conf/executor-pod-template.yaml
+
+    # ── Iceberg 카탈로그 (Trino와 동일한 Hive Metastore·warehouse를 가리킨다)
+    spark.sql.extensions                            org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
+    spark.sql.catalog.iceberg                       org.apache.iceberg.spark.SparkCatalog
+    spark.sql.catalog.iceberg.type                  hive
+    spark.sql.catalog.iceberg.uri                   thrift://hive-metastore-headless:9083
+    spark.sql.catalog.iceberg.warehouse             s3a://warehouse/tables
+    spark.sql.catalog.iceberg.io-impl               org.apache.iceberg.aws.s3.S3FileIO
+    spark.sql.catalog.iceberg.s3.endpoint           http://minio-headless:9000
+    spark.sql.catalog.iceberg.s3.path-style-access  true
+    spark.sql.catalog.iceberg.client.region         us-east-1
+    spark.sql.defaultCatalog                        iceberg
+
+    # ── S3A (직접 파일 접근 경로)
+    spark.hadoop.fs.s3a.impl                        org.apache.hadoop.fs.s3a.S3AFileSystem
+    spark.hadoop.fs.s3a.endpoint                    http://minio-headless:9000
+    spark.hadoop.fs.s3a.path.style.access           true
+    spark.hadoop.fs.s3a.connection.ssl.enabled      false
+    spark.hadoop.fs.s3a.aws.credentials.provider    org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider
+
+    # ── 이벤트 로그 (History Server가 읽는다)
+    spark.eventLog.enabled                          true
+    spark.eventLog.dir                              s3a://warehouse/spark-events
+
+    # ── 유휴 시 executor 를 0으로 반납한다. 로컬 메모리 예산에서 중요하다.
+    spark.dynamicAllocation.enabled                 true
+    spark.dynamicAllocation.shuffleTracking.enabled true
+    spark.dynamicAllocation.minExecutors            0
+    spark.dynamicAllocation.maxExecutors            4
+    spark.dynamicAllocation.executorIdleTimeout     120s
+
+  # 동적 생성되는 driver/executor 파드도 Kyverno 6정책을 만족해야 한다.
+  # (disallow-root · disallow-privilege-escalation · require-resources)
+  driver-pod-template.yaml: |
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      labels:
+        app.kubernetes.io/name: spark-driver
+        app.kubernetes.io/component: data-lakehouse
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      priorityClassName: batch-low
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: spark-kubernetes-driver
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+
+  executor-pod-template.yaml: |
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      labels:
+        app.kubernetes.io/name: spark-executor
+        app.kubernetes.io/component: data-lakehouse
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      priorityClassName: batch-low
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: spark-kubernetes-executor
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 500m
+              memory: 2Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi

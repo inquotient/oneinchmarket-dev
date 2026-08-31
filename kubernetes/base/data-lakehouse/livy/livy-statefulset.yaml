@@ -1,0 +1,109 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: livy
+  labels:
+    app.kubernetes.io/name: livy
+    app.kubernetes.io/component: data-lakehouse
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  serviceName: livy-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: livy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: livy
+        app.kubernetes.io/component: data-lakehouse
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: livy
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: livy
+          image: oneinch/livy:latest
+          ports:
+            - containerPort: 8998
+              name: http
+              protocol: TCP
+          env:
+            - name: LIVY_CONF_DIR
+              value: /opt/livy/conf
+            - name: SPARK_HOME
+              value: /opt/spark
+            - name: SPARK_CONF_DIR
+              value: /opt/spark/conf
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: root-user
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: root-password
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: 300m
+              memory: 768Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+          startupProbe:
+            httpGet:
+              path: /sessions
+              port: http
+            failureThreshold: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /sessions
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /sessions
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: livy-config
+              mountPath: /opt/livy/conf
+            - name: spark-config
+              mountPath: /opt/spark/conf
+      volumes:
+        - name: livy-config
+          configMap:
+            name: livy-config
+        - name: spark-config
+          configMap:
+            name: spark-config
+            items:
+              - key: spark-defaults.conf
+                path: spark-defaults.conf
+              - key: driver-pod-template.yaml
+                path: driver-pod-template.yaml
+              - key: executor-pod-template.yaml
+                path: executor-pod-template.yaml

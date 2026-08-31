@@ -6,6 +6,7 @@ resources:
   - peer-authentication.yaml
   - authorization-policies.yaml
   - waypoint-proxy.yaml
+  - spark-connect-authz.yaml
 
 commonAnnotations:
   argocd.argoproj.io/sync-wave: "0"

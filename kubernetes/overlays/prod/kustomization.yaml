@@ -51,6 +51,10 @@ images:
     newTag: "8.17.0"
   - name: docker.elastic.co/beats/filebeat
     newTag: "8.17.0"
+  - name: oneinch/spark-iceberg
+    newTag: "3.5.6"
+  - name: oneinch/livy
+    newTag: "0.9.0-incubating"
 
 commonLabels:
   environment: prod

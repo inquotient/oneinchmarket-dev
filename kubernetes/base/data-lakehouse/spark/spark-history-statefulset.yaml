@@ -1,0 +1,97 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: spark-history
+  labels:
+    app.kubernetes.io/name: spark-history
+    app.kubernetes.io/component: data-lakehouse
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  serviceName: spark-history-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: spark-history
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: spark-history
+        app.kubernetes.io/component: data-lakehouse
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: spark-history
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: spark-history
+          image: oneinch/spark-iceberg:latest
+          command: ["/opt/spark/bin/spark-class"]
+          args: ["org.apache.spark.deploy.history.HistoryServer"]
+          ports:
+            - containerPort: 18080
+              name: http
+              protocol: TCP
+          env:
+            - name: SPARK_HISTORY_OPTS
+              value: >-
+                -Dspark.history.fs.logDirectory=s3a://warehouse/spark-events
+                -Dspark.history.fs.cleaner.enabled=true
+                -Dspark.history.fs.cleaner.maxAge=7d
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: root-user
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: root-password
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          startupProbe:
+            httpGet:
+              path: /api/v1/applications
+              port: http
+            failureThreshold: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/v1/applications
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /api/v1/applications
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: spark-config
+              mountPath: /opt/spark/conf
+      volumes:
+        - name: spark-config
+          configMap:
+            name: spark-config
+            items:
+              - key: spark-defaults.conf
+                path: spark-defaults.conf

@@ -1,0 +1,14 @@
+# INFRA-604 대응. 배치 워크로드를 상시 용량 산정에서 제외한다.
+# 대상: Spark driver/executor, 로테이션 CronJob 7종, Trivy, Kubescape, 부트스트랩 Job
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: batch-low
+  labels:
+    app.kubernetes.io/component: scheduling
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+value: 100
+globalDefault: false
+preemptionPolicy: Never
+description: "배치·스캔·부트스트랩 워크로드. 자원 부족 시 상시 서비스에 밀린다."

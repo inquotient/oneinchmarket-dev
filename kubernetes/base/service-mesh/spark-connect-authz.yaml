@@ -1,0 +1,42 @@
+# Spark Connect 는 gRPC 라 HTTP 프록시(oauth2-proxy)를 앞에 두기 어렵다.
+# 이 스택에는 Istio ambient 가 이미 있으므로 L4 인가를 메시에 위임한다.
+#
+# 전제: PeerAuthentication 이 STRICT 여야 principal 이 신뢰 가능하다.
+#       현재 base 는 PERMISSIVE 다 (DEPLOYMENT §3 Phase F 에서 전환).
+#       그 전까지 이 정책은 실효가 없다 — SEC-108 이 배포 게이트다.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: spark-connect-authz
+  labels:
+    app.kubernetes.io/name: spark-connect-authz
+    app.kubernetes.io/component: service-mesh
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: spark-connect
+  action: ALLOW
+  rules:
+    # gRPC 클라이언트 — 오버레이에서 principal 을 더 좁힐 것
+    - from:
+        - source:
+            namespaces: ["dev", "prod"]
+            principals:
+              - "cluster.local/ns/dev/sa/oauth2-proxy"
+              - "cluster.local/ns/prod/sa/oauth2-proxy"
+      to:
+        - operation:
+            ports: ["15002"]
+    # executor → driver RPC · BlockManager
+    - from:
+        - source:
+            principals:
+              - "cluster.local/ns/dev/sa/spark-driver"
+              - "cluster.local/ns/dev/sa/spark-connect"
+              - "cluster.local/ns/prod/sa/spark-driver"
+              - "cluster.local/ns/prod/sa/spark-connect"
+      to:
+        - operation:
+            ports: ["7078", "7079"]

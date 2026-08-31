@@ -7,6 +7,7 @@ resources:
   - messaging-netpol.yaml
   - observability-netpol.yaml
   - application-netpol.yaml
+  - data-lakehouse-netpol.yaml
 
 commonAnnotations:
   argocd.argoproj.io/sync-wave: "0"
