@@ -53,7 +53,7 @@ curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="${K3S_VERSION}" sh -s - serv
   --kubelet-arg=memory-throttling-factor=0.8 \
   --kubelet-arg=system-reserved=memory=1Gi,cpu=500m \
   --kubelet-arg=kube-reserved=memory=1Gi,cpu=500m \
-  --kubelet-arg=eviction-hard=memory.available<300Mi
+  --kubelet-arg='eviction-hard=memory.available<300Mi'
 
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 mkdir -p ~/.kube && sudo cat /etc/rancher/k3s/k3s.yaml > ~/.kube/config && chmod 600 ~/.kube/config
