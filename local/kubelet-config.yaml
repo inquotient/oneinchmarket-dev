@@ -1,16 +1,37 @@
 # → /etc/rancher/k3s/kubelet-config.yaml
 #
-# memorySwap.swapBehavior 는 대응하는 CLI 플래그가 없다.
-# KubeletConfiguration 전용 필드이므로 이 파일로만 설정할 수 있다.
+# 왜 전부 여기 있는가 —
+#   memorySwap.swapBehavior 와 memoryThrottlingFactor 는 대응하는 CLI 플래그가
+#   아예 없다. kubelet 이 `unknown flag` 로 기동을 거부한다.
+#   나머지도 KubeletConfiguration 필드로 존재하므로 한 곳에 모은다.
+#   CLI 에는 --kubelet-arg=config= 하나만 넘긴다.
 #
-# k8s 1.30+ 에서 기본값이 NoSwap 으로 바뀌었다. 명시하지 않으면
-# 노드에 zram 이 32G 있어도 kubelet 이 컨테이너 cgroup 에
-# memory.swap.max=0 을 걸어 파드가 한 바이트도 쓰지 못한다.
-#
-# LimitedSwap 은 Burstable QoS 파드에만 스왑을 준다.
-# Guaranteed(requests == limits, cpu·memory 둘 다)는 0 을 받는다.
-# → overlays/local/patches/qos-guaranteed.yaml 이 이 성질을 스위치로 쓴다.
+# ★ memorySwap.swapBehavior
+#   k8s 1.30+ 기본값이 NoSwap 이다. 명시하지 않으면 노드에 zram 이 32G 있어도
+#   kubelet 이 컨테이너 cgroup 에 memory.swap.max=0 을 걸어 파드가 못 쓴다.
+#   LimitedSwap 은 Burstable QoS 에만 스왑을 준다.
+#   Guaranteed(requests == limits, cpu·memory 둘 다)는 0 을 받는다.
+#   → overlays/local/patches/qos-guaranteed.yaml 이 이 성질을 스위치로 쓴다.
 apiVersion: kubelet.config.k8s.io/v1beta1
 kind: KubeletConfiguration
+
+failSwapOn: false
+featureGates:
+  NodeSwap: true
+
 memorySwap:
   swapBehavior: LimitedSwap
+
+# memory.high 를 limit 의 80% 로 → OOMKill 전에 회수가 먼저 돌아
+# 페이지가 zram 으로 흘러간다.
+memoryThrottlingFactor: 0.8
+
+systemReserved:
+  cpu: "500m"
+  memory: "1Gi"
+kubeReserved:
+  cpu: "500m"
+  memory: "1Gi"
+
+evictionHard:
+  memory.available: "300Mi"
