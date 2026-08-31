@@ -49,7 +49,7 @@ curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="${K3S_VERSION}" sh -s - serv
   --disable servicelb \
   --flannel-backend=none \
   --disable-network-policy \
-  --kubelet-arg=config=/etc/rancher/k3s/kubelet-config.yaml \n  --node-label=oneinchmarket.local/swap=zram \
+  --kubelet-arg=config=/etc/rancher/k3s/kubelet-config.yaml
 
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 mkdir -p ~/.kube && sudo cat /etc/rancher/k3s/k3s.yaml > ~/.kube/config && chmod 600 ~/.kube/config
