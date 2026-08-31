@@ -1,0 +1,16 @@
+# → /etc/rancher/k3s/kubelet-config.yaml
+#
+# memorySwap.swapBehavior 는 대응하는 CLI 플래그가 없다.
+# KubeletConfiguration 전용 필드이므로 이 파일로만 설정할 수 있다.
+#
+# k8s 1.30+ 에서 기본값이 NoSwap 으로 바뀌었다. 명시하지 않으면
+# 노드에 zram 이 32G 있어도 kubelet 이 컨테이너 cgroup 에
+# memory.swap.max=0 을 걸어 파드가 한 바이트도 쓰지 못한다.
+#
+# LimitedSwap 은 Burstable QoS 파드에만 스왑을 준다.
+# Guaranteed(requests == limits, cpu·memory 둘 다)는 0 을 받는다.
+# → overlays/local/patches/qos-guaranteed.yaml 이 이 성질을 스위치로 쓴다.
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+memorySwap:
+  swapBehavior: LimitedSwap

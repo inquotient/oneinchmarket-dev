@@ -37,9 +37,11 @@ echo madvise | sudo tee /sys/kernel/mm/transparent_hugepage/enabled >/dev/null
 
 log "스왑 구성:"; swapon --show
 
-# ── 2. k3s ─────────────────────────────────────────────────────
+# ── 2. kubelet 설정 + k3s ─────────────────────────────────────────────────────
 # NodeSwap 은 kubelet 플래그라 설치 시점에만 정할 수 있다.
 # 나중에 켜려면 systemd 유닛 편집 + 재시작 = 전 파드 재시작.
+sudo mkdir -p /etc/rancher/k3s
+sudo install -m 0644 "${REPO_ROOT}/local/kubelet-config.yaml" /etc/rancher/k3s/kubelet-config.yaml
 log "k3s ${K3S_VERSION} 설치"
 curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="${K3S_VERSION}" sh -s - server \
   --write-kubeconfig-mode 644 \
@@ -49,7 +51,7 @@ curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="${K3S_VERSION}" sh -s - serv
   --disable-network-policy \
   --kubelet-arg=fail-swap-on=false \
   --kubelet-arg=feature-gates=NodeSwap=true \
-  --kubelet-arg=memory-swap.swap-behavior=LimitedSwap \
+  --kubelet-arg=config=/etc/rancher/k3s/kubelet-config.yaml \
   --kubelet-arg=memory-throttling-factor=0.8 \
   --kubelet-arg=system-reserved=memory=1Gi,cpu=500m \
   --kubelet-arg=kube-reserved=memory=1Gi,cpu=500m \
