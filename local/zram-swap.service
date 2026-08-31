@@ -1,0 +1,25 @@
+# → /etc/systemd/system/zram-swap.service
+#
+# disksize  = 논리(비압축) 용량.   실제 RAM 비용은 저장량 ÷ 압축률.
+# mem_limit = 실제 RAM 상한. ★ 안전판 — 압축률이 나빠도 여기서 멈추고
+#             넘치는 분은 priority -2 의 디스크 스왑으로 흘러간다.
+#             이게 없으면 압축률 악화 시 zram 이 RAM 을 먹어 노드가 OOM 된다.
+[Unit]
+Description=zram compressed swap (lzo-rle) for k3s
+After=local-fs.target
+Before=k3s.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/sbin/modprobe zram num_devices=1
+ExecStart=/bin/sh -c '\
+  echo lzo-rle > /sys/block/zram0/comp_algorithm; \
+  echo 32G     > /sys/block/zram0/disksize; \
+  echo 14G     > /sys/block/zram0/mem_limit; \
+  mkswap /dev/zram0; \
+  swapon --priority 100 /dev/zram0'
+ExecStop=/bin/sh -c 'swapoff /dev/zram0 || true; echo 1 > /sys/block/zram0/reset'
+
+[Install]
+WantedBy=multi-user.target

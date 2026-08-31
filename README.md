@@ -26,7 +26,7 @@ Kubernetes 기반 데이터 레이크하우스 플랫폼의 인프라 코드 저
 | Data Lakehouse | Hadoop, HBase, Hive, Solr |
 | Messaging | Kafka (KRaft), Schema Registry, Kafka REST |
 | Database | MariaDB, PostgreSQL, MongoDB, Redis |
-| Security | Keycloak, FreeIPA, Kerberos, Ranger, Knox |
+| Security | Keycloak, Kerberos, Ranger, Knox |
 | Observability | ELK Stack, AKHQ |
 | DevOps | GitLab, Jenkins, ArgoCD |
 | Application | Admin, Common API |

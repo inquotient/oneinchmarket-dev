@@ -1,0 +1,18 @@
+# → C:\Users\<user>\.wslconfig 로 복사할 것
+# OneinchMarket v2 로컬 k3s 호스트 (B안: 설계 전 구성요소 58.75 GiB)
+# 호스트 기준: 63.4 GB RAM / 24 코어. 자세한 산정은 docs/LOCAL-DEPLOYMENT.md
+
+[wsl2]
+# 48 GiB 할당 → 실제 MemTotal 약 47.0 GiB. Windows 데스크톱에 15 GB 남긴다.
+memory=48GB
+processors=20
+
+# zram 이 넘칠 때의 폴백. 압축률이 2.0 아래로 떨어지면 여기로 흘러간다.
+# 느리지만 OOM 보다 낫다. zram 은 priority 100, 이쪽은 -2.
+swap=16GB
+
+[experimental]
+# ★ 필수 — kubelet 은 기동 시점 총 메모리로 자원을 계산한다.
+#   메모리 회수가 일어나면 예측 불가한 OOMKill·축출이 발생한다.
+autoMemoryReclaim=disabled
+sparseVhd=true

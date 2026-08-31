@@ -1,0 +1,17 @@
+# 배포 블로커 #5 해소 — 전 volumeClaimTemplate 이 'standard' 를 참조하나
+# k3s 기본 프로비저너 이름은 'local-path' 다. 매니페스트 9개를 고치는 대신
+# 별칭 StorageClass 한 장으로 끝낸다.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: standard
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+  labels:
+    app.kubernetes.io/component: storage
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+provisioner: rancher.io/local-path
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true

@@ -1,0 +1,57 @@
+# OneinchMarket v2 - Local Overlay (WSL2 단일 노드 k3s)
+#
+# B안 — 설계 전 구성요소를 zram 압축 스왑으로 수용한다.
+# 산정: docs/LOCAL-DEPLOYMENT.md
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: local
+
+resources:
+  - namespace.yaml
+  - ../../base
+
+patches:
+  # 로컬 레플리카 1
+  - path: patches/replicas-local.yaml
+  # ★ zram 제어 — 스왑 불가 8종을 Guaranteed 로 고정
+  - path: patches/qos-guaranteed.yaml
+
+  # ── Elasticsearch (ECK CR) — TODO-32: dev 는 3노드 그대로다. 로컬은 1노드.
+  #    count 3 → 1 로 −8 GiB. 그리고 Guaranteed 로 스왑에서 배제한다.
+  - target:
+      group: elasticsearch.k8s.elastic.co
+      version: v1
+      kind: Elasticsearch
+      name: elasticsearch
+    patch: |
+      - op: replace
+        path: /spec/nodeSets/0/count
+        value: 1
+      - op: replace
+        path: /spec/nodeSets/0/podTemplate/spec/containers/0/resources/requests/memory
+        value: 2Gi
+      - op: replace
+        path: /spec/nodeSets/0/podTemplate/spec/containers/0/resources/limits/memory
+        value: 2Gi
+      - op: replace
+        path: /spec/nodeSets/0/podTemplate/spec/containers/0/resources/limits/cpu
+        value: 1000m
+      - op: add
+        path: /spec/nodeSets/0/podTemplate/metadata/labels/environment
+        value: local
+  - target:
+      group: kibana.k8s.elastic.co
+      version: v1
+      kind: Kibana
+      name: kibana
+    patch: |
+      - op: add
+        path: /spec/podTemplate/metadata/labels/environment
+        value: local
+
+commonLabels:
+  environment: local
+
+commonAnnotations:
+  app.kubernetes.io/instance: oneinchmarket-local

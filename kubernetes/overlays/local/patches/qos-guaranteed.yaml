@@ -1,0 +1,111 @@
+# ★ zram 제어 장치 — LimitedSwap 은 Burstable QoS 에만 스왑을 준다.
+#   Guaranteed(requests == limits, **cpu·memory 둘 다**)는 스왑을 0 받는다.
+#
+#   JVM 은 GC 가 힙 전체를 순회하므로 스왑되면 스래싱한다.
+#   DB 버퍼풀은 정의상 hot data 라 스왑되면 캐시의 의미가 사라진다.
+#   → 이 8종을 Guaranteed 로 만들어 실 RAM 에 고정한다. 합계 약 9.75 GiB.
+#
+#   나머지 전부는 Burstable 로 남아 zram 을 쓸 수 있다.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+spec:
+  template:
+    spec:
+      containers:
+        - name: kafka
+          resources:
+            requests: { cpu: "1", memory: 2Gi }
+            limits:   { cpu: "1", memory: 2Gi }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: trino
+spec:
+  template:
+    spec:
+      containers:
+        - name: trino
+          resources:
+            requests: { cpu: "2", memory: 2Gi }
+            limits:   { cpu: "2", memory: 2Gi }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgresql
+spec:
+  template:
+    spec:
+      containers:
+        - name: postgresql
+          resources:
+            requests: { cpu: "1", memory: 1Gi }
+            limits:   { cpu: "1", memory: 1Gi }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mariadb
+spec:
+  template:
+    spec:
+      containers:
+        - name: mariadb
+          resources:
+            requests: { cpu: 500m, memory: 512Mi }
+            limits:   { cpu: 500m, memory: 512Mi }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mongodb
+spec:
+  template:
+    spec:
+      containers:
+        - name: mongodb
+          resources:
+            requests: { cpu: 500m, memory: 512Mi }
+            limits:   { cpu: 500m, memory: 512Mi }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+spec:
+  template:
+    spec:
+      containers:
+        - name: redis
+          resources:
+            requests: { cpu: 250m, memory: 256Mi }
+            limits:   { cpu: 250m, memory: 256Mi }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: minio
+spec:
+  template:
+    spec:
+      containers:
+        - name: minio
+          resources:
+            requests: { cpu: "1", memory: 1Gi }
+            limits:   { cpu: "1", memory: 1Gi }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hive-metastore
+spec:
+  template:
+    spec:
+      containers:
+        - name: hive-metastore
+          resources:
+            requests: { cpu: 500m, memory: 512Mi }
+            limits:   { cpu: 500m, memory: 512Mi }
