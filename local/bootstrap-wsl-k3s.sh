@@ -49,7 +49,7 @@ curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="${K3S_VERSION}" sh -s - serv
   --disable servicelb \
   --flannel-backend=none \
   --disable-network-policy \
-  --kubelet-arg=config=/etc/rancher/k3s/kubelet-config.yaml
+  --kubelet-arg=config=/etc/rancher/k3s/kubelet-config.yaml || log "설치 스크립트 비정상 종료 — 아래에서 실제 상태를 확인한다"
 
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 mkdir -p ~/.kube && sudo cat /etc/rancher/k3s/k3s.yaml > ~/.kube/config && chmod 600 ~/.kube/config
@@ -62,7 +62,10 @@ kubectl get node
 # ── 3. StorageClass 'standard' 별칭 ────────────────────────────
 # 배포 블로커 #5 — 전 PVC 가 존재하지 않는 'standard' 를 참조한다.
 # 매니페스트 9개를 고치는 것보다 별칭 한 장이 싸다.
-log "StorageClass 'standard' 생성"
+# k3s 기본 local-path 의 default 표시를 내린다. 기본 SC 가 둘이면 동작이 불확실하다.
+log "StorageClass 'standard' 생성 (local-path default 해제)"
 kubectl apply -f "${REPO_ROOT}/local/storageclass-standard.yaml"
+kubectl patch storageclass local-path -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}'
+kubectl get storageclass
 
 log "완료. 다음: local/install-platform.sh (Cilium · Gateway API · Istio · 오퍼레이터)"
