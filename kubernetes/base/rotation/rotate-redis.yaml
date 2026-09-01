@@ -33,7 +33,9 @@ spec:
               type: RuntimeDefault
           containers:
             - name: rotate-redis
-              image: bitnami/redis-cluster:latest
+              # bitnami/redis-cluster 저장소는 태그가 비었다(Bitnami 무료 카탈로그 축소).
+              # 워크로드와 다른 이미지를 쓰던 것도 문서가 지적한 결함이므로 함께 정리한다.
+              image: bitnami/redis:latest
               command:
                 - /bin/bash
                 - -c

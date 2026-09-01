@@ -58,3 +58,76 @@ commonLabels:
 
 commonAnnotations:
   app.kubernetes.io/instance: oneinchmarket-local
+
+# prod 와 동일한 핀을 쓴다 — 로컬에서 재현성을 확보하고
+# Kyverno disallow-latest 위반(local 은 Audit)도 사라진다.
+images:
+  # ── 데이터베이스 (다이제스트 핀) ──────────────────────────────
+  - name: bitnami/postgresql          # 18.6
+    digest: sha256:40a261ed77f3b8dc65eeeec98bb79c4d3ef3410d7e2af7cfcf3785a6af00e4c5
+  - name: bitnami/mariadb             # 13.0.1
+    digest: sha256:d8ad094dc757d2270a880f3a3aff73ef5998a64538f3c05ff93edaf5056b7852
+  - name: bitnami/redis               # 8.10.1
+    digest: sha256:d75bda00b778ad5e03a639ec36e00f6665a5d7e0f35a6250be5b103fb2117275
+  - name: percona/percona-server-mongodb
+    newTag: "8.3.8"
+
+  # ── 메시징 ──────────────────────────────────────────────────
+  - name: apache/kafka
+    newTag: "4.3.1"
+  - name: apicurio/apicurio-registry
+    newTag: "3.3.2"
+  - name: tchiotludo/akhq
+    newTag: "0.28.0"
+
+  # ── 레이크하우스 ────────────────────────────────────────────
+  - name: minio/minio
+    newTag: "RELEASE.2025-09-07T16-13-09Z"
+  - name: trinodb/trino
+    newTag: "483"
+  - name: apache/hive
+    newTag: "4.0.1"                   # 스키마 버전 고정. 상향 시 schematool -upgradeSchema 필요
+  - name: oneinch/spark-iceberg
+    newTag: "3.5.6"
+  - name: oneinch/livy
+    newTag: "0.9.0-incubating"
+
+  # ── 인증 · 애플리케이션 ─────────────────────────────────────
+  - name: keycloak/keycloak
+    newTag: "26.7.3"
+  - name: nginx
+    newTag: "1.31.4"                  # mainline. 안정 계열이 필요하면 1.30.4
+  # 레지스트리에 버전 태그가 없다(G9 — Dockerfile 부재로 CI 빌드 불가).
+  - name: inquotient/admin
+    digest: sha256:8479fe9611058be1127465b2b03b98cdf919f84fb48ff5a548101f5ba2c3443a
+  - name: inquotient/cmmn-api
+    digest: sha256:a81293108c297974c5d9cbab37b4f52b830c30fec81000d10b3ee4c97edb850f
+
+  # ── 관측성 (Elastic 8.17.0 → 9.5.3 메이저 업그레이드) ────────
+  - name: docker.elastic.co/logstash/logstash
+    newTag: "9.5.3"
+  - name: docker.elastic.co/beats/filebeat
+    newTag: "9.5.3"
+
+  # ── DevOps ─────────────────────────────────────────────────
+  - name: gitlab/gitlab-ee
+    newTag: "19.3.1-ee.0"
+
+  # ── 보안 ───────────────────────────────────────────────────
+  - name: falcosecurity/falco-no-driver
+    newTag: "0.39.2"
+  - name: falcosecurity/falcosidekick
+    newTag: "2.35.0"
+
+  # ── 로테이션 · 스캔 (기존 images 블록에 누락되어 있던 6종) ────
+  - name: curlimages/curl
+    newTag: "8.21.0"
+  - name: minio/mc
+    newTag: "RELEASE.2025-08-13T08-35-41Z"
+  - name: alpine/git
+    newTag: "2.54.0"
+  - name: aquasec/trivy
+    newTag: "0.74.0"
+  - name: busybox
+    newTag: "1.38.0"
+

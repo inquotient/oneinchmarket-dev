@@ -31,7 +31,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: logstash
-          image: docker.elastic.co/logstash/logstash:8.17.0
+          image: docker.elastic.co/logstash/logstash:9.5.3
           ports:
             - containerPort: 5044
               name: beats

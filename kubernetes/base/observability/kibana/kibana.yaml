@@ -8,7 +8,7 @@ metadata:
     app.kubernetes.io/part-of: oneinchmarket
     app.kubernetes.io/managed-by: kustomize
 spec:
-  version: "8.17.0"
+  version: "9.5.3"
   count: 1
   elasticsearchRef:
     name: elasticsearch
