@@ -88,11 +88,8 @@ images:
     newTag: "0.159.0"                 # 컬렉터 설정 스키마는 마이너마다 바뀐다
 
   # ── 거버넌스 (3단계) ────────────────────────────────────────
-  # ★ 3.1 은 쓸 수 없다 — 3.1.2 의 lib389 가 빈 볼륨에서도
-  #   "Another instance named 'localhost' may already exist" 로 죽는다.
-  #   (instance/setup.py:675 의 ds.list(serverid=...) 판정)
   - name: 389ds/dirsrv
-    newTag: "3.0"
+    newTag: "3.1"
   - name: ldapaccountmanager/lam
     newTag: "8.3"
   # `apache/solr` 가 아니라 `library/solr` 다. apache/solr 에는 태그가 없다.

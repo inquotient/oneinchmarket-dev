@@ -24,11 +24,7 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: ds389
-          # ★ 3.1 은 쓸 수 없다 — 3.1.2 의 lib389 가 빈 볼륨에서도
-          #   "Another instance named 'localhost' may already exist" 로
-          #   죽는다(instance/setup.py:675 ds.list(serverid=...) 판정).
-          #   같은 매니페스트로 3.0 은 정상 기동한다.
-          image: 389ds/dirsrv:3.0
+          image: 389ds/dirsrv:3.1
           envFrom:
             - configMapRef: {name: ds389-config}
           env:
@@ -43,13 +39,26 @@ spec:
               # ★ drop:["ALL"] 만으로는 이 이미지가 뜨지 않는다.
               #   root 로 시작해 설정을 마치고 비특권 사용자로 내려가는
               #   구조라 다음이 필요하다:
-              #     DAC_OVERRIDE — root 라도 CAP_DAC_OVERRIDE 가 없으면
-              #       자신이 소유하지 않은 파일에서 EACCES 를 받는다.
-              #       "root 인데 Permission denied" 가 이 증상이다.
-              #     CHOWN·FOWNER — 데이터 디렉터리 소유권 조정
-              #     SETUID·SETGID — 비특권 사용자로 강등
+              #     CHOWN·FOWNER   — /data 소유권 조정
+              #     DAC_OVERRIDE   — root 라도 이게 없으면 남의 파일에서 EACCES
+              #     SETUID·SETGID  — dirsrv 사용자로 강등
+              #
+              #   ★★ NET_BIND_SERVICE 가 진짜 함정이다.
+              #      /usr/sbin/ns-slapd 에 파일 capability 로 박혀 있다.
+              #      파일의 permitted 집합이 프로세스 bounding 집합의
+              #      부분집합이 아니면 커널이 execve 를 EPERM 으로 거부한다:
+              #        PermissionError: [Errno 1] Operation not permitted:
+              #          '/usr/sbin/ns-slapd'
+              #      3389/3636 을 쓰므로 기능적으로는 필요 없는데도
+              #      exec 하려면 bounding 집합에 있어야 한다.
+              #
+              #   증상이 두 단계로 어긋나 보인다 — 첫 시도는 위 EPERM 으로
+              #   죽고, 그때 이미 /data/config/dse.ldif 를 써 둔 탓에
+              #   두 번째 시도부터는 "Another instance named 'localhost'
+              #   may already exist" 로 바뀐다. 두 번째 메시지만 보면
+              #   볼륨/버전 문제로 오진하기 쉽다.
               drop: ["ALL"]
-              add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]
+              add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID", "NET_BIND_SERVICE"]
           resources:
             requests: {cpu: 100m, memory: 256Mi}
             limits:   {cpu: 500m, memory: 512Mi}
