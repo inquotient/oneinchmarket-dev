@@ -7,6 +7,19 @@
 # 실사용(kubectl top)과 대조해 명백히 과다한 것만 낮춘다. 기준은
 # **관측 피크의 약 2배**다. 여유를 남기되 노드 용량을 되찾는다.
 #
+# ★★ 가장 위험했던 함정 — limit 을 request 아래로 내리면 워크로드가
+#   **조용히** 사라진다. minio 를 512Mi 로 내렸는데 requests 가 1Gi 였다
+#   (qos-guaranteed.yaml 이 Guaranteed 로 만들어 둔 것). 결과:
+#     Pod "minio-0" is invalid: spec.containers[0].resources.requests:
+#       Invalid value: "1Gi": must be less than or equal to memory limit of 512Mi
+#   kustomize build 도 kubectl apply 도 통과한다. StatefulSet 자체는
+#   유효하기 때문이다. 실패하는 것은 **파드 생성**이라 `get pods` 에
+#   아무것도 나타나지 않는다 — CrashLoop 도 Pending 도 아니고 그냥 없다.
+#   97분 동안 모르고 지나갔고, MinIO 가 없어서 spark-connect 가 S3A
+#   초기화에서 멈춰 있던 것을 쫓다가 발견했다.
+#   -> limits 를 만질 때는 반드시 그 워크로드의 requests 를 먼저 볼 것.
+#      그리고 적용 후 `kubectl get sts` 의 READY 열을 확인할 것.
+#
 # ★ 함정 — kubectl top 은 '지금'을 보여줄 뿐 기동 피크를 보여주지 않는다.
 #   spark-connect 를 유휴 459Mi 기준으로 1Gi 로 잡았다가 기동 중
 #   exit 137(OOMKilled)로 죽었다. JVM 은 특히 그렇다 — 유휴 사용량으로
@@ -17,7 +30,6 @@
 #   livy              403Mi     2Gi   -> 1Gi
 #   keycloak          607Mi     2Gi   -> 1.5Gi
 #   ranger-admin      871Mi     2Gi   -> 1.5Gi
-#   minio              93Mi     1Gi   -> 512Mi
 #   admin             102Mi     1Gi   -> 512Mi
 #   tempo              31Mi     1Gi   -> 768Mi
 #   loki              124Mi     1Gi   -> 768Mi
@@ -119,18 +131,6 @@ spec:
         - name: ranger-admin
           resources:
             limits: {memory: 1536Mi}
----
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: minio
-spec:
-  template:
-    spec:
-      containers:
-        - name: minio
-          resources:
-            limits: {memory: 512Mi}
 ---
 apiVersion: apps/v1
 kind: StatefulSet
