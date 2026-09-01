@@ -37,15 +37,30 @@ case "${1:-init}" in
       log "초기화 (key-shares=1, key-threshold=1)"
       # 로컬은 키를 나눠 가질 사람이 없다. 샤딩은 운영 절차이지 기술 요구가 아니다.
       OUT=$(vx operator init -key-shares=1 -key-threshold=1 -format=json)
-      UNSEAL=$(printf '%s' "$OUT" | grep -o '"unseal_keys_b64":\[[^]]*\]' | sed 's/.*\["//;s/"\].*//')
-      ROOT=$(printf '%s'   "$OUT" | grep -o '"root_token":"[^"]*"' | sed 's/.*:"//;s/"//')
-      [ -n "$UNSEAL" ] && [ -n "$ROOT" ] || { echo "[vault] 초기화 출력 파싱 실패"; printf '%s\n' "$OUT"; exit 1; }
+
+      # ★★ 순서가 중요하다 — 파싱보다 저장이 먼저다.
+      #   unseal 키는 이 출력 외에는 어디에도 없다. 파싱을 먼저 하다
+      #   실패하면 Vault 는 이미 초기화된 채 열쇠만 사라진다(실제로 겪었다:
+      #   여러 줄 JSON 을 한 줄 grep 으로 읽다 실패 -> PVC 폐기 후 재초기화).
+      #   그래서 출력을 통째로 먼저 Secret 에 넣고, 그다음 파싱한다.
       kubectl -n "$NS" delete secret vault-init --ignore-not-found >/dev/null
-      kubectl -n "$NS" create secret generic vault-init \
-        --from-literal="unseal-key=$UNSEAL" --from-literal="root-token=$ROOT" >/dev/null
+      kubectl -n "$NS" create secret generic vault-init --from-literal="init-json=$OUT" >/dev/null
       kubectl -n "$NS" label secret vault-init \
         app.kubernetes.io/part-of=oneinchmarket \
         app.kubernetes.io/managed-by=local-script >/dev/null
+      log "init 출력 원본을 Secret vault-init(init-json)에 저장했다"
+
+      # 편의 키 추가. -format=json 은 여러 줄이므로 먼저 개행을 없앤다.
+      FLAT=$(printf '%s' "$OUT" | tr -d ' \n')
+      UNSEAL=$(printf '%s' "$FLAT" | grep -o '"unseal_keys_b64":\["[^"]*"' | sed 's/.*\["//;s/"$//')
+      ROOT=$(printf   '%s' "$FLAT" | grep -o '"root_token":"[^"]*"'        | sed 's/.*:"//;s/"$//')
+      if [ -z "$UNSEAL" ] || [ -z "$ROOT" ]; then
+        echo "[vault] 파싱 실패 — 원본은 Secret vault-init 의 init-json 에 있다"
+        printf '%s\n' "$OUT"
+        exit 1
+      fi
+      kubectl -n "$NS" patch secret vault-init --type merge -p "{\"stringData\":{\
+\"unseal-key\":\"$UNSEAL\",\"root-token\":\"$ROOT\"}}" >/dev/null
       log "unseal 키·root token 을 Secret vault-init 에 저장했다"
     fi
     "$0" unseal
