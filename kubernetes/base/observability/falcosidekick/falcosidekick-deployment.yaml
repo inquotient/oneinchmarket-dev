@@ -59,6 +59,13 @@ spec:
             limits:
               cpu: 200m
               memory: 256Mi
+          # startupProbe 가 없으면 livenessProbe 가 즉시 시작한다.
+          startupProbe:
+            httpGet:
+              path: /ping
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
           livenessProbe:
             httpGet:
               path: /ping

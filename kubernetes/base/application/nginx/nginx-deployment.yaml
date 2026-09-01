@@ -51,6 +51,13 @@ spec:
             capabilities:
               drop:
                 - ALL
+          # startupProbe 가 없으면 livenessProbe 가 즉시 시작한다.
+          startupProbe:
+            httpGet:
+              path: /
+              port: 80
+            failureThreshold: 30
+            periodSeconds: 5
           livenessProbe:
             httpGet:
               path: /

@@ -82,6 +82,8 @@ spec:
             requests: {cpu: 100m, memory: 384Mi}
             limits:   {cpu: 500m, memory: 768Mi}
           # 포트를 열지 않는다(폴링 클라이언트다). 프로세스 생존으로 판정한다.
+          # startupProbe 대신 initialDelaySeconds 로 기동 여유를 준다 —
+          # exec 프로브라 startupProbe 를 따로 두어도 같은 명령을 반복할 뿐이다.
           livenessProbe:
             exec:
               command:

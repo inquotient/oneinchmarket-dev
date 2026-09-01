@@ -94,6 +94,17 @@ spec:
             capabilities:
               drop:
                 - ALL
+          # ★ startupProbe 가 없으면 livenessProbe 가 delay=0s 로 즉시 시작한다.
+          #   period 30s x failureThreshold 3 = 90초 안에 뜨지 못하면 죽는다.
+          #   Spring Boot 는 이 노드에서 기동에 2분 가까이 걸려 exit 143 으로
+          #   죽었다(apicurio 매니페스트에 이미 같은 사유가 기록되어 있다).
+          #   5분을 준다.
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            failureThreshold: 60
+            periodSeconds: 5
           livenessProbe:
             httpGet:
               path: /actuator/health

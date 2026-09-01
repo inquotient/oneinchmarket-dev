@@ -53,6 +53,13 @@ spec:
             capabilities:
               drop:
                 - ALL
+          # startupProbe 가 없으면 livenessProbe 가 즉시 시작해 90초 만에 죽인다.
+          startupProbe:
+            httpGet:
+              path: /
+              port: 3000
+            failureThreshold: 40
+            periodSeconds: 5
           livenessProbe:
             httpGet:
               path: /
