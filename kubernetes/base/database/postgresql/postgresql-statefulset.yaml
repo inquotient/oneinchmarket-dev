@@ -25,24 +25,38 @@ spec:
       serviceAccountName: postgresql
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1001
-        runAsGroup: 1001
-        fsGroup: 1001
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: postgresql
-          image: bitnami/postgresql:latest
+          # 공식 이미지. bitnami 는 2025-08 무료 카탈로그 축소로 버전 태그가
+          # 사라져 재현 가능한 핀이 불가능해졌다.
+          image: postgres:latest
+          # GitLab 은 structure.sql(6만 줄)을 단일 트랜잭션으로 적재한다.
+          # 기본 max_locks_per_transaction=64 로는 out of shared memory 가 난다.
+          # 공식 이미지에는 EXTRA_FLAGS 류 환경변수가 없어 args 로 넘긴다.
+          args:
+            - postgres
+            - -c
+            - max_locks_per_transaction=256
           ports:
             - containerPort: 5432
               name: postgresql
               protocol: TCP
           env:
-            - name: POSTGRESQL_PASSWORD
+            # 공식 이미지 규약 — bitnami 의 POSTGRESQL_* 와 다르다.
+            - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: postgresql-secret
                   key: postgresql-password
+            # PGDATA 는 마운트 지점 자체가 아니라 하위 디렉터리여야 한다.
+            # lost+found 등이 있으면 initdb 가 거부한다.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
           envFrom:
             - configMapRef:
                 name: postgresql-config
@@ -78,11 +92,11 @@ spec:
             timeoutSeconds: 5
           volumeMounts:
             - name: data
-              mountPath: /bitnami/postgresql
+              mountPath: /var/lib/postgresql/data
             - name: conf
-              mountPath: /opt/bitnami/postgresql/conf
+              mountPath: /etc/postgresql
             - name: tmp
-              mountPath: /opt/bitnami/postgresql/tmp
+              mountPath: /var/run/postgresql
       volumes:
         - name: conf
           emptyDir: {}

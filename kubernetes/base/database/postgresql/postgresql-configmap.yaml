@@ -7,8 +7,9 @@ metadata:
     app.kubernetes.io/component: database
     app.kubernetes.io/part-of: oneinchmarket
 data:
-  POSTGRESQL_USERNAME: "postgres"
-  POSTGRESQL_DATABASE: "oneinchmarket"
-  # GitLab 은 structure.sql(6만 줄)을 단일 트랜잭션으로 적재한다.
-  # 기본 max_locks_per_transaction=64 로는 "out of shared memory" 가 난다.
-  POSTGRESQL_EXTRA_FLAGS: "-c max_locks_per_transaction=256"
+  # 공식 postgres 이미지 규약. bitnami 의 POSTGRESQL_* 와 다르다.
+  #   POSTGRESQL_USERNAME -> POSTGRES_USER
+  #   POSTGRESQL_DATABASE -> POSTGRES_DB
+  #   POSTGRESQL_EXTRA_FLAGS -> 대응 없음. StatefulSet 의 args 로 넘긴다.
+  POSTGRES_USER: "postgres"
+  POSTGRES_DB: "oneinchmarket"

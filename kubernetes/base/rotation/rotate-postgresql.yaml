@@ -36,7 +36,7 @@ spec:
               type: RuntimeDefault
           containers:
             - name: rotate-postgresql
-              image: bitnami/postgresql:latest
+              image: postgres:latest
               command:
                 - /bin/bash
                 - -c

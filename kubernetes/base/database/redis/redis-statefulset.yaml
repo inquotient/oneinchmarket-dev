@@ -25,14 +25,24 @@ spec:
       serviceAccountName: redis
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1001
-        runAsGroup: 1001
-        fsGroup: 1001
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: redis
-          image: bitnami/redis:latest
+          # 공식 이미지. REDIS_PASSWORD 환경변수를 읽지 않으므로
+          # --requirepass 로 넘긴다. 데이터 경로는 /data 다.
+          image: redis:latest
+          command: ["redis-server"]
+          args:
+            - --requirepass
+            - $(REDIS_PASSWORD)
+            - --appendonly
+            - "yes"
+            - --dir
+            - /data
           ports:
             - containerPort: 6379
               name: redis
@@ -83,7 +93,7 @@ spec:
             timeoutSeconds: 5
           volumeMounts:
             - name: data
-              mountPath: /bitnami
+              mountPath: /data
   volumeClaimTemplates:
     - metadata:
         name: data

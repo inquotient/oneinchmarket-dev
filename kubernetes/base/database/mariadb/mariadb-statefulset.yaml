@@ -25,14 +25,16 @@ spec:
       serviceAccountName: mariadb
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1001
-        runAsGroup: 1001
-        fsGroup: 1001
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: mariadb
-          image: bitnami/mariadb:latest
+          # 공식 이미지. MARIADB_* 환경변수 규약은 bitnami 와 같으나
+          # 데이터 경로(/var/lib/mysql)와 uid(999)가 다르다.
+          image: mariadb:latest
           ports:
             - containerPort: 3306
               name: mariadb
@@ -83,11 +85,11 @@ spec:
             timeoutSeconds: 5
           volumeMounts:
             - name: data
-              mountPath: /bitnami/mariadb/data
+              mountPath: /var/lib/mysql
             - name: conf
-              mountPath: /opt/bitnami/mariadb/conf
+              mountPath: /etc/mysql/conf.d
             - name: tmp
-              mountPath: /opt/bitnami/mariadb/tmp
+              mountPath: /var/run/mysqld
       volumes:
         - name: conf
           emptyDir: {}

@@ -27,13 +27,13 @@ spec:
       priorityClassName: batch-low
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
-        fsGroup: 1000
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: bootstrap
-          image: bitnami/mariadb:latest
+          image: mariadb:latest
           command: ["/bin/bash", "-c"]
           args:
             - |
