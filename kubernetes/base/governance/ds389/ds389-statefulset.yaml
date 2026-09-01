@@ -35,7 +35,17 @@ spec:
             - {containerPort: 3636, name: ldaps, protocol: TCP}
           securityContext:
             allowPrivilegeEscalation: false
-            capabilities: {drop: ["ALL"]}
+            capabilities:
+              # ★ drop:["ALL"] 만으로는 이 이미지가 뜨지 않는다.
+              #   root 로 시작해 설정을 마치고 비특권 사용자로 내려가는
+              #   구조라 다음이 필요하다:
+              #     DAC_OVERRIDE — root 라도 CAP_DAC_OVERRIDE 가 없으면
+              #       자신이 소유하지 않은 파일에서 EACCES 를 받는다.
+              #       "root 인데 Permission denied" 가 이 증상이다.
+              #     CHOWN·FOWNER — 데이터 디렉터리 소유권 조정
+              #     SETUID·SETGID — 비특권 사용자로 강등
+              drop: ["ALL"]
+              add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]
           resources:
             requests: {cpu: 100m, memory: 256Mi}
             limits:   {cpu: 500m, memory: 512Mi}
