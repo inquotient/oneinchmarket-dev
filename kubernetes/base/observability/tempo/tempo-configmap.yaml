@@ -4,13 +4,23 @@ metadata:
   name: tempo-config
   labels: {app.kubernetes.io/name: tempo, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
 data:
-  # 단일 바이너리(monolithic) 모드. 수신은 OTLP 만 연다 —
+  # 단일 바이너리(target=single-binary) 모드. 수신은 OTLP 만 연다 —
   # Jaeger/Zipkin 레거시 수신기는 보내는 쪽이 없다.
+  #
+  # ★ Tempo 3.0 의 쓰기 경로 재작성 — 2.x 설정은 기동하지 않는다.
+  #     ingester                          -> live_store
+  #     compactor.compaction.*            -> overrides.defaults.compaction.*
+  #     (분산 모드는 distributor -> Kafka -> block_builder 를 탄다.
+  #      single-binary 는 앱 와이어링이 Kafka 소비를 끄므로 Kafka 가 필요 없다.)
+  #   `field ingester not found in type app.Config` 로 CrashLoop 하는 것이
+  #   이 변경의 증상이다.
   #
   # metrics_generator 는 켜지 않았다. Prometheus 에 remote-write 수신기를
   # 열어야 하는데(--web.enable-remote-write-receiver) 로컬 CPU 예산에서
   # 서비스 그래프의 값이 비용을 넘지 않는다.
   tempo.yaml: |
+    stream_over_http_enabled: true
+
     server:
       http_listen_port: 3200
       log_level: info
@@ -24,19 +34,23 @@ data:
             http:
               endpoint: 0.0.0.0:4318
 
-    ingester:
+    live_store:
       # 로컬은 트래픽이 적어 블록이 좀처럼 차지 않는다.
       # 5분이면 조회에 보이기까지의 지연이 수용 범위다.
       max_block_duration: 5m
 
-    compactor:
-      compaction:
-        block_retention: 72h
-
     storage:
       trace:
         backend: local
-        local:
-          path: /var/tempo/blocks
         wal:
           path: /var/tempo/wal
+        local:
+          path: /var/tempo/blocks
+
+    overrides:
+      defaults:
+        compaction:
+          block_retention: 72h
+
+    usage_report:
+      reporting_enabled: false
