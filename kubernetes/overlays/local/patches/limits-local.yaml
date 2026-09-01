@@ -1,0 +1,199 @@
+# ★ 메모리 limits 정리 (2026-09-01)
+#
+# 3단계 종료 시점에 노드의 메모리 limits 합이 98% 였다. requests 는 57% 로
+# 여유가 있었으므로 스케줄은 되지만, limits 가 노드 용량을 넘으면
+# 오버커밋이 실 RAM 압박으로 이어져 zram 스래싱·축출로 나타난다.
+#
+# 실사용(kubectl top)과 대조해 명백히 과다한 것만 낮춘다. 기준은
+# **관측 피크의 약 2배**다. 여유를 남기되 노드 용량을 되찾는다.
+#
+#   워크로드          실사용    기존 limit -> 새 limit
+#   prometheus        238Mi     3Gi   -> 1.5Gi
+#   livy              403Mi     2Gi   -> 1Gi
+#   spark-connect     459Mi     2Gi   -> 1Gi
+#   keycloak          607Mi     2Gi   -> 1.5Gi
+#   ranger-admin      871Mi     2Gi   -> 1.5Gi
+#   minio              93Mi     1Gi   -> 512Mi
+#   admin             102Mi     1Gi   -> 512Mi
+#   tempo              31Mi     1Gi   -> 768Mi
+#   loki              124Mi     1Gi   -> 768Mi
+#   apicurio          237Mi     1Gi   -> 768Mi
+#   akhq              255Mi     1Gi   -> 768Mi
+#   knox              253Mi     1Gi   -> 768Mi
+#   nginx              17Mi   512Mi   -> 256Mi
+#   otel-gateway       45Mi   512Mi   -> 384Mi
+#
+# 건드리지 않은 것 —
+#   qos-guaranteed.yaml 이 잡는 8종(kafka·trino·postgresql·mariadb 등)은
+#     requests==limits 가 zram 배제 장치다. 여기서 limits 만 바꾸면 그 성질이 깨진다
+#   gitlab(3669Mi/4Gi)·logstash(1492Mi/2Gi)·elasticsearch(1722Mi/2Gi)·
+#     kibana(846Mi/1Gi)·cmmn-api(807Mi/1Gi)는 실제로 쓰고 있다
+#
+# requests 는 손대지 않는다. 스케줄 여유(57%)는 문제가 아니었다.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: prometheus
+spec:
+  template:
+    spec:
+      containers:
+        - name: prometheus
+          resources:
+            limits: {memory: 1536Mi}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: tempo
+spec:
+  template:
+    spec:
+      containers:
+        - name: tempo
+          resources:
+            limits: {memory: 768Mi}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: loki
+spec:
+  template:
+    spec:
+      containers:
+        - name: loki
+          resources:
+            limits: {memory: 768Mi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-gateway
+spec:
+  template:
+    spec:
+      containers:
+        - name: otel-gateway
+          resources:
+            limits: {memory: 384Mi}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: livy
+spec:
+  template:
+    spec:
+      containers:
+        - name: livy
+          resources:
+            limits: {memory: 1Gi}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: spark-connect
+spec:
+  template:
+    spec:
+      containers:
+        - name: spark-connect
+          resources:
+            limits: {memory: 1Gi}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: keycloak
+spec:
+  template:
+    spec:
+      containers:
+        - name: keycloak
+          resources:
+            limits: {memory: 1536Mi}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ranger-admin
+spec:
+  template:
+    spec:
+      containers:
+        - name: ranger-admin
+          resources:
+            limits: {memory: 1536Mi}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: minio
+spec:
+  template:
+    spec:
+      containers:
+        - name: minio
+          resources:
+            limits: {memory: 512Mi}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: admin
+spec:
+  template:
+    spec:
+      containers:
+        - name: admin
+          resources:
+            limits: {memory: 512Mi}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: apicurio-registry
+spec:
+  template:
+    spec:
+      containers:
+        - name: apicurio-registry
+          resources:
+            limits: {memory: 768Mi}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: akhq
+spec:
+  template:
+    spec:
+      containers:
+        - name: akhq
+          resources:
+            limits: {memory: 768Mi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: knox
+spec:
+  template:
+    spec:
+      containers:
+        - name: knox
+          resources:
+            limits: {memory: 768Mi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+spec:
+  template:
+    spec:
+      containers:
+        - name: nginx
+          resources:
+            limits: {memory: 256Mi}

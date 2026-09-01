@@ -19,6 +19,8 @@ patches:
   - path: patches/kafka-local.yaml
   - path: patches/nginx-local.yaml
   - path: patches/falco-local.yaml
+  # ★ 메모리 limits 정리 — 3단계 종료 시 limits 합이 98% 였다
+  - path: patches/limits-local.yaml
 
   # ── Elasticsearch (ECK CR) — TODO-32: dev 는 3노드 그대로다. 로컬은 1노드.
   #    count 3 → 1 로 −8 GiB. 그리고 Guaranteed 로 스왑에서 배제한다.
