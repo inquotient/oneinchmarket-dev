@@ -8,7 +8,9 @@ metadata:
     app.kubernetes.io/part-of: oneinchmarket
 data:
   logstash.yml: |
-    http.host: "0.0.0.0"
+    # Logstash 9.x 에서 http.host 가 제거되고 api.http.host 로 바뀌었다.
+    #   Your settings are invalid. Reason: Setting "http.host" doesn't exist.
+    api.http.host: "0.0.0.0"
     monitoring.enabled: false
     pipeline.workers: 2
     pipeline.batch.size: 125
