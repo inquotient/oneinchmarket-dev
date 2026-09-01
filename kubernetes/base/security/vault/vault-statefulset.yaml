@@ -24,7 +24,13 @@ spec:
       containers:
         - name: vault
           image: hashicorp/vault:latest
-          args: ["server", "-config=/vault/config/vault.hcl"]
+          # ★ -config 을 직접 주지 말 것. 이미지의 docker-entrypoint.sh 가
+          #   첫 인자가 server 이면 -config=/vault/config 을 스스로 덧붙인다.
+          #   명시하면 같은 파일을 두 번 읽어 리스너가 중복 등록되고
+          #     Error initializing listener of type tcp:
+          #       listen tcp4 0.0.0.0:8200: bind: address already in use
+          #   로 죽는다. 디렉터리만 마운트하고 인자는 server 하나만 준다.
+          args: ["server"]
           ports:
             - {containerPort: 8200, name: http, protocol: TCP}
             - {containerPort: 8201, name: cluster, protocol: TCP}

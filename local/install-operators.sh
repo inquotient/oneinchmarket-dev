@@ -76,7 +76,11 @@ if ! command -v helm >/dev/null 2>&1; then
 fi
 log "Tetragon ${TETRAGON_VERSION}"
 kubectl create ns tetragon --dry-run=client -o yaml | kubectl apply -f -
-helm template tetragon oci://ghcr.io/cilium/charts/tetragon \
+# ★ ghcr.io 의 OCI 경로(oci://ghcr.io/cilium/charts/tetragon)는 익명 pull 이
+#   403 denied 다. helm repo 를 쓴다.
+helm repo add cilium https://helm.cilium.io >/dev/null 2>&1 || true
+helm repo update >/dev/null
+helm template tetragon cilium/tetragon \
   --version "${TETRAGON_VERSION#v}" \
   --namespace tetragon \
   --set tetragon.resources.limits.memory=512Mi \
@@ -95,11 +99,26 @@ helm template tetragon oci://ghcr.io/cilium/charts/tetragon \
 log "Trivy Operator ${TRIVY_OPERATOR_VERSION}"
 kubectl apply --server-side --force-conflicts \
   -f "https://raw.githubusercontent.com/aquasecurity/trivy-operator/${TRIVY_OPERATOR_VERSION}/deploy/static/trivy-operator.yaml"
+# ★ 기본 동시 스캔 10개는 이 노드에 과하다. 설치 직후 워크로드 40여 개를
+#   한꺼번에 스캔하며 메모리를 밀어붙인다. 2로 낮춘다.
+kubectl -n trivy-system patch cm trivy-operator-config --type merge \
+  -p '{"data":{"scanJob.concurrentLimit":"2"}}' || true
+kubectl -n trivy-system rollout restart deploy/trivy-operator || true
 
 # 5-3. Policy Reporter (Kyverno·Trivy 결과 집계)
+#
+# ★ kustomize 의 원격 git fetch 에는 27초 하드 타임아웃이 있어 이 저장소에서는
+#   늘 실패한다("hit 27s timeout running git fetch"). 얕은 클론 후 로컬에서 읽는다.
+#   배포물은 kustomization 이 아니라 install.yaml 한 장이고,
+#   네임스페이스를 스스로 만들지 않는다.
 log "Policy Reporter ${POLICY_REPORTER_VERSION}"
-kubectl apply --server-side --force-conflicts -k \
-  "https://github.com/kyverno/policy-reporter/manifests/policy-reporter?ref=${POLICY_REPORTER_VERSION}"
+kubectl create ns policy-reporter --dry-run=client -o yaml | kubectl apply -f -
+PR_DIR=$(mktemp -d)
+git clone --depth 1 --branch "${POLICY_REPORTER_VERSION}" -q \
+  https://github.com/kyverno/policy-reporter "$PR_DIR"
+kubectl apply --server-side --force-conflicts \
+  -f "$PR_DIR/manifests/policy-reporter/install.yaml"
+rm -rf "$PR_DIR"
 # ── 6. 대기 및 검증 ────────────────────────────────────────────
 log "오퍼레이터 Ready 대기"
 kubectl -n istio-system    rollout status deploy/istiod                 --timeout=300s || true
