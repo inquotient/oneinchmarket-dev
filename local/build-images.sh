@@ -38,8 +38,17 @@ sudo podman build --format docker \
   -t oneinch/livy:latest -t oneinch/livy:0.9.0-incubating \
   "${REPO_ROOT}/docker/livy"
 
+log "oneinch/ranger-usersync 빌드"
+# Ranger UserSync 는 공식 이미지가 없다. Dockerfile 은 upstream 에 있다
+#   apache/ranger @ release-ranger-2.9.0
+#     dev-support/ranger-docker/Dockerfile.ranger-usersync
+# 베이스(apache/ranger-base)와 릴리스 tarball 모두 Apache 배포물이다.
+sudo podman build --format docker \
+  -t oneinch/ranger-usersync:latest -t oneinch/ranger-usersync:2.9.0 \
+  "${REPO_ROOT}/docker/ranger-usersync"
+
 log "k3s containerd 로 반입 (namespace k8s.io)"
-for img in oneinch/spark-iceberg:latest oneinch/livy:latest; do
+for img in oneinch/spark-iceberg:latest oneinch/livy:latest oneinch/ranger-usersync:latest; do
   sudo podman save --format docker-archive "localhost/$img" \
     | sudo k3s ctr -n k8s.io images import --base-name "docker.io/$img" -
   log "  imported $img"
