@@ -39,7 +39,11 @@ spec:
               set -euo pipefail
               SRC=/usr/share/wazuh-indexer/config/opensearch-security
               DST=/security-config
-              cp -a "$SRC"/. "$DST"/
+              # ★ cp -a 를 쓰지 말 것. -a 는 타임스탬프·소유권 보존을 시도하는데
+              #   emptyDir 마운트 루트에서는 권한이 없어 실패한다:
+              #     cp: preserving times for '/security-config/.': Operation not permitted
+              #   내용만 복사하면 된다.
+              cp -r "$SRC"/. "$DST"/
 
               hash_of() {
                 # hash.sh 는 경고를 함께 뱉으므로 마지막 줄만 취한다.
