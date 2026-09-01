@@ -63,10 +63,16 @@ mk argocd-admin-secret   "admin-password=$(gen)"
 mk falcosidekick-secret  "slack-webhook-url="
 
 # ── 3단계 거버넌스 ────────────────────────────────────────────────
-#    Ranger admin 은 UNIX 인증이라 웹 로그인 계정이 admin / db-password 다
-#    (이미지의 ranger.sh 가 rangerAdmin_password 를 RANGER_DB_PASSWORD 로
-#     함께 설정한다). LDAP 인증 전환은 별도 작업이다.
-DS_DM=$(gen); LAM_PW=$(gen); RANGER_PW=$(gen); KNOX_MS=$(gen 32)
+#    Ranger admin 은 웹 로그인 비밀번호도 RANGER_DB_PASSWORD 로 설정한다
+#    (이미지의 ranger.sh 가 rangerAdmin_password 에 같은 값을 쓴다).
+#
+#    ★ Ranger 의 비밀번호 정책을 통과해야 한다 — 대문자·소문자·숫자·
+#      특수문자(@#$%^&+=)를 각각 하나 이상, 8자 이상. gen() 의 hex 는
+#      소문자와 숫자뿐이라 정책에 걸리고, 걸리면 setup 이 조용히 넘어가
+#      **admin 계정이 기본값 admin/admin 으로 남는다.** 실제로 그랬다.
+#      DB 롤 비밀번호로도 쓰이지만 PostgreSQL 은 문자 구성을 따지지 않는다.
+DS_DM=$(gen); LAM_PW=$(gen); KNOX_MS=$(gen 32)
+RANGER_PW="Rg$(gen 16)#A1"
 
 mk ds389-secret   "dm-password=$DS_DM"          # cn=Directory Manager
 mk lam-secret     "master-password=$LAM_PW"     # LAM 마스터 설정 비밀번호
