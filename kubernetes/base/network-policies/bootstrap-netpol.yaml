@@ -117,3 +117,26 @@ spec:
               app.kubernetes.io/component: bootstrap
       ports:
         - { protocol: TCP, port: 3389 }
+---
+# apicurio-rules Job 이 전역 규칙(VALIDITY·COMPATIBILITY)을 세운다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-bootstrap-to-apicurio
+  labels:
+    app.kubernetes.io/name: allow-bootstrap-to-apicurio
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: apicurio-registry
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: bootstrap
+      ports:
+        - { protocol: TCP, port: 8080 }

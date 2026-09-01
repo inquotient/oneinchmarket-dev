@@ -1,0 +1,102 @@
+# Apicurio Registry 전역 규칙.
+#
+# 규칙은 DB 에 사는 **런타임 상태**라 매니페스트로 직접 표현할 수 없다.
+# 다른 부트스트랩(postgres·ds389)과 같은 방식으로 Job 이 멱등하게 세운다.
+#
+#   VALIDITY = FULL        등록되는 내용이 해당 타입으로 파싱·검증되는지
+#   COMPATIBILITY = BACKWARD  새 버전이 직전 버전과 하위 호환인지
+#
+# ★ 알고 쓸 것 —
+#   ① COMPATIBILITY 는 Avro·Protobuf·JSON Schema 에서 의미가 크다.
+#      OPENAPI/ASYNCAPI 아티팩트에 대해서는 검사 깊이가 제한적이다.
+#      그래도 전역으로 둔다 — 스키마가 들어오는 순간부터 게이트가 서고,
+#      필요하면 아티팩트별 규칙으로 덮을 수 있다.
+#   ② `apicurio.rest.draft.production-mode.enabled=false`(기본)에서는
+#      **DRAFT 버전에 규칙이 평가되지 않는다.** 초안을 자유롭게 고치고
+#      DRAFT 를 벗어날 때 검사받는 흐름이다. 편집 기능(§8-13)과 맞물린다.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: apicurio-rules
+  labels:
+    app.kubernetes.io/name: apicurio-rules
+    app.kubernetes.io/component: bootstrap
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 20
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: apicurio-rules
+        app.kubernetes.io/component: bootstrap
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      restartPolicy: OnFailure
+      priorityClassName: batch-low
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: bootstrap
+          # curl 이 들어 있는 이미지를 새로 끌어오지 않고 레지스트리 이미지를 쓴다
+          # (ds389-bootstrap 이 ds389 이미지를 쓰는 것과 같은 이유).
+          image: apicurio/apicurio-registry:3.3.2
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -uo pipefail
+              API="http://apicurio-registry-headless:8080/apis/registry/v3"
+
+              echo "[apicurio-rules] 레지스트리 대기"
+              until curl -sf "$API/system/info" >/dev/null 2>&1; do sleep 3; done
+
+              set_rule() {   # set_rule <RULE_TYPE> <CONFIG>
+                local rt="$1" cfg="$2" code
+                # 있으면 409 가 온다. 그때는 PUT 으로 값을 맞춘다.
+                code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API/admin/rules" \
+                        -H 'Content-Type: application/json' \
+                        -d "{\"ruleType\":\"${rt}\",\"config\":\"${cfg}\"}")
+                if [ "$code" = "409" ]; then
+                  code=$(curl -s -o /dev/null -w '%{http_code}' -X PUT "$API/admin/rules/${rt}" \
+                          -H 'Content-Type: application/json' \
+                          -d "{\"ruleType\":\"${rt}\",\"config\":\"${cfg}\"}")
+                  echo "  ${rt}=${cfg}  (기존 규칙 갱신, http ${code})"
+                else
+                  echo "  ${rt}=${cfg}  (신규 등록, http ${code})"
+                fi
+              }
+
+              set_rule VALIDITY      FULL
+              set_rule COMPATIBILITY BACKWARD
+
+              # ── 검증. 여기서 실패하면 Job 도 실패해야 한다.
+              #    (ds389-bootstrap 에서 검증 없이 Complete 로 끝난 전례가 있다.)
+              echo "[apicurio-rules] 검증"
+              ok=0
+              for want in "VALIDITY:FULL" "COMPATIBILITY:BACKWARD"; do
+                rt="${want%%:*}"; cfg="${want##*:}"
+                got=$(curl -s "$API/admin/rules/${rt}" | grep -o "\"config\":\"[^\"]*\"" | cut -d'"' -f4)
+                echo "  ${rt} -> ${got:-없음}"
+                [ "$got" = "$cfg" ] && ok=$((ok+1))
+              done
+              if [ "$ok" -ne 2 ]; then
+                echo "[apicurio-rules] 실패 — 규칙 2건을 기대했다"
+                exit 1
+              fi
+              echo "[apicurio-rules] 완료"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits:   { cpu: 300m, memory: 256Mi }
