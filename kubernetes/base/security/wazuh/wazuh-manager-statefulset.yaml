@@ -61,7 +61,16 @@ spec:
             - {containerPort: 55000, name: api, protocol: TCP}
           securityContext:
             allowPrivilegeEscalation: false
-            capabilities: {drop: ["ALL"]}
+            capabilities:
+              # ★ 3단계에서 DS389·LAM 이 겪은 것과 같은 건이다 — 또 밟았다.
+              #   root 로 시작해 설정을 마치고 비특권 사용자로 내려가는
+              #   이미지는 drop:["ALL"] 만으로 뜨지 않는다:
+              #     Permission denied: '/var/ossec/etc/ossec.conf'
+              #   uid 0 인데 EACCES 인 것은 CAP_DAC_OVERRIDE 를 버린 탓이다.
+              #   s6 감독 프로세스가 서비스에 신호를 보내므로 KILL 도 필요하다
+              #   (없으면 supervisor not listening 으로 끝난다).
+              drop: ["ALL"]
+              add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID", "KILL"]
           resources:
             requests: {cpu: 100m, memory: 512Mi}
             limits:   {cpu: "1",  memory: 1Gi}

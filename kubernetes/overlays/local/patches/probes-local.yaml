@@ -1,0 +1,25 @@
+# ★ 기동 여유 확대 (2026-09-01, 4단계)
+#
+# 단일 노드에 JVM 워크로드가 계속 늘면서 기동이 서로를 늦춘다.
+# 4단계에서 Tetragon·Trivy Operator(상시 스캔)·Wazuh indexer 가 들어오자
+# spark-connect 가 base 의 startup 예산 30 x 10s = 5분 안에 15002 를 열지
+# 못하고 kubelet 에 죽었다(exit 137).
+#
+#   Startup probe failed: dial tcp ...:15002: connect: connection refused
+#   ... x22 over 9m29s
+#
+# 자원 부족이 아니다 — limits 를 2Gi 로 되돌려도 같았다. 경합으로 느려진 것뿐이다.
+# base 의 5분은 한산한 클러스터에서 타당하다. 로컬만 늘린다.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: spark-connect
+spec:
+  template:
+    spec:
+      containers:
+        - name: spark-connect
+          startupProbe:
+            tcpSocket: {port: grpc}
+            failureThreshold: 60      # 10분
+            periodSeconds: 10
