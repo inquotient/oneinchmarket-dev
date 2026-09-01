@@ -1,0 +1,46 @@
+# Spectral 룰셋 — API 계약의 스타일·거버넌스 검사.
+#
+# 레지스트리 규칙과 역할이 다르다:
+#   Apicurio VALIDITY   구문이 맞는가 (파싱되는가)
+#   Apicurio COMPATIBILITY  직전 버전과 하위 호환인가
+#   Spectral            읽을 만한가 · 팀 규약을 지키는가
+#
+# 시작은 업스트림 권장 룰셋을 그대로 쓰고, 우리 규약만 얹는다.
+# 처음부터 규칙을 많이 만들면 계약이 들어오기도 전에 마찰이 커진다.
+extends:
+  - "spectral:oas"
+  - "spectral:asyncapi"
+
+rules:
+  # ── 문서가 스스로를 설명해야 한다 ────────────────────────────
+  info-contact: error          # 계약에 주인이 없으면 바꿀 때 물을 곳이 없다
+  info-description: error
+  operation-description: warn
+  operation-operationId: error # 코드 생성이 이 값을 이름으로 쓴다
+  operation-tags: warn
+
+  # ── 서버 URL ────────────────────────────────────────────────
+  oas3-api-servers: error
+
+  # ── 우리 규약 ───────────────────────────────────────────────
+  oim-title-required:
+    description: "info.title 은 비어 있을 수 없다"
+    given: "$.info"
+    severity: error
+    then:
+      field: title
+      function: truthy
+
+  oim-semver:
+    description: "info.version 은 SemVer 여야 한다 — 레지스트리 버전과 맞춘다"
+    given: "$.info"
+    severity: error
+    then:
+      field: version
+      function: pattern
+      functionOptions:
+        # ★ 정규식은 홑따옴표 + 문자클래스로 쓴다. 겹따옴표 안의 백슬래시-d 는
+        #   YAML 에서 **유효하지 않은 이스케이프**라 파서가 삼키고,
+        #   그러면 규칙이 조용히 죽는다 — 오류도 경고도 없다.
+        #   실제로 이 파일이 그 상태였다(실증: r1 조용함 / r2 발화).
+        match: '^[0-9]+\.[0-9]+\.[0-9]+$'

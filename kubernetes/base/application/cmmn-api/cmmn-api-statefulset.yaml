@@ -70,6 +70,16 @@ spec:
             # Apicurio 의 Confluent 호환 엔드포인트. schema-reg 는 v2 에 없다(ADR-031).
             - name: SPRING_KAFKA_PROPERTIES_SCHEMA_REGISTRY_URL
               value: "http://apicurio-registry-headless:8080/apis/ccompat/v7"
+            # ★ 계약 우선(ADR-067)의 필수 귀결.
+            #   Confluent serdes 의 기본값은 auto.register.schemas=true 다.
+            #   그대로 두면 **앱이 처음 메시지를 보낼 때 스키마를 스스로 등록한다.**
+            #   그것은 코드 우선이며 계약 우선과 정면으로 충돌한다.
+            #   끄면 앱은 등록된 최신 스키마를 찾아 쓰고, 없으면 실패한다 —
+            #   계약이 먼저 있어야 한다는 뜻이고 그것이 의도다.
+            - name: SPRING_KAFKA_PROPERTIES_AUTO_REGISTER_SCHEMAS
+              value: "false"
+            - name: SPRING_KAFKA_PROPERTIES_USE_LATEST_VERSION
+              value: "true"
             - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
               value: "kafka-headless:9092"
           resources:

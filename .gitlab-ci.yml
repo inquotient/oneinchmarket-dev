@@ -39,6 +39,34 @@ kubeconform-validate:
         - kubernetes/**/*
   allow_failure: true
 
+
+# ──────────────────────────────────────────
+# Stage: validate - API 계약 린트 (계약 우선, ADR-067)
+# ──────────────────────────────────────────
+# contracts/ 가 원천이다. 레지스트리 규칙(VALIDITY·COMPATIBILITY)이
+# 구문·호환을 보고, Spectral 이 스타일·거버넌스를 본다.
+#
+# 계약이 아직 하나도 없다. 그래서 파일이 없으면 조용히 통과한다 —
+# 다만 **에코로 분명히 남긴다.** 아무것도 안 한 잡이 초록색으로만 남으면
+# 검사가 도는 줄 착각하게 된다(ds389-bootstrap 에서 겪은 것과 같은 계열).
+spectral-lint:
+  stage: validate
+  image: stoplight/spectral:6.16.3
+  script:
+    - |
+      set -e
+      found=$(find contracts/openapi contracts/asyncapi -type f \( -name '*.yaml' -o -name '*.yml' -o -name '*.json' \) 2>/dev/null | sort)
+      if [ -z "$found" ]; then
+        echo "[spectral] contracts/ 에 계약 파일이 없다 — 검사할 것이 없다."
+        echo "[spectral] 계약이 들어오면 이 잡이 자동으로 검사한다. contracts/README.md 참조."
+        exit 0
+      fi
+      echo "[spectral] 대상:"; echo "$found" | sed 's/^/  /'
+      echo "$found" | xargs spectral lint --ruleset .spectral.yaml --fail-severity=error
+  rules:
+    - changes:
+        - contracts/**/*
+        - .spectral.yaml
 # ──────────────────────────────────────────
 # Stage: build - 자체 이미지 빌드
 # ──────────────────────────────────────────
@@ -193,6 +221,66 @@ deploy-dev:
     - if: $CI_COMMIT_BRANCH == "v2"
       changes:
         - kubernetes/**/*
+
+
+# ──────────────────────────────────────────
+# Stage: deploy - API 계약을 Apicurio 에 게시 (ADR-067)
+# ──────────────────────────────────────────
+# 계약 우선이므로 **레지스트리는 contracts/ 를 따라간다.**
+# 게시 시점에 레지스트리 전역 규칙(VALIDITY=FULL·COMPATIBILITY=BACKWARD)이
+# 한 번 더 막는다 — CI 의 Spectral 과 이중 게이트다.
+#
+# 스키마는 ccompat(v7)로, OpenAPI/AsyncAPI 는 Registry v3 API 로 올린다.
+# subject·artifactId 규칙은 contracts/README.md 를 볼 것.
+publish-contracts:
+  stage: deploy
+  image: curlimages/curl:8.11.1
+  variables:
+    REGISTRY_V3: "http://apicurio-registry-headless.dev.svc.cluster.local:8080/apis/registry/v3"
+    REGISTRY_CCOMPAT: "http://apicurio-registry-headless.dev.svc.cluster.local:8080/apis/ccompat/v7"
+  script:
+    - |
+      set -eu
+      published=0
+
+      # ── 1. Avro/JSON 스키마 -> ccompat. 파일명이 곧 subject 다.
+      for f in $(find contracts/schemas -type f \( -name '*.avsc' -o -name '*.json' \) 2>/dev/null | sort); do
+        subject=$(basename "$f"); subject="${subject%.*}"
+        echo "[publish] subject=$subject  <- $f"
+        payload=$(awk 'BEGIN{ORS=""} {gsub(/"/,"\\\""); gsub(/\t/,"  "); print $0"\n"}' "$f")
+        code=$(curl -s -o /tmp/out -w '%{http_code}' -X POST \
+          "$REGISTRY_CCOMPAT/subjects/$subject/versions" \
+          -H 'Content-Type: application/vnd.schemaregistry.v1+json' \
+          -d "{\"schema\":\"$payload\"}")
+        echo "  http=$code"; [ "$code" -lt 300 ] || { cat /tmp/out; exit 1; }
+        published=$((published+1))
+      done
+
+      # ── 2. OpenAPI/AsyncAPI -> Registry v3. 파일명이 곧 artifactId 다.
+      for f in $(find contracts/openapi contracts/asyncapi -type f \( -name '*.yaml' -o -name '*.yml' \) 2>/dev/null | sort); do
+        aid=$(basename "$f"); aid="${aid%.*}"
+        case "$f" in *openapi*) atype=OPENAPI ;; *) atype=ASYNCAPI ;; esac
+        echo "[publish] artifactId=$aid type=$atype  <- $f"
+        code=$(curl -s -o /tmp/out -w '%{http_code}' -X POST \
+          "$REGISTRY_V3/groups/default/artifacts?ifExists=CREATE_VERSION" \
+          -H 'Content-Type: application/create.extended+json' \
+          -H "X-Registry-ArtifactId: $aid" \
+          -H "X-Registry-ArtifactType: $atype" \
+          --data-binary "@$f")
+        echo "  http=$code"; [ "$code" -lt 300 ] || { cat /tmp/out; exit 1; }
+        published=$((published+1))
+      done
+
+      if [ "$published" -eq 0 ]; then
+        echo "[publish] contracts/ 가 비어 있다 — 게시할 것이 없다."
+        echo "[publish] 계약이 들어오면 이 잡이 레지스트리에 반영한다."
+      else
+        echo "[publish] $published 건 게시 완료"
+      fi
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "v2"'
+      changes:
+        - contracts/**/*
 
 deploy-prod:
   stage: deploy

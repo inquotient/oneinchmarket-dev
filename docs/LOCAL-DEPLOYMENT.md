@@ -1054,6 +1054,72 @@ COMPATIBILITY = BACKWARD   새 버전이 직전 버전과 하위 호환인가
 | OpenAPI Generator | 이 레포 아님 | 앱 레포 CI 소관. Apitomy Codegen 이 같은 자리지만 openapi-generator 가 훨씬 성숙하다 |
 | Swagger Parser | 배포 대상 아님 | 라이브러리다. Registry 의 VALIDITY 규칙이 이미 파싱하고, 그 자리는 Apitomy Data Models 다 |
 
+#### 계약 우선으로 확정했다 (ADR-067)
+
+`contracts/` 의 파일이 원천이고 구현이 거기에 맞춘다.
+
+**정정** — 위에서 "`admin`·`cmmn-api` 가 Quarkus 이므로 코드 우선이 마찰이 적다"고 적었는데
+틀렸다. 그때 본 `QUARKUS_*` 는 Apicurio 자신의 환경변수였다.
+
+| | 실제 |
+|---|---|
+| `cmmn-api` | **Spring Boot**(`SPRING_*`, `/actuator/health`). OpenAPI 엔드포인트 없음 |
+| `admin` | **프론트엔드**(포트 3000, env 없음, `/` 프로브). REST 계약 주체가 아니다 |
+
+두 앱 모두 OpenAPI 문서를 내놓지 않으므로 **코드 우선을 택했어도 추출할 것이 없었다.**
+
+**필수 귀결 — `auto.register.schemas` 를 껐다**
+
+`cmmn-api` 는 이미 ccompat 을 가리키고 있었는데(`.../apis/ccompat/v7`) 레지스트리는 비어
+있었다. Confluent serdes 의 기본값 `auto.register.schemas=true` 를 그대로 두면 **앱이 처음
+메시지를 보낼 때 스키마를 스스로 등록한다** — 그것이 코드 우선이다.
+
+```
+SPRING_KAFKA_PROPERTIES_AUTO_REGISTER_SCHEMAS = false
+SPRING_KAFKA_PROPERTIES_USE_LATEST_VERSION    = true
+```
+
+이제 앱은 등록된 최신 스키마를 찾아 쓰고 없으면 실패한다. 계약이 먼저 있어야 한다는
+뜻이고 그것이 의도다.
+
+**기구 — 이중 게이트**
+
+```
+contracts/ 수정 ─▶ CI validate : Spectral      (스타일·거버넌스)
+                 ─▶ CI deploy   : Apicurio 게시 (VALIDITY·COMPATIBILITY 가 여기서 다시 막는다)
+                 ─▶ 앱은 레지스트리에서 읽어 쓴다 (auto-register 꺼짐)
+```
+
+**Spectral 실증**
+
+```
+규약 준수 계약   0 errors           exit 0
+규약 위반 계약   5 errors           oas3-api-servers · info-contact · info-description
+                                    · oim-semver · operation-operationId
+```
+
+#### ★ YAML 겹따옴표 안의 정규식이 규칙을 조용히 죽인다
+
+이번에 가장 오래 붙잡은 것이다. 커스텀 규칙이 **오류도 경고도 없이** 발화하지 않았다.
+
+```yaml
+match: "^\d+\.\d+\.\d+$"      # 조용히 죽는다
+match: '^[0-9]+\.[0-9]+\.[0-9]+$'   # 정상 발화
+```
+
+YAML **겹따옴표** 스칼라에서 `\d` 는 유효한 이스케이프가 아니다. 파서가 삼키고, 남은
+정규식으로는 규칙이 성립하지 않는데 **spectral 은 아무 말도 하지 않는다.**
+`Found 113 rules (94 enabled)` 라고 표시되므로 규칙이 살아 있는 줄 알게 된다.
+
+> **일반화** — 설정 파일에 정규식을 넣을 때는 **홑따옴표 + 문자클래스**를 쓸 것.
+> 백슬래시 이스케이프를 YAML·셸·JSON 여러 층에 통과시키지 말 것.
+
+진단 과정에서 한 번 더 헛디뎠다. 판정을 `grep -q "error"` 로 했는데 spectral 이 정상일 때
+출력하는 `"No results with a severity of 'error' found!"` 에도 `error` 가 들어 있어
+**네 건이 전부 거짓 양성**이었다. 규칙 이름으로 다시 판정하고 나서야 진상이 드러났다.
+
+> **일반화 둘** — 검증 스크립트의 판정 문자열이 "성공 메시지"에도 들어 있지 않은지 볼 것.
+
 #### ★ 선행 조건 — 지금 스펙이 0개다
 
 ```
@@ -1066,10 +1132,10 @@ COMPATIBILITY = BACKWARD   새 버전이 직전 버전과 하위 호환인가
 
 Spectral·Microcks 를 넣기 전에 정할 것은 하나다.
 
-> **계약 우선(git 의 스펙 → 코드 생성)인가, 코드 우선(Quarkus 애너테이션 → `/q/openapi` 추출)인가?**
+> ~~계약 우선인가, 코드 우선인가?~~ → **계약 우선으로 확정**(ADR-067, 위 절 참조).
 
-`admin`·`cmmn-api` 가 Quarkus 이므로 코드 우선이 현재 구조와 마찰이 적다.
-이걸 정해야 OpenAPI Generator 의 위치도 정해진다.
+남은 것은 **초기 계약을 손으로 작성하는 일**이다. 앱 소스가 이 레포에 없고(G9)
+두 앱 모두 OpenAPI 문서를 내놓지 않으므로 추출할 원본이 없다.
 
 레지스트리 전역 규칙은 **이미 세웠다**(위 "전역 규칙을 세웠다" 참조). 스펙이 들어오는
 순간부터 게이트가 선다.

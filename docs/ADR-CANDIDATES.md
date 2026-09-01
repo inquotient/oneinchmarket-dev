@@ -125,6 +125,64 @@
   - 로컬 빌드 이미지 **3종 → 2종** (`freeipa-systemd` 제거) — Oracle Ampere 부적합 근거도 그만큼 약화
   - `v1/freeipa/freeipa-configmap.yaml:5-6`의 평문 비밀번호 2건이 복원 경로에서 사라진다 (SEC-402 동류)
 - **남기는 것**: `kerberos`는 제거하지 않는다. Hadoop 네이티브 CLI/RPC 접근 요구가 생기면 필요하다 — 별도 판단 사항이다.
+
+### ADR-067 — API 계약 관리를 계약 우선(contract-first)으로
+**상태: `Accepted`** (2026-09-01)
+
+**결정** — `contracts/` 의 파일이 원천이고 구현이 거기에 맞춘다. 그 반대가 아니다.
+
+**계약 표면** — 확인된 것은 둘뿐이다.
+
+| 주체 | 성격 | 계약 |
+|---|---|---|
+| `cmmn-api` | **Spring Boot** REST (`SPRING_*`, `/actuator/health`) | OpenAPI. OpenAPI 엔드포인트를 노출하지 않는다(springdoc 미적용) |
+| `cmmn-api` ↔ Kafka | 토픽 `dev.api.cmmn.menu` · `dev.api.cmmn.multilanguage` | AsyncAPI + Avro/JSON 스키마 |
+| `admin` | **프론트엔드**(포트 3000, env 없음, `/` 프로브) | 없음. REST 계약 주체가 아니다 |
+
+> **정정** — 이전 검토에서 두 앱을 Quarkus 라고 적었으나 틀렸다. 그때 본 `QUARKUS_*` 는
+> Apicurio 자신의 환경변수였다. `cmmn-api` 는 Spring Boot 이고 `admin` 은 프론트엔드다.
+> 결정 자체는 바뀌지 않는다 — 오히려 두 앱 모두 OpenAPI 문서를 내놓지 않으므로
+> 코드 우선을 택했어도 추출할 것이 없었다.
+
+**필수 귀결 — `auto.register.schemas` 를 껐다**
+
+`cmmn-api` 는 이미 Apicurio 의 ccompat 엔드포인트를 가리키고 있었다.
+
+```
+SPRING_KAFKA_PROPERTIES_SCHEMA_REGISTRY_URL = http://apicurio-registry-headless:8080/apis/ccompat/v7
+```
+
+Confluent serdes 의 기본값은 `auto.register.schemas=true` 다. 그대로 두면 **앱이 처음
+메시지를 보낼 때 스키마를 스스로 등록한다.** 그것은 코드 우선이며 이 결정과 정면으로
+충돌한다. 매니페스트에서 껐다.
+
+```
+SPRING_KAFKA_PROPERTIES_AUTO_REGISTER_SCHEMAS = false
+SPRING_KAFKA_PROPERTIES_USE_LATEST_VERSION    = true
+```
+
+이제 앱은 등록된 최신 스키마를 찾아 쓰고 **없으면 실패한다.** 계약이 먼저 있어야 한다는
+뜻이고 그것이 의도다.
+
+**기구**
+
+| 층 | 무엇 | 어디 |
+|---|---|---|
+| 원천 | `contracts/{openapi,asyncapi,schemas}` | 이 레포 |
+| 스타일 게이트 | Spectral 6.16.3 | CI `validate` (`spectral-lint`) |
+| 구문·호환 게이트 | Apicurio 전역 규칙 `VALIDITY=FULL`·`COMPATIBILITY=BACKWARD` | 레지스트리 (ADR-021, §8-13) |
+| 게시 | `contracts/` → Apicurio | CI `deploy` (`publish-contracts`) |
+
+스키마는 ccompat(파일명 = subject), OpenAPI/AsyncAPI 는 Registry v3(파일명 = artifactId)로 올린다.
+
+**아직 없는 것** — 실제 계약 파일이 0개다. 앱 소스가 이 레포에 없고(G9) 두 앱 모두 OpenAPI
+문서를 내놓지 않으므로 **초기 계약은 손으로 작성해야 한다.** 그때까지 두 CI 잡은 대상이
+없으면 통과하되 그 사실을 로그에 남긴다(아무것도 안 한 잡이 초록색으로만 남지 않도록).
+
+**하지 않기로 한 것** — Swagger Editor(레지스트리와 연동 없음, 저장이 브라우저 로컬),
+Swagger Parser(라이브러리이지 배포물이 아님). OpenAPI Generator 는 앱 레포 CI 소관이다.
+Microcks 는 6단계로 미룬다(§8-13).
+
 ### ADR-064 — Spark 계층 도입 및 배포 방식
 **상태: `Proposed`**
 
