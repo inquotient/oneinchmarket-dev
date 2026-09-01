@@ -68,7 +68,7 @@ cd scripts/security-verification && ./run-all.sh [namespace]
 | 1 | database | PostgreSQL, MariaDB, MongoDB, Redis |
 | 2 | messaging | Kafka KRaft, Apicurio, AKHQ |
 | 3 | data-lakehouse | MinIO, Trino, Hive Metastore |
-| **4** | **security/keycloak** | **Keycloak** |
+| **4** | **security/keycloak · security/vault · security/wazuh** | **Keycloak, Vault, Wazuh(manager·indexer)** |
 | 5 | devops · **governance** | GitLab EE · **DS389, LAM, Solr, Ranger(admin·usersync), Knox** |
 | 6 | application | admin, cmmn-api, nginx |
 | 7 | observability | Elasticsearch(ECK 3노드), Kibana, Logstash, Filebeat, **Prometheus, Grafana, Loki, Tempo, OTel Collector(agent·gateway)**, Falco, Falcosidekick, Trivy CronJob |
@@ -87,6 +87,7 @@ cd scripts/security-verification && ./run-all.sh [namespace]
 
 ### Security Layers
 
+0. **오퍼레이터 계층(ArgoCD 밖, `local/install-operators.sh`)** — Istio ambient · ECK · Kyverno · cert-manager · **Tetragon**(eBPF 런타임) · **Trivy Operator**(상시 취약점 스캔) · **Policy Reporter**(결과 집계). Tetragon 은 정적 매니페스트가 없어 `helm template | kubectl apply` 로 **렌더만** 한다 — 클러스터에 Helm 릴리스는 남지 않는다
 1. **Admission** — Kyverno 6정책 (disallow-root, disallow-latest, disallow-privilege-escalation, require-labels, require-probes, require-resources). base는 Audit, prod는 4종만 Enforce
 2. **Network** — default-deny **ingress**(egress 차단 없음) + allow 13종 + Istio AuthorizationPolicy 4종
 3. **Runtime** — Falco DaemonSet(modern_ebpf) → Falcosidekick → Elasticsearch/Slack/Kafka
@@ -139,7 +140,7 @@ containers:
         drop: ["ALL"]
 ```
 
-**의도된 예외 6건** — GitLab(root + capability 8종), Falco(privileged + hostNetwork), Filebeat(root + `DAC_READ_SEARCH`), otel-agent(root + `DAC_READ_SEARCH` — 컨테이너 로그 읽기), DS389·LAM(root + `CHOWN·DAC_OVERRIDE·FOWNER·SETGID·SETUID`, DS389 는 `NET_BIND_SERVICE` 추가 — root 로 시작해 비특권 사용자로 내려가는 이미지다. **`ns-slapd` 에 파일 capability 가 박혀 있어 `NET_BIND_SERVICE` 가 bounding 집합에 없으면 `execve` 가 EPERM 이다**). 각각 매니페스트에 사유가 기록되어 있다.
+**의도된 예외 7건** — GitLab(root + capability 8종), Falco(privileged + hostNetwork), Filebeat(root + `DAC_READ_SEARCH`), otel-agent(root + `DAC_READ_SEARCH`), DS389(root + `CHOWN·DAC_OVERRIDE·FOWNER·SETGID·SETUID·NET_BIND_SERVICE`), LAM(root + 앞의 5종), wazuh-manager(root + 5종 + `KILL·SYS_CHROOT`). 각각 매니페스트에 사유가 기록되어 있다.
 
 ### Annotations
 

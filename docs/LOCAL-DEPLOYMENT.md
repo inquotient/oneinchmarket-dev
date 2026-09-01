@@ -438,7 +438,7 @@ prod 핀: `postgres:18.6` · `mariadb:12.3.3` · `redis:8.10.1` · 그 외 20종
 | **1** | **Prometheus · Grafana** | 7 | ✅ **완료** — INFRA-601 해소 |
 | **2** | **Loki · Tempo · OTel(agent·gateway)** | 13 | ✅ **완료** — 로그·트레이스 경로 개통 |
 | **3** | **governance — DS389 · LAM · Solr · Ranger(admin·usersync) · Knox** | 20 | ✅ **완료** — LDAP→Ranger 동기화 실증 |
-| 4 | security-min — Tetragon · Trivy Operator · Policy Reporter · Vault · Wazuh 2종 | ~20 | 미착수 |
+| **4** | **security-min — Tetragon · Trivy Operator · Policy Reporter · Vault · Wazuh 2종** | 11 + 오퍼레이터 3 | ✅ **완료** |
 | 5 | lakehouse-v1 — ZK · Hadoop 4종 · HBase 2종 · Hive Server | ~35 | **설계 선행 필요** |
 | 6 | GlitchTip · Jenkins · Kafka Bridge · Apicurio Studio 4종 | ~20 | 미착수 |
 | 7 | security-full — SafeLine · Kubescape · DT · DefectDojo · Caldera | ~25 | **zram 실측 지점** |
@@ -752,6 +752,144 @@ limits     메모리 98%                  CPU 154% (오버커밋)
 - `.wslconfig` 의 `memory=48GB` 를 올린다(호스트 63.4 GB 중 15 GB 를 Windows 에 남겨 둔 상태다)
 
 `.wslconfig` 의 `processors=20 → 24` 는 아직 하지 않았다. CPU 71% 로 3단계를 넘겼다 — 이번 병목은 CPU 가 아니라 메모리 limits 다.
+
+### 8-12. 4단계 결과 — security-min (2026-09-01)
+
+```
+tetragon-*         2/2 Running   (DaemonSet)      ns tetragon
+tetragon-operator  1/1 Running                    ns tetragon
+trivy-operator     1/1 Running   configaudit 188  ns trivy-system
+policy-reporter    1/1 Running   policyreports    ns policy-reporter
+vault-0            1/1 Running   Sealed=false     ns local
+wazuh-indexer-0    1/1 Running   OpenSearch       ns local
+wazuh-manager-0    1/1 Running   ossec 9종 가동   ns local
+```
+
+#### 선행 작업 — 메모리 limits 정리
+
+3단계 종료 시점에 노드 메모리 limits 합이 **98%** 였다. requests 는 57% 라 스케줄은 되지만, limits 오버커밋은 실 RAM 압박으로 이어져 zram 스래싱과 축출로 나타난다.
+
+`kubectl top` 과 대조해 과다한 13종을 낮춰 **81%** 로 내렸다(약 7.6 GiB 회수). 이후 4단계 워크로드를 올려 최종 93%다.
+
+이 작업에서 두 가지를 배웠고, 둘 다 실패로 배웠다. 아래 "실제로 걸린 것" 1·2번이다.
+
+#### 설치 경로
+
+| 구성요소 | 경로 | 비고 |
+|---|---|---|
+| Tetragon 1.7.1 | `install-operators.sh` · `helm template \| kubectl apply` | 정적 매니페스트가 없다 |
+| Trivy Operator v0.34.0 | `install-operators.sh` · `deploy/static/trivy-operator.yaml` | |
+| Policy Reporter 3.10.0 | `install-operators.sh` · 얕은 클론 후 `install.yaml` | |
+| Vault 2.1.0 | `kubernetes/base/security/vault` (wave 4) | 수기 매니페스트 |
+| Wazuh 4.14.7 | `kubernetes/base/security/wazuh` (wave 4) | 수기 매니페스트 |
+
+**Helm 을 "설치 도구"가 아니라 "템플릿 렌더러"로만 쓴다.** Tetragon 은 정적 매니페스트를 배포하지 않는다(Helm 차트뿐). 2천 줄을 손으로 옮기면 업스트림 추종이 불가능해지므로 `helm template | kubectl apply` 로 **렌더만** 한다. 클러스터에 Helm 릴리스가 남지 않으므로 CLAUDE.md 의 "No Helm" 과 어긋나지 않는다 — 배포 시점에 Helm 이 관여하지 않는다.
+
+#### Vault — 올려만 두었다
+
+**시크릿 원천을 Vault 로 옮기는 것은 ADR-024 결정이며 이 단계에서 하지 않았다.** 옮기면 로테이션 CronJob 8종·git-sync·`.enc.yaml` 12개가 제거된다. 그때까지 `local/create-secrets.sh` 가 계속 원천이다.
+
+- **dev 모드가 아니다.** 실제 봉인 상태로 뜨며 `local/vault-init.sh` 로 초기화·해제한다. dev 모드는 재시작마다 데이터가 사라지고 root token 이 고정이라 습관을 잘못 들인다
+- **재시작하면 다시 봉인된다.** auto-unseal 은 KMS 를 요구하는데 로컬에 없다. `vault-init.sh unseal`
+- unseal 키와 root token 을 같은 클러스터의 Secret `vault-init` 에 둔다. **프로덕션에서는 틀린 배치다.** ADR-024 때 반드시 재논의할 것
+
+#### Wazuh — indexer 의 security 플러그인을 껐다
+
+`plugins.security.disabled: true` 는 **로컬 한정 단순화**다. OpenSearch security 를 켜면 루트 CA·노드/admin 인증서, bcrypt 해시가 든 `internal_users.yml`, `securityadmin.sh` 부트스트랩이 따라온다. 그 전체를 선언적으로 다루는 것은 이 단계의 목적(파이프라인 개통 확인)에 비해 크다. 대신 네임스페이스가 `default-deny-ingress` 아래 있고 NetworkPolicy 로 `wazuh-manager` 만 9200 에 닿는다.
+
+**prod 로 가져갈 때는 반드시 켜야 한다.** cert-manager 가 이미 설치되어 있으므로 Issuer + Certificate 로 발급하는 경로가 있다(TODO-02 의 첫 실사용처가 된다).
+
+대시보드는 넣지 않았다. Kibana 가 이미 있고 노드 예산에서 OpenSearch 대시보드를 하나 더 띄우는 값이 비용을 넘지 않는다. 문서의 "Wazuh 2종"은 manager + indexer 로 해석했다.
+
+#### 4단계에서 실제로 걸린 것
+
+**1. limit 을 request 아래로 내리면 워크로드가 조용히 사라진다 — 이번 세션 최악의 실수**
+
+`minio` 의 limit 을 512Mi 로 내렸는데 requests 가 1Gi 였다(`qos-guaranteed.yaml` 이 Guaranteed 로 만들어 둔 값).
+
+```
+Pod "minio-0" is invalid: spec.containers[0].resources.requests:
+  Invalid value: "1Gi": must be less than or equal to memory limit of 512Mi
+```
+
+`kustomize build` 도 `kubectl apply` 도 통과한다 — **StatefulSet 자체는 유효**하기 때문이다. 실패하는 것은 파드 생성이라 `get pods` 에는 아무것도 나타나지 않는다. CrashLoop 도 Pending 도 아니고 **그냥 없다.** `FailedCreate` 이벤트는 StatefulSet 에만 남는다.
+
+97분 동안 모르고 지나갔다. 그리고 그동안 **엉뚱한 것을 고치고 있었다** — spark-connect 가 기동하지 못하는 것을 노드 경합 탓으로 보고 startup 예산을 5분→10분→15분으로 늘렸다. 실제로는 spark-connect 가 이벤트 로그를 여는 S3A 초기화에서 사라진 MinIO 를 기다리고 있었다. MinIO 를 되살리자 즉시 1/1 이 되었다.
+
+> **일반화** — `limits` 를 만질 때는 그 워크로드의 `requests` 를 먼저 볼 것.
+> 그리고 적용 후 `kubectl get sts` 의 READY 열을 확인할 것.
+> **`get pods` 는 존재하지 않는 파드를 보여주지 않는다.**
+
+**2. `kubectl top` 은 '지금'이지 기동 피크가 아니다**
+
+spark-connect 를 유휴 관측값 459Mi 기준으로 1Gi 로 잡았다가 기동 중 `exit 137`(OOMKilled)로 죽었다. 1.5Gi 도 마찬가지였다. JVM 은 특히 그렇다 — 유휴 사용량으로 limit 을 정하지 말 것. 결국 base 값(2Gi)으로 되돌렸다.
+
+**3. Vault: 파싱보다 저장이 먼저다 — unseal 키를 잃었다**
+
+`vault operator init -format=json` 의 출력을 여러 줄인 채로 한 줄 grep 에 넣어 파싱이 실패했고 `set -e` 가 거기서 멈췄다. 그런데 init 자체는 이미 성공한 뒤였다.
+
+```
+Initialized  true      Sealed  true      vault-init Secret  NotFound
+```
+
+unseal 키는 그 출력 외에 어디에도 없다. **열쇠 없는 금고**가 되어 PVC 를 버리고 다시 초기화하는 것 말고 방법이 없었다.
+
+> 되돌릴 수 없는 값을 만드는 명령은 **저장을 먼저, 파싱을 나중에.**
+> `vault-init.sh` 는 이제 init 출력을 통째로 Secret(`init-json`)에 넣은 뒤 편의 키를 뽑는다.
+
+**4. Vault: 이미지 엔트리포인트가 `-config` 를 이미 붙인다**
+
+`args` 에 `-config=/vault/config/vault.hcl` 을 직접 주었더니 같은 파일을 두 번 읽어 리스너가 중복 등록되었다.
+
+```
+Error initializing listener of type tcp:
+  listen tcp4 0.0.0.0:8200: bind: address already in use
+```
+
+`docker-entrypoint.sh` 가 첫 인자가 `server` 이면 `-config=/vault/config` 를 스스로 덧붙인다. 디렉터리만 마운트하고 인자는 `server` 하나만 준다.
+
+**5. Wazuh: ossec 데몬은 chroot 한다 — `SYS_CHROOT`**
+
+파드 로그에는 보이지 않고 `/var/ossec/logs/ossec.log` 에만 남아 있었다.
+
+```
+wazuh-analysisd: CRITICAL: (1132): Unable to chroot to directory
+  '/var/ossec' due to [(1)-(Operation not permitted)]
+```
+
+`drop:["ALL"]` 로 `CAP_SYS_CHROOT` 를 버려서 filebeat 만 뜨고 ossec 데몬 12종이 전부 `not running` 으로 남았다. 여기까지 오는 데 세 번 헛짚었다 — 볼륨 배치(→ upstream 의 subPath 방식으로 교정), s6/`no_new_privs`(→ 틀렸다. filebeat 가 s6 아래에서 잘 돌고 있었다), 그리고 마지막에 chroot.
+
+> **파드 로그가 조용하면 애플리케이션 자체 로그를 볼 것.**
+> 그리고 3단계에서 이미 배운 "root 인데 EACCES 면 capability" 를 또 밟았다.
+> `drop:["ALL"]` 은 이 레포에서 지금까지 5번 문제를 냈다
+> (DS389 `NET_BIND_SERVICE`, LAM·wazuh `DAC_OVERRIDE`, wazuh `SYS_CHROOT`).
+
+**6. Trivy Operator 의 동시 스캔 기본값 10은 이 노드에 과하다**
+
+설치 직후 워크로드 40여 개를 한꺼번에 스캔하며 메모리 limits 를 102% 까지 밀어 올렸다. 키 이름은 `OPERATOR_CONCURRENT_SCAN_JOBS_LIMIT` 이다 — 처음에 `scanJob.concurrentLimit` 이라는 존재하지 않는 키로 patch 해서 **조용히 무시되는 키가 하나 늘었을 뿐** 동시 스캔은 그대로 10개였다.
+
+**7. 설치 경로의 잔가지 3건**
+
+- `oci://ghcr.io/cilium/charts/tetragon` 은 익명 pull 이 **403 denied** 다. `helm repo add cilium https://helm.cilium.io` 를 쓴다
+- kustomize 의 원격 git fetch 에는 **27초 하드 타임아웃**이 있어 policy-reporter 저장소에서 늘 실패한다(`hit 27s timeout running git fetch`). 얕은 클론 후 로컬에서 읽는다
+- Policy Reporter 배포물은 kustomization 이 아니라 `install.yaml` 한 장이고 **네임스페이스를 스스로 만들지 않는다**
+
+#### Falco 와 Tetragon 을 함께 둔 이유
+
+Falco 는 시스템콜 기반 탐지, Tetragon 은 eBPF 기반 관측 + 정책 강제(TracingPolicy)다. 목표 아키텍처가 둘 다 포함하므로 병존시킨다.
+
+`base/observability/trivy` 의 주간 CronJob 도 Trivy Operator 와 역할이 겹친다. 오퍼레이터는 워크로드 변경을 감지해 즉시 스캔하고 결과를 CRD 로 남긴다. **CronJob 제거는 dev/prod 에도 영향이 있어 별도 결정으로 둔다** — 주간 실행이라 유휴 비용은 0이다.
+
+#### 4단계 종료 시점 자원
+
+```
+requests   메모리 60% (28.0/45 GiB)   CPU 73% (14.3/19.5)
+limits     메모리 93%                  CPU 170% (오버커밋)
+파드       local 39 Running(전부 Ready) · 6 Completed
+           tetragon 2 · trivy-system 1 · policy-reporter 1
+```
+
+메모리 limits 가 다시 93% 다. 5단계(lakehouse-v1, ~35종)는 Hadoop·HBase JVM 이 대거 들어오므로 **`.wslconfig` 의 `memory=48GB` 상향이 사실상 전제**다(호스트 63.4 GB 중 15 GB 를 Windows 에 남겨 둔 상태다). `processors=20 → 24` 도 같이 볼 것.
 
 #### 5단계는 설계가 선행되어야 한다
 
