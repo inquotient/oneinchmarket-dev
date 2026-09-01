@@ -251,6 +251,9 @@ containerd: failed to create unix socket on /run/containerd/containerd.sock: is 
 | Spark Connect | `Failed to load class ...SparkConnectServer` | Connect 서버 JAR 이 `apache/spark` 배포판에 없다 | 신규 |
 | Spark History | S3A `getFileStatus` 실패 | `SimpleAWSCredentialsProvider` 는 `fs.s3a.access.key` 만 읽고 `AWS_ACCESS_KEY_ID` 환경변수를 보지 않는다 | 신규 |
 | ES ILM Job | ES 기동 전 실행되어 CrashLoop | 대기 루프 부재 | 신규 |
+| cmmn-api | `Couldn't resolve kafka-0.kafka-headless.dev.svc...` | `spring.kafka.consumer/producer.bootstrap-servers` 가 개별 지정되어 `SPRING_KAFKA_BOOTSTRAP_SERVERS` 가 무시된다 | 신규 |
+| Spark Connect | `path must be absolute` | 버킷 루트는 `stripSuffix("/")` 후 경로 성분이 사라진다 | 신규 |
+| Spark RBAC | `cannot deletecollection resource "services"` | driver 는 종료 시 label selector 로 일괄 삭제한다 | 신규 |
 
 ### 8-4. 부트스트랩 Job 이 걸린 함정
 
@@ -272,7 +275,7 @@ containerd: failed to create unix socket on /run/containerd/containerd.sock: is 
 
 > **kubelet 플래그 함정** — `--memory-swap.swap-behavior` 와 `--memory-throttling-factor` 는 **존재하지 않는 CLI 플래그**다. `memorySwap.swapBehavior`·`memoryThrottlingFactor` 는 KubeletConfiguration 전용 필드이며, k8s 1.30+ 에서 `swapBehavior` 기본값이 `NoSwap` 이므로 명시하지 않으면 **zram 이 32 GB 있어도 파드가 한 바이트도 쓰지 못한다.**
 
-### 8-6. 실측 메모리
+### 8-6. 실측 메모리 (중간 시점 · 22 파드)
 
 22 파드 Running 시점:
 
@@ -289,31 +292,44 @@ vmstat si: 0                              ← 스왑인 없음
 
 ### 8-7. 최종 결과 (2026-09-01 배포 세션)
 
-**25 Running · 5 Completed · 2 미해결**
+**24 Running · Job 6/6 Complete · 미해결 0**
 
-부트스트랩 Job 5/5 완료 — `postgres-bootstrap` · `mariadb-bootstrap` · `minio-bootstrap` · `kafka-topics` · `hive-schematool`.
+전 워크로드가 기동했다. 부트스트랩 Job 6종(`postgres` · `mariadb` · `minio` · `kafka-topics` · `hive-schematool` · `elasticsearch-ilm-setup`) 전부 Complete.
 
-#### 남은 2건과 진단 (해소된 것은 취소선)
+#### 마지막까지 남았던 4건
 
-| 파드 | 마지막 오류 | 진단 |
+| 대상 | 원인 | 조치 |
 |---|---|---|
-| ~~cmmn-api~~ | — | **해소.** 소스(`oneinchmarket-cmmn-api`)를 확인한 결과 `application-kafka.yml` 의 `kafka-dev` 프로파일이 `spring.kafka.consumer.bootstrap-servers`·`producer.bootstrap-servers` 를 개별 지정한다. 더 구체적인 키가 우선하므로 `SPRING_KAFKA_BOOTSTRAP_SERVERS` 로는 덮이지 않았다. `SPRING_KAFKA_CONSUMER_/PRODUCER_BOOTSTRAP_SERVERS` 로 교체해 **재빌드 없이 해소** — G9 를 우회한다 |
-| ~~apicurio-registry~~ | — | **해소.** health 엔드포인트가 관리 포트 9000 의 **`/health/*`** 에 있다(`/q` 접두사 없음). 포트포워딩 실측: `:9000/health/ready`→200, `:9000/q/health/ready`→404, `:8080/*`→404. base 의 `/health/*`(8080) 도 404 였다. 포트와 경로를 함께 고치고 `startupProbe` 를 추가했다 |
-| **gitlab** | Chef `templatesymlink[Create a gitlab.yml]` 이후 핸들러 실패 | `max_locks_per_transaction` 상향으로 `out of shared memory` 는 넘겼으나 다음 단계에서 실패한다. GitLab Omnibus 초기화는 단계가 많아 추가 조사가 필요하다 |
-| **spark-connect** | 종료 코드 없이 shutdown hook 만 남기고 종료 | `deletecollection` RBAC 과 Connect JAR 은 해소됐다. `start-connect-server.sh` + `SPARK_NO_DAEMONIZE` 로 전환했으나 여전히 조기 종료한다. client 모드 + `spark.master=k8s://` 조합의 추가 설정이 필요해 보인다 |
+| **cmmn-api** | `application-kafka.yml` 의 `kafka-dev` 프로파일이 `spring.kafka.consumer.bootstrap-servers`·`producer.bootstrap-servers` 를 개별 지정한다. **더 구체적인 키가 우선하므로 `SPRING_KAFKA_BOOTSTRAP_SERVERS` 가 조용히 무시**됐다 | `SPRING_KAFKA_CONSUMER_/PRODUCER_BOOTSTRAP_SERVERS` 로 교체. **재빌드 없이 해소 — G9 우회** |
+| **apicurio-registry** | health 가 관리 포트 9000 의 **`/health/*`** 에 있다(Quarkus 기본 `/q` 접두사 없음). 포트포워딩 실측: `:9000/health/ready`→200, `:9000/q/health/ready`→404, `:8080/*`→404 | 포트·경로 정정 + `startupProbe` 추가 |
+| **gitlab** | `max_locks_per_transaction` 을 ConfigMap 에 올렸으나 **파드가 재시작되지 않아 반영되지 않았다**(Reloader 미설치). 값은 64 그대로였고 `structure.sql:60326: out of shared memory` 가 반복됐다 | PostgreSQL 재시작(→256) + 반쯤 적재된 `gitlab` DB 재생성 |
+| **spark-connect** | 버킷 루트 `s3a://spark-events/` 는 `stripSuffix("/")` 후 경로 성분이 사라져 `SparkContext.scala:631` 에서 `IllegalArgumentException: path must be absolute` | `s3a://spark-events/events` + `minio-bootstrap` 이 프리픽스 생성 |
+| **elasticsearch-ilm-setup** | ES 기동 전에 실행되어 CrashLoop → Failed. 기존 매니페스트에 대기 루프가 없다 | `_cluster/health` 대기 루프 추가 |
 
-`elasticsearch-ilm-setup` 은 ES 기동 전에 실행되어 `Failed` 로 남아 있다 — 기존 매니페스트에 대기 루프가 없다.
+> **`envFrom: configMapRef` 는 ConfigMap 을 바꿔도 파드를 재시작하지 않는다.** GitLab 건이 여기서 두 번 헛돌았다. `reloader.stakater.com/auto: "true"` 어노테이션은 붙어 있으나 **Reloader 가 설치되지 않아 작동하지 않는다**(플랫폼 계층 미도입 항목).
 
-#### 이 세션에서 해소한 결함 (커밋 20건)
+#### 이 세션에서 해소한 결함
 
 | 계층 | 건수 | 대표 |
 |---|--:|---|
 | P0 블로커 | 5 | Secret · 오퍼레이터 · 부트스트랩 · SA · StorageClass |
 | WSL2 고유 | 3 | 마운트 전파 · debugfs · Falco |
-| 레포 기존 결함 | 9 | G23 · TODO-14 · SEC-512 · G13 · Apicurio 포트 · Logstash/Apicurio startupProbe · PostgreSQL 락 · Kafka quorum · Spark 버킷 |
-| 작성 중 도입한 오류 | 8 | kubelet 플래그 2건 · 롤/DB 이름 2건 · `pg_isready` · SIGPIPE · NetworkPolicy · imagePullPolicy |
+| 레포 기존 결함 | 14 | G23 · TODO-14 · SEC-512 · G13 · Apicurio 포트/경로 · Logstash·Apicurio startupProbe · PostgreSQL 락 · Kafka quorum · cmmn-api 프로퍼티 · ES ILM 대기 |
+| 작성 중 도입한 오류 | 10 | kubelet 플래그 2건 · 롤/DB 이름 2건 · `pg_isready` · SIGPIPE · NetworkPolicy · imagePullPolicy · Spark 버킷 경로 2건 |
 
-**"작성 중 도입한 오류" 8건은 실제로 배포하지 않았다면 전부 드러나지 않았을 것들이다.** 매니페스트가 `kustomize build` 를 통과하는 것과 클러스터에서 동작하는 것은 다른 문제다.
+**"작성 중 도입한 오류" 10건은 실제로 배포하지 않았다면 전부 드러나지 않았을 것들이다.** 매니페스트가 `kustomize build` 를 통과하는 것과 클러스터에서 동작하는 것은 다른 문제다.
+
+#### 실측 메모리 (전 워크로드 Running)
+
+```
+Mem: 47 GiB total / 18 GiB used / 28 GiB available
+zram: mem_used 4 MiB (disksize 32 GiB)   ← 여전히 사실상 미사용
+vmstat si: 0
+```
+
+상위: GitLab 3,154 Mi · Elasticsearch 1,800 Mi · Logstash 1,417 Mi · Trino 863 Mi · Spark Connect 658 Mi · Kafka 605 Mi
+
+**§2 의 zram 설계는 아직 시험되지 않았다.** 현재 배포된 것은 `[구현됨]` 매니페스트 24종이며, B안 58.75 GiB 는 `[목표]` 컴포넌트(Prometheus·Grafana·Loki·Tempo·Wazuh·Vault·Kubescape·lakehouse-v1 8종·governance 8종 등 ~40종)를 포함한 수치다. 그것들의 매니페스트 작성이 선행되어야 §2-3 의 압축률 가정을 검증할 수 있다.
 
 ## 관련 문서
 
