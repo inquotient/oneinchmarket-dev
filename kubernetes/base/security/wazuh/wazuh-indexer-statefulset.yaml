@@ -44,11 +44,13 @@ spec:
               #     cp: preserving times for '/security-config/.': Operation not permitted
               #   내용만 복사하면 된다.
               cp -r "$SRC"/. "$DST"/
-
               hash_of() {
-                # hash.sh 는 경고를 함께 뱉으므로 마지막 줄만 취한다.
+                # ★ stderr 를 버리지 말 것. 처음에 2>/dev/null 로 가렸다가
+                #   진짜 원인(java: command not found)을 못 보고 헤맸다.
+                #   아래 grep 이 bcrypt 해시 줄만 고르므로 경고는 어차피 걸러진다.
                 bash /usr/share/wazuh-indexer/plugins/opensearch-security/tools/hash.sh \
-                  -p "$1" 2>/dev/null | tail -1
+                  -p "$1" 2>&1 | grep -E '^\$2[aby]\$' | tail -1
+              }
               }
               ADMIN_HASH=$(hash_of "$INDEXER_ADMIN_PASSWORD")
               FB_HASH=$(hash_of "$INDEXER_FILEBEAT_PASSWORD")
@@ -85,6 +87,12 @@ spec:
               echo "[render] internal_users.yml 생성 (사용자 2명)"
               grep -E "^(admin|filebeat):" "$DST/internal_users.yml"
           env:
+            # ★ hash.sh 는 java 를 부른다. 이미지의 엔트리포인트가 설정하는
+            #   OPENSEARCH_JAVA_HOME 을 initContainer 는 받지 못한다
+            #   (command 로 엔트리포인트를 대체했기 때문이다). 직접 준다.
+            #   없으면 hash.sh 가 rc=127(java: command not found)로 죽는다.
+            - {name: OPENSEARCH_JAVA_HOME, value: /usr/share/wazuh-indexer/jdk}
+            - {name: JAVA_HOME, value: /usr/share/wazuh-indexer/jdk}
             - name: INDEXER_ADMIN_PASSWORD
               valueFrom: {secretKeyRef: {name: wazuh-secret, key: indexer-admin-password}}
             - name: INDEXER_FILEBEAT_PASSWORD
