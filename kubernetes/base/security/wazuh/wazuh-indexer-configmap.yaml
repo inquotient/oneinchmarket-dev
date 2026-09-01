@@ -25,9 +25,9 @@ data:
     compatibility.override_main_response_version: true
 
     # ── 전송 계층(노드 간) ─────────────────────────────────────
-    plugins.security.ssl.transport.pemcert_filepath: /usr/share/wazuh-indexer/certs/tls.crt
-    plugins.security.ssl.transport.pemkey_filepath: /usr/share/wazuh-indexer/certs/tls.key
-    plugins.security.ssl.transport.pemtrustedcas_filepath: /usr/share/wazuh-indexer/certs/ca.crt
+    plugins.security.ssl.transport.pemcert_filepath: /usr/share/wazuh-indexer/config/certs/tls.crt
+    plugins.security.ssl.transport.pemkey_filepath: /usr/share/wazuh-indexer/config/certs/tls.key
+    plugins.security.ssl.transport.pemtrustedcas_filepath: /usr/share/wazuh-indexer/config/certs/ca.crt
     # 단일 노드라 호스트명 검증이 얻는 것이 없고, StatefulSet 파드명·서비스명
     # 조합이 늘 때마다 SAN 을 고쳐야 한다.
     plugins.security.ssl.transport.enforce_hostname_verification: false
@@ -35,9 +35,9 @@ data:
 
     # ── HTTP 계층(클라이언트) ──────────────────────────────────
     plugins.security.ssl.http.enabled: true
-    plugins.security.ssl.http.pemcert_filepath: /usr/share/wazuh-indexer/certs/tls.crt
-    plugins.security.ssl.http.pemkey_filepath: /usr/share/wazuh-indexer/certs/tls.key
-    plugins.security.ssl.http.pemtrustedcas_filepath: /usr/share/wazuh-indexer/certs/ca.crt
+    plugins.security.ssl.http.pemcert_filepath: /usr/share/wazuh-indexer/config/certs/tls.crt
+    plugins.security.ssl.http.pemkey_filepath: /usr/share/wazuh-indexer/config/certs/tls.key
+    plugins.security.ssl.http.pemtrustedcas_filepath: /usr/share/wazuh-indexer/config/certs/ca.crt
 
     # ── 인가 ───────────────────────────────────────────────────
     # ★ DN 문자열이 인증서의 subject 와 정확히 일치해야 한다.

@@ -156,7 +156,12 @@ spec:
             #   존재하는데 그쪽에 마운트하면 아무 효과가 없다.
             - {name: config, mountPath: /usr/share/wazuh-indexer/config/opensearch.yml, subPath: opensearch.yml, readOnly: true}
             - {name: security-config, mountPath: /usr/share/wazuh-indexer/config/opensearch-security}
-            - {name: certs, mountPath: /usr/share/wazuh-indexer/certs, readOnly: true}
+            # ★ 인증서는 반드시 config/ 아래여야 한다. OpenSearch 의
+            #   SecurityManager 가 OPENSEARCH_PATH_CONF 밖의 파일 읽기를
+            #   막는다. config/ 밖에 두면 이렇게 죽는다:
+            #     SecurityManager.checkRead ->
+            #       SslCertificatesLoader.resolvePath: access denied
+            - {name: certs, mountPath: /usr/share/wazuh-indexer/config/certs, readOnly: true}
             - {name: data, mountPath: /var/lib/wazuh-indexer}
       volumes:
         - name: config
