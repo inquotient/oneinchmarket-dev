@@ -57,6 +57,19 @@ spec:
                 secretKeyRef:
                   name: redis-secret
                   key: redis-password
+            # ★ spring.kafka.bootstrap-servers 는 이 앱에서 무시된다.
+            #   application-kafka.yml 의 kafka-dev 프로파일이
+            #   spring.kafka.consumer.bootstrap-servers 와
+            #   spring.kafka.producer.bootstrap-servers 를 개별 지정하며,
+            #   더 구체적인 키가 우선하기 때문이다. 이미지에 구워진 값은
+            #   kafka-0.kafka-headless.dev.svc.cluster.local:9092 다.
+            - name: SPRING_KAFKA_CONSUMER_BOOTSTRAP_SERVERS
+              value: "kafka-headless:9092"
+            - name: SPRING_KAFKA_PRODUCER_BOOTSTRAP_SERVERS
+              value: "kafka-headless:9092"
+            # Apicurio 의 Confluent 호환 엔드포인트. schema-reg 는 v2 에 없다(ADR-031).
+            - name: SPRING_KAFKA_PROPERTIES_SCHEMA_REGISTRY_URL
+              value: "http://apicurio-registry-headless:8080/apis/ccompat/v7"
             - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
               value: "kafka-headless:9092"
           resources:
