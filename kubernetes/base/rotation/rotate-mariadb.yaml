@@ -44,7 +44,7 @@ spec:
                   NEW_PASSWORD=$(head -c 32 /dev/urandom | base64 | tr -d '=+/' | head -c 24)
 
                   echo "[2/3] Updating MariaDB password..."
-                  MYSQL_PWD="${CURRENT_PASSWORD}" mysql \
+                  MYSQL_PWD="${CURRENT_PASSWORD}" mariadb \
                     -h mariadb-headless \
                     -u root \
                     -e "ALTER USER 'cmmn'@'%' IDENTIFIED BY '${NEW_PASSWORD}';"
