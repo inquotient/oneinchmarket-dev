@@ -66,10 +66,8 @@ spec:
             httpGet: {path: /, port: http}
             periodSeconds: 15
             timeoutSeconds: 5
-          volumeMounts:
-            # 설정 프로파일. emptyDir 이라 파드가 지워지면 env 로 재생성된다.
-            # 원천이 env 이므로 잃어도 재현된다 — PVC 를 쓰지 않는 이유다.
-            - {name: config, mountPath: /var/lib/ldap-account-manager}
-      volumes:
-        - name: config
-          emptyDir: {}
+          # ★ /var/lib/ldap-account-manager 에 볼륨을 걸지 말 것.
+          #   이미지가 그 아래에 설정 템플릿(config/unix.sample.conf 등)을
+          #   담고 있어 emptyDir 로 덮으면 엔트리포인트가 이렇게 죽는다:
+          #     cp: cannot stat '.../config/unix.sample.conf'
+          #   설정은 env 로 매 기동 재생성되므로 영속화할 것도 없다.

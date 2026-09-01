@@ -24,7 +24,11 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: ds389
-          image: 389ds/dirsrv:3.1
+          # ★ 3.1 은 쓸 수 없다 — 3.1.2 의 lib389 가 빈 볼륨에서도
+          #   "Another instance named 'localhost' may already exist" 로
+          #   죽는다(instance/setup.py:675 ds.list(serverid=...) 판정).
+          #   같은 매니페스트로 3.0 은 정상 기동한다.
+          image: 389ds/dirsrv:3.0
           envFrom:
             - configMapRef: {name: ds389-config}
           env:
