@@ -192,7 +192,7 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 ### 매니페스트 작업 시
 
 - `v1/` 매니페스트는 **배포 금지**. 단 CI가 이 경로의 Dockerfile을 참조한다는 모순이 있다
-- prod 이미지는 태그를 핀닝해야 한다. **단 로테이션·스캔 이미지 6종(`alpine/git`, `curlimages/curl`, `minio/mc`, `bitnami/redis-cluster`, `aquasec/trivy`, falco 계열)은 `images:` 블록에 없다**
+- prod 이미지는 태그를 핀닝해야 한다 (Kyverno `disallow-latest` Enforce). **로테이션·스캔 이미지 6종도 2026-09-01 에 `images:` 블록에 추가되었다**
 - **`overlays/dev/secrets/` 디렉터리는 존재하지 않는다.** 시크릿은 base 레벨에 있다
 - `*.dec.yaml`, `keys.txt`, `*.age`, TLS 인증서, `*.tfstate`를 커밋하지 말 것. **단 `v1/cluster/tls.key`에 개인키가 이미 커밋되어 있다 — SEC-401**
 - ArgoCD 레포 URL은 `https://gitlab.oneinchmarket.co.kr/infra/oneinchmarket-infra.git`, 브랜치 `v2`
