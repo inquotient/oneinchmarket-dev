@@ -2,7 +2,7 @@
 # LIVY-702(K8s 지원) · LIVY-1010(Spark 3.5.6 지원)
 #
 # Livy 서버는 spark-submit 을 호출하므로 Spark 배포판이 함께 있어야 한다.
-FROM oneinch/spark-iceberg:latest
+FROM localhost/oneinch/spark-iceberg:latest
 
 USER root
 

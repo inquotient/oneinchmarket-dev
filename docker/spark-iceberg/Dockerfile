@@ -4,7 +4,7 @@
 # JAR 을 이미지에 굽는다. --packages 로 런타임에 내려받지 않는다.
 # 근거: hive-metastore initContainer 가 기동 시 인터넷에서 JDBC 드라이버를
 #       받는 구성이 SEC-512 로 지적되어 있다. 같은 실수를 반복하지 않는다.
-FROM apache/spark:3.5.6
+FROM docker.io/apache/spark:3.5.6
 
 USER root
 
