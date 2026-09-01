@@ -65,6 +65,10 @@ spec:
                   "$TMPL" > "$DEST"
               chmod 600 "$DEST"
               echo "[usersync] install.properties 생성 (비밀번호 2건 치환)"
+              # ranger-usersync-services.sh 가 ${RANGER_HOME}/usersync/logs/auth.log
+              # 에 쓴다. 이미지에는 그 디렉터리가 없어 기동이 실패한다.
+              mkdir -p "${RANGER_HOME}/usersync/logs"
+              touch    "${RANGER_HOME}/usersync/logs/auth.log"
               exec "${RANGER_SCRIPTS}/ranger-usersync.sh"
           env:
             - name: RANGER_USERSYNC_PASSWORD

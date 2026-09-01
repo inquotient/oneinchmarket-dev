@@ -30,8 +30,21 @@ data:
 
     CRED_KEYSTORE_FILENAME=/opt/ranger/usersync/conf/rangerusersync.jceks
 
-    # unixauth 서비스용 SSL 이다. SYNC_SOURCE=ldap 에서는 쓰이지 않는다.
+    # ★ Kerberos 를 쓰지 않아도 이 세 키는 있어야 한다.
+    #   setup.py:369 가 globalDict['hadoop_conf'] 를 조건 없이 읽는다.
+    #   빠지면 KeyError: 'hadoop_conf' 로 setup 이 죽고, conf/ 가 만들어지지
+    #   않아 그다음 start.sh 까지 연쇄로 실패한다.
+    usersync_principal=
+    usersync_keytab=
+    hadoop_conf=/home/ranger/scripts
+
+    # unixauth 서비스용 SSL 이다. SYNC_SOURCE=ldap 에서는 쓰이지 않으나
+    # setup.py 가 키 자체는 참조한다.
     AUTH_SSL_ENABLED=false
+    AUTH_SSL_KEYSTORE_FILE=/opt/ranger/usersync/conf/cert/unixauthservice.jks
+    AUTH_SSL_KEYSTORE_PASSWORD=UnIx529p
+    AUTH_SSL_TRUSTSTORE_FILE=
+    AUTH_SSL_TRUSTSTORE_PASSWORD=
 
     # ── LDAP ────────────────────────────────────────────────────
     SYNC_LDAP_URL = ldap://ds389-headless:3389
