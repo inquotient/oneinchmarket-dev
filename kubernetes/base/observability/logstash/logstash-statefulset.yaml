@@ -81,7 +81,11 @@ spec:
               mountPath: /usr/share/logstash/config/logstash.yml
               subPath: logstash.yml
             - name: config
-              mountPath: /usr/share/logstash/pipeline/pipeline.conf
+              # 이미지 기본 pipeline/logstash.conf 를 덮어쓴다. 다른 이름으로 두면
+              # Logstash 가 두 파일을 모두 로드해 beats input 이 중복되고
+              #   could not bind to 0.0.0.0:5044; Address already in use
+              # 가 난다.
+              mountPath: /usr/share/logstash/pipeline/logstash.conf
               subPath: pipeline.conf
       volumes:
         - name: config

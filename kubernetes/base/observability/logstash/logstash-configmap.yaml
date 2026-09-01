@@ -92,6 +92,12 @@ data:
         #   The setting `ssl_certificate_verification` in plugin `elasticsearch`
         #   is obsolete. Set 'ssl_verification_mode' instead.
         ssl_verification_mode => "none"
+        # 9.x 는 인덱스명으로 템플릿 설치를 시도하는데 sprintf 패턴이 그대로
+        # URL 에 들어가 파싱이 깨진다:
+        #   Malformed escape pair at index 17:
+        #     /_index_template/%{[@metadata][target_index]}
+        # 템플릿·ILM 정책은 elasticsearch-ilm-setup Job 이 관리한다.
+        manage_template => false
         index => "%{[@metadata][target_index]}-%{+YYYY.MM.dd}"
         ilm_enabled => true
         ilm_rollover_alias => "%{[@metadata][target_index]}"
