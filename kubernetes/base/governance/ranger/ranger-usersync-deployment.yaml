@@ -102,14 +102,16 @@ spec:
             periodSeconds: 20
             timeoutSeconds: 10
             failureThreshold: 6
+          # ★ /var/log/ranger/usersync 와 /var/run/ranger 에 볼륨을 걸지 말 것.
+          #   setup.py:492 가 두 디렉터리에 os.chown 을 건다. emptyDir 는
+          #   root:fsGroup 소유로 붙으므로 비특권 uid 가 소유자를 바꾸려면
+          #   CAP_CHOWN 이 필요해 EPERM 이 난다:
+          #     PermissionError: [Errno 1] Operation not permitted:
+          #       '/var/log/ranger/usersync'
+          #   이미지가 이미 두 디렉터리를 ranger 소유로 만들어 둔다.
+          #   자기 소유 파일에 같은 uid/gid 로 chown 하는 것은 허용된다.
           volumeMounts:
             - {name: config, mountPath: /etc/ranger-usersync}
-            - {name: logs, mountPath: /var/log/ranger/usersync}
-            - {name: run, mountPath: /var/run/ranger}
       volumes:
         - name: config
           configMap: {name: ranger-usersync-config}
-        - name: logs
-          emptyDir: {}
-        - name: run
-          emptyDir: {}
