@@ -18,7 +18,7 @@ limits    메모리 93%  ← 5단계 전에 .wslconfig memory 상향이 사실�
 | core | PostgreSQL·MariaDB·MongoDB·Redis · Kafka · Apicurio · AKHQ · MinIO · Trino · Hive MS · Keycloak · admin · cmmn-api · nginx |
 | observability | Elasticsearch·Kibana·Logstash·Filebeat 9.5.2 · Prometheus · Grafana · Loki · Tempo · OTel(agent·gateway) |
 | governance | DS389 3.1 · LAM 8.3 · Solr 10 · Ranger admin·usersync 2.9.0 · Knox 3.0 |
-| **security** | **Tetragon 1.7.1 · Trivy Operator v0.34.0 · Policy Reporter 3.10.0 · Vault 2.1.0 · Wazuh 4.14.7(manager·indexer)** |
+| **security** | **Tetragon 1.7.1 · Trivy Operator v0.34.0 · Policy Reporter 3.10.0 · Vault 2.1.0 · Wazuh 4.14.7(manager·indexer, OpenSearch security 활성)** |
 | data | Spark History · Spark Connect · Livy |
 | devops | GitLab 19.3.1-ee.0 |
 | 부트스트랩 | 7종 전부 Complete |
@@ -47,6 +47,8 @@ kubectl -n local port-forward ranger-admin-0 6080:6080   # admin / ranger-secret
 kubectl -n local port-forward deploy/lam 8080:80
 # 보안
 kubectl -n local port-forward vault-0 8200:8200          # root token 은 Secret vault-init
+# indexer 는 TLS + 기본 인증이다. 자격증명은 Secret wazuh-secret
+kubectl -n local exec wazuh-indexer-0 -c wazuh-indexer -- curl -sk \n  -u "admin:$(kubectl -n local get secret wazuh-secret -o jsonpath='{.data.indexer-admin-password}' | base64 -d)" \n  https://localhost:9200/_cat/indices?v
 kubectl -n local exec wazuh-manager-0 -- /var/ossec/bin/wazuh-control status
 kubectl -n trivy-system get vulnerabilityreports,configauditreports -A | head
 kubectl get policyreports -A | head
@@ -143,8 +145,8 @@ passwd                                 # 이 프로젝트 대화에 평문으로
 ```
 
 - **Reloader 미설치** — 단계가 늘수록 수동 재기동 비용이 커진다. 설치할 만하다
-- **Wazuh indexer 의 security 플러그인이 꺼져 있다.** prod 로 가져갈 때는 반드시 켤 것.
-  cert-manager 가 이미 있으므로 Issuer + Certificate 경로가 있다(TODO-02 첫 실사용처)
+- **Wazuh indexer 의 `filebeat` 사용자가 `all_access` 다.** `wazuh-alerts-*` 쓰기만 허용하는
+  역할로 좁히는 것은 별도 작업이다(indexer security 자체는 켜져 있다)
 - **Vault unseal 키가 같은 클러스터의 Secret 에 있다.** ADR-024 때 반드시 재논의할 것
 - **Trivy CronJob(주간)과 Trivy Operator 가 공존한다.** 제거는 dev/prod 영향이 있어 별도 결정
 - **Ranger admin 은 재시작마다 setup 을 다시 돈다**(`.setupDone` 이 이미지 본체에 있다). 2~3분 걸린다

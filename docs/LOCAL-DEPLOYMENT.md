@@ -793,13 +793,40 @@ wazuh-manager-0    1/1 Running   ossec 9종 가동   ns local
 - **재시작하면 다시 봉인된다.** auto-unseal 은 KMS 를 요구하는데 로컬에 없다. `vault-init.sh unseal`
 - unseal 키와 root token 을 같은 클러스터의 Secret `vault-init` 에 둔다. **프로덕션에서는 틀린 배치다.** ADR-024 때 반드시 재논의할 것
 
-#### Wazuh — indexer 의 security 플러그인을 껐다
+#### Wazuh — indexer 의 OpenSearch security 를 켰다
 
-`plugins.security.disabled: true` 는 **로컬 한정 단순화**다. OpenSearch security 를 켜면 루트 CA·노드/admin 인증서, bcrypt 해시가 든 `internal_users.yml`, `securityadmin.sh` 부트스트랩이 따라온다. 그 전체를 선언적으로 다루는 것은 이 단계의 목적(파이프라인 개통 확인)에 비해 크다. 대신 네임스페이스가 `default-deny-ingress` 아래 있고 NetworkPolicy 로 `wazuh-manager` 만 9200 에 닿는다.
+처음에는 껐다. "인증서·bcrypt 해시·`securityadmin.sh` 부트스트랩이 이 단계의 목적에 비해 크다"는 판단이었고, 대신 NetworkPolicy 로 `wazuh-manager` 만 9200 에 닿게 했다.
 
-**prod 로 가져갈 때는 반드시 켜야 한다.** cert-manager 가 이미 설치되어 있으므로 Issuer + Certificate 로 발급하는 경로가 있다(TODO-02 의 첫 실사용처가 된다).
+**그 판단이 과했다.** cert-manager 가 이미 설치되어 있어 가장 번거로운 인증서 발급이 선언적으로 해결되고, `allow_default_init_securityindex: true` 가 `securityadmin.sh` 단계를 없앤다. 남는 것은 해시 생성뿐이었다. 되돌려서 켰다.
 
-대시보드는 넣지 않았다. Kibana 가 이미 있고 노드 예산에서 OpenSearch 대시보드를 하나 더 띄우는 값이 비용을 넘지 않는다. 문서의 "Wazuh 2종"은 manager + indexer 로 해석했다.
+**cert-manager 의 첫 실사용처다(TODO-02).** 지금까지 cert-manager 는 설치만 되어 있고 Issuer/Certificate 가 하나도 없었다.
+
+```
+selfsigned Issuer ─▶ CA 인증서(10년) ─▶ CA Issuer ─┬─▶ 노드 인증서 CN=wazuh-indexer,O=oneinchmarket
+                                                    └─▶ admin 인증서 CN=wazuh-admin,O=oneinchmarket
+```
+
+`internal_users.yml` 은 **bcrypt 해시**를 요구하므로 ConfigMap 에 미리 넣을 수 없다 — 해시를 커밋해야 하고 비밀번호를 바꾸면 다시 만들어야 한다. initContainer 가 이미지의 `hash.sh` 로 기동 시점에 만든다. 기본 설정 일체를 emptyDir 로 복사한 뒤 `internal_users.yml` 만 덮어쓴다(디렉터리째 마운트하면 `roles.yml`·`config.yml` 이 가려져 플러그인이 뜨지 않는다).
+
+**데모 사용자 6명(admin·anomalyadmin·kibanaserver·logstash·readall·snapshotrestore)을 전부 지웠다.** 기본 해시가 공개되어 있어 남기면 인증을 켠 의미가 없다.
+
+**실측 — 켠 뒤에 실제로 막히는지 확인했다**
+
+```
+평문 http                    -> 000  (연결 실패 = TLS 전용)
+https 인증 없음              -> 401
+https 데모 admin/admin       -> 401   ← 데모 계정 제거 확인
+https 데모 kibanaserver      -> 401
+https admin/<생성 비밀번호>   -> 200
+https filebeat/<비밀번호>     -> 200
+내부 사용자                  -> admin, filebeat 둘뿐
+manager 의 filebeat          -> https://wazuh-indexer:9200 연결 확립 (CA 검증 full)
+wazuh-alerts-4.x-2026.09.01  -> 문서 4건   ← 알림이 실제로 흐른다
+```
+
+`FILEBEAT_SSL_VERIFICATION_MODE` 도 `none` → `full` 이다. CA 를 마운트하고 SAN 까지 검증한다.
+
+**남은 것** — `filebeat` 사용자가 지금은 `backend_roles: ["admin"]`(= `all_access`)이다. `wazuh-alerts-*` 쓰기만 허용하는 역할로 좁히는 것은 별도 작업이다.
 
 #### 4단계에서 실제로 걸린 것
 
@@ -873,6 +900,22 @@ wazuh-analysisd: CRITICAL: (1132): Unable to chroot to directory
 - `oci://ghcr.io/cilium/charts/tetragon` 은 익명 pull 이 **403 denied** 다. `helm repo add cilium https://helm.cilium.io` 를 쓴다
 - kustomize 의 원격 git fetch 에는 **27초 하드 타임아웃**이 있어 policy-reporter 저장소에서 늘 실패한다(`hit 27s timeout running git fetch`). 얕은 클론 후 로컬에서 읽는다
 - Policy Reporter 배포물은 kustomization 이 아니라 `install.yaml` 한 장이고 **네임스페이스를 스스로 만들지 않는다**
+
+**8. Wazuh security 를 켜면서 다섯 번 더 걸렸다**
+
+전부 "설정이 무시되거나 스크립트가 조용히 죽는" 계열이었다.
+
+| 증상 | 원인 |
+|---|---|
+| `cp: preserving times for '/security-config/.': Operation not permitted` | `cp -a` 가 emptyDir 마운트 루트의 타임스탬프·소유권을 보존하려 했다. `cp -r` 로 충분하다 |
+| initContainer 가 **로그를 한 줄도 안 남기고** 죽는다 | YAML 블록 스칼라 안에 heredoc 을 썼다. 종료 토큰도 함께 들여쓰기되는데 `<<TOKEN` 은 0열을 요구한다. heredoc 이 안 끝나 구문 오류 → 출력 없이 종료. **3단계 LDIF line folding 과 같은 계열** |
+| 그 뒤에도 **로그가 없다** | `hash.sh` 가 `java: command not found`(rc=127). `command` 로 엔트리포인트를 대체해 `OPENSEARCH_JAVA_HOME` 을 못 받았다. 게다가 `2>/dev/null` 로 stderr 를 버려 원인이 보이지 않았다 |
+| `SecurityManager.checkRead -> SslCertificatesLoader.resolvePath` access denied | 인증서를 `config/` 밖(`/usr/share/wazuh-indexer/certs`)에 두었다. OpenSearch 는 `OPENSEARCH_PATH_CONF` 밖의 파일 읽기를 SecurityManager 로 막는다. 이미지 기본 `opensearch.yml` 이 `config/certs` 를 가리키고 있었는데 그 힌트를 놓쳤다 |
+| (예방) 노드가 자기를 클러스터 구성원으로 인정 안 함 | `nodes_dn`·`authcz.admin_dn` 은 RFC2253 DN **문자열 비교**다. cert-manager 의 `commonName` + `subject.organizations` 가 만드는 DN 과 정확히 맞춰야 한다. `privateKey.encoding: PKCS8` 도 필수 — PKCS1 은 읽지 못한다 |
+
+> **일반화 둘**
+> - **실패를 진단할 스크립트에서 stderr 를 먼저 버리지 말 것.** `2>/dev/null` 하나로 두 번의 디버깅 라운드를 낭비했다
+> - **YAML 안에 셸을 쓸 때 들여쓰기가 의미를 갖는 구문(heredoc·LDIF)은 피할 것.** `printf` 나열이 안전하다
 
 #### Falco 와 Tetragon 을 함께 둔 이유
 

@@ -56,6 +56,7 @@ cd scripts/security-verification && ./run-all.sh [namespace]
 - `kubernetes/overlays/dev/`, `overlays/prod/` — 환경별 패치
 - `infra/` — OpenTofu IaC. `modules/`는 Hetzner/Vultr 이중 구조이나 **Hetzner는 미완성**
 - `argocd/` — AppProject, Application, Argo Events
+- **cert-manager 실사용처** — `kubernetes/base/security/wazuh/wazuh-certs.yaml`(selfsigned Issuer -> CA -> 노드·admin 인증서). TODO-02 의 첫 사례다
 - `scripts/security-verification/` — 보안 검증 9종
 - `docker/` — 로컬 빌드 이미지 3종(`spark-iceberg`·`livy`·`ranger-usersync`). `local/build-images.sh` 가 podman 으로 빌드해 k3s containerd 로 반입한다. 레지스트리에 없으므로 클러스터 재구축 시 먼저 돌려야 한다
 - `v1/` — 레거시 매니페스트. **배포 금지.** 단 CI가 이 경로의 Dockerfile을 참조한다(존재하지 않음)
