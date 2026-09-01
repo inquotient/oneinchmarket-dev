@@ -11,5 +11,6 @@ data:
   #   DS_MEMORY_PERCENTAGE · DS_REINDEX · DS_STARTUP_TIMEOUT · DS_STOP_TIMEOUT).
   #   조용히 무시되므로 넣어 두면 설정한 줄 알게 된다.
   DS_SUFFIX_NAME: dc=oneinchmarket,dc=co,dc=kr
-  # 컨테이너 메모리 대비 DB 캐시 비율. 기본 25% 는 512Mi 한도에서 과하다.
-  DS_MEMORY_PERCENTAGE: "15"
+  # DS_MEMORY_PERCENTAGE 는 넣지 않는다 — 3.1 의 기본 백엔드는 MDB 이고
+  # 컨테이너가 "setting entry cache is not supported for MDB" 로 무시한다.
+  # 무시되는 값을 두면 설정한 줄 알게 된다(v1 의 DS_DOMAIN 과 같은 실수).
