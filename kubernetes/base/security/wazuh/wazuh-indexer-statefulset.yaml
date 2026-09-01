@@ -51,7 +51,6 @@ spec:
                 bash /usr/share/wazuh-indexer/plugins/opensearch-security/tools/hash.sh \
                   -p "$1" 2>&1 | grep -E '^\$2[aby]\$' | tail -1
               }
-              }
               ADMIN_HASH=$(hash_of "$INDEXER_ADMIN_PASSWORD")
               FB_HASH=$(hash_of "$INDEXER_FILEBEAT_PASSWORD")
               [ -n "$ADMIN_HASH" ] && [ -n "$FB_HASH" ] || { echo "해시 생성 실패"; exit 1; }
