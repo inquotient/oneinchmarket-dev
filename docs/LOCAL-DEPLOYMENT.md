@@ -286,6 +286,34 @@ vmstat si: 0                              ← 스왑인 없음
 
 **§2 의 zram 설계는 아직 시험되지 않았다.** CrashLoop 중인 워크로드가 메모리를 잡지 않기 때문이며, 전 구성요소가 Running 이 되어야 §2-3 의 압축률 가정을 검증할 수 있다.
 
+
+### 8-7. 최종 결과 (2026-09-01 배포 세션)
+
+**23 Running · 5 Completed · 3 미해결**
+
+부트스트랩 Job 5/5 완료 — `postgres-bootstrap` · `mariadb-bootstrap` · `minio-bootstrap` · `kafka-topics` · `hive-schematool`.
+
+#### 남은 3건과 진단
+
+| 파드 | 마지막 오류 | 진단 |
+|---|---|---|
+| **cmmn-api** | `Couldn't resolve server kafka-0.kafka-headless.dev.svc.cluster.local` | **매니페스트에는 이 값이 없다.** 렌더링 결과는 `SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka-headless:9092` 이고 파드 `resolv.conf` 의 search 도 `local.svc.cluster.local` 이다. `.dev.svc` 는 **`inquotient/cmmn-api:latest` 이미지에 구워진 설정**으로 보인다. **G9(Dockerfile 부재)로 재빌드가 불가능하므로 매니페스트 수준에서 해결되지 않는다** |
+| **gitlab** | Chef `templatesymlink[Create a gitlab.yml]` 이후 핸들러 실패 | `max_locks_per_transaction` 상향으로 `out of shared memory` 는 넘겼으나 다음 단계에서 실패한다. GitLab Omnibus 초기화는 단계가 많아 추가 조사가 필요하다 |
+| **spark-connect** | 종료 코드 없이 shutdown hook 만 남기고 종료 | `deletecollection` RBAC 과 Connect JAR 은 해소됐다. `start-connect-server.sh` + `SPARK_NO_DAEMONIZE` 로 전환했으나 여전히 조기 종료한다. client 모드 + `spark.master=k8s://` 조합의 추가 설정이 필요해 보인다 |
+
+`elasticsearch-ilm-setup` 은 ES 기동 전에 실행되어 `Failed` 로 남아 있다 — 기존 매니페스트에 대기 루프가 없다.
+
+#### 이 세션에서 해소한 결함 (커밋 20건)
+
+| 계층 | 건수 | 대표 |
+|---|--:|---|
+| P0 블로커 | 5 | Secret · 오퍼레이터 · 부트스트랩 · SA · StorageClass |
+| WSL2 고유 | 3 | 마운트 전파 · debugfs · Falco |
+| 레포 기존 결함 | 9 | G23 · TODO-14 · SEC-512 · G13 · Apicurio 포트 · Logstash/Apicurio startupProbe · PostgreSQL 락 · Kafka quorum · Spark 버킷 |
+| 작성 중 도입한 오류 | 8 | kubelet 플래그 2건 · 롤/DB 이름 2건 · `pg_isready` · SIGPIPE · NetworkPolicy · imagePullPolicy |
+
+**"작성 중 도입한 오류" 8건은 실제로 배포하지 않았다면 전부 드러나지 않았을 것들이다.** 매니페스트가 `kustomize build` 를 통과하는 것과 클러스터에서 동작하는 것은 다른 문제다.
+
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용
