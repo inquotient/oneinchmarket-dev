@@ -60,23 +60,25 @@ spec:
             - {containerPort: 1515, name: enrollment, protocol: TCP}
             - {containerPort: 55000, name: api, protocol: TCP}
           securityContext:
-            # ★ s6 감독 트리가 setuid 헬퍼(s6-setuidgid 등)로 서비스를 띄운다.
-            #   allowPrivilegeEscalation:false 는 no_new_privs 를 걸어 setuid
-            #   실행을 무력화한다. 그러면 s6-svscan 이 서비스를 하나도 올리지
-            #   못하고("supervisor not listening") 컨테이너가 exit 0 으로 끝난다
-            #   — wazuh-control status 가 12종 전부 not running 이었다.
-            #   root 로 도는 컨테이너라 완화 폭이 크지 않다(이미 uid 0 이다).
-            allowPrivilegeEscalation: true
+            allowPrivilegeEscalation: false
             capabilities:
-              # ★ 3단계에서 DS389·LAM 이 겪은 것과 같은 건이다 — 또 밟았다.
-              #   root 로 시작해 설정을 마치고 비특권 사용자로 내려가는
-              #   이미지는 drop:["ALL"] 만으로 뜨지 않는다:
-              #     Permission denied: '/var/ossec/etc/ossec.conf'
-              #   uid 0 인데 EACCES 인 것은 CAP_DAC_OVERRIDE 를 버린 탓이다.
-              #   s6 감독 프로세스가 서비스에 신호를 보내므로 KILL 도 필요하다
-              #   (없으면 supervisor not listening 으로 끝난다).
+              # ★ 필요한 것을 하나씩 찾아낸 결과다. 순서대로 걸렸다:
+              #
+              #   1) Permission denied: '/var/ossec/etc/ossec.conf'
+              #      uid 0 인데 EACCES 다 -> DAC_OVERRIDE
+              #      (3단계의 DS389·LAM 과 같은 건. 또 밟았다)
+              #   2) s6 가 서비스에 신호를 보낸다 -> KILL
+              #   3) wazuh-analysisd: CRITICAL: (1132): Unable to chroot to
+              #        directory '/var/ossec' due to [(1)-(Operation not permitted)]
+              #      ossec 데몬들은 기동 시 /var/ossec 로 **chroot** 한다.
+              #      -> SYS_CHROOT. 이것이 없으면 filebeat 만 뜨고 ossec
+              #      데몬 12종이 전부 not running 으로 남는다. 로그에는
+              #      ossec.log 에만 남아 파드 로그로는 보이지 않는다.
+              #
+              #   allowPrivilegeEscalation 은 false 로 되돌렸다. s6 는
+              #   no_new_privs 아래에서도 정상 동작한다(filebeat 가 그 증거).
               drop: ["ALL"]
-              add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID", "KILL"]
+              add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID", "KILL", "SYS_CHROOT"]
           resources:
             requests: {cpu: 100m, memory: 512Mi}
             limits:   {cpu: "1",  memory: 1Gi}
