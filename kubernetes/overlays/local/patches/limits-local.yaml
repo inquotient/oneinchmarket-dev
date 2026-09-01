@@ -15,7 +15,6 @@
 #   워크로드          실사용    기존 limit -> 새 limit
 #   prometheus        238Mi     3Gi   -> 1.5Gi
 #   livy              403Mi     2Gi   -> 1Gi
-#   spark-connect     459Mi     2Gi   -> 1.5Gi  (1Gi 는 기동 중 OOM)
 #   keycloak          607Mi     2Gi   -> 1.5Gi
 #   ranger-admin      871Mi     2Gi   -> 1.5Gi
 #   minio              93Mi     1Gi   -> 512Mi
@@ -29,6 +28,8 @@
 #   otel-gateway       45Mi   512Mi   -> 384Mi
 #
 # 건드리지 않은 것 —
+#   spark-connect 는 손대지 않는다 — 1Gi·1.5Gi 둘 다 기동 중 exit 137 로
+#     죽었다. 유휴 459Mi 인데 Spark 드라이버 기동 피크는 2Gi 를 넘본다.
 #   qos-guaranteed.yaml 이 잡는 8종(kafka·trino·postgresql·mariadb 등)은
 #     requests==limits 가 zram 배제 장치다. 여기서 limits 만 바꾸면 그 성질이 깨진다
 #   gitlab(3669Mi/4Gi)·logstash(1492Mi/2Gi)·elasticsearch(1722Mi/2Gi)·
@@ -94,22 +95,6 @@ spec:
         - name: livy
           resources:
             limits: {memory: 1Gi}
----
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: spark-connect
-spec:
-  template:
-    spec:
-      containers:
-        - name: spark-connect
-          resources:
-            # ★ 1Gi 로 내렸다가 되돌렸다. 관측값 459Mi 는 정상 운전 중의
-            #   값이고 Spark 드라이버는 기동 때 그보다 훨씬 크게 잡는다.
-            #   1Gi 에서는 exit 137(OOMKilled)로 startup probe 를 통과하지
-            #   못했다. JVM 은 유휴 사용량으로 limit 을 정하면 안 된다.
-            limits: {memory: 1536Mi}
 ---
 apiVersion: apps/v1
 kind: StatefulSet

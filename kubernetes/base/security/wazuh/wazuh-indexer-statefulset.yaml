@@ -50,7 +50,12 @@ spec:
             timeoutSeconds: 10
             failureThreshold: 6
           volumeMounts:
-            - {name: config, mountPath: /usr/share/wazuh-indexer/opensearch.yml, subPath: opensearch.yml}
+            # ★ 경로 주의 — 유효한 설정은 config/ 아래다.
+            #   엔트리포인트가 OPENSEARCH_PATH_CONF=/usr/share/wazuh-indexer/config
+            #   를 export 한다. 이미지에는 /usr/share/wazuh-indexer/opensearch.yml
+            #   도 있는데 그쪽에 마운트하면 아무 효과가 없다(실제로 security
+            #   플러그인이 그대로 켜진 채 떴다).
+            - {name: config, mountPath: /usr/share/wazuh-indexer/config/opensearch.yml, subPath: opensearch.yml, readOnly: true}
             - {name: data, mountPath: /var/lib/wazuh-indexer}
       volumes:
         - name: config
