@@ -44,7 +44,13 @@ data:
 
     # 인증은 앞단 oauth2-proxy(Keycloak OIDC)가 담당한다.
     # Livy 자체는 SPNEGO/Kerberos 만 네이티브 지원하므로 사용하지 않는다.
-    livy.server.auth.type                =
+    #
+    # ★ `livy.server.auth.type =` 로 빈 값을 두면 안 된다. Livy 는 이 키가
+    #   null 인지만 보는데 빈 문자열은 null 이 아니다. 그래서 빈 타입으로
+    #   인증을 켜고 `livy.server.auth..class` 를 요구하며 죽는다:
+    #     IllegalArgumentException: requirement failed:
+    #       auth requires livy.server.auth..class to be provided
+    #   끄려면 키를 아예 두지 않아야 한다.
 
     # ── Spark 로 전달되는 설정 (livy.spark.* → spark.*)
     livy.spark.kubernetes.container.image                             = oneinch/spark-iceberg:latest
