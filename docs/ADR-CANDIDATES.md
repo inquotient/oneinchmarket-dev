@@ -323,7 +323,32 @@
 **상태: `Proposed`** — 계획서 전환표에 Jenkins 언급이 아예 없어 암묵적으로 제거되었던 결정을 명문화한다. ADR-022로 Jenkins가 복원되면 **역할 분담 정의가 필요하다**(TODO-40).
 
 ### ADR-021 — Apicurio Studio 제외 및 Registry 단독 운영
-**상태: `Open`** — v1은 5종(registry + registry-ui + studio-api/ui/ws), v2는 registry 1종이다. 스키마 편집 UI 요구가 없으면 유지하고 조회는 AKHQ의 ccompat 연동이 대체한다. **이미지 pull 가능 여부 `[UNVERIFIED]`**(TODO-39).
+**상태: `Accepted`** (2026-09-01) — **upstream 이 대신 결론냈다.**
+
+- **Apicurio Studio 는 완전 폐기(deprecated)되었다.** `apicur.io/studio` 공지:
+  *"Apicurio Studio is now fully deprecated. Studio functionality has been integrated
+  into Apicurio Registry 3.1.0 as an opt-in feature."*
+  저장소도 `ApicurioArchive/apicurio-studio` 로 옮겨졌다.
+- 즉 v1 의 5종(registry + registry-ui + studio-api/ui/ws) 중 studio 3종은 **더 이상 존재하지 않는다.**
+- **TODO-39(이미지 pull 가능 여부 `[UNVERIFIED]`)는 이것으로 해소된다.**
+  Docker Hub `apicurio/apicurio-studio` 에는 `1.0.0.Beta1`·`latest-snapshot` 만 있고
+  GA 태그가 없다. 채택 가능한 상태가 아니다.
+
+**결정 — registry + registry-ui 2종 운영.**
+
+- `registry-ui` 는 **제외 대상이 아니었다.** v2 로 오면서 누락된 것이며(3.x 는 UI 가 별도 이미지),
+  그 결과 레지스트리를 REST 로만 볼 수 있었다. 2026-09-01 에 `apicurio-registry-ui:3.3.2` 를 배포했다.
+- 편집 기능은 Registry 의 opt-in 스위치로 켠다:
+  `apicurio.rest.mutability.artifact-version-content.enabled=true`
+  (env `APICURIO_REST_MUTABILITY_ARTIFACT_VERSION_CONTENT_ENABLED`)
+  → 콘솔에 Drafts 섹션과 버전 콘텐츠 편집이 나타난다. **실증 완료**(DRAFT 등록 → 내용 수정 204 → 반영 확인).
+- **따라서 별도 편집기(Swagger Editor 등)를 두지 않는다.** 레지스트리와 연동되지 않는 편집기는
+  저장 위치가 브라우저 로컬이라 계약 관리의 원천이 되지 못한다.
+
+**Apitomy 와의 관계** — Apicurio 의 후계자가 아니다. 라이브러리·코드생성 조각
+(Data Models · Codegen · Apicurito)이 옮겨간 곳이며, Registry 는 Apicurio 에 남아
+CNCF Sandbox 로 계속 유지된다(3.3.2, 2026-08-27). **Registry 는 대체 대상이 아니다.**
+
 
 ### ADR-024 — 시크릿 관리를 SOPS+age → Vault 전환
 **상태: `Open`**

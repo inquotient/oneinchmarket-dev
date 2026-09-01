@@ -67,7 +67,7 @@ cd scripts/security-verification && ./run-all.sh [namespace]
 |:---:|---|---|
 | 0 | network-policies, service-mesh, security/kyverno | default-deny NetPol, Istio PeerAuth/AuthzPolicy/waypoint, Kyverno 6정책 |
 | 1 | database | PostgreSQL, MariaDB, MongoDB, Redis |
-| 2 | messaging | Kafka KRaft, Apicurio, AKHQ |
+| 2 | messaging | Kafka KRaft, Apicurio Registry + **Registry UI**, AKHQ |
 | 3 | data-lakehouse | MinIO, Trino, Hive Metastore |
 | **4** | **security/keycloak · security/vault · security/wazuh** | **Keycloak, Vault, Wazuh(manager·indexer)** |
 | 5 | devops · **governance** | GitLab EE · **DS389, LAM, Solr, Ranger(admin·usersync), Knox** |

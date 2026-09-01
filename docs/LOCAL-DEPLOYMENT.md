@@ -440,7 +440,7 @@ prod 핀: `postgres:18.6` · `mariadb:12.3.3` · `redis:8.10.1` · 그 외 20종
 | **3** | **governance — DS389 · LAM · Solr · Ranger(admin·usersync) · Knox** | 20 | ✅ **완료** — LDAP→Ranger 동기화 실증 |
 | **4** | **security-min — Tetragon · Trivy Operator · Policy Reporter · Vault · Wazuh 2종** | 11 + 오퍼레이터 3 | ✅ **완료** |
 | 5 | lakehouse-v1 — ZK · Hadoop 4종 · HBase 2종 · Hive Server | ~35 | **설계 선행 필요** |
-| 6 | GlitchTip · Jenkins · Kafka Bridge · Apicurio Studio 4종 | ~20 | 미착수 |
+| 6 | GlitchTip · Jenkins · Kafka Bridge | ~16 | 미착수 — **Apicurio Studio 4종은 삭제**(폐기, §8-13) |
 | 7 | security-full — SafeLine · Kubescape · DT · DefectDojo · Caldera | ~25 | **zram 실측 지점** |
 
 #### 1단계 결과
@@ -947,6 +947,111 @@ limits     메모리 93%                  CPU 170% (오버커밋)
 - ~~`apache/knox:2.1.0` 공식 이미지 존재~~ → `apache/knox` 에 2.x 태그가 없다. 정식 릴리스 2.1.0 과 공식 이미지(3.0.x)는 배타적이다
 - ~~ranger-usersync 는 `eclipse-temurin:17-jdk`~~ → 공식 이미지가 없고, `apache/ranger` 는 JDK 8 로 돌아간다
 
+
+### 8-13. API 계약 도구체인 검토 (2026-09-01)
+
+#### 발단 — Apicurio 페이지가 Apitomy 로 이동해 있었다
+
+확인 결과 **이동한 것은 Registry 가 아니다.**
+
+| Apicurio 프로젝트 | 상태 | 행선지 |
+|---|---|---|
+| **Registry** | **유지·활발** | CNCF Sandbox. 3.3.2(2026-08-27), 저장소 커밋 2026-09-01 |
+| **Studio** | **완전 폐기** | → Registry 3.1.0 에 opt-in 기능으로 흡수 |
+| Data Models | 이동 | → Apitomy |
+| Codegen | 이동 | → Apitomy |
+| Apicurito | 이동 | → Apitomy |
+
+> *"Apicurio Studio is now fully deprecated. Studio functionality has been integrated
+> into Apicurio Registry 3.1.0 as an opt-in feature."* — apicur.io/studio
+
+**Apitomy 는 Apicurio 의 후계자가 아니다.** OpenAPI/AsyncAPI 파싱·검증·생성·변환
+라이브러리(Java/TS), 클라이언트 SDK·서버 스텁 생성, 시각적 OpenAPI 편집 React 컴포넌트
+— 즉 **라이브러리·코드생성 조각들의 새 집**이다. Registry 는 Apicurio 에 남아 있다.
+
+#### 조치 — 대체재를 찾을 필요가 없었다
+
+Studio 후계 기능이 **이미 배포된 이미지 안에 있었고 꺼져 있었을 뿐**이다.
+실행 중인 3.3.2 의 `/admin/config/properties` 에서 확인했다.
+
+```
+apicurio.rest.mutability.artifact-version-content.enabled = false   ← 이 스위치
+apicurio.rest.draft.production-mode.enabled              = false
+```
+
+1. **`apicurio-registry-ui:3.3.2` 배포** — Registry 3.x 는 UI 가 별도 이미지다.
+   v1 에는 `registry-ui` 가 있었는데 v2 로 오면서 빠졌다. 그래서 지금까지
+   레지스트리를 REST 로만 볼 수 있었다(registry 컨테이너의 `/ui/` 는 404).
+   **제외 결정이 아니라 누락이었다.**
+2. **편집 기능 활성** — `APICURIO_REST_MUTABILITY_ARTIFACT_VERSION_CONTENT_ENABLED=true`
+3. **NetworkPolicy 2종 신규** — `apicurio-registry` 에 인바운드 허용 규칙이 **아예 없었다.**
+   default-deny 아래에서 파드→레지스트리 호출이 전부 막혀 있었다(부트스트랩 Job 만 예외).
+
+**실증**
+
+```
+콘솔                          http 200
+콘솔의 API 주소               http://localhost:8080/apis/registry/v3  (로컬 오버레이 값이 렌더됨)
+DRAFT 로 OpenAPI 등록          http 200 · state=DRAFT
+DRAFT 내용 수정                http 204
+수정 반영                     "title":"OIM Sample (edited)"
+```
+
+#### ★ `REGISTRY_API_URL` 은 브라우저가 부르는 주소다
+
+Registry UI 는 SPA 라 백엔드 호출을 **브라우저가 직접** 한다. 클러스터 내부 DNS 를
+넣으면 화면은 뜨지만 목록이 비어 보인다. 외부 진입점(Ingress/Gateway)이 0개이므로
+로컬은 `overlays/local/patches/apicurio-ui-local.yaml` 이 port-forward 주소로 덮는다.
+
+```bash
+kubectl -n local port-forward apicurio-registry-0 8080:8080   # API
+kubectl -n local port-forward deploy/apicurio-ui  8888:8080   # 콘솔
+# 브라우저에서 http://localhost:8888
+```
+
+#### 곁들여 알게 된 것 — 삭제가 기본 비활성이다
+
+```
+apicurio.rest.deletion.artifact.enabled          = false
+apicurio.rest.deletion.artifact-version.enabled  = false
+apicurio.rest.deletion.group.enabled             = false
+```
+
+실증용 아티팩트를 지우려다 405 를 받았다. 설정은 `/admin/config/properties/{name}` 에
+PUT 으로 **런타임 변경**이 되므로, 켰다가 지우고 되돌렸다. 계약 레지스트리의 기본값으로
+타당하다 — 그대로 둔다.
+
+#### 나머지 도구 — 결론
+
+| 도구 | 결론 | 이유 |
+|---|---|---|
+| **Spectral** | 채택 (CI) | 유일하게 스타일·거버넌스를 검사한다. Registry 의 VALIDITY 규칙은 구문 검증까지다 |
+| **Microcks** | 채택 (6단계) | 모킹 + 계약 테스트. 대체재 없음. **Keycloak·MongoDB 를 이미 갖고 있어** 보통 4~5 컴포넌트가 2개로 준다 |
+| Swagger UI | 조건부 | 실행 가능한 문서. Microcks 를 넣으면 상당 부분 흡수된다 |
+| AsyncAPI CLI | 보류 | AsyncAPI 문서를 실제로 쓰기 시작한 뒤. 린팅은 Spectral 이 커버 |
+| **Swagger Editor** | **제외** | Registry 가 편집기를 갖게 되었다. 게다가 저장 위치가 브라우저 로컬이라 계약의 원천이 못 된다 |
+| OpenAPI Generator | 이 레포 아님 | 앱 레포 CI 소관. Apitomy Codegen 이 같은 자리지만 openapi-generator 가 훨씬 성숙하다 |
+| Swagger Parser | 배포 대상 아님 | 라이브러리다. Registry 의 VALIDITY 규칙이 이미 파싱하고, 그 자리는 Apitomy Data Models 다 |
+
+#### ★ 선행 조건 — 지금 스펙이 0개다
+
+```
+등록된 아티팩트  0개
+레포의 OpenAPI/AsyncAPI/Avro 파일  0개
+```
+
+그리고 앱 소스(`admin`·`cmmn-api`)가 이 레포에 없다(이미지만 참조하고 CI 가 부르는
+`v1/*/Dockerfile` 은 부재 — G9). **스펙을 소비하는 도구는 전부 지금 먹일 것이 없다.**
+
+Spectral·Microcks 를 넣기 전에 정할 것은 하나다.
+
+> **계약 우선(git 의 스펙 → 코드 생성)인가, 코드 우선(Quarkus 애너테이션 → `/q/openapi` 추출)인가?**
+
+`admin`·`cmmn-api` 가 Quarkus 이므로 코드 우선이 현재 구조와 마찰이 적다.
+이걸 정해야 OpenAPI Generator 의 위치도 정해진다.
+
+또한 **레지스트리 전역 규칙(`VALIDITY=FULL`·`COMPATIBILITY=BACKWARD`)은 지금도 켤 수 있다.**
+설정만으로 되고, 스펙이 들어오는 순간부터 게이트가 선다.
 
 ## 관련 문서
 

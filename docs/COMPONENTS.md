@@ -349,7 +349,7 @@ solr → ranger-admin     audit_store=solr, collection=ranger_audits   ← Solr�
 
 **TODO-38** — `kerberos`가 `fedora:rawhide`(재현 불가 롤링 태그)를 사용한다. Kyverno `disallow-latest` 취지에도 위배된다.
 
-**TODO-39** — `apicurio/apicurio-studio-{api,ui,ws}` 이미지의 현재 pull 가능 여부는 `[UNVERIFIED]`.
+~~**TODO-39** — `apicurio/apicurio-studio-{api,ui,ws}` 이미지의 현재 pull 가능 여부는 `[UNVERIFIED]`.~~ **해소(2026-09-01)** — Studio 는 완전 폐기되었다. 대신 `apicurio-registry-ui:3.3.2` 를 배포하고 Registry 의 `apicurio.rest.mutability.artifact-version-content.enabled` 로 편집 기능을 켰다. ADR-021 참조.
 
 ---
 

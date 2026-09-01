@@ -621,7 +621,7 @@ dev에서 ambient는 꺼져 있다(`overlays/dev/namespace.yaml:10`, 커밋 `33e
 - **TODO-35** — 인증 마스터: DS389(LDAP) vs Keycloak(OIDC) 페더레이션.
 - **TODO-37** — 로컬 빌드 이미지 3종 레지스트리·빌드 파이프라인.
 - **TODO-38** — `kerberos` 이미지가 `fedora:rawhide`(재현 불가 태그).
-- **TODO-39** — Apicurio Studio 이미지 가용성 `[UNVERIFIED]`.
+- ~~**TODO-39** — Apicurio Studio 이미지 가용성 `[UNVERIFIED]`.~~ **해소(2026-09-01)** — Studio 는 upstream 에서 완전 폐기되었고 기능이 Registry 3.1.0 에 opt-in 으로 흡수되었다. `apicurio/apicurio-studio` 에는 GA 태그가 없다(1.0.0.Beta1·latest-snapshot 뿐). ADR-021 참조.
 - **TODO-41** — CSPM 공백. Prowler/ScoutSuite는 Vultr 미지원. Checkov로 IaC 사전 검사만 대체하고 런타임 클라우드 포스처는 공백으로 남는다.
 - **TODO-42** — **Spark ETL 잡 미결.** Spark·Livy·Spark Connect는 `[작업 수단]`으로만 배치했다. 무엇을 적재·변환할지는 결정되지 않았다. 후보: ⓐ Kafka `falco-alerts`·`keycloak-events` → Iceberg 스트리밍 적재 ⓑ Iceberg 테이블 유지보수(compaction·expire-snapshots) 정기 잡 ⓒ 외부 소스 배치 적재. **결정 전까지 `spark-etl-cronjob.yaml`을 만들지 않는다.**
 - **TODO-43** — Spark Connect 인증을 Istio AuthorizationPolicy로 강제하려면 PeerAuthentication이 STRICT여야 한다. 현재 base는 PERMISSIVE라 `spark-connect-authz.yaml`은 실효가 없다. SEC-108(ambient 우회 탐지)이 선행 게이트다.
