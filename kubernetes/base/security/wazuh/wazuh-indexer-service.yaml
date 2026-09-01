@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: wazuh-indexer
+  labels: {app.kubernetes.io/name: wazuh-indexer, app.kubernetes.io/component: security, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+automountServiceAccountToken: false
+---
+# 이름을 wazuh-indexer 로 둔다 — manager 의 INDEXER_URL 이 이 이름을 가리킨다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: wazuh-indexer
+  labels: {app.kubernetes.io/name: wazuh-indexer, app.kubernetes.io/component: security, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  ports: [{name: http, port: 9200, targetPort: 9200, protocol: TCP}]
+  selector: {app.kubernetes.io/name: wazuh-indexer}

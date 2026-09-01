@@ -102,3 +102,43 @@ spec:
         - podSelector: {matchLabels: {app.kubernetes.io/name: nginx}}
         - podSelector: {matchLabels: {app.kubernetes.io/name: oauth2-proxy}}
       ports: [{protocol: TCP, port: 8200}]
+---
+# 4단계 — Wazuh. 인덱서는 매니저만 접근한다(security 플러그인을 껐으므로
+# 네트워크 경계가 유일한 통제다). 매니저는 에이전트·API 소비자를 받는다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-wazuh-indexer-access
+  labels: {app.kubernetes.io/name: allow-wazuh-indexer-access, app.kubernetes.io/component: network-policies, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: wazuh-indexer}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: wazuh-manager}}
+        # Grafana 데이터소스로 붙일 때를 위해 열어 둔다.
+        - podSelector: {matchLabels: {app.kubernetes.io/name: grafana}}
+      ports: [{protocol: TCP, port: 9200}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-wazuh-manager-access
+  labels: {app.kubernetes.io/name: allow-wazuh-manager-access, app.kubernetes.io/component: network-policies, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: wazuh-manager}
+  policyTypes: [Ingress]
+  ingress:
+    # 에이전트는 아직 배포하지 않았다(엔드포인트가 없다). 네임스페이스 안에서
+    # 오는 등록·이벤트만 허용해 둔다.
+    - from:
+        - podSelector: {}
+      ports:
+        - {protocol: TCP, port: 1514}
+        - {protocol: TCP, port: 1515}
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: nginx}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: oauth2-proxy}}
+      ports: [{protocol: TCP, port: 55000}]

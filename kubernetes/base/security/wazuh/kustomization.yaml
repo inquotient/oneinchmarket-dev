@@ -1,0 +1,17 @@
+# 4단계 — Wazuh (manager + indexer)
+#
+# 대시보드는 넣지 않았다. Kibana 가 이미 있고, 노드 메모리 예산에서
+# OpenSearch 대시보드를 하나 더 띄우는 값이 비용을 넘지 않는다.
+# 조회는 인덱서에 직접 질의하거나 Grafana 에 데이터소스를 붙인다.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - wazuh-indexer-service.yaml
+  - wazuh-indexer-configmap.yaml
+  - wazuh-indexer-statefulset.yaml
+  - wazuh-manager-service.yaml
+  - wazuh-manager-statefulset.yaml
+
+commonAnnotations:
+  argocd.argoproj.io/sync-wave: "4"

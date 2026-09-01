@@ -79,6 +79,10 @@ mk lam-secret     "master-password=$LAM_PW"     # LAM 마스터 설정 비밀번
 mk ranger-secret  "db-password=$RANGER_PW"      # ranger 롤 + admin 웹 로그인
 mk knox-secret    "master-secret=$KNOX_MS"      # Knox 키스토어 마스터 시크릿
 
+# ── 4단계 security-min ────────────────────────────────────────────
+WZ_PW="Wz$(gen 16)#A1"   # Wazuh API 도 비밀번호 정책이 있다(대소문자·숫자·특수)
+mk wazuh-secret   "api-username=wazuh-wui" "api-password=$WZ_PW"
+
 echo
 echo "[secrets] 접속 정보 (이 값들은 커밋되지 않는다)"
 printf "  MinIO      oimadmin / %s\n" "$MINIO_PW"

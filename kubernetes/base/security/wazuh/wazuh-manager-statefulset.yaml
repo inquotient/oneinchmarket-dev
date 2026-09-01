@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: wazuh-manager
+  labels: {app.kubernetes.io/name: wazuh-manager, app.kubernetes.io/component: security, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+  annotations: {reloader.stakater.com/auto: "true"}
+spec:
+  serviceName: wazuh-manager
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: wazuh-manager}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: wazuh-manager, app.kubernetes.io/component: security, app.kubernetes.io/part-of: oneinchmarket}
+    spec:
+      serviceAccountName: wazuh-manager
+      # ── 의도된 예외 ─────────────────────────────────────────────
+      #   wazuh-manager 는 ossec 데몬 여러 개를 root 로 띄운 뒤 wazuh
+      #   사용자로 내려간다. 내장 filebeat 도 같은 구조다.
+      #   privileged 도 hostNetwork 도 아니고 capability 는 전부 버린다.
+      securityContext:
+        runAsUser: 0
+        seccompProfile: {type: RuntimeDefault}
+      # 단일 노드 클러스터가 아니라 standalone 이다. wazuh-worker 를 두지
+      # 않는다 — 로컬에서 매니저를 이중화할 이유가 없다.
+      initContainers:
+        - name: wait-indexer
+          image: busybox:1.36
+          command: ["/bin/sh","-c"]
+          args:
+            - |
+              set -eu
+              echo "[wait] wazuh-indexer:9200"
+              until nc -z wazuh-indexer 9200; do sleep 3; done
+              echo "[wait] 완료"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits:   {cpu: 100m, memory: 64Mi}
+      containers:
+        - name: wazuh-manager
+          image: wazuh/wazuh-manager:4.14.7
+          env:
+            # 내장 filebeat 가 인덱서로 보내는 경로. indexer 의 security
+            # 플러그인을 껐으므로 http 이고 자격증명이 필요 없다.
+            - {name: INDEXER_URL, value: "http://wazuh-indexer:9200"}
+            - {name: INDEXER_USERNAME, value: ""}
+            - {name: INDEXER_PASSWORD, value: ""}
+            - {name: FILEBEAT_SSL_VERIFICATION_MODE, value: "none"}
+            # 클러스터 비활성 — 단일 매니저다.
+            - {name: WAZUH_CLUSTER_DISABLED, value: "true"}
+            - name: API_USERNAME
+              valueFrom: {secretKeyRef: {name: wazuh-secret, key: api-username}}
+            - name: API_PASSWORD
+              valueFrom: {secretKeyRef: {name: wazuh-secret, key: api-password}}
+          ports:
+            - {containerPort: 1514, name: agents, protocol: TCP}
+            - {containerPort: 1515, name: enrollment, protocol: TCP}
+            - {containerPort: 55000, name: api, protocol: TCP}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 100m, memory: 512Mi}
+            limits:   {cpu: "1",  memory: 1Gi}
+          # ossec 데몬 기동이 느리다. 포트로 판정한다.
+          startupProbe:
+            tcpSocket: {port: agents}
+            failureThreshold: 40
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: agents}
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            tcpSocket: {port: agents}
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - {name: data, mountPath: /var/ossec/data}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: standard
+        resources: {requests: {storage: 10Gi}}

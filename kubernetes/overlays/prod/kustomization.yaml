@@ -113,6 +113,10 @@ images:
   # ── 보안 ───────────────────────────────────────────────────
   - name: hashicorp/vault
     newTag: "2.1.0"
+  - name: wazuh/wazuh-manager
+    newTag: "4.14.7"
+  - name: wazuh/wazuh-indexer
+    newTag: "4.14.7"
   - name: falcosecurity/falco-no-driver
     newTag: "0.39.2"
   - name: falcosecurity/falcosidekick
