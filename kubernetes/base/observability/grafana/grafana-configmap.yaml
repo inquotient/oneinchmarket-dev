@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-config
+  labels: {app.kubernetes.io/name: grafana, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+data:
+  # 데이터소스는 프로비저닝으로 선언한다. UI 수작업을 남기지 않는다.
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus-headless:9090
+        isDefault: true
+      - name: Elasticsearch
+        type: elasticsearch
+        access: proxy
+        url: https://elasticsearch-es-http:9200
+        database: "logstash-*"
+        basicAuth: true
+        basicAuthUser: elastic
+        jsonData:
+          timeField: "@timestamp"
+          tlsSkipVerify: true
+        secureJsonData:
+          basicAuthPassword: ${ES_PASSWORD}

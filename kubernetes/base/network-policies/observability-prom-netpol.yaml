@@ -1,0 +1,43 @@
+# Prometheus 는 파드를 스크레이프하는 쪽이다. default-deny-ingress 하에서
+# 스크레이프 대상이 prometheus 를 허용해야 한다. 컴포넌트 라벨로 일괄 허용한다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrape
+  labels: {app.kubernetes.io/name: allow-prometheus-scrape, app.kubernetes.io/component: network-policies, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  podSelector: {}          # 네임스페이스 전체
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: prometheus}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-access
+  labels: {app.kubernetes.io/name: allow-prometheus-access, app.kubernetes.io/component: network-policies, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: prometheus}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: grafana}}
+      ports: [{protocol: TCP, port: 9090}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-grafana-access
+  labels: {app.kubernetes.io/name: allow-grafana-access, app.kubernetes.io/component: network-policies, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: grafana}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: oauth2-proxy}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: nginx}}
+      ports: [{protocol: TCP, port: 3000}]

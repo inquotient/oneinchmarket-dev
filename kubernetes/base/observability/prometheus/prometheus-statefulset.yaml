@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: prometheus
+  labels: {app.kubernetes.io/name: prometheus, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+  annotations: {reloader.stakater.com/auto: "true"}
+spec:
+  serviceName: prometheus-headless
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: prometheus}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: prometheus, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket}
+    spec:
+      serviceAccountName: prometheus
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: prometheus
+          image: prom/prometheus:latest
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            # 로컬은 보존 3일. 문서 §4-6 의 30GB 산정 근거다.
+            - --storage.tsdb.retention.time=3d
+            - --web.enable-lifecycle
+          ports:
+            - {containerPort: 9090, name: http, protocol: TCP}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 200m, memory: 1Gi}
+            limits:   {cpu: "1", memory: 3Gi}
+          startupProbe:
+            httpGet: {path: /-/ready, port: http}
+            failureThreshold: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /-/healthy, port: http}
+            periodSeconds: 15
+          readinessProbe:
+            httpGet: {path: /-/ready, port: http}
+            periodSeconds: 15
+          volumeMounts:
+            - {name: config, mountPath: /etc/prometheus}
+            - {name: data, mountPath: /prometheus}
+      volumes:
+        - name: config
+          configMap: {name: prometheus-config}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: standard
+        resources: {requests: {storage: 20Gi}}

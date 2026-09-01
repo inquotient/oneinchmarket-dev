@@ -11,6 +11,15 @@ resources:
   - logstash/logstash-statefulset.yaml
   - logstash/logstash-headless.yaml
   - logstash/logstash-configmap.yaml
+  # Prometheus - 메트릭 (INFRA-601)
+  - prometheus/prometheus-rbac.yaml
+  - prometheus/prometheus-configmap.yaml
+  - prometheus/prometheus-statefulset.yaml
+  - prometheus/prometheus-headless.yaml
+  # Grafana - 대시보드
+  - grafana/grafana-configmap.yaml
+  - grafana/grafana-deployment.yaml
+  - grafana/grafana-service.yaml
   # Filebeat
   - filebeat/filebeat-daemonset.yaml
   - filebeat/filebeat-configmap.yaml

@@ -9,6 +9,7 @@ resources:
   - application-netpol.yaml
   - data-lakehouse-netpol.yaml
   - bootstrap-netpol.yaml
+  - observability-prom-netpol.yaml
 
 commonAnnotations:
   argocd.argoproj.io/sync-wave: "0"
