@@ -11,8 +11,7 @@
 #   (런타임이 아니라 빌드 시점이다. v1 이 파드 기동마다 받던 것과 다르다.)
 #
 # 베이스는 Apache 가 배포하는 공식 이미지다. admin 이미지와 같은 계열이다.
-# ★ podman 은 short-name 을 해석하지 않는다(unqualified-search registries 미정의).
-#   레지스트리를 명시해야 한다.
+# ★ podman 은 short-name 을 해석하지 않으므로 레지스트리를 명시한다.
 ARG RANGER_BASE_IMAGE=docker.io/apache/ranger-base
 ARG RANGER_BASE_VERSION=20260123-2-8
 FROM ${RANGER_BASE_IMAGE}:${RANGER_BASE_VERSION}
@@ -25,19 +24,27 @@ USER root
 ADD  ${USERSYNC_URL} /home/ranger/dist/ranger-${USERSYNC_VERSION}-usersync.tar.gz
 COPY ranger-usersync.sh ${RANGER_SCRIPTS}/
 
+# ★ /etc/init.d 관련 줄을 "SysV init 은 컨테이너에서 안 쓴다" 며 지웠다가
+#   되돌렸다. setup.py:319 initializeInitD 가 /etc/init.d/ranger-usersync
+#   에 직접 쓴다. 파일이 미리 없으면 비특권 uid 가 만들지 못해 setup 이
+#   죽는다:
+#     PermissionError: [Errno 13] Permission denied: '/etc/init.d/ranger-usersync'
+#   upstream 이 touch + chown 해 두는 이유가 이것이다. 건드리지 말 것.
 RUN tar xfz /home/ranger/dist/ranger-${USERSYNC_VERSION}-usersync.tar.gz --directory=${RANGER_HOME} && \
     ln -s ${RANGER_HOME}/ranger-${USERSYNC_VERSION}-usersync ${RANGER_HOME}/usersync && \
     rm -f /home/ranger/dist/ranger-${USERSYNC_VERSION}-usersync.tar.gz && \
     rm -f ${RANGER_HOME}/usersync/install.properties && \
-    mkdir -p /var/run/ranger /var/log/ranger/usersync /etc/ranger && \
+    mkdir -p /var/run/ranger /var/log/ranger/usersync /etc/ranger /etc/init.d /etc/rc2.d /etc/rc3.d && \
+    touch /etc/init.d/ranger-usersync && \
+    ln -s /etc/init.d/ranger-usersync /etc/rc2.d/S99ranger-usersync && \
+    ln -s /etc/init.d/ranger-usersync /etc/rc2.d/K00ranger-usersync && \
+    ln -s /etc/init.d/ranger-usersync /etc/rc3.d/S99ranger-usersync && \
+    ln -s /etc/init.d/ranger-usersync /etc/rc3.d/K00ranger-usersync && \
     ln -s ${RANGER_HOME}/usersync/ranger-usersync-services.sh /usr/bin/ranger-usersync && \
     chown -R ranger:ranger ${RANGER_HOME}/usersync/ ${RANGER_SCRIPTS}/ \
-                           /var/run/ranger/ /var/log/ranger/ /etc/ranger && \
+                           /var/run/ranger/ /var/log/ranger/ /etc/ranger \
+                           /etc/init.d/ranger-usersync && \
     chmod 744 ${RANGER_SCRIPTS}/ranger-usersync.sh
-
-# upstream 의 /etc/init.d·rc2.d·rc3.d 심링크는 만들지 않는다.
-# SysV init 이 없는 컨테이너에서 쓰이지 않고, 매니페스트가 엔트리포인트를
-# 직접 실행한다.
 
 USER ranger
 
