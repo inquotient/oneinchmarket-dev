@@ -55,3 +55,21 @@ data:
             target_label: namespace
           - source_labels: [__meta_kubernetes_pod_name]
             target_label: pod
+      # 컬렉터 자신의 텔레메트리(:8888). 파드 어노테이션은 포트를 하나만
+      # 지정할 수 있어 게이트웨이의 앱 메트릭(:8889)과 공존하지 못한다.
+      # 그래서 전용 잡으로 분리한다.
+      - job_name: otel-collector-internal
+        kubernetes_sd_configs: [{role: pod}]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+            action: keep
+            regex: otel-(agent|gateway)
+          - source_labels: [__meta_kubernetes_pod_ip]
+            target_label: __address__
+            replacement: $1:8888
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod

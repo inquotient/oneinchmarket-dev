@@ -58,6 +58,16 @@ data:
 
     service:
       extensions: [health_check]
+      # 컬렉터 자신의 파이프라인 건전성(큐 적체·거부·유실)을 :8888 로 낸다.
+      # 이게 없으면 데이터 유실이 조용히 일어난다.
+      telemetry:
+        metrics:
+          readers:
+            - pull:
+                exporter:
+                  prometheus:
+                    host: 0.0.0.0
+                    port: 8888
       pipelines:
         traces:
           receivers: [otlp]

@@ -62,22 +62,29 @@ spec:
               port: mongodb
             failureThreshold: 30
             periodSeconds: 10
+          # ★ liveness 는 mongosh 를 쓰지 않는다.
+          #   mongosh 는 Node.js CLI 라 기동만으로 수 초가 걸린다. CPU 가
+          #   붐비면 timeoutSeconds: 5 를 넘겨 실패하고, liveness 실패는
+          #   컨테이너를 죽인다 -> CrashLoop. 정작 mongod 는 멀쩡하다.
+          #   (k3s 재시작 직후 CPU 가 몰려 실제로 9회 재시작했다.)
+          #   살아있음은 포트로 판정한다. 질의 응답 여부는 readiness 가 보고,
+          #   readiness 실패는 트래픽만 끊을 뿐 컨테이너를 죽이지 않는다.
           livenessProbe:
-            exec:
-              command:
-                - mongosh
-                - --eval
-                - "db.adminCommand('ping')"
-            periodSeconds: 10
+            tcpSocket:
+              port: mongodb
+            periodSeconds: 20
             timeoutSeconds: 5
+            failureThreshold: 6
           readinessProbe:
             exec:
               command:
                 - mongosh
+                - --quiet
                 - --eval
-                - "db.adminCommand('ping')"
-            periodSeconds: 10
-            timeoutSeconds: 5
+                - "db.adminCommand('ping').ok"
+            periodSeconds: 30
+            timeoutSeconds: 15
+            failureThreshold: 3
           volumeMounts:
             - name: data
               mountPath: /data/db

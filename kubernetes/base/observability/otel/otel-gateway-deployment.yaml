@@ -33,6 +33,7 @@ spec:
             - {containerPort: 4317, name: otlp-grpc, protocol: TCP}
             - {containerPort: 4318, name: otlp-http, protocol: TCP}
             - {containerPort: 8889, name: prom, protocol: TCP}
+            - {containerPort: 8888, name: telemetry, protocol: TCP}
             - {containerPort: 13133, name: health, protocol: TCP}
           securityContext:
             allowPrivilegeEscalation: false
