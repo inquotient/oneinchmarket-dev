@@ -437,7 +437,7 @@ prod 핀: `postgres:18.6` · `mariadb:12.3.3` · `redis:8.10.1` · 그 외 20종
 |:-:|---|--:|---|
 | **1** | **Prometheus · Grafana** | 7 | ✅ **완료** — INFRA-601 해소 |
 | **2** | **Loki · Tempo · OTel(agent·gateway)** | 13 | ✅ **완료** — 로그·트레이스 경로 개통 |
-| 3 | governance — DS389 · LAM · Solr · Ranger 2종 · Knox | ~25 | 미착수 |
+| **3** | **governance — DS389 · LAM · Solr · Ranger admin · Knox** | 16 | ✅ **완료** — usersync 만 보류 |
 | 4 | security-min — Tetragon · Trivy Operator · Policy Reporter · Vault · Wazuh 2종 | ~20 | 미착수 |
 | 5 | lakehouse-v1 — ZK · Hadoop 4종 · HBase 2종 · Hive Server | ~35 | **설계 선행 필요** |
 | 6 | GlitchTip · Jenkins · Kafka Bridge · Apicurio Studio 4종 | ~20 | 미착수 |
@@ -559,26 +559,163 @@ limits     메모리 85%                  CPU 137% (오버커밋)
 zram       32G 중 81M 사용 (아직 압박 없음)
 ```
 
+### 8-11. 3단계 결과 — governance (2026-09-01)
+
+```
+ds389-0                 1/1 Running    LDAP  3389/3636
+lam-*                   1/1 Running    :80
+solr-0                  1/1 Running    :8983  ranger_audits 코어 OK
+ranger-admin-0          1/1 Running    :6080  ranger DB 78 테이블
+knox-*                  1/1 Running    :8443
+ds389-bootstrap         Complete       엔트리 3건 검증
+```
+
+#### 핵심 설계 — 이미지의 설정을 덮어쓰지 않고 이름을 맞춘다
+
+`apache/ranger:2.9.0` 은 컨테이너용으로 잘 만들어져 있다. `install.properties` 에 이미 다음이 구워져 있다.
+
+```
+DB_FLAVOR=POSTGRES        db_host=ranger-db          db_name=ranger
+audit_store=solr          audit_solr_urls=http://ranger-solr:8983/solr/ranger_audits
+policymgr_external_url=http://ranger-admin:6080
+```
+
+엔트리포인트 `ranger.sh` 가 추가로 읽는 것은 `POSTGRES_PASSWORD`·`RANGER_DB_USER`·`RANGER_DB_PASSWORD` 뿐이다.
+
+템플릿 100여 줄을 복사해 유지보수하는 대신 **별칭 Service 로 이름을 맞췄다**.
+
+| Service | 실제 대상 | 이유 |
+|---|---|---|
+| `ranger-db` | PostgreSQL 파드 | `db_host=ranger-db` |
+| `ranger-solr` | Solr 파드 | `audit_solr_urls=http://ranger-solr:8983/...` |
+| `ranger-admin` | Ranger admin 파드(ClusterIP) | `policymgr_external_url=http://ranger-admin:6080` |
+
+덮어쓸 설정이 0이고, 이미지가 올라가도 깨질 곳이 그만큼 적다.
+
+`ranger.sh` 는 `${RANGER_HOME}/.setupDone` 으로 재실행을 막는데 `RANGER_HOME=/opt/ranger` 는 이미지 본체라 PVC 로 덮을 수 없다. **영속화하지 않고 매 기동 setup 재실행을 받아들였다** — `setup.sh` 는 스키마 버전을 보고 넘어가므로 안전하고, 대신 재시작이 2~3분 걸린다.
+
+#### v1·인수인계 문서의 오류 정정
+
+| 항목 | 기존 서술 | 실제 |
+|---|---|---|
+| Knox 이미지 | v1 "로컬 빌드 필요" / 문서 "`apache/knox:2.1.0` 공식 이미지 존재" | **둘 다 틀렸다.** Docker Hub `apache/knox` 태그는 `latest·3.0·3·3.0.0-RC2·3.0.0-RC1` 5개뿐이고 2.x 가 없다. 반대로 downloads.apache.org 의 정식 릴리스는 **2.1.0** 이 최신이고 3.0.0 은 없다. "공식 이미지"와 "정식 릴리스"가 배타적이다 |
+| Solr 이미지 | `apache/solr:9.10.0-slim` | `apache/solr` 저장소에 태그가 없다. **`library/solr`** 다 |
+| ranger-usersync | `eclipse-temurin` 위에서 tarball 다운로드 | **공식 이미지가 없다.** `apache/ranger` 는 admin 만 담고 있다(`/opt/ranger/ranger-2.9.0-admin`) |
+| Ranger JDK | 문서 "2.9 는 JDK 11+ 요구" | 공식 이미지가 **JDK 8**(Temurin 1.8.0_492)로 돌아간다 |
+| DS389 env | v1 이 `DS_DOMAIN`·`DS_INSTANCE_NAME` 설정 | `dscontainer` 는 두 변수를 **읽지 않는다.** 인식 목록은 `DS_DM_PASSWORD`·`DS_SUFFIX_NAME`·`DS_ERRORLOG_LEVEL`·`DS_MEMORY_PERCENTAGE`·`DS_REINDEX`·`DS_STARTUP_TIMEOUT`·`DS_STOP_TIMEOUT` |
+| DS389 특권 | v1 `privileged: true` | 불필요하다. root + capability 6종으로 뜬다 |
+
+**Knox 는 `apache/knox:3.0`(공식 이미지, 미릴리스 3.0.0 코드)을 택했다.** 로컬 검증 환경이고 로컬 빌드 파이프라인을 만들지 않기로 한 결정이다. 태그가 가변이므로 prod 는 다이제스트로 핀했다.
+
+#### 3단계에서 실제로 걸린 것
+
+**1. `ns-slapd` 의 파일 capability — 가장 오래 헤맨 건**
+
+```
+PermissionError: [Errno 1] Operation not permitted: '/usr/sbin/ns-slapd'
+```
+
+`/usr/sbin/ns-slapd` 에 `cap_net_bind_service` 가 **파일 capability** 로 박혀 있다. 파일의 permitted 집합이 프로세스 bounding 집합의 부분집합이 아니면 커널이 `execve` 를 EPERM 으로 거부한다. 컨테이너는 3389/3636 을 쓰므로 **기능적으로는 필요 없는데도 exec 하려면 bounding 집합에 있어야 한다.**
+
+증상이 두 단계로 어긋나 보이는 것이 함정이다.
+
+```
+1차 시도   EPERM 으로 죽음. 그 전에 /data/config/dse.ldif 를 이미 써 둠
+2차 시도~  "Another instance named 'localhost' may already exist"
+```
+
+두 번째 메시지만 보고 **볼륨 문제 → 버전 문제로 두 번 오진**했다(3.1→3.0 강등까지 갔다가 되돌렸다). PVC 를 지우고 다시 해도 같았던 것은 매번 1차에서 파일을 쓰고 죽었기 때문이다.
+
+실측 비교:
+
+| capability | 결과 |
+|---|---|
+| `drop:["ALL"]` + CHOWN·DAC_OVERRIDE·FOWNER·SETGID·SETUID | EPERM |
+| 위 + `SETPCAP` | EPERM |
+| 위 + **`NET_BIND_SERVICE`** | **정상**(3.0·3.1 모두) |
+| `capabilities` 미지정(기본 집합) | 정상 |
+
+> **일반화** — `drop:["ALL"]` 을 넣기 전에 그 이미지의 바이너리에 파일 capability 가 있는지 확인할 것. 있으면 기능상 불필요해도 bounding 집합에 넣어야 exec 이 된다.
+
+**2. root 인데 `Permission denied`**
+
+```
+sed: can't read /etc/ldap-account-manager/config.cfg: Permission denied
+```
+
+uid 0 인데 EACCES 다. root 가 파일 권한을 무시하는 것은 `CAP_DAC_OVERRIDE` 가 하는 일이라, 그것을 버리면 root 도 남의 파일을 못 읽는다. DS389·LAM 처럼 **root 로 시작해 설정을 마치고 비특권 사용자로 내려가는 이미지**는 `CHOWN·DAC_OVERRIDE·FOWNER·SETGID·SETUID` 가 필요하다.
+
+**3. emptyDir 이 이미지의 내용물을 가린다**
+
+LAM 설정을 영속화하려고 `/var/lib/ldap-account-manager` 에 emptyDir 를 걸었더니 이미지가 담고 있던 설정 템플릿이 가려졌다.
+
+```
+cp: cannot stat '/var/lib/ldap-account-manager/config/unix.sample.conf'
+```
+
+LAM 설정은 env 로 매 기동 재생성되므로 영속화할 것이 애초에 없었다.
+
+**4. Ranger 가 기본 `admin/admin` 으로 남았다 — 보안 결함**
+
+배포 후 확인해 보니 `admin/admin` 이 API 에 200 을 돌려주었다. `ranger.sh` 는 `rangerAdmin_password=${RANGER_DB_PASSWORD}` 를 넣는데, **Ranger 의 비밀번호 정책**(대문자·소문자·숫자·특수문자 `@#$%^&+=` 각 1자 이상, 8자 이상)에 걸리면 조용히 넘어가고 기본값이 남는다. `create-secrets.sh` 의 `gen()` 은 소문자 hex 만 만들어 정책을 통과하지 못했다.
+
+**실패도 경고도 없다.** 배포 후 `admin/admin` 을 직접 찔러보지 않았으면 그대로 넘어갔을 것이다.
+
+→ `ranger-secret` 만 정책을 만족하는 형식으로 생성한다. PostgreSQL 은 문자 구성을 따지지 않으므로 DB 롤에도 같은 값을 쓴다.
+
+**5. 389ds 는 suffix 백엔드를 만들지 않는다**
+
+`DS_SUFFIX_NAME` 을 주어도 백엔드가 생기지 않는다. rootDSE 의 `namingContexts` 가 비어 있고 백엔드 목록도 0건이다. 그 상태에서는 루트 엔트리 추가마저 거부된다.
+
+```
+ldapsearch -b dc=oneinchmarket,dc=co,dc=kr  ->  result: 32 No such object
+ldapadd   dc=oneinchmarket,dc=co,dc=kr      ->  ldap_add: No such object (32)
+```
+
+→ `ds389-bootstrap` Job 이 `dsconf backend create --create-suffix` 로 백엔드와 루트를 함께 만들고 `ou=people`·`ou=groups` 를 추가한다.
+
+**6. 내가 만든 Job 이 조용히 성공했다**
+
+첫 버전의 `ds389-bootstrap` 은 세 번의 `ldapadd` 가 전부 32 로 실패했는데도 `Complete` 로 끝났다. `set -e` 가 없고 마지막 명령이 `echo` 라 종료 코드가 0이었다. → 마지막에 실제로 조회해 엔트리 수를 세고 3건 미만이면 `exit 1`.
+
+> 부트스트랩 Job 은 **끝에 검증을 넣고 검증 실패를 종료 코드로 드러내야 한다.** 그러지 않으면 아무것도 안 한 Job 이 초록색으로 남는다.
+
+**7. LDIF 의 line folding**
+
+YAML 블록 안에서 LDIF 를 쓰면 들여쓰기가 그대로 넘어간다. LDIF 는 **공백으로 시작하는 줄을 앞줄의 이어붙임으로 해석**하므로 `sed 's/^[[:space:]]*//'` 로 벗겨내야 한다.
+
+#### ranger-usersync 를 넣지 않은 이유
+
+공식 이미지가 없다. `apache/ranger:2.9.0` 은 admin 배포물만 담고 있고 Docker Hub 에 `apache/ranger-usersync` 저장소가 없다. 남은 길은 둘뿐이다.
+
+1. **로컬 빌드** — `downloads.apache.org/ranger/2.9.0/services/usersync/` 의 tarball 로 이미지를 만든다. TODO-37 과 같은 성격이다
+2. v1 방식 — 기동할 때마다 tarball 을 내려받는다. **채택하지 않는다.** 런타임 인터넷 의존은 폐쇄망에서 깨지고 재현성도 없다
+
+현재 Ranger admin 은 `authentication_method=UNIX`(이미지 기본값)로 자체 계정을 쓴다. DS389 와의 연동은 usersync 또는 Ranger admin 의 LDAP 인증 전환으로 별도 진행한다.
+
+#### 3단계 종료 시점 자원
+
+```
+requests   메모리 56% (26.0/45 GiB)   CPU 71% (13.9/19.5)
+limits     메모리 96%                  CPU 152% (오버커밋)
+파드       35 Running(전부 Ready) · 6 Completed · 실패 0
+```
+
+**메모리 limits 가 96% 다.** requests 는 아직 여유가 있으나 limits 합이 노드 용량에 닿았다. 4단계부터는 limits 를 보수적으로 잡거나 기존 워크로드의 limits 를 재검토해야 한다. `.wslconfig` 의 `processors=20 → 24` 는 아직 하지 않았다(CPU 71% 로 3단계를 넘겼다).
+
 #### 5단계는 설계가 선행되어야 한다
 
 - **TODO-33** — Hive warehouse 를 HDFS 로 되돌릴지, S3A 를 유지하고 HDFS 를 별도 용도로 둘지, Trino 에 두 카탈로그를 병행할지 미결
 - **Kerberos 채택 여부** — 현재 `hadoop.security.authentication = simple`. Hadoop 네이티브 CLI 접근 요구가 없으면 불필요(§8-3 관련 논의)
 - **hbase:2.6.3 로컬 빌드** — `v1/hbase/Dockerfile` 기반. 레지스트리 경로 필요(TODO-37)
 
-#### 3단계 착수 전 반영할 버전 조사 결과
+#### ~~3단계 착수 전 반영할 버전 조사 결과~~ — 폐기 (2026-09-01)
 
-| 구성요소 | v1 기재 | 실제 | 비고 |
-|---|---|---|---|
-| Ranger | `apache/ranger:2.7.0` | **2.9.0** | 2세대 뒤처짐. 스키마 마이그레이션 동반 |
-| ranger-usersync | `eclipse-temurin:8u452...` | **17-jdk** | JDK 8 은 EOL. Ranger 2.9 는 11+ 요구 |
-| Knox | `knox-gateway:2.1.0` **(로컬 빌드)** | **`apache/knox:2.1.0` 공식 이미지 존재** | **로컬 빌드 불필요.** TODO-37 축소, `DEPLOYMENT.md §6-4` 의 Oracle Ampere 논거도 약화 |
-| Solr | `apache/solr:9.10.0-slim` | **존재하지 않음** → `solr:10.0.0-slim` | `apache/solr` 저장소에 태그가 없다. `library/solr` 가 맞다 |
-| DS389 | `389ds/dirsrv:latest` | 3.1 | |
-| LAM | `ldapaccountmanager/lam:latest` | 8.3 | |
+이 표는 **실배포로 반증되었다.** §8-11 의 "v1·인수인계 문서의 오류 정정" 을 볼 것. 특히 다음 두 줄이 틀렸다.
 
-Knox 릴리스는 **2.1.0 이 최신**이다. Docker Hub 의 `3.0` 은 RC(`3.0.0-RC1`·`RC2`)이므로 채택하지 않는다.
+- ~~`apache/knox:2.1.0` 공식 이미지 존재~~ → `apache/knox` 에 2.x 태그가 없다. 정식 릴리스 2.1.0 과 공식 이미지(3.0.x)는 배타적이다
+- ~~ranger-usersync 는 `eclipse-temurin:17-jdk`~~ → 공식 이미지가 없고, `apache/ranger` 는 JDK 8 로 돌아간다
 
-`postgres-bootstrap` 에 **`ranger` DB·롤 추가**가 3단계의 선행 작업이다(문서에 이미 `(+복원 시 ranger)` 로 표기되어 있다).
 
 ## 관련 문서
 

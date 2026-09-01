@@ -68,7 +68,7 @@ cd scripts/security-verification && ./run-all.sh [namespace]
 | 2 | messaging | Kafka KRaft, Apicurio, AKHQ |
 | 3 | data-lakehouse | MinIO, Trino, Hive Metastore |
 | **4** | **security/keycloak** | **Keycloak** |
-| 5 | devops | GitLab EE |
+| 5 | devops · **governance** | GitLab EE · **DS389, LAM, Solr, Ranger admin, Knox** |
 | 6 | application | admin, cmmn-api, nginx |
 | 7 | observability | Elasticsearch(ECK 3노드), Kibana, Logstash, Filebeat, **Prometheus, Grafana, Loki, Tempo, OTel Collector(agent·gateway)**, Falco, Falcosidekick, Trivy CronJob |
 | 8 | rotation | 로테이션 CronJob 7종 + git-sync |
@@ -138,7 +138,7 @@ containers:
         drop: ["ALL"]
 ```
 
-**의도된 예외 4건** — GitLab(root + capability 8종), Falco(privileged + hostNetwork), Filebeat(root + `DAC_READ_SEARCH`), otel-agent(root + `DAC_READ_SEARCH` — 컨테이너 로그 읽기). 각각 매니페스트에 사유가 기록되어 있다.
+**의도된 예외 6건** — GitLab(root + capability 8종), Falco(privileged + hostNetwork), Filebeat(root + `DAC_READ_SEARCH`), otel-agent(root + `DAC_READ_SEARCH` — 컨테이너 로그 읽기), DS389·LAM(root + `CHOWN·DAC_OVERRIDE·FOWNER·SETGID·SETUID`, DS389 는 `NET_BIND_SERVICE` 추가 — root 로 시작해 비특권 사용자로 내려가는 이미지다. **`ns-slapd` 에 파일 capability 가 박혀 있어 `NET_BIND_SERVICE` 가 bounding 집합에 없으면 `execve` 가 EPERM 이다**). 각각 매니페스트에 사유가 기록되어 있다.
 
 ### Annotations
 
