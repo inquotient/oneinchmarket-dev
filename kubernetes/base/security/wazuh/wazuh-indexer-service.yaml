@@ -12,5 +12,5 @@ metadata:
   name: wazuh-indexer
   labels: {app.kubernetes.io/name: wazuh-indexer, app.kubernetes.io/component: security, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
 spec:
-  ports: [{name: http, port: 9200, targetPort: 9200, protocol: TCP}]
+  ports: [{name: https, port: 9200, targetPort: 9200, protocol: TCP}]
   selector: {app.kubernetes.io/name: wazuh-indexer}

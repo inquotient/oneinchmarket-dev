@@ -43,12 +43,16 @@ spec:
         - name: wazuh-manager
           image: wazuh/wazuh-manager:4.14.7
           env:
-            # 내장 filebeat 가 인덱서로 보내는 경로. indexer 의 security
-            # 플러그인을 껐으므로 http 이고 자격증명이 필요 없다.
-            - {name: INDEXER_URL, value: "http://wazuh-indexer:9200"}
-            - {name: INDEXER_USERNAME, value: ""}
-            - {name: INDEXER_PASSWORD, value: ""}
-            - {name: FILEBEAT_SSL_VERIFICATION_MODE, value: "none"}
+            # 내장 filebeat 가 인덱서로 보내는 경로.
+            # indexer 의 security 플러그인을 켰으므로 https + 기본 인증이다.
+            - {name: INDEXER_URL, value: "https://wazuh-indexer:9200"}
+            - {name: INDEXER_USERNAME, value: "filebeat"}
+            - name: INDEXER_PASSWORD
+              valueFrom: {secretKeyRef: {name: wazuh-secret, key: indexer-filebeat-password}}
+            # ★ none 이 아니라 full 이다. 우리 CA 를 신뢰시키고 SAN 까지 본다.
+            #   wazuh-certs.yaml 의 dnsNames 에 wazuh-indexer 가 들어 있다.
+            - {name: FILEBEAT_SSL_VERIFICATION_MODE, value: "full"}
+            - {name: SSL_CERTIFICATE_AUTHORITIES, value: "/etc/ssl/wazuh/ca.crt"}
             # 클러스터 비활성 — 단일 매니저다.
             - {name: WAZUH_CLUSTER_DISABLED, value: "true"}
             - name: API_USERNAME
@@ -115,6 +119,15 @@ spec:
             - {name: data, mountPath: /var/ossec/wodles,            subPath: wodles}
             - {name: data, mountPath: /etc/filebeat,                subPath: filebeat-etc}
             - {name: data, mountPath: /var/lib/filebeat,            subPath: filebeat-var}
+            # indexer 의 CA. filebeat 가 이것으로 서버 인증서를 검증한다.
+            - {name: indexer-ca, mountPath: /etc/ssl/wazuh, readOnly: true}
+      volumes:
+        - name: indexer-ca
+          secret:
+            secretName: wazuh-indexer-tls
+            items:
+              - {key: ca.crt, path: ca.crt}
+            defaultMode: 0444
   volumeClaimTemplates:
     - metadata: {name: data}
       spec:

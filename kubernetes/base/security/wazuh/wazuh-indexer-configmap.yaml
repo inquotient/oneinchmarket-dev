@@ -6,16 +6,15 @@ metadata:
 data:
   # Wazuh indexer 는 OpenSearch 다. 단일 노드로 띄운다.
   #
-  # ★ plugins.security.disabled: true — 로컬 한정 단순화다.
-  #   OpenSearch security 플러그인을 켜면 루트 CA·노드 인증서·admin 인증서와
-  #   bcrypt 해시가 든 internal_users.yml, 그리고 securityadmin.sh 부트스트랩이
-  #   따라온다. 그 전체를 선언적으로 다루는 것은 이 단계의 목적(=Wazuh 파이프라인
-  #   개통 확인)에 비해 크다.
-  #   대신 이 네임스페이스는 default-deny-ingress 아래 있고 NetworkPolicy 로
-  #   wazuh-manager 만 9200 에 접근한다.
-  #   **prod 로 가져갈 때는 반드시 켜야 한다** — cert-manager 가 이미 설치되어
-  #   있으므로 Issuer + Certificate 로 노드/admin 인증서를 발급하는 경로가 있다
-  #   (TODO-02 의 첫 실사용처가 된다).
+  # ★ security 플러그인을 켰다(2026-09-01). 처음에는 인증서·해시·
+  #   securityadmin 부트스트랩이 부담이라 껐다가, cert-manager 가 이미
+  #   설치되어 있어 인증서 발급이 선언적으로 해결된다는 점을 보고 되돌렸다.
+  #   이제 네트워크 경계(NetworkPolicy) 외에 인증·전송암호화가 함께 선다.
+  #
+  # ★ allow_default_init_securityindex: true
+  #   이것이 있어야 첫 기동에 config/opensearch-security/ 의 내용으로
+  #   .opendistro_security 인덱스를 스스로 만든다. 없으면 별도 Job 으로
+  #   securityadmin.sh 를 돌려야 한다 — 그 한 단계를 없앤다.
   opensearch.yml: |
     network.host: 0.0.0.0
     node.name: wazuh-indexer-0
@@ -23,5 +22,36 @@ data:
     discovery.type: single-node
     path.data: /var/lib/wazuh-indexer
     path.logs: /var/log/wazuh-indexer
-    plugins.security.disabled: true
     compatibility.override_main_response_version: true
+
+    # ── 전송 계층(노드 간) ─────────────────────────────────────
+    plugins.security.ssl.transport.pemcert_filepath: /usr/share/wazuh-indexer/certs/tls.crt
+    plugins.security.ssl.transport.pemkey_filepath: /usr/share/wazuh-indexer/certs/tls.key
+    plugins.security.ssl.transport.pemtrustedcas_filepath: /usr/share/wazuh-indexer/certs/ca.crt
+    # 단일 노드라 호스트명 검증이 얻는 것이 없고, StatefulSet 파드명·서비스명
+    # 조합이 늘 때마다 SAN 을 고쳐야 한다.
+    plugins.security.ssl.transport.enforce_hostname_verification: false
+    plugins.security.ssl.transport.resolve_hostname: false
+
+    # ── HTTP 계층(클라이언트) ──────────────────────────────────
+    plugins.security.ssl.http.enabled: true
+    plugins.security.ssl.http.pemcert_filepath: /usr/share/wazuh-indexer/certs/tls.crt
+    plugins.security.ssl.http.pemkey_filepath: /usr/share/wazuh-indexer/certs/tls.key
+    plugins.security.ssl.http.pemtrustedcas_filepath: /usr/share/wazuh-indexer/certs/ca.crt
+
+    # ── 인가 ───────────────────────────────────────────────────
+    # ★ DN 문자열이 인증서의 subject 와 정확히 일치해야 한다.
+    #   wazuh-certs.yaml 의 commonName + subject.organizations 가 원천이다.
+    plugins.security.authcz.admin_dn:
+      - "CN=wazuh-admin,O=oneinchmarket"
+    plugins.security.nodes_dn:
+      - "CN=wazuh-indexer,O=oneinchmarket"
+
+    plugins.security.allow_default_init_securityindex: true
+    plugins.security.restapi.roles_enabled: ["all_access"]
+    # 데모 설정으로 뜨는 것을 막는다. internal_users.yml 은 initContainer 가
+    # Secret 의 비밀번호로 새로 쓴다.
+    plugins.security.allow_unsafe_democertificates: false
+
+    # 감사 로그는 끈다 — 자기 자신에게 쓰면서 단일 노드 예산을 먹는다.
+    plugins.security.audit.type: noop

@@ -80,8 +80,15 @@ mk ranger-secret  "db-password=$RANGER_PW"      # ranger 롤 + admin 웹 로그�
 mk knox-secret    "master-secret=$KNOX_MS"      # Knox 키스토어 마스터 시크릿
 
 # ── 4단계 security-min ────────────────────────────────────────────
-WZ_PW="Wz$(gen 16)#A1"   # Wazuh API 도 비밀번호 정책이 있다(대소문자·숫자·특수)
-mk wazuh-secret   "api-username=wazuh-wui" "api-password=$WZ_PW"
+# Wazuh API 도 비밀번호 정책이 있다(대소문자·숫자·특수).
+# indexer 의 OpenSearch security 사용자 2명도 같은 형식으로 만든다 —
+# internal_users.yml 의 bcrypt 해시는 파드 기동 시 initContainer 가
+# 이 값들로 생성한다(해시를 커밋하지 않는 이유다).
+WZ_PW="Wz$(gen 16)#A1"; WZ_IDX="Ix$(gen 16)#A1"; WZ_FB="Fb$(gen 16)#A1"
+mk wazuh-secret   "api-username=wazuh-wui" \
+                  "api-password=$WZ_PW" \
+                  "indexer-admin-password=$WZ_IDX" \
+                  "indexer-filebeat-password=$WZ_FB"
 
 echo
 echo "[secrets] 접속 정보 (이 값들은 커밋되지 않는다)"
@@ -91,6 +98,8 @@ printf "  GitLab     root / %s\n"     "$GL_ROOT"
 printf "  Ranger     admin / %s\n"   "$RANGER_PW"
 printf "  LAM        (마스터 설정) %s\n" "$LAM_PW"
 printf "  DS389      cn=Directory Manager / %s\n" "$DS_DM"
+printf "  Wazuh API  wazuh-wui / %s\n"       "$WZ_PW"
+printf "  Wazuh idx  admin / %s\n"           "$WZ_IDX"
 echo
 echo "[secrets] 생성 결과"
 kubectl -n "$NS" get secret -l app.kubernetes.io/part-of=oneinchmarket
