@@ -66,6 +66,14 @@ spec:
             limits:
               cpu: 500m
               memory: 1Gi
+          # Logstash 와 같은 패턴 — startupProbe 가 없어 livenessProbe 가 delay=0s 로
+          # 즉시 시작한다. Apicurio 는 기동에 ~15초가 걸려 여유가 없다(exitCode 143).
+          startupProbe:
+            httpGet:
+              path: /q/health/ready
+              port: management
+            failureThreshold: 30
+            periodSeconds: 5
           livenessProbe:
             httpGet:
               path: /q/health/live
