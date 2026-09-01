@@ -4,6 +4,7 @@ kind: Kustomization
 
 resources:
   - scheduling/
+  - serviceaccounts/
   - data-lakehouse/
   - messaging/
   - database/
