@@ -14,11 +14,14 @@ spec:
     spec:
       serviceAccountName: ranger-usersync
       securityContext:
-        # apache/ranger-base 의 기본 uid 다(admin 이미지와 같다).
+        # ★ apache/ranger-base 의 ranger 는 uid 1000 이다.
+        #   apache/ranger(admin) 는 1001 이라 헷갈리기 쉽다. 1001 로 두면
+        #   /opt/ranger/usersync 가 1000 소유라 install.properties 를
+        #   쓰지 못하고 "Permission denied" 로 CrashLoop 한다.
         runAsNonRoot: true
-        runAsUser: 1001
-        runAsGroup: 1001
-        fsGroup: 1001
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
         seccompProfile: {type: RuntimeDefault}
       initContainers:
         - name: wait-deps
