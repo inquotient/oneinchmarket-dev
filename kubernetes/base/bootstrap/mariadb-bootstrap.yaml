@@ -1,0 +1,62 @@
+# G22 — cmmn-api 가 jdbc:mariadb://mariadb-headless:3306/cmmn 에 접속하나
+# 해당 DB·사용자를 만드는 주체가 없었다.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mariadb-bootstrap
+  labels:
+    app.kubernetes.io/name: mariadb-bootstrap
+    app.kubernetes.io/component: bootstrap
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 20
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mariadb-bootstrap
+        app.kubernetes.io/component: bootstrap
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      restartPolicy: OnFailure
+      priorityClassName: batch-low
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: bootstrap
+          image: bitnami/mariadb:latest
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              echo "[mariadb-bootstrap] MariaDB 대기"
+              until mysqladmin ping -h mariadb-headless -u root -p"$MARIADB_ROOT_PASSWORD" --silent 2>/dev/null; do sleep 3; done
+              mysql -h mariadb-headless -u root -p"$MARIADB_ROOT_PASSWORD" <<SQL
+              CREATE DATABASE IF NOT EXISTS cmmn CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+              CREATE USER IF NOT EXISTS 'cmmn'@'%' IDENTIFIED BY '${CMMN_PASSWORD}';
+              ALTER USER 'cmmn'@'%' IDENTIFIED BY '${CMMN_PASSWORD}';
+              GRANT ALL PRIVILEGES ON cmmn.* TO 'cmmn'@'%';
+              FLUSH PRIVILEGES;
+              SQL
+              echo "[mariadb-bootstrap] 완료"
+              mysql -h mariadb-headless -u root -p"$MARIADB_ROOT_PASSWORD" -e "SHOW DATABASES;"
+          env:
+            - name: MARIADB_ROOT_PASSWORD
+              valueFrom: { secretKeyRef: { name: mariadb-secret, key: root-password } }
+            - name: CMMN_PASSWORD
+              valueFrom: { secretKeyRef: { name: cmmn-api-secret, key: db-password } }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits:   { cpu: 500m, memory: 256Mi }

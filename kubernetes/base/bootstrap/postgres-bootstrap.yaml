@@ -1,0 +1,93 @@
+# G22 해소 — postgresql-configmap.yaml:10-11 은 'oneinchmarket' DB 만 만든다.
+# Keycloak·GitLab·Apicurio·Hive Metastore 가 존재하지 않는 DB 에 접속하고 있었다.
+#
+# 각 소비자의 Secret 을 읽어 같은 비밀번호로 롤을 만든다.
+# 별도 비밀번호 원천을 두지 않으므로 값이 어긋날 수 없다.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: postgres-bootstrap
+  labels:
+    app.kubernetes.io/name: postgres-bootstrap
+    app.kubernetes.io/component: bootstrap
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 20
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres-bootstrap
+        app.kubernetes.io/component: bootstrap
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      restartPolicy: OnFailure
+      priorityClassName: batch-low
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: bootstrap
+          image: bitnami/postgresql:latest
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              export PGPASSWORD="$POSTGRES_PASSWORD"
+              PSQL="psql -h postgresql-headless -U postgres -v ON_ERROR_STOP=1"
+
+              echo "[postgres-bootstrap] PostgreSQL 대기"
+              until pg_isready -h postgresql-headless -U postgres >/dev/null 2>&1; do sleep 3; done
+
+              # 롤·DB 를 멱등하게 만든다. 이미 있으면 비밀번호만 맞춘다.
+              ensure() {
+                local role="$1" db="$2" pw="$3"
+                echo "[postgres-bootstrap] role=$role db=$db"
+                $PSQL -d postgres -c \
+                  "DO \$\$ BEGIN
+                     IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='${role}') THEN
+                       CREATE ROLE ${role} LOGIN PASSWORD '${pw}';
+                     ELSE
+                       ALTER ROLE ${role} WITH LOGIN PASSWORD '${pw}';
+                     END IF;
+                   END \$\$;"
+                $PSQL -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='${db}'" | grep -q 1 \
+                  || $PSQL -d postgres -c "CREATE DATABASE ${db} OWNER ${role}"
+                $PSQL -d postgres -c "GRANT ALL PRIVILEGES ON DATABASE ${db} TO ${role}"
+                $PSQL -d "${db}"   -c "GRANT ALL ON SCHEMA public TO ${role}"
+              }
+
+              ensure keycloak       keycloak       "$KEYCLOAK_DB_PASSWORD"
+              ensure gitlab         gitlabhq       "$GITLAB_DB_PASSWORD"
+              ensure apicurio       apicurio       "$APICURIO_DB_PASSWORD"
+              ensure hive_metastore hive_metastore "$HIVE_DB_PASSWORD"
+
+              echo "[postgres-bootstrap] 완료"
+              $PSQL -d postgres -c "\l"
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: postgresql-secret, key: postgresql-password } }
+            - name: KEYCLOAK_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: keycloak-secret, key: db-password } }
+            - name: GITLAB_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: gitlab-secret, key: db-password } }
+            - name: APICURIO_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: apicurio-secret, key: db-password } }
+            - name: HIVE_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: hive-metastore-secret, key: db-password } }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits:   { cpu: 500m, memory: 256Mi }

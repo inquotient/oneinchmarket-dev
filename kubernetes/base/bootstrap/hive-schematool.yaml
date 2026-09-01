@@ -1,0 +1,69 @@
+# G22 — Hive Metastore 스키마 초기화. postgres-bootstrap 이 만든
+# hive_metastore DB·롤을 전제한다.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hive-schematool
+  labels:
+    app.kubernetes.io/name: hive-schematool
+    app.kubernetes.io/component: bootstrap
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 20
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hive-schematool
+        app.kubernetes.io/component: bootstrap
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      restartPolicy: OnFailure
+      priorityClassName: batch-low
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: schematool
+          image: apache/hive:4.0.1
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              echo "[hive-schematool] PostgreSQL hive_metastore 대기"
+              until (echo > /dev/tcp/postgresql-headless/5432) >/dev/null 2>&1; do sleep 3; done
+              # 이미 초기화되어 있으면 -info 가 성공한다. 그때는 건너뛴다.
+              if /opt/hive/bin/schematool -dbType postgres -info >/dev/null 2>&1; then
+                echo "[hive-schematool] 스키마가 이미 존재한다 — 건너뜀"
+              else
+                /opt/hive/bin/schematool -dbType postgres -initSchema
+              fi
+              /opt/hive/bin/schematool -dbType postgres -info
+              echo "[hive-schematool] 완료"
+          env:
+            - name: HIVE_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: hive-metastore-secret, key: db-password } }
+            - name: SERVICE_NAME
+              value: metastore
+          volumeMounts:
+            - name: hive-config
+              mountPath: /opt/hive/conf/hive-site.xml
+              subPath: hive-site.xml
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 200m, memory: 512Mi }
+            limits:   { cpu: "1", memory: 1Gi }
+      volumes:
+        - name: hive-config
+          configMap:
+            name: hive-metastore-config

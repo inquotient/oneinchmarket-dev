@@ -1,0 +1,62 @@
+# G22 — Trino·Hive Metastore 가 s3a://warehouse 를 조회하나
+# 버킷을 만드는 주체가 없었다. Spark 계층(ADR-064)이 쓰는 2개도 함께 만든다.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-bootstrap
+  labels:
+    app.kubernetes.io/name: minio-bootstrap
+    app.kubernetes.io/component: bootstrap
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 20
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: minio-bootstrap
+        app.kubernetes.io/component: bootstrap
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      restartPolicy: OnFailure
+      priorityClassName: batch-low
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: bootstrap
+          image: minio/mc:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              echo "[minio-bootstrap] MinIO 대기"
+              # MinIO 는 HTTP 다. 로테이션 CronJob 의 https:// + --insecure 는 오류다.
+              until mc alias set oim http://minio-headless:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null 2>&1; do sleep 3; done
+              for b in warehouse spark-events livy-recovery; do
+                mc mb --ignore-existing "oim/$b"
+                echo "[minio-bootstrap] bucket $b"
+              done
+              mc ls oim
+              echo "[minio-bootstrap] 완료"
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom: { secretKeyRef: { name: minio-secret, key: root-user } }
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom: { secretKeyRef: { name: minio-secret, key: root-password } }
+            - name: MC_CONFIG_DIR
+              value: /tmp/.mc
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 100m, memory: 64Mi }
+            limits:   { cpu: 500m, memory: 128Mi }
