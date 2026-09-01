@@ -9,3 +9,6 @@ metadata:
 data:
   POSTGRESQL_USERNAME: "postgres"
   POSTGRESQL_DATABASE: "oneinchmarket"
+  # GitLab 은 structure.sql(6만 줄)을 단일 트랜잭션으로 적재한다.
+  # 기본 max_locks_per_transaction=64 로는 "out of shared memory" 가 난다.
+  POSTGRESQL_EXTRA_FLAGS: "-c max_locks_per_transaction=256"

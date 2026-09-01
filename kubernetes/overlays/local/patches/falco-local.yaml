@@ -1,0 +1,19 @@
+# Falco 는 WSL2 커널에서 기동하지 못한다.
+#   Falco: An error occurred in an event source, forcing termination...
+#          Error: Initialization issues during scap_init
+# debugfs 를 마운트해도(mount-debugfs.service) 해소되지 않았다.
+# modern_ebpf 프로브가 WSL2 커널에서 요구 조건을 만족하지 못하는 것으로 보인다.
+#
+# 스케줄되지 않는 nodeSelector 로 로컬에서만 비활성한다. 매니페스트를 지우지
+# 않으므로 dev/prod 에는 영향이 없고, 조건이 갖춰지면 레이블만 붙이면 된다.
+#
+# ADR-025 가 Falco → Tetragon 전환을 제안하고 있어 이 제약의 수명은 짧다.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: falco
+spec:
+  template:
+    spec:
+      nodeSelector:
+        oneinchmarket.local/falco-supported: "true"

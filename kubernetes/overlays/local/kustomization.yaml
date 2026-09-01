@@ -18,6 +18,7 @@ patches:
   - path: patches/qos-guaranteed.yaml
   - path: patches/kafka-local.yaml
   - path: patches/nginx-local.yaml
+  - path: patches/falco-local.yaml
 
   # ── Elasticsearch (ECK CR) — TODO-32: dev 는 3노드 그대로다. 로컬은 1노드.
   #    count 3 → 1 로 −8 GiB. 그리고 Guaranteed 로 스왑에서 배제한다.
