@@ -37,6 +37,11 @@ spec:
             - containerPort: 8080
               name: http
               protocol: TCP
+            # Quarkus 관리 인터페이스. health 엔드포인트가 여기에 있다.
+            #   Management interface listening on http://0.0.0.0:9000
+            - containerPort: 9000
+              name: management
+              protocol: TCP
           env:
             - name: QUARKUS_DATASOURCE_URL
               value: "jdbc:postgresql://postgresql-headless:5432/apicurio"
@@ -64,12 +69,12 @@ spec:
           livenessProbe:
             httpGet:
               path: /q/health/live
-              port: http
+              port: management
             periodSeconds: 10
             timeoutSeconds: 5
           readinessProbe:
             httpGet:
               path: /q/health/ready
-              port: http
+              port: management
             periodSeconds: 10
             timeoutSeconds: 5

@@ -27,10 +27,10 @@ rules:
     verbs: ["get", "list"]
   - apiGroups: [""]
     resources: ["services", "configmaps", "secrets"]
-    verbs: ["get", "list", "watch", "create", "delete"]
+    verbs: ["get", "list", "watch", "create", "delete", "deletecollection"]
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
-    verbs: ["get", "list", "create", "delete"]
+    verbs: ["get", "list", "create", "delete", "deletecollection"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
