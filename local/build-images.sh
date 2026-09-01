@@ -1,45 +1,50 @@
 #!/usr/bin/env bash
 # 커스텀 이미지 2종 빌드 후 k3s containerd 로 직접 반입한다.
-# 레지스트리(registry.oneinchmarket.co.kr)는 어떤 매니페스트도 참조하지
-# 않고 imagePullSecrets 도 없으므로, 로컬에서는 import 가 정답이다.
+# 레지스트리(registry.oneinchmarket.co.kr)를 참조하는 매니페스트가 없고
+# imagePullSecrets 도 없으므로, 로컬에서는 import 가 정답이다.
 #
-# Docker Desktop 대신 배포판 내 docker.io 를 쓴다 — Docker Desktop 은
-# 자체 WSL 배포판을 띄워 같은 48GB 예산을 경합한다.
-# 빌드가 끝나면 데몬을 정지해 메모리를 되돌린다.
+# 왜 podman 인가 —
+#   ① 데몬이 없다. 빌드가 끝나면 메모리를 전혀 남기지 않는다.
+#      48GB 예산에서 상주 데몬 하나가 아깝다.
+#   ② docker.io 의 containerd 는 k3s 와 소켓 경로를 다툰다. 이 호스트에서는
+#      /run/containerd/containerd.sock 이 디렉터리로 존재해 기동에 실패했다
+#      (Docker Desktop WSL 통합 잔재로 추정):
+#        containerd: failed to create unix socket ...: is a directory
+#   ③ Docker Desktop 은 자체 WSL 배포판을 띄워 같은 예산을 경합한다.
 set -Eeuo pipefail
 trap 'echo "[build][ERROR] line $LINENO: $BASH_COMMAND" >&2' ERR
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 log() { echo "[build] $*"; }
 
-if ! systemctl is-active --quiet docker 2>/dev/null; then
-  if ! dpkg -s docker.io >/dev/null 2>&1; then
-    log "docker.io 설치"
-    sudo apt-get update -qq
-    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq docker.io
-  fi
-  log "dockerd 기동"
-  sudo systemctl start docker
-fi
-sudo docker version --format '{{.Server.Version}}'
+# k3s 와 경합하지 않도록 도커 계열 서비스를 내린다 (패키지는 남긴다)
+for s in docker.socket docker containerd; do
+  systemctl list-unit-files "$s"* >/dev/null 2>&1 && sudo systemctl disable --now "$s" 2>/dev/null || true
+done
 
-log "oneinch/spark-iceberg:latest 빌드"
-sudo docker build -t oneinch/spark-iceberg:latest -t oneinch/spark-iceberg:3.5.6 \
+if ! command -v podman >/dev/null 2>&1; then
+  log "podman 설치"
+  sudo apt-get update -qq
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq podman
+fi
+podman --version
+
+log "oneinch/spark-iceberg 빌드"
+sudo podman build --format docker \
+  -t oneinch/spark-iceberg:latest -t oneinch/spark-iceberg:3.5.6 \
   "${REPO_ROOT}/docker/spark-iceberg"
 
-log "oneinch/livy:latest 빌드"
-sudo docker build -t oneinch/livy:latest -t oneinch/livy:0.9.0-incubating \
+log "oneinch/livy 빌드"
+sudo podman build --format docker \
+  -t oneinch/livy:latest -t oneinch/livy:0.9.0-incubating \
   "${REPO_ROOT}/docker/livy"
 
 log "k3s containerd 로 반입 (namespace k8s.io)"
 for img in oneinch/spark-iceberg:latest oneinch/livy:latest; do
-  sudo docker save "$img" | sudo k3s ctr -n k8s.io images import -
+  sudo podman save --format docker-archive "localhost/$img" \
+    | sudo k3s ctr -n k8s.io images import --base-name "docker.io/$img" -
   log "  imported $img"
 done
 
 log "반입 확인"
-sudo k3s ctr -n k8s.io images ls | grep oneinch || true
-
-log "dockerd 정지 (메모리 회수)"
-sudo systemctl stop docker
-
-log "완료"
+sudo k3s ctr -n k8s.io images ls 2>/dev/null | awk '{print $1}' | grep oneinch || true
+log "완료 — 상주 데몬 없음"
