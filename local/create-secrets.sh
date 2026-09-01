@@ -13,7 +13,9 @@ set -Eeuo pipefail
 export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/config}"
 NS="${NS:-local}"
 
-gen() { tr -dc 'A-Za-z0-9' </dev/urandom | head -c "${1:-24}"; }
+# 파이프를 쓰지 않는다 — head 가 먼저 끝나면 tr 이 SIGPIPE 로 죽고
+# pipefail 이 이를 잡아 스크립트 전체가 중단된다.
+gen() { openssl rand -hex "$(( ${1:-24} / 2 ))"; }
 
 mk() {  # mk <secret-name> <key=value> ...
   local name="$1"; shift
