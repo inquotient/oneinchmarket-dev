@@ -10,6 +10,7 @@ USER root
 
 ARG ICEBERG_VERSION=1.7.1
 ARG SCALA_VERSION=2.12
+ARG SPARK_VERSION=3.5.6
 ARG HADOOP_AWS_VERSION=3.3.4
 ARG AWS_SDK_VERSION=1.12.767
 
@@ -31,6 +32,13 @@ ADD --chown=1000:1000 \
   /opt/spark/jars/
 ADD --chown=1000:1000 \
   https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/${AWS_SDK_VERSION}/aws-java-sdk-bundle-${AWS_SDK_VERSION}.jar \
+  /opt/spark/jars/
+
+# Spark Connect 서버는 apache/spark 배포판에 포함되어 있지 않다.
+#   Failed to load class org.apache.spark.sql.connect.service.SparkConnectServer
+#   You need to specify Spark Connect jars with --jars or --packages
+ADD --chown=1000:1000 \
+  https://repo1.maven.org/maven2/org/apache/spark/spark-connect_${SCALA_VERSION}/${SPARK_VERSION}/spark-connect_${SCALA_VERSION}-${SPARK_VERSION}.jar \
   /opt/spark/jars/
 
 RUN chmod 0644 /opt/spark/jars/*.jar

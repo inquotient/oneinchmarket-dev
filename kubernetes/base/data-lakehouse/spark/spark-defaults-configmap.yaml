@@ -35,7 +35,10 @@ data:
     spark.hadoop.fs.s3a.endpoint                    http://minio-headless:9000
     spark.hadoop.fs.s3a.path.style.access           true
     spark.hadoop.fs.s3a.connection.ssl.enabled      false
-    spark.hadoop.fs.s3a.aws.credentials.provider    org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider
+    # SimpleAWSCredentialsProvider 는 fs.s3a.access.key 만 읽고 환경변수는 보지 않는다.
+    # ConfigMap 은 Secret 값을 보간할 수 없으므로 환경변수 기반 provider 를 쓴다.
+    #   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY 는 각 워크로드가 minio-secret 에서 주입한다.
+    spark.hadoop.fs.s3a.aws.credentials.provider    com.amazonaws.auth.EnvironmentVariableCredentialsProvider
 
     # ── 이벤트 로그 (History Server가 읽는다)
     spark.eventLog.enabled                          true
