@@ -99,16 +99,22 @@ spec:
               port: thrift
             failureThreshold: 30
             periodSeconds: 10
+          # ★ liveness 를 느슨하게 잡는다.
+          #   메타스토어는 JVM 이 무겁고 CPU 가 붐비면 TCP accept 자체가
+          #   늦어진다. period 10s · timeout 5s · failureThreshold 3(기본)
+          #   이면 30초만 밀려도 컨테이너가 죽는다 — 실제로 10회 재시작했다.
+          #   재시작은 스키마 점검부터 다시 돌아 더 붐비게 만든다(악순환).
           livenessProbe:
             tcpSocket:
               port: thrift
-            periodSeconds: 10
-            timeoutSeconds: 5
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
           readinessProbe:
             tcpSocket:
               port: thrift
-            periodSeconds: 10
-            timeoutSeconds: 5
+            periodSeconds: 15
+            timeoutSeconds: 10
           volumeMounts:
             - name: hive-config
               mountPath: /opt/hive/conf/hive-site.xml

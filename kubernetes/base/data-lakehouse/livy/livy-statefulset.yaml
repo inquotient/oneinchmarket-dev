@@ -96,7 +96,12 @@ spec:
               mountPath: /opt/livy/conf
             - name: spark-config
               mountPath: /opt/spark/conf
+            # 세션 복구 스토어. livy-configmap 의 주석 참조.
+            - name: recovery
+              mountPath: /opt/livy/recovery
       volumes:
+        - name: recovery
+          emptyDir: {}
         - name: livy-config
           configMap:
             name: livy-config

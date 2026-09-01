@@ -24,9 +24,20 @@ data:
     livy.server.session.state-retain.sec = 600
 
     # ── 재시작 시 세션 복구
+    #
+    # ★ s3a 는 쓸 수 없다. Livy 의 FileSystemStateStore 는 Hadoop 의
+    #   FileContext(AbstractFileSystem) API 를 쓰는데, s3a 의 AbstractFileSystem
+    #   구현(org.apache.hadoop.fs.s3a.S3A)은 Hadoop 2.8+ 에서 추가되었고
+    #   oneinch/livy 이미지의 하둡 클라이언트는 2.7.3 이다. 결과:
+    #     UnsupportedFileSystemException: fs.AbstractFileSystem.s3a.impl=null
+    #   Livy 가 StateStore.init 에서 죽어 8998 을 아예 열지 못한다.
+    #   -> 이미지의 하둡 클라이언트를 3.x 로 올리기 전까지 로컬 경로를 쓴다
+    #      (TODO-37 이미지 재빌드 시 재검토).
+    #   emptyDir 이므로 컨테이너 재시작은 견디고 파드 삭제에는 잃는다.
+    #   레플리카가 1이라 공유 스토어 요구는 없다.
     livy.server.recovery.mode                = recovery
     livy.server.recovery.state-store          = filesystem
-    livy.server.recovery.state-store.url      = s3a://livy-recovery/
+    livy.server.recovery.state-store.url      = file:///opt/livy/recovery
 
     livy.repl.enable-hive-context        = true
     livy.file.local-dir-whitelist        = /opt/spark/jobs
