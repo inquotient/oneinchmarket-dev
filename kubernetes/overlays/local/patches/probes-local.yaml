@@ -21,5 +21,6 @@ spec:
         - name: spark-connect
           startupProbe:
             tcpSocket: {port: grpc}
-            failureThreshold: 60      # 10분
+            # 10분도 모자랐다(17분째 재시작). 15분으로 둔다.
+            failureThreshold: 90      # 15분
             periodSeconds: 10
