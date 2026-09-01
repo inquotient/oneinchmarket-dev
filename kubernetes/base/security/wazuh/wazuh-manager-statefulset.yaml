@@ -89,8 +89,24 @@ spec:
             periodSeconds: 15
             timeoutSeconds: 10
             failureThreshold: 6
+          # ★ /var/ossec/data 에 통째로 걸면 안 된다. 컨테이너 초기화가
+          #   /var/ossec/data_tmp 의 내용을 각 경로로 설치하는데, data 를
+          #   덮으면 그 절차가 어긋나고 ossec 데몬이 하나도 뜨지 않는다
+          #   (wazuh-control status 가 전부 "not running").
+          #   upstream(wazuh-kubernetes)의 방식대로 필요한 경로만 subPath
+          #   로 나눠 건다.
           volumeMounts:
-            - {name: data, mountPath: /var/ossec/data}
+            - {name: data, mountPath: /var/ossec/api/configuration, subPath: api}
+            - {name: data, mountPath: /var/ossec/etc,               subPath: etc}
+            - {name: data, mountPath: /var/ossec/logs,              subPath: logs}
+            - {name: data, mountPath: /var/ossec/queue,             subPath: queue}
+            - {name: data, mountPath: /var/ossec/var/multigroups,   subPath: multigroups}
+            - {name: data, mountPath: /var/ossec/integrations,      subPath: integrations}
+            - {name: data, mountPath: /var/ossec/active-response/bin, subPath: active-response}
+            - {name: data, mountPath: /var/ossec/agentless,         subPath: agentless}
+            - {name: data, mountPath: /var/ossec/wodles,            subPath: wodles}
+            - {name: data, mountPath: /etc/filebeat,                subPath: filebeat-etc}
+            - {name: data, mountPath: /var/lib/filebeat,            subPath: filebeat-var}
   volumeClaimTemplates:
     - metadata: {name: data}
       spec:
