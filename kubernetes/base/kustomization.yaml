@@ -11,6 +11,7 @@ resources:
   - database/
   - security/
   - observability/
+  - governance/
   - devops/
   - application/
   - service-mesh/

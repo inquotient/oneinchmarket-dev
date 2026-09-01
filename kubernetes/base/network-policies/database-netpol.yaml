@@ -27,6 +27,10 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: apicurio-registry
+        # 3단계 — Ranger admin 이 `ranger` DB 를 쓴다(별칭 서비스 ranger-db).
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ranger-admin
       ports:
         - protocol: TCP
           port: 5432

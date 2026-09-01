@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ranger-admin
+  labels: {app.kubernetes.io/name: ranger-admin, app.kubernetes.io/component: governance, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+  annotations: {reloader.stakater.com/auto: "true"}
+spec:
+  serviceName: ranger-admin
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: ranger-admin}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: ranger-admin, app.kubernetes.io/component: governance, app.kubernetes.io/part-of: oneinchmarket}
+    spec:
+      serviceAccountName: ranger-admin
+      securityContext:
+        # apache/ranger 이미지의 기본 uid 다.
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile: {type: RuntimeDefault}
+      # ranger.sh 는 의존성을 기다리지 않는다. setup.sh 가 DB 에 못 붙으면
+      # 그대로 실패하고 컨테이너가 죽는다. 여기서 막는다.
+      initContainers:
+        - name: wait-deps
+          image: busybox:1.36
+          command: ["/bin/sh","-c"]
+          args:
+            - |
+              set -eu
+              echo "[wait] PostgreSQL(ranger-db:5432)"
+              until nc -z ranger-db 5432; do sleep 3; done
+              echo "[wait] Solr(ranger-solr:8983)"
+              until nc -z ranger-solr 8983; do sleep 3; done
+              echo "[wait] 완료"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits:   {cpu: 100m, memory: 64Mi}
+      containers:
+        - name: ranger-admin
+          image: apache/ranger:2.9.0
+          # ── 이미지에 구워진 install.properties 를 그대로 쓴다 ──────
+          #   DB_FLAVOR=POSTGRES · db_host=ranger-db · db_name=ranger
+          #   audit_store=solr · audit_solr_urls=http://ranger-solr:8983/...
+          #   policymgr_external_url=http://ranger-admin:6080
+          #   -> 별칭 서비스로 이름을 맞췄으므로 덮어쓸 것이 없다.
+          #   엔트리포인트(ranger.sh)가 아래 4개 변수만 추가로 읽는다.
+          env:
+            - name: POSTGRES_PASSWORD          # db_root_password. setup.sh 가 스키마를 만든다
+              valueFrom: {secretKeyRef: {name: postgresql-secret, key: postgresql-password}}
+            - {name: RANGER_DB_USER, value: "ranger"}
+            - name: RANGER_DB_PASSWORD
+              valueFrom: {secretKeyRef: {name: ranger-secret, key: db-password}}
+          ports:
+            - {containerPort: 6080, name: http, protocol: TCP}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            # install.properties 의 ranger_admin_max_heap_size=1g 에 맞춘다.
+            requests: {cpu: 200m, memory: 1Gi}
+            limits:   {cpu: "1",  memory: 2Gi}
+          # ★ 최초 기동은 스키마 생성(setup.sh) 때문에 몇 분 걸린다.
+          #   startup 40회 x 15초 = 10분까지 허용한다.
+          startupProbe:
+            tcpSocket: {port: http}
+            failureThreshold: 40
+            periodSeconds: 15
+          livenessProbe:
+            tcpSocket: {port: http}
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            httpGet: {path: /login.jsp, port: http}
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6

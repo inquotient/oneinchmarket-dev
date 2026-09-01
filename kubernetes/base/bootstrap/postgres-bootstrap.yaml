@@ -76,6 +76,10 @@ spec:
               ensure gitlab         gitlab         "$GITLAB_DB_PASSWORD"
               ensure apicurio       apicurio       "$APICURIO_DB_PASSWORD"
               ensure hive           hive_metastore "$HIVE_DB_PASSWORD"
+              # 3단계 — Ranger. ranger.sh 의 setup.sh 도 root 자격으로 DB 를
+              # 만들 수 있으나, 롤 비밀번호 원천을 한 곳에 모으기 위해 여기서
+              # 먼저 만든다. setup.sh 는 이미 있으면 건너뛴다.
+              ensure ranger         ranger         "$RANGER_DB_PASSWORD"
 
               echo "[postgres-bootstrap] 완료"
               $PSQL -d postgres -c "\l"
@@ -90,6 +94,8 @@ spec:
               valueFrom: { secretKeyRef: { name: apicurio-secret, key: db-password } }
             - name: HIVE_DB_PASSWORD
               valueFrom: { secretKeyRef: { name: hive-metastore-secret, key: db-password } }
+            - name: RANGER_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: ranger-secret, key: db-password } }
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

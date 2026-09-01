@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ds389
+  labels: {app.kubernetes.io/name: ds389, app.kubernetes.io/component: governance, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ds389-headless
+  labels: {app.kubernetes.io/name: ds389, app.kubernetes.io/component: governance, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  clusterIP: None
+  ports:
+    # dscontainer 는 비특권 포트를 쓴다. 389/636 이 아니다.
+    - {name: ldap, port: 3389, targetPort: 3389, protocol: TCP}
+    - {name: ldaps, port: 3636, targetPort: 3636, protocol: TCP}
+  selector: {app.kubernetes.io/name: ds389}

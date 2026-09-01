@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: solr
+  labels: {app.kubernetes.io/name: solr, app.kubernetes.io/component: governance, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+  annotations: {reloader.stakater.com/auto: "true"}
+spec:
+  serviceName: solr-headless
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: solr}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: solr, app.kubernetes.io/component: governance, app.kubernetes.io/part-of: oneinchmarket}
+    spec:
+      serviceAccountName: solr
+      securityContext:
+        # solr 이미지의 기본 uid 다.
+        runAsNonRoot: true
+        runAsUser: 8983
+        runAsGroup: 8983
+        fsGroup: 8983
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: solr
+          # ★ `apache/solr` 가 아니라 `library/solr` 다. v1 이 적은
+          #   apache/solr:9.10.0-slim 은 저장소에 존재하지 않는 태그다.
+          image: solr:slim
+          # solr-precreate 는 코어가 없을 때만 만든다. 재시작에 안전하다.
+          # 별도 configset 없이 _default 스키마리스로 만든다 — Ranger 가
+          # 감사 문서를 넣으면 필드가 동적으로 생긴다. 운영 규모에서는
+          # Ranger 배포물의 ranger_audits configset 을 쓰는 편이 낫다.
+          args: ["solr-precreate", "ranger_audits"]
+          ports:
+            - {containerPort: 8983, name: http, protocol: TCP}
+          env:
+            # 로컬 메모리 예산. 기본값은 컨테이너 한도를 모른다.
+            - {name: SOLR_JAVA_MEM, value: "-Xms256m -Xmx512m"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 100m, memory: 512Mi}
+            limits:   {cpu: 500m, memory: 1Gi}
+          startupProbe:
+            httpGet: {path: "/solr/admin/info/system?wt=json", port: http}
+            failureThreshold: 40
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: {port: http}
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            httpGet: {path: "/solr/admin/info/system?wt=json", port: http}
+            periodSeconds: 15
+            timeoutSeconds: 10
+          volumeMounts:
+            - {name: data, mountPath: /var/solr}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: standard
+        resources: {requests: {storage: 10Gi}}

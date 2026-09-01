@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ds389-config
+  labels: {app.kubernetes.io/name: ds389, app.kubernetes.io/component: governance, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+data:
+  # ★ 이미지의 dscontainer 가 실제로 읽는 변수만 둔다.
+  #   v1 의 ds389-configmap 은 DS_DOMAIN·DS_INSTANCE_NAME 을 넣었는데
+  #   dscontainer 는 두 변수를 참조하지 않는다(3.1 기준 인식 목록:
+  #   DS_DM_PASSWORD · DS_SUFFIX_NAME · DS_ERRORLOG_LEVEL ·
+  #   DS_MEMORY_PERCENTAGE · DS_REINDEX · DS_STARTUP_TIMEOUT · DS_STOP_TIMEOUT).
+  #   조용히 무시되므로 넣어 두면 설정한 줄 알게 된다.
+  DS_SUFFIX_NAME: dc=oneinchmarket,dc=co,dc=kr
+  # 컨테이너 메모리 대비 DB 캐시 비율. 기본 25% 는 512Mi 한도에서 과하다.
+  DS_MEMORY_PERCENTAGE: "15"

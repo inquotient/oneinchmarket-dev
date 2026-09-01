@@ -1,0 +1,84 @@
+# 3단계(DS389·LAM·Solr·Ranger·Knox) 의 인바운드 허용.
+# default-deny-ingress 하에서는 각 홉을 명시해야 한다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ds389-access
+  labels: {app.kubernetes.io/name: allow-ds389-access, app.kubernetes.io/component: network-policies, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: ds389}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: lam}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: ranger-admin}}
+        # Keycloak 의 LDAP User Federation. 아직 연결하지 않았으나
+        # 연결 시점에 NetworkPolicy 를 찾아 헤매지 않도록 미리 연다.
+        - podSelector: {matchLabels: {app.kubernetes.io/name: keycloak}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: knox}}
+      ports:
+        - {protocol: TCP, port: 3389}
+        - {protocol: TCP, port: 3636}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-lam-access
+  labels: {app.kubernetes.io/name: allow-lam-access, app.kubernetes.io/component: network-policies, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: lam}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: nginx}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: oauth2-proxy}}
+      ports: [{protocol: TCP, port: 80}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-solr-access
+  labels: {app.kubernetes.io/name: allow-solr-access, app.kubernetes.io/component: network-policies, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: solr}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: ranger-admin}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: nginx}}
+      ports: [{protocol: TCP, port: 8983}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ranger-admin-access
+  labels: {app.kubernetes.io/name: allow-ranger-admin-access, app.kubernetes.io/component: network-policies, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: ranger-admin}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: knox}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: nginx}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: oauth2-proxy}}
+        # 플러그인을 붙인 워크로드가 정책을 내려받는다(6080).
+        # Trino·Hive·Kafka 는 아직 플러그인이 없다. 붙일 때 여기에 더한다.
+      ports: [{protocol: TCP, port: 6080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-knox-access
+  labels: {app.kubernetes.io/name: allow-knox-access, app.kubernetes.io/component: network-policies, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: knox}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: nginx}}
+      ports: [{protocol: TCP, port: 8443}]

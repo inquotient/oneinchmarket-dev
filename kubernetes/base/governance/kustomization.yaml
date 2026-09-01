@@ -1,0 +1,39 @@
+# 3단계 — 거버넌스 계층
+#
+# 의존 순서:
+#   PostgreSQL(wave 1) ─┐
+#   Solr ───────────────┴─▶ Ranger admin
+#   DS389 ─▶ LAM
+#   Knox 는 독립 (앞단 게이트웨이. 지금은 뒤에 붙일 토폴로지가 기본값뿐이다)
+#
+# wave 5 는 devops(GitLab)와 같다. 웨이브 안의 순서는 보장되지 않으므로
+# Ranger 는 initContainer 로 직접 기다린다.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  # DS389 — LDAP 디렉터리
+  - ds389/ds389-headless.yaml
+  - ds389/ds389-configmap.yaml
+  - ds389/ds389-statefulset.yaml
+  # LAM — DS389 관리 UI
+  - lam/lam-service.yaml
+  - lam/lam-deployment.yaml
+  # Solr — Ranger 감사 저장소
+  - solr/solr-headless.yaml
+  - solr/solr-statefulset.yaml
+  # Ranger admin — 정책 관리
+  - ranger/ranger-admin-service.yaml
+  - ranger/ranger-admin-statefulset.yaml
+  # Knox — 게이트웨이
+  - knox/knox-service.yaml
+  - knox/knox-deployment.yaml
+  #
+  # ranger-usersync 는 넣지 않았다 — 공식 이미지가 없다.
+  # docs/LOCAL-DEPLOYMENT.md §8-11 참조.
+
+commonLabels:
+  app.kubernetes.io/part-of: oneinchmarket
+
+commonAnnotations:
+  argocd.argoproj.io/sync-wave: "5"

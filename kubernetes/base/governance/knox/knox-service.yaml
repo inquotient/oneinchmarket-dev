@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: knox
+  labels: {app.kubernetes.io/name: knox, app.kubernetes.io/component: governance, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: knox-headless
+  labels: {app.kubernetes.io/name: knox, app.kubernetes.io/component: governance, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  clusterIP: None
+  ports: [{name: https, port: 8443, targetPort: 8443, protocol: TCP}]
+  selector: {app.kubernetes.io/name: knox}

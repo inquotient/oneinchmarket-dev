@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: knox
+  labels: {app.kubernetes.io/name: knox, app.kubernetes.io/component: governance, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+  annotations: {reloader.stakater.com/auto: "true"}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: knox}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: knox, app.kubernetes.io/component: governance, app.kubernetes.io/part-of: oneinchmarket}
+    spec:
+      serviceAccountName: knox
+      securityContext:
+        # apache/knox 이미지의 기본 uid 다.
+        runAsNonRoot: true
+        runAsUser: 8000
+        runAsGroup: 8000
+        fsGroup: 8000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: knox
+          # ★ 버전 선택 근거 — Docker Hub `apache/knox` 에는 2.x 태그가 없다
+          #   (latest·3.0·3·3.0.0-RC2·3.0.0-RC1 뿐). 반대로 정식 릴리스는
+          #   2.1.0 이 최신이고 3.0.0 은 downloads.apache.org 에 없다.
+          #   즉 "공식 이미지"와 "정식 릴리스"가 배타적이다.
+          #   로컬 검증 환경이므로 공식 이미지(미릴리스 3.0.0)를 택했다.
+          #   prod 는 태그가 가변이므로 다이제스트로 핀한다.
+          image: apache/knox:3.0
+          env:
+            # ★ 기본값이 true 다. 켜져 있으면 기동 시 Let's Encrypt 스테이징
+            #   루트 CA 를 인터넷에서 내려받는다. 폐쇄망·egress 정책 아래에서는
+            #   기동이 그만큼 지연되거나 실패한다. 명시적으로 끈다.
+            - {name: IMPORT_LETS_ENCRYPT_STAGING_CERTS, value: "false"}
+            - name: MASTER_SECRET
+              valueFrom: {secretKeyRef: {name: knox-secret, key: master-secret}}
+          ports:
+            - {containerPort: 8443, name: https, protocol: TCP}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 100m, memory: 512Mi}
+            limits:   {cpu: 500m, memory: 1Gi}
+          startupProbe:
+            tcpSocket: {port: https}
+            failureThreshold: 40
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: {port: https}
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            tcpSocket: {port: https}
+            periodSeconds: 15
+            timeoutSeconds: 10
+          volumeMounts:
+            # 기동 시 생성되는 키스토어·트러스트스토어. 파드 수명과 같이 간다.
+            # 매 기동마다 자체 서명 인증서가 새로 생긴다 — 앞단에 실 인증서를
+            # 둘 때(Gateway/Ingress 도입 시) KNOX_CERT·KNOX_KEY 로 바꾼다.
+            - {name: keystores, mountPath: /home/knox/knox/data/security/keystores}
+            - {name: logs, mountPath: /home/knox/knox/logs}
+      volumes:
+        - name: keystores
+          emptyDir: {}
+        - name: logs
+          emptyDir: {}

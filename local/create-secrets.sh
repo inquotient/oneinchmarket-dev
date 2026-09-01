@@ -62,11 +62,25 @@ mk argocd-admin-secret   "admin-password=$(gen)"
 # Slack 미연동. 빈 값이면 Falcosidekick 이 Slack 출력을 비활성한다.
 mk falcosidekick-secret  "slack-webhook-url="
 
+# ── 3단계 거버넌스 ────────────────────────────────────────────────
+#    Ranger admin 은 UNIX 인증이라 웹 로그인 계정이 admin / db-password 다
+#    (이미지의 ranger.sh 가 rangerAdmin_password 를 RANGER_DB_PASSWORD 로
+#     함께 설정한다). LDAP 인증 전환은 별도 작업이다.
+DS_DM=$(gen); LAM_PW=$(gen); RANGER_PW=$(gen); KNOX_MS=$(gen 32)
+
+mk ds389-secret   "dm-password=$DS_DM"          # cn=Directory Manager
+mk lam-secret     "master-password=$LAM_PW"     # LAM 마스터 설정 비밀번호
+mk ranger-secret  "db-password=$RANGER_PW"      # ranger 롤 + admin 웹 로그인
+mk knox-secret    "master-secret=$KNOX_MS"      # Knox 키스토어 마스터 시크릿
+
 echo
 echo "[secrets] 접속 정보 (이 값들은 커밋되지 않는다)"
 printf "  MinIO      oimadmin / %s\n" "$MINIO_PW"
 printf "  Keycloak   admin / %s\n"    "$KC_ADMIN"
 printf "  GitLab     root / %s\n"     "$GL_ROOT"
+printf "  Ranger     admin / %s\n"   "$RANGER_PW"
+printf "  LAM        (마스터 설정) %s\n" "$LAM_PW"
+printf "  DS389      cn=Directory Manager / %s\n" "$DS_DM"
 echo
 echo "[secrets] 생성 결과"
 kubectl -n "$NS" get secret -l app.kubernetes.io/part-of=oneinchmarket

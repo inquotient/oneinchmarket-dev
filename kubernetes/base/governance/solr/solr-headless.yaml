@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: solr
+  labels: {app.kubernetes.io/name: solr, app.kubernetes.io/component: governance, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: solr-headless
+  labels: {app.kubernetes.io/name: solr, app.kubernetes.io/component: governance, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  clusterIP: None
+  ports: [{name: http, port: 8983, targetPort: 8983, protocol: TCP}]
+  selector: {app.kubernetes.io/name: solr}
+---
+# ★ 별칭 서비스 — apache/ranger 이미지에 구워진 install.properties 가
+#   `audit_solr_urls=http://ranger-solr:8983/solr/ranger_audits` 를 가리킨다.
+#   템플릿 전체를 복사해 유지보수하느니 이름을 맞춘다.
+#   (같은 이유의 ranger-db 는 ranger-admin-service.yaml 에 있다.)
+apiVersion: v1
+kind: Service
+metadata:
+  name: ranger-solr
+  labels: {app.kubernetes.io/name: solr, app.kubernetes.io/component: governance, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  ports: [{name: http, port: 8983, targetPort: 8983, protocol: TCP}]
+  selector: {app.kubernetes.io/name: solr}

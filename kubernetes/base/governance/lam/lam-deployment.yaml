@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lam
+  labels: {app.kubernetes.io/name: lam, app.kubernetes.io/component: governance, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+  annotations: {reloader.stakater.com/auto: "true"}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: lam}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: lam, app.kubernetes.io/component: governance, app.kubernetes.io/part-of: oneinchmarket}
+    spec:
+      serviceAccountName: lam
+      # LAM 은 Apache + PHP 로 :80 을 연다. 이미지가 root 로 시작해
+      # www-data 로 내려간다. 특권은 필요 없다.
+      securityContext:
+        runAsUser: 0
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: lam
+          image: ldapaccountmanager/lam:8.3
+          env:
+            # 최초 기동 시 이 값들로 LAM 프로파일을 자동 생성한다.
+            - {name: LDAP_SERVER, value: "ldap://ds389-headless:3389"}
+            - {name: LDAP_DOMAIN, value: "oneinchmarket.co.kr"}
+            - {name: LDAP_BASE_DN, value: "dc=oneinchmarket,dc=co,dc=kr"}
+            # DS389 의 슈퍼유저. 389ds 는 uid=admin 이 아니라 cn=Directory Manager 다.
+            - {name: LDAP_USER, value: "cn=Directory Manager"}
+            - {name: LDAP_ADMIN_USER, value: "cn=Directory Manager"}
+            - {name: LDAP_USERS_DN, value: "ou=people,dc=oneinchmarket,dc=co,dc=kr"}
+            - {name: LDAP_GROUPS_DN, value: "ou=groups,dc=oneinchmarket,dc=co,dc=kr"}
+            - {name: LAM_LANG, value: "en_US"}
+            # ds389 는 자체 서명 인증서를 쓴다. 로컬은 검증을 끈다.
+            - {name: LAM_DISABLE_TLS_CHECK, value: "true"}
+            - name: LAM_PASSWORD
+              valueFrom: {secretKeyRef: {name: lam-secret, key: master-password}}
+          ports:
+            - {containerPort: 80, name: http, protocol: TCP}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits:   {cpu: 300m, memory: 384Mi}
+          startupProbe:
+            httpGet: {path: /, port: http}
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: {port: http}
+            periodSeconds: 20
+            failureThreshold: 6
+          readinessProbe:
+            httpGet: {path: /, port: http}
+            periodSeconds: 15
+            timeoutSeconds: 5
+          volumeMounts:
+            # 설정 프로파일. emptyDir 이라 파드가 지워지면 env 로 재생성된다.
+            # 원천이 env 이므로 잃어도 재현된다 — PVC 를 쓰지 않는 이유다.
+            - {name: config, mountPath: /var/lib/ldap-account-manager}
+      volumes:
+        - name: config
+          emptyDir: {}

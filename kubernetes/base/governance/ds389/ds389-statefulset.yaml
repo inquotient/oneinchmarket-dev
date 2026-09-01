@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ds389
+  labels: {app.kubernetes.io/name: ds389, app.kubernetes.io/component: governance, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+  annotations: {reloader.stakater.com/auto: "true"}
+spec:
+  serviceName: ds389-headless
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: ds389}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: ds389, app.kubernetes.io/component: governance, app.kubernetes.io/part-of: oneinchmarket}
+    spec:
+      serviceAccountName: ds389
+      # ── 의도된 예외 ─────────────────────────────────────────────
+      #   dscontainer 가 인스턴스를 만들 때 /data 하위를 chown 하고
+      #   dirsrv 사용자로 강등한다. root 로 시작해야 한다.
+      #   ★ v1 의 `privileged: true` 는 불필요하다 — 그것 없이 뜬다.
+      #      capability 도 전부 버린다.
+      securityContext:
+        runAsUser: 0
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: ds389
+          image: 389ds/dirsrv:3.1
+          envFrom:
+            - configMapRef: {name: ds389-config}
+          env:
+            - name: DS_DM_PASSWORD
+              valueFrom: {secretKeyRef: {name: ds389-secret, key: dm-password}}
+          ports:
+            - {containerPort: 3389, name: ldap, protocol: TCP}
+            - {containerPort: 3636, name: ldaps, protocol: TCP}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits:   {cpu: 500m, memory: 512Mi}
+          startupProbe:
+            tcpSocket: {port: ldap}
+            failureThreshold: 40
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: {port: ldap}
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            tcpSocket: {port: ldap}
+            periodSeconds: 15
+            timeoutSeconds: 10
+          volumeMounts:
+            - {name: data, mountPath: /data}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: standard
+        resources: {requests: {storage: 5Gi}}
