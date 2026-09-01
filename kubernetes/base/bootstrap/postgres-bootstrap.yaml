@@ -46,7 +46,8 @@ spec:
               PSQL="psql -h postgresql-headless -U postgres -v ON_ERROR_STOP=1"
 
               echo "[postgres-bootstrap] PostgreSQL 대기"
-              until pg_isready -h postgresql-headless -U postgres >/dev/null 2>&1; do sleep 3; done
+              # pg_isready 는 인증까지 확인하지 않는다. 실제 접속으로 판정한다.
+              until $PSQL -d postgres -c "SELECT 1" >/dev/null 2>&1; do sleep 3; done
 
               # 롤·DB 를 멱등하게 만든다. 이미 있으면 비밀번호만 맞춘다.
               ensure() {
@@ -66,10 +67,15 @@ spec:
                 $PSQL -d "${db}"   -c "GRANT ALL ON SCHEMA public TO ${role}"
               }
 
+              # 각 값은 소비자 매니페스트에서 확인한 실제 롤·DB 이름이다.
+              #   keycloak-configmap.yaml:14-15   KC_DB_URL_DATABASE=keycloak  KC_DB_USERNAME=keycloak
+              #   gitlab-configmap.yaml:21-22     db_database=gitlab           db_username=gitlab
+              #   apicurio-statefulset.yaml:42,44 jdbc .../apicurio           USERNAME=apicurio
+              #   hive-metastore-statefulset.yaml:79-80  .../hive_metastore   ConnectionUserName=hive
               ensure keycloak       keycloak       "$KEYCLOAK_DB_PASSWORD"
-              ensure gitlab         gitlabhq       "$GITLAB_DB_PASSWORD"
+              ensure gitlab         gitlab         "$GITLAB_DB_PASSWORD"
               ensure apicurio       apicurio       "$APICURIO_DB_PASSWORD"
-              ensure hive_metastore hive_metastore "$HIVE_DB_PASSWORD"
+              ensure hive           hive_metastore "$HIVE_DB_PASSWORD"
 
               echo "[postgres-bootstrap] 완료"
               $PSQL -d postgres -c "\l"
