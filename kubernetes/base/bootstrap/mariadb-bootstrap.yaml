@@ -39,8 +39,10 @@ spec:
             - |
               set -euo pipefail
               echo "[mariadb-bootstrap] MariaDB 대기"
-              until mysqladmin ping -h mariadb-headless -u root -p"$MARIADB_ROOT_PASSWORD" --silent 2>/dev/null; do sleep 3; done
-              mysql -h mariadb-headless -u root -p"$MARIADB_ROOT_PASSWORD" <<SQL
+              # 공식 MariaDB 11+ 는 mysqladmin/mysql 을 제거하고
+              # mariadb-admin/mariadb 로 이름을 바꿨다(bitnami 에는 있었다).
+              until mariadb-admin ping -h mariadb-headless -u root -p"$MARIADB_ROOT_PASSWORD" --silent 2>/dev/null; do sleep 3; done
+              mariadb -h mariadb-headless -u root -p"$MARIADB_ROOT_PASSWORD" <<SQL
               CREATE DATABASE IF NOT EXISTS cmmn CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
               CREATE USER IF NOT EXISTS 'cmmn'@'%' IDENTIFIED BY '${CMMN_PASSWORD}';
               ALTER USER 'cmmn'@'%' IDENTIFIED BY '${CMMN_PASSWORD}';
@@ -48,7 +50,7 @@ spec:
               FLUSH PRIVILEGES;
               SQL
               echo "[mariadb-bootstrap] 완료"
-              mysql -h mariadb-headless -u root -p"$MARIADB_ROOT_PASSWORD" -e "SHOW DATABASES;"
+              mariadb -h mariadb-headless -u root -p"$MARIADB_ROOT_PASSWORD" -e "SHOW DATABASES;"
           env:
             - name: MARIADB_ROOT_PASSWORD
               valueFrom: { secretKeyRef: { name: mariadb-secret, key: root-password } }
