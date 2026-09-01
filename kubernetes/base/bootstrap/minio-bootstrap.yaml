@@ -45,6 +45,11 @@ spec:
                 mc mb --ignore-existing "oim/$b"
                 echo "[minio-bootstrap] bucket $b"
               done
+              # Spark 는 버킷 루트를 이벤트 로그 경로로 받지 못한다 — 경로 성분이
+              # 없어 SparkContext.scala:631 에서 path must be absolute 가 난다.
+              # 프리픽스가 실재해야 History Server 의 getFileStatus 도 통과한다.
+              echo placeholder | mc pipe oim/spark-events/events/.keep
+              echo placeholder | mc pipe oim/warehouse/tables/.keep
               mc ls oim
               echo "[minio-bootstrap] 완료"
           env:

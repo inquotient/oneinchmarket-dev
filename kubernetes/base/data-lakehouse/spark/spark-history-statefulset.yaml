@@ -45,7 +45,7 @@ spec:
           env:
             - name: SPARK_HISTORY_OPTS
               value: >-
-                -Dspark.history.fs.logDirectory=s3a://spark-events/
+                -Dspark.history.fs.logDirectory=s3a://spark-events/events
                 -Dspark.history.fs.cleaner.enabled=true
                 -Dspark.history.fs.cleaner.maxAge=7d
             - name: AWS_ACCESS_KEY_ID

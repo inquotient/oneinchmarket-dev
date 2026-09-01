@@ -45,7 +45,10 @@ data:
     # minio-bootstrap 은 spark-events 를 별도 버킷으로 만든다.
     # s3a://warehouse/spark-events 는 존재하지 않는 프리픽스다:
     #   FileNotFoundException: Log directory specified does not exist
-    spark.eventLog.dir                              s3a://spark-events/
+    # 버킷 루트(s3a://spark-events/)는 stripSuffix("/") 후 경로 성분이 사라져
+    # SparkContext.scala:631 에서 IllegalArgumentException: path must be absolute 가 난다.
+    # 프리픽스를 포함한 경로를 준다. minio-bootstrap 이 프리픽스를 만든다.
+    spark.eventLog.dir                              s3a://spark-events/events
 
     # ── 유휴 시 executor 를 0으로 반납한다. 로컬 메모리 예산에서 중요하다.
     spark.dynamicAllocation.enabled                 true
