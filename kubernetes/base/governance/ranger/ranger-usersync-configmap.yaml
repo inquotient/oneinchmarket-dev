@@ -1,0 +1,71 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ranger-usersync-config
+  labels: {app.kubernetes.io/name: ranger-usersync, app.kubernetes.io/component: governance, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+data:
+  # upstream 의 dev-support/ranger-docker/scripts/usersync/
+  #   ranger-usersync-install.properties 를 이 클러스터에 맞춘 것이다.
+  #
+  # ★ 비밀번호는 여기 두지 않는다. __RANGER_USERSYNC_PASSWORD__ ·
+  #   __LDAP_BIND_PASSWORD__ 는 파드 기동 시 Secret 에서 읽은 env 로
+  #   치환된다(매니페스트의 command 참조). v1 은 이 값들을 ConfigMap 에
+  #   평문으로 두었다.
+  install.properties.tmpl: |
+    ranger_base_dir = /opt/ranger/usersync
+
+    POLICY_MGR_URL = http://ranger-admin:6080
+
+    # unix 가 아니라 ldap 이다. DS389 를 원천으로 삼는다.
+    SYNC_SOURCE = ldap
+    SYNC_INTERVAL = 5
+
+    unix_user=ranger
+    unix_group=ranger
+
+    # Ranger admin 의 내부 계정 rangerusersync 로 인증한다.
+    # ranger.sh 가 rangerUsersync_password 를 RANGER_DB_PASSWORD 로
+    # 설정하므로 같은 Secret 값을 쓴다.
+    rangerUsersync_password=__RANGER_USERSYNC_PASSWORD__
+
+    CRED_KEYSTORE_FILENAME=/opt/ranger/usersync/conf/rangerusersync.jceks
+
+    # unixauth 서비스용 SSL 이다. SYNC_SOURCE=ldap 에서는 쓰이지 않는다.
+    AUTH_SSL_ENABLED=false
+
+    # ── LDAP ────────────────────────────────────────────────────
+    SYNC_LDAP_URL = ldap://ds389-headless:3389
+    SYNC_LDAP_BIND_DN = cn=Directory Manager
+    SYNC_LDAP_BIND_PASSWORD = __LDAP_BIND_PASSWORD__
+    SYNC_LDAP_DELTASYNC = false
+
+    SYNC_LDAP_SEARCH_BASE = dc=oneinchmarket,dc=co,dc=kr
+    SYNC_LDAP_USER_SEARCH_BASE = ou=people,dc=oneinchmarket,dc=co,dc=kr
+    SYNC_LDAP_USER_SEARCH_SCOPE = sub
+    # 389ds 의 사용자는 inetOrgPerson 이고 로그인 이름은 uid 다.
+    # upstream 기본값(person / cn)이 아니다.
+    SYNC_LDAP_USER_OBJECT_CLASS = inetOrgPerson
+    SYNC_LDAP_USER_NAME_ATTRIBUTE = uid
+    SYNC_LDAP_USER_GROUP_NAME_ATTRIBUTE = memberof
+    SYNC_LDAP_USERNAME_CASE_CONVERSION=lower
+    SYNC_LDAP_GROUPNAME_CASE_CONVERSION=lower
+    SYNC_LDAP_REFERRAL = follow
+
+    # 그룹은 사용자 엔트리의 속성이 아니라 그룹 트리를 직접 검색한다.
+    # memberof 플러그인에 의존하지 않는다.
+    SYNC_GROUP_SEARCH_ENABLED=true
+    SYNC_GROUP_USER_MAP_SYNC_ENABLED=true
+    SYNC_GROUP_SEARCH_BASE=ou=groups,dc=oneinchmarket,dc=co,dc=kr
+    SYNC_GROUP_SEARCH_SCOPE=sub
+    SYNC_GROUP_OBJECT_CLASS=groupOfNames
+    SYNC_GROUP_NAME_ATTRIBUTE=cn
+    SYNC_GROUP_MEMBER_ATTRIBUTE_NAME=member
+
+    SYNC_PAGED_RESULTS_ENABLED=true
+    SYNC_PAGED_RESULTS_SIZE=500
+
+    MIN_UNIX_USER_ID_TO_SYNC = 500
+    MIN_UNIX_GROUP_ID_TO_SYNC = 500
+
+    logdir=/var/log/ranger/usersync
+    USERSYNC_PID_DIR_PATH=/var/run/ranger

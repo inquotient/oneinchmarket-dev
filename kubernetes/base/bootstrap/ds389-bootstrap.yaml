@@ -88,14 +88,35 @@ spec:
               ou: groups"
 
               # ── 3. 검증. 여기서 실패하면 Job 도 실패해야 한다.
+              # ── 3. 스모크 픽스처
+              #    usersync 가 LDAP -> Ranger 동기화를 실제로 하는지 보려면
+              #    원천에 사용자·그룹이 하나씩은 있어야 한다. 없으면
+              #    "0명 동기화" 와 "설정이 틀려 0명" 을 구분할 수 없다.
+              echo "[ds389-bootstrap] uid=oim-svc (스모크 픽스처)"
+              add "dn: uid=oim-svc,ou=people,${BASE}
+              objectClass: top
+              objectClass: person
+              objectClass: organizationalPerson
+              objectClass: inetOrgPerson
+              uid: oim-svc
+              cn: OneinchMarket Service Account
+              sn: Service"
+
+              echo "[ds389-bootstrap] cn=oim-admins (스모크 픽스처)"
+              add "dn: cn=oim-admins,ou=groups,${BASE}
+              objectClass: top
+              objectClass: groupOfNames
+              cn: oim-admins
+              member: uid=oim-svc,ou=people,${BASE}"
+
               echo "[ds389-bootstrap] 검증"
               found=$(ldapsearch -x -LLL -H "$LDAP" -D "$DM" -w "$DM_PASSWORD" \
                         -b "$BASE" -s sub "(objectClass=*)" dn 2>/dev/null | grep -c '^dn:')
               echo "  엔트리 $found 건"
               ldapsearch -x -LLL -H "$LDAP" -D "$DM" -w "$DM_PASSWORD" \
                 -b "$BASE" -s sub "(objectClass=*)" dn 2>/dev/null | grep '^dn:' | sed 's/^/  /'
-              if [ "$found" -lt 3 ]; then
-                echo "[ds389-bootstrap] 실패 — 루트 + ou 2개(총 3건)를 기대했다"
+              if [ "$found" -lt 5 ]; then
+                echo "[ds389-bootstrap] 실패 — 루트 + ou 2개 + 픽스처 2개(총 5건)를 기대했다"
                 exit 1
               fi
               echo "[ds389-bootstrap] 완료"

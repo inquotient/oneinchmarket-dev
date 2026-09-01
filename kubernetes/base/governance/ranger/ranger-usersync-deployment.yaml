@@ -1,0 +1,108 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ranger-usersync
+  labels: {app.kubernetes.io/name: ranger-usersync, app.kubernetes.io/component: governance, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+  annotations: {reloader.stakater.com/auto: "true"}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: ranger-usersync}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: ranger-usersync, app.kubernetes.io/component: governance, app.kubernetes.io/part-of: oneinchmarket}
+    spec:
+      serviceAccountName: ranger-usersync
+      securityContext:
+        # apache/ranger-base 의 기본 uid 다(admin 이미지와 같다).
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        - name: wait-deps
+          image: busybox:1.36
+          command: ["/bin/sh","-c"]
+          args:
+            - |
+              set -eu
+              echo "[wait] Ranger admin(ranger-admin:6080)"
+              until nc -z ranger-admin 6080; do sleep 3; done
+              echo "[wait] DS389(ds389-headless:3389)"
+              until nc -z ds389-headless 3389; do sleep 3; done
+              echo "[wait] 완료"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits:   {cpu: 100m, memory: 64Mi}
+      containers:
+        - name: ranger-usersync
+          # 로컬 빌드다. upstream 의 Dockerfile.ranger-usersync 를 옮긴
+          # docker/ranger-usersync 를 local/build-images.sh 가 만든다.
+          # 공식 이미지가 없다 — apache/ranger 는 admin 만 담고 있다.
+          image: oneinch/ranger-usersync:latest
+          imagePullPolicy: IfNotPresent
+          # ★ 엔트리포인트를 감싸는 이유 —
+          #   upstream 의 ranger-usersync.sh 는 ${RANGER_HOME}/usersync/
+          #   install.properties 를 읽는데, 그 파일에 LDAP bind 비밀번호와
+          #   rangerusersync 비밀번호가 들어간다. ConfigMap 에 평문으로 둘 수
+          #   없어 템플릿을 두고 여기서 Secret 값으로 치환한다.
+          #   치환 후에는 upstream 스크립트를 그대로 exec 한다.
+          command: ["/bin/bash","-c"]
+          args:
+            - |
+              set -euo pipefail
+              TMPL=/etc/ranger-usersync/install.properties.tmpl
+              DEST="${RANGER_HOME}/usersync/install.properties"
+              sed -e "s|__RANGER_USERSYNC_PASSWORD__|${RANGER_USERSYNC_PASSWORD}|" \
+                  -e "s|__LDAP_BIND_PASSWORD__|${LDAP_BIND_PASSWORD}|" \
+                  "$TMPL" > "$DEST"
+              chmod 600 "$DEST"
+              echo "[usersync] install.properties 생성 (비밀번호 2건 치환)"
+              exec "${RANGER_SCRIPTS}/ranger-usersync.sh"
+          env:
+            - name: RANGER_USERSYNC_PASSWORD
+              valueFrom: {secretKeyRef: {name: ranger-secret, key: db-password}}
+            - name: LDAP_BIND_PASSWORD
+              valueFrom: {secretKeyRef: {name: ds389-secret, key: dm-password}}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 100m, memory: 384Mi}
+            limits:   {cpu: 500m, memory: 768Mi}
+          # 포트를 열지 않는다(폴링 클라이언트다). 프로세스 생존으로 판정한다.
+          livenessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -c
+                - pgrep -f org.apache.ranger.authentication.UnixAuthenticationService >/dev/null
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -c
+                - pgrep -f org.apache.ranger.authentication.UnixAuthenticationService >/dev/null
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - {name: config, mountPath: /etc/ranger-usersync}
+            - {name: logs, mountPath: /var/log/ranger/usersync}
+            - {name: run, mountPath: /var/run/ranger}
+      volumes:
+        - name: config
+          configMap: {name: ranger-usersync-config}
+        - name: logs
+          emptyDir: {}
+        - name: run
+          emptyDir: {}

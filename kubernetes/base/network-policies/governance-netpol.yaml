@@ -13,6 +13,7 @@ spec:
     - from:
         - podSelector: {matchLabels: {app.kubernetes.io/name: lam}}
         - podSelector: {matchLabels: {app.kubernetes.io/name: ranger-admin}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: ranger-usersync}}
         # Keycloak 의 LDAP User Federation. 아직 연결하지 않았으나
         # 연결 시점에 NetworkPolicy 를 찾아 헤매지 않도록 미리 연다.
         - podSelector: {matchLabels: {app.kubernetes.io/name: keycloak}}
@@ -65,6 +66,8 @@ spec:
         - podSelector: {matchLabels: {app.kubernetes.io/name: knox}}
         - podSelector: {matchLabels: {app.kubernetes.io/name: nginx}}
         - podSelector: {matchLabels: {app.kubernetes.io/name: oauth2-proxy}}
+        # usersync 가 동기화 결과를 REST 로 밀어 넣는다.
+        - podSelector: {matchLabels: {app.kubernetes.io/name: ranger-usersync}}
         # 플러그인을 붙인 워크로드가 정책을 내려받는다(6080).
         # Trino·Hive·Kafka 는 아직 플러그인이 없다. 붙일 때 여기에 더한다.
       ports: [{protocol: TCP, port: 6080}]
