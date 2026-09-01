@@ -386,6 +386,46 @@ Bitnami 가 Docker Hub 무료 카탈로그에서 **버전 태그를 전부 내�
 - `local` 오버레이에도 동일 핀 적용 → Kyverno `disallow-latest` 위반 해소
 - **로컬 빌드 이미지는 `imagePullPolicy: IfNotPresent` + containerd 에 핀 태그를 함께 반입**해야 한다. 태그만 바꾸면 `ImagePullBackOff` 가 난다
 
+
+### 8-9. bitnami → 공식 이미지 전환 · `:latest` 활용
+
+`bitnami/*` 는 2025-08 무료 카탈로그 축소로 **버전 태그가 사라져 재현 가능한 핀이 불가능**해졌다. 공식 업스트림 이미지로 전환했다.
+
+#### 규약 차이 — 여기서 5건이 깨졌다
+
+| 항목 | bitnami | 공식 | 결과 |
+|---|---|---|---|
+| PostgreSQL 환경변수 | `POSTGRESQL_USERNAME/DATABASE/PASSWORD` | `POSTGRES_USER/DB/PASSWORD` | ConfigMap·StatefulSet 수정 |
+| PostgreSQL 추가 플래그 | `POSTGRESQL_EXTRA_FLAGS` | **대응 없음** | `args: [postgres, -c, max_locks_per_transaction=256]` |
+| PostgreSQL 데이터 경로 | `/bitnami/postgresql` | `/var/lib/postgresql/data` + **`PGDATA` 하위 디렉터리 필수** | `lost+found` 때문에 마운트 지점 자체를 못 쓴다 |
+| MariaDB 데이터 경로 | `/bitnami/mariadb/data` | `/var/lib/mysql` | |
+| **MariaDB 클라이언트** | `mysqladmin` · `mysql` | **`mariadb-admin` · `mariadb`** | MariaDB 11+ 에서 개명. **readiness probe·부트스트랩·로테이션 3곳** |
+| Redis 비밀번호 | `REDIS_PASSWORD` 환경변수 | **읽지 않는다** | `--requirepass` 인자로 |
+| Redis 데이터 경로 | `/bitnami` | `/data` | |
+| uid | 1001 | **999** | `securityContext` 3종 |
+
+**MariaDB 클라이언트 개명이 가장 은밀했다.** readiness probe 가 `mysqladmin` 을 써 `mariadb-0` 이 `0/1` 로 남았고 → headless Service 에 엔드포인트가 생기지 않아 → `mariadb-bootstrap` 과 `cmmn-api` 가 `UnknownHostException: mariadb-headless` 로 죽었다. **증상이 원인에서 두 단계 떨어져 있다.**
+
+#### PVC 정합성
+
+데이터 경로가 바뀌므로 DB 3종의 PVC 를 재생성해야 한다. 그런데 **PostgreSQL PVC 만 지우면 GitLab 이 깨진다** — GitLab 은 자기 PVC 에 "마이그레이션 완료" 상태를 기록하므로, DB 는 비었는데 스키마 적재를 건너뛴다.
+
+```
+PG::UndefinedTable: ERROR: relation "application_settings" does not exist
+```
+
+→ **GitLab PVC 와 `gitlab` DB 를 함께 재생성**해야 한다.
+
+#### 태그 정책
+
+| 대상 | 정책 |
+|---|---|
+| `base` | **`:latest`** — 예외 2건: `apache/hive:4.0.1`(스키마 버전에 묶임), `busybox:1.36`(변동 이유 없음) |
+| `overlays/local` | `:latest` (base 그대로) |
+| `overlays/prod` | **핀 유지** — Kyverno `disallow-latest` 가 **Enforce** 라 `:latest` 는 admission 에서 차단된다 |
+
+prod 핀: `postgres:18.6` · `mariadb:12.3.3` · `redis:8.10.1` · 그 외 20종.
+
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용

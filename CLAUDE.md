@@ -81,7 +81,7 @@ cd scripts/security-verification && ./run-all.sh [namespace]
 - **Kafka KRaft** — ZooKeeper 없음. 단 `KAFKA_LOG_DIRS` 미설정으로 마운트한 PVC를 쓰지 않는다
 - **Istio Ambient** — ztunnel + waypoint. **현재 dev에서 비활성이고 mTLS는 `PERMISSIVE`다**
 - **ECK operator** — Elasticsearch/Kibana가 `elasticsearch.k8s.elastic.co/v1` CRD 사용. **설치 스크립트는 없다**
-- **Redis** — `bitnami/redis` **standalone 6 레플리카**. 클러스터가 아니다
+- **Redis** — **공식 `redis`** standalone 6 레플리카. 클러스터가 아니다
 - **Multi-provider IaC** — `infra/modules/`가 count로 분기. **Vultr만 완성**
 
 ### Security Layers
