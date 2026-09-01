@@ -289,15 +289,16 @@ vmstat si: 0                              ← 스왑인 없음
 
 ### 8-7. 최종 결과 (2026-09-01 배포 세션)
 
-**23 Running · 5 Completed · 3 미해결**
+**25 Running · 5 Completed · 2 미해결**
 
 부트스트랩 Job 5/5 완료 — `postgres-bootstrap` · `mariadb-bootstrap` · `minio-bootstrap` · `kafka-topics` · `hive-schematool`.
 
-#### 남은 3건과 진단
+#### 남은 2건과 진단 (해소된 것은 취소선)
 
 | 파드 | 마지막 오류 | 진단 |
 |---|---|---|
-| **cmmn-api** | `Couldn't resolve server kafka-0.kafka-headless.dev.svc.cluster.local` | **매니페스트에는 이 값이 없다.** 렌더링 결과는 `SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka-headless:9092` 이고 파드 `resolv.conf` 의 search 도 `local.svc.cluster.local` 이다. `.dev.svc` 는 **`inquotient/cmmn-api:latest` 이미지에 구워진 설정**으로 보인다. **G9(Dockerfile 부재)로 재빌드가 불가능하므로 매니페스트 수준에서 해결되지 않는다** |
+| ~~cmmn-api~~ | — | **해소.** 소스(`oneinchmarket-cmmn-api`)를 확인한 결과 `application-kafka.yml` 의 `kafka-dev` 프로파일이 `spring.kafka.consumer.bootstrap-servers`·`producer.bootstrap-servers` 를 개별 지정한다. 더 구체적인 키가 우선하므로 `SPRING_KAFKA_BOOTSTRAP_SERVERS` 로는 덮이지 않았다. `SPRING_KAFKA_CONSUMER_/PRODUCER_BOOTSTRAP_SERVERS` 로 교체해 **재빌드 없이 해소** — G9 를 우회한다 |
+| ~~apicurio-registry~~ | — | **해소.** health 엔드포인트가 관리 포트 9000 의 **`/health/*`** 에 있다(`/q` 접두사 없음). 포트포워딩 실측: `:9000/health/ready`→200, `:9000/q/health/ready`→404, `:8080/*`→404. base 의 `/health/*`(8080) 도 404 였다. 포트와 경로를 함께 고치고 `startupProbe` 를 추가했다 |
 | **gitlab** | Chef `templatesymlink[Create a gitlab.yml]` 이후 핸들러 실패 | `max_locks_per_transaction` 상향으로 `out of shared memory` 는 넘겼으나 다음 단계에서 실패한다. GitLab Omnibus 초기화는 단계가 많아 추가 조사가 필요하다 |
 | **spark-connect** | 종료 코드 없이 shutdown hook 만 남기고 종료 | `deletecollection` RBAC 과 Connect JAR 은 해소됐다. `start-connect-server.sh` + `SPARK_NO_DAEMONIZE` 로 전환했으나 여전히 조기 종료한다. client 모드 + `spark.master=k8s://` 조합의 추가 설정이 필요해 보인다 |
 
