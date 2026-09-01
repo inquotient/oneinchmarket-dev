@@ -27,4 +27,7 @@ metadata:
   labels: {app.kubernetes.io/name: prometheus, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: prometheus}
 subjects:
-  - {kind: ServiceAccount, name: prometheus, namespace: local}
+  # namespace 는 "default" 로 둔다 — kustomize 네임스페이스 변환기가
+  # ClusterRoleBinding subject 의 "default" 만 오버레이 네임스페이스로
+  # 바꾼다. 실제 값을 박아두면 다른 오버레이에서 바인딩이 빗나간다.
+  - {kind: ServiceAccount, name: prometheus, namespace: default}

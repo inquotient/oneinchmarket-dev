@@ -75,6 +75,18 @@ images:
   - name: docker.elastic.co/beats/filebeat
     newTag: "9.5.2"
 
+  # ── 관측성 · 메트릭·로그·트레이스 (INFRA-601 1~2단계) ────────
+  - name: prom/prometheus
+    newTag: "v3.14.0"
+  - name: grafana/grafana
+    newTag: "13.2.0"
+  - name: grafana/loki
+    newTag: "3.7.7"                    # 스키마 v13 · OTLP 수집 경로 고정
+  - name: grafana/tempo
+    newTag: "3.0.3"
+  - name: otel/opentelemetry-collector-contrib
+    newTag: "0.159.0"                 # 컬렉터 설정 스키마는 마이너마다 바뀐다
+
   # ── DevOps ─────────────────────────────────────────────────
   - name: gitlab/gitlab-ee
     newTag: "19.3.1-ee.0"

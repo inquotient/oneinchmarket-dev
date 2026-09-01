@@ -36,4 +36,4 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: trivy-scanner
-    namespace: dev
+    namespace: default

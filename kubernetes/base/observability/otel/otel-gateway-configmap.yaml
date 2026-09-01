@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-gateway-config
+  labels: {app.kubernetes.io/name: otel-gateway, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+data:
+  # 백엔드를 아는 유일한 지점이다. 에이전트는 게이트웨이만 알고,
+  # 백엔드 교체(Loki -> 다른 로그 저장소 등)는 여기 한 곳만 바뀐다.
+  #
+  #   traces  -> Tempo   (OTLP gRPC)
+  #   logs    -> Loki    (OTLP HTTP. Loki 3.x 네이티브 /otlp 엔드포인트)
+  #   metrics -> Prometheus 가 이 파드의 :8889 를 스크레이프한다(pull).
+  #             remote-write 를 쓰지 않는 이유는 Prometheus 에 수신기를
+  #             열지 않기 위해서다.
+  otel-gateway.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+    processors:
+      memory_limiter:
+        check_interval: 5s
+        limit_percentage: 75
+        spike_limit_percentage: 20
+
+      batch:
+        timeout: 10s
+        send_batch_size: 1024
+        send_batch_max_size: 2048
+
+    exporters:
+      otlp/tempo:
+        endpoint: tempo-headless:4317
+        tls:
+          insecure: true
+        retry_on_failure:
+          enabled: true
+
+      # otlphttp 는 엔드포인트에 /v1/logs 를 덧붙인다.
+      # -> http://loki-headless:3100/otlp/v1/logs
+      otlphttp/loki:
+        endpoint: http://loki-headless:3100/otlp
+        retry_on_failure:
+          enabled: true
+
+      prometheus:
+        endpoint: 0.0.0.0:8889
+        resource_to_telemetry_conversion:
+          enabled: true
+
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+
+    service:
+      extensions: [health_check]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [otlp/tempo]
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [otlphttp/loki]
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [prometheus]

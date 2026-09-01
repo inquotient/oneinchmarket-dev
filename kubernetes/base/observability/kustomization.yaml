@@ -16,6 +16,21 @@ resources:
   - prometheus/prometheus-configmap.yaml
   - prometheus/prometheus-statefulset.yaml
   - prometheus/prometheus-headless.yaml
+  # Loki - 로그 (OTLP 수집)
+  - loki/loki-headless.yaml
+  - loki/loki-configmap.yaml
+  - loki/loki-statefulset.yaml
+  # Tempo - 트레이스 (OTLP 수집)
+  - tempo/tempo-headless.yaml
+  - tempo/tempo-configmap.yaml
+  - tempo/tempo-statefulset.yaml
+  # OpenTelemetry Collector - agent(DaemonSet) + gateway(Deployment)
+  - otel/otel-agent-rbac.yaml
+  - otel/otel-agent-configmap.yaml
+  - otel/otel-agent-daemonset.yaml
+  - otel/otel-gateway-service.yaml
+  - otel/otel-gateway-configmap.yaml
+  - otel/otel-gateway-deployment.yaml
   # Grafana - 대시보드
   - grafana/grafana-configmap.yaml
   - grafana/grafana-deployment.yaml

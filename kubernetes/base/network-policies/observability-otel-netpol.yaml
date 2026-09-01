@@ -1,0 +1,74 @@
+# 2단계(Loki·Tempo·OTel) 의 인바운드 허용.
+# default-deny-ingress 하에서는 파이프라인의 각 홉을 명시해야 한다.
+#
+# ★ 겪은 함정 — NetworkPolicy 누락은 인증 실패처럼 보이지 않는다.
+#   `Connection timed out` 으로 나타난다. 익스포터가 재시도만 반복한다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-otel-agent-ingress
+  labels: {app.kubernetes.io/name: allow-otel-agent-ingress, app.kubernetes.io/component: network-policies, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: otel-agent}
+  policyTypes: [Ingress]
+  ingress:
+    # 계측된 워크로드는 어느 것이든 노드 로컬 에이전트로 OTLP 를 보낸다.
+    - from:
+        - podSelector: {}
+      ports:
+        - {protocol: TCP, port: 4317}
+        - {protocol: TCP, port: 4318}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-otel-gateway-ingress
+  labels: {app.kubernetes.io/name: allow-otel-gateway-ingress, app.kubernetes.io/component: network-policies, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: otel-gateway}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: otel-agent}}
+      ports:
+        - {protocol: TCP, port: 4317}
+        - {protocol: TCP, port: 4318}
+    # :8889 는 allow-prometheus-scrape 가 이미 덮는다.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-loki-access
+  labels: {app.kubernetes.io/name: allow-loki-access, app.kubernetes.io/component: network-policies, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: loki}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: otel-gateway}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: grafana}}
+      ports:
+        - {protocol: TCP, port: 3100}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-tempo-access
+  labels: {app.kubernetes.io/name: allow-tempo-access, app.kubernetes.io/component: network-policies, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: tempo}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: otel-gateway}}
+      ports:
+        - {protocol: TCP, port: 4317}
+        - {protocol: TCP, port: 4318}
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: grafana}}
+      ports:
+        - {protocol: TCP, port: 3200}

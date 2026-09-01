@@ -26,11 +26,16 @@ memorySwap:
 # 페이지가 zram 으로 흘러간다.
 memoryThrottlingFactor: 0.8
 
+# ★ CPU 예약을 250m 로 낮춘다 (2026-09-01)
+#   1단계 완료 시점 CPU requests 가 68%(13/19)였다. 남은 단계의
+#   ~130종은 메모리가 아니라 CPU requests 에서 먼저 스케줄이 막힌다.
+#   WSL2 는 호스트 커널을 공유해 시스템 데몬이 적다. 500m x 2 는 과다다.
+#   메모리 예약은 그대로 둔다 — 이쪽은 OOM 과 직결된다.
 systemReserved:
-  cpu: "500m"
+  cpu: "250m"
   memory: "1Gi"
 kubeReserved:
-  cpu: "500m"
+  cpu: "250m"
   memory: "1Gi"
 
 evictionHard:

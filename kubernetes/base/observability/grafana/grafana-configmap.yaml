@@ -5,16 +5,22 @@ metadata:
   labels: {app.kubernetes.io/name: grafana, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
 data:
   # 데이터소스는 프로비저닝으로 선언한다. UI 수작업을 남기지 않는다.
+  #
+  # ★ $ 이스케이프 — Grafana 는 프로비저닝 파일에서 ${VAR} 를 환경변수로
+  #   치환한다. 리터럴로 남겨야 하는 곳($__value.raw 등)은 $$ 로 쓴다.
   datasources.yaml: |
     apiVersion: 1
     datasources:
       - name: Prometheus
         type: prometheus
+        uid: prometheus
         access: proxy
         url: http://prometheus-headless:9090
         isDefault: true
+
       - name: Elasticsearch
         type: elasticsearch
+        uid: elasticsearch
         access: proxy
         url: https://elasticsearch-es-http:9200
         database: "logstash-*"
@@ -25,3 +31,35 @@ data:
           tlsSkipVerify: true
         secureJsonData:
           basicAuthPassword: ${ES_PASSWORD}
+
+      # ── 2단계 ────────────────────────────────────────────────
+      - name: Loki
+        type: loki
+        uid: loki
+        access: proxy
+        url: http://loki-headless:3100
+        jsonData:
+          # 로그 라인의 trace_id 를 Tempo 링크로 만든다.
+          derivedFields:
+            - name: TraceID
+              datasourceUid: tempo
+              matcherRegex: '"trace_id":"(\w+)"'
+              url: "$${__value.raw}"
+
+      - name: Tempo
+        type: tempo
+        uid: tempo
+        access: proxy
+        url: http://tempo-headless:3200
+        jsonData:
+          # 스팬 -> 로그. 파드 라벨로 좁힌다.
+          tracesToLogsV2:
+            datasourceUid: loki
+            spanStartTimeShift: "-5m"
+            spanEndTimeShift: "5m"
+            filterByTraceID: true
+            tags:
+              - {key: "k8s.pod.name", value: "k8s_pod_name"}
+          # 스팬 -> 메트릭은 metrics_generator 가 필요하다. 켜지 않았다.
+          nodeGraph:
+            enabled: false
