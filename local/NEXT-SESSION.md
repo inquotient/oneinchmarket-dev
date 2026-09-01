@@ -5,9 +5,9 @@
 ## 지금 상태
 
 ```
-35 Running(전부 1/1 Ready) · 6 Completed · 미해결 0
-requests  메모리 56% (26.0/45 GiB)   CPU 71% (13.9/19.5)
-limits    메모리 96%  ← 4단계 착수 전에 볼 것
+36 Running(전부 1/1 Ready) · 6 Completed · 미해결 0
+requests  메모리 57% (26.4/45 GiB)   CPU 71% (14.0/19.5)
+limits    메모리 98%  ← ★ 4단계 착수 전에 반드시 정리할 것
 ```
 
 WSL2 단일 노드 k3s 에 **`[구현됨]` 매니페스트 전체 + 1~3단계**가 떠 있다.
@@ -17,7 +17,7 @@ WSL2 단일 노드 k3s 에 **`[구현됨]` 매니페스트 전체 + 1~3단계**�
 | 플랫폼 | Cilium 1.16.5(M1·M2 적용) · Istio ambient · Gateway API · ECK 3.2.0 · Kyverno · cert-manager |
 | core | PostgreSQL·MariaDB·MongoDB·Redis(공식 이미지) · Kafka · Apicurio · AKHQ · MinIO · Trino · Hive MS · Keycloak · admin · cmmn-api · nginx |
 | observability | Elasticsearch·Kibana·Logstash·Filebeat **9.5.2** · Prometheus · Grafana · Loki · Tempo · OTel(agent·gateway) |
-| **governance** | **DS389 3.1 · LAM 8.3 · Solr 10 · Ranger admin 2.9.0 · Knox 3.0** |
+| **governance** | **DS389 3.1 · LAM 8.3 · Solr 10 · Ranger admin·usersync 2.9.0 · Knox 3.0** |
 | data | Spark History · Spark Connect · Livy |
 | devops | GitLab 19.3.1-ee.0 |
 | 부트스트랩 | 7종 전부 Complete (ds389-bootstrap 추가) |
@@ -54,24 +54,31 @@ kubectl -n local exec ds389-0 -- ldapsearch -x -LLL -H ldap://localhost:3389 \
 
 ### ★ 착수 전에 볼 것
 
-1. **메모리 limits 가 96% 다.** requests(56%)는 여유가 있으나 limits 합이 노드 용량에 닿았다.
-   새 워크로드의 limits 를 보수적으로 잡거나 기존 워크로드(특히 GitLab·Trino·Elasticsearch)의
-   limits 를 재검토할 것
-2. **`C:\Users\darka\.wslconfig` 의 `processors=20` → 24** (`wsl --shutdown` 필요, 클러스터가 내려간다).
-   3단계는 CPU 71% 로 넘겼다. 4단계에서 막히면 그때 할 것
+1. **★ 메모리 limits 가 98% 다.** requests(57%)는 여유가 있으나 limits 합이 노드 용량에
+   사실상 닿았다. 새 워크로드의 limits 를 보수적으로 잡거나, 기존 워크로드(GitLab·Trino·
+   Elasticsearch·Kafka)의 limits 를 실사용 기준으로 낮추거나, `.wslconfig` 의 `memory=48GB`
+   를 올릴 것(호스트 63.4 GB 중 15 GB 를 Windows 에 남겨 둔 상태다)
+2. **`C:\Users\darka\.wslconfig` 의 `processors=20` → 24** (`wsl --shutdown` 필요, 클러스터가
+   내려간다). 3단계는 CPU 71% 로 넘겼다 — 이번 병목은 CPU 가 아니라 메모리 limits 다
 3. **Vault 는 ADR-024 와 맞물린다** — 채택하면 로테이션 CronJob 8종·git-sync·`.enc.yaml` 12개가
    제거된다. 4단계에서 Vault 를 올리기 전에 그 결정을 먼저 할 것
 
-### 3단계에서 미룬 것 — ranger-usersync
+### 로컬 빌드 이미지가 3종이 되었다
 
-공식 이미지가 없다. `apache/ranger:2.9.0` 은 admin 배포물만 담고 있고 Docker Hub 에
-`apache/ranger-usersync` 저장소가 없다. 남은 길:
+`local/build-images.sh` 가 podman 으로 빌드해 k3s containerd 로 반입한다.
 
-1. **로컬 빌드** — `downloads.apache.org/ranger/2.9.0/services/usersync/` tarball 로 이미지 생성(TODO-37 성격)
-2. ~~런타임 다운로드~~ — v1 방식. 폐쇄망에서 깨지고 재현성이 없다. 채택하지 않는다
+```
+oneinch/spark-iceberg   docker/spark-iceberg
+oneinch/livy            docker/livy
+oneinch/ranger-usersync docker/ranger-usersync   # upstream Dockerfile 이식
+```
 
-현재 Ranger admin 은 `authentication_method=UNIX`(이미지 기본값)다. DS389 연동은 usersync
-또는 Ranger admin 의 LDAP 인증 전환으로 별도 진행한다.
+**클러스터를 다시 만들면 이 스크립트를 먼저 돌려야 한다.** 반입하지 않으면
+`ImagePullBackOff` 가 난다(레지스트리에 없는 이미지다).
+
+Ranger admin 은 아직 `authentication_method=UNIX`(이미지 기본값)다. usersync 가
+사용자·그룹을 동기화하지만 **웹 로그인 자체를 LDAP 으로 바꾸는 것은 별도 작업**이다
+(install.properties 를 통째로 교체해야 해 별칭 Service 설계가 무너진다).
 
 ## 알아둘 함정 (실제로 겪은 것)
 
@@ -90,7 +97,14 @@ kubectl -n local exec ds389-0 -- ldapsearch -x -LLL -H ldap://localhost:3389 \
   `set -e` 없이 마지막이 `echo` 면, 아무것도 못 한 Job 이 `Complete` 로 남는다
 - **배포 후 기본 자격증명을 직접 찔러볼 것.** Ranger 는 비밀번호 정책에 걸린 값을 조용히
   무시하고 `admin/admin` 을 남겼다. 실패도 경고도 없었다
-- **emptyDir 는 이미지의 내용물을 가린다.** LAM 설정 디렉터리에 걸었다가 템플릿이 사라졌다
+- **emptyDir 는 이미지의 내용물을 가린다.** LAM 설정 디렉터리에 걸었다가 템플릿이 사라졌다.
+  ranger-usersync 는 반대로 **emptyDir 의 소유권**이 문제였다 — `root:fsGroup` 으로 붙어
+  비특권 uid 가 `os.chown` 을 못 했다
+- **upstream Dockerfile 을 이식할 때 "컨테이너에서 안 쓸 것 같은 줄"을 지우지 말 것.**
+  ranger-usersync 에서 `/etc/init.d` 준비를 지웠다가 `setup.py` 가 거기 쓰는 바람에 되돌렸다
+- **같은 프로젝트라도 이미지마다 uid 가 다르다.** `apache/ranger-base` 는 1000,
+  `apache/ranger`(admin)는 1001 이다
+- **podman 은 short-name 을 해석하지 않는다.** `docker.io/` 를 명시할 것
 - **`envFrom: configMapRef` 는 ConfigMap 을 바꿔도 파드를 재시작하지 않는다.**
   Reloader 미설치라 어노테이션이 작동하지 않는다. **ConfigMap 을 고쳤으면 파드를 직접 지울 것**
 - **NetworkPolicy 누락은 인증 실패처럼 보인다** — `Connection timed out` 이지

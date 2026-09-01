@@ -437,7 +437,7 @@ prod 핀: `postgres:18.6` · `mariadb:12.3.3` · `redis:8.10.1` · 그 외 20종
 |:-:|---|--:|---|
 | **1** | **Prometheus · Grafana** | 7 | ✅ **완료** — INFRA-601 해소 |
 | **2** | **Loki · Tempo · OTel(agent·gateway)** | 13 | ✅ **완료** — 로그·트레이스 경로 개통 |
-| **3** | **governance — DS389 · LAM · Solr · Ranger admin · Knox** | 16 | ✅ **완료** — usersync 만 보류 |
+| **3** | **governance — DS389 · LAM · Solr · Ranger(admin·usersync) · Knox** | 20 | ✅ **완료** — LDAP→Ranger 동기화 실증 |
 | 4 | security-min — Tetragon · Trivy Operator · Policy Reporter · Vault · Wazuh 2종 | ~20 | 미착수 |
 | 5 | lakehouse-v1 — ZK · Hadoop 4종 · HBase 2종 · Hive Server | ~35 | **설계 선행 필요** |
 | 6 | GlitchTip · Jenkins · Kafka Bridge · Apicurio Studio 4종 | ~20 | 미착수 |
@@ -684,24 +684,74 @@ ldapadd   dc=oneinchmarket,dc=co,dc=kr      ->  ldap_add: No such object (32)
 
 YAML 블록 안에서 LDIF 를 쓰면 들여쓰기가 그대로 넘어간다. LDIF 는 **공백으로 시작하는 줄을 앞줄의 이어붙임으로 해석**하므로 `sed 's/^[[:space:]]*//'` 로 벗겨내야 한다.
 
-#### ranger-usersync 를 넣지 않은 이유
+#### ranger-usersync — 로컬 빌드로 배포했다
 
-공식 이미지가 없다. `apache/ranger:2.9.0` 은 admin 배포물만 담고 있고 Docker Hub 에 `apache/ranger-usersync` 저장소가 없다. 남은 길은 둘뿐이다.
+처음에는 "공식 이미지가 없으니 보류" 로 두었으나 **Apache Ranger 저장소에 UserSync Dockerfile 이 있다.**
 
-1. **로컬 빌드** — `downloads.apache.org/ranger/2.9.0/services/usersync/` 의 tarball 로 이미지를 만든다. TODO-37 과 같은 성격이다
-2. v1 방식 — 기동할 때마다 tarball 을 내려받는다. **채택하지 않는다.** 런타임 인터넷 의존은 폐쇄망에서 깨지고 재현성도 없다
+```
+apache/ranger @ release-ranger-2.9.0
+  dev-support/ranger-docker/Dockerfile.ranger-usersync
+  dev-support/ranger-docker/scripts/usersync/ranger-usersync.sh
+  dev-support/ranger-docker/scripts/usersync/ranger-usersync-install.properties
+```
 
-현재 Ranger admin 은 `authentication_method=UNIX`(이미지 기본값)로 자체 계정을 쓴다. DS389 와의 연동은 usersync 또는 Ranger admin 의 LDAP 인증 전환으로 별도 진행한다.
+"공식 이미지가 없다" 는 맞았지만 **그 빌드가 무겁다고 본 것이 틀렸다.** 실제로는 공식 베이스(`apache/ranger-base`) + 정식 릴리스 tarball + 스크립트 하나이고, 이 레포에는 이미 `docker/` + `local/build-images.sh`(podman 빌드 → k3s containerd import) 경로가 있다.
+
+`docker/ranger-usersync/` 로 이식했다. upstream 과의 차이는 하나뿐이다.
+
+| | upstream | 여기 |
+|---|---|---|
+| usersync 배포물 | 소스 빌드 산출물 `./dist/` 를 COPY | `downloads.apache.org` 의 릴리스 tarball 을 **빌드 시점에** `ADD` |
+
+v1 이 **파드 기동마다** 받던 것과는 다르다 — 런타임 인터넷 의존이 없다.
+
+**비밀번호를 ConfigMap 에 두지 않는다.** `install.properties` 에는 LDAP bind 비밀번호와 `rangerUsersync_password` 가 들어가는데 upstream 엔트리포인트는 그 파일을 읽을 뿐이라 주입 지점이 없다. ConfigMap 에 자리표시자를 둔 템플릿을 두고, 파드 기동 시 Secret 에서 온 env 로 치환한 뒤 upstream 스크립트를 `exec` 한다. v1 은 이 값들을 ConfigMap 평문으로 두었다.
+
+**DS389 매핑** — upstream 기본값이 그대로는 맞지 않는다.
+
+| 항목 | upstream 기본 | DS389 |
+|---|---|---|
+| `SYNC_LDAP_USER_OBJECT_CLASS` | `person` | `inetOrgPerson` |
+| `SYNC_LDAP_USER_NAME_ATTRIBUTE` | `cn` | `uid` |
+| 그룹 원천 | 사용자 엔트리의 `memberof` | `ou=groups` 직접 검색(`SYNC_GROUP_SEARCH_ENABLED=true`, `groupOfNames`/`member`) |
+
+**빌드·배포에서 걸린 것 5건**
+
+1. **podman 은 short-name 을 해석하지 않는다.** `apache/ranger-base:...` 가 `did not resolve to an alias and no unqualified-search registries are defined` 로 실패한다. `docker.io/` 를 명시해야 한다
+2. **`ranger-base` 의 `ranger` 는 uid 1000, `apache/ranger`(admin)는 uid 1001 이다.** admin 쪽 값을 복사해 써서 `/opt/ranger/usersync`(1000 소유)에 install.properties 를 쓰지 못했다
+3. **Kerberos 를 안 써도 `hadoop_conf` 키는 있어야 한다.** `setup.py:369` 가 `globalDict['hadoop_conf']` 를 조건 없이 읽는다. `KeyError` 로 setup 이 죽으면 `conf/` 가 만들어지지 않아 그다음 `start.sh` 까지 연쇄로 실패한다
+4. **로그·pid 디렉터리에 emptyDir 를 걸면 안 된다.** `setup.py:492` 가 두 디렉터리에 `os.chown` 을 거는데, emptyDir 는 `root:fsGroup` 소유로 붙어 비특권 uid 가 소유자를 바꾸려면 `CAP_CHOWN` 이 필요하다 → EPERM. 이미지가 이미 ranger 소유로 만들어 둔다
+5. **upstream 의 `/etc/init.d` 준비를 지우면 안 된다.** "SysV init 은 컨테이너에서 안 쓴다" 며 지웠다가 되돌렸다. `setup.py:319 initializeInitD` 가 `/etc/init.d/ranger-usersync` 에 직접 쓴다. 파일이 미리 없으면 비특권 uid 가 만들지 못한다
+
+> **일반화** — upstream Dockerfile 을 이식할 때 "컨테이너에서 안 쓸 것 같은 줄" 을 지우지 말 것. `setup.py` 처럼 뒤에서 그 경로를 쓰는 코드가 있다. 지운 줄 3·4·5 가 전부 그런 경우였다.
+
+**실증** — DS389 의 스모크 픽스처가 Ranger 로 넘어왔다.
+
+```
+ds389  uid=oim-svc,ou=people,dc=oneinchmarket,dc=co,dc=kr
+       cn=oim-admins,ou=groups,dc=oneinchmarket,dc=co,dc=kr
+   ↓ usersync (SYNC_INTERVAL 5분)
+ranger /service/xusers/users   -> admin · oim-svc · rangertagsync · rangerusersync
+       /service/xusers/groups  -> oim-admins · public
+```
+
+`ds389-bootstrap` 이 픽스처 2건을 만든다. 원천이 비어 있으면 "0명 동기화" 와 "설정이 틀려 0명" 을 구분할 수 없다.
 
 #### 3단계 종료 시점 자원
 
 ```
-requests   메모리 56% (26.0/45 GiB)   CPU 71% (13.9/19.5)
-limits     메모리 96%                  CPU 152% (오버커밋)
-파드       35 Running(전부 Ready) · 6 Completed · 실패 0
+requests   메모리 57% (26.4/45 GiB)   CPU 71% (14.0/19.5)
+limits     메모리 98%                  CPU 154% (오버커밋)
+파드       36 Running(전부 Ready) · 6 Completed · 실패 0
 ```
 
-**메모리 limits 가 96% 다.** requests 는 아직 여유가 있으나 limits 합이 노드 용량에 닿았다. 4단계부터는 limits 를 보수적으로 잡거나 기존 워크로드의 limits 를 재검토해야 한다. `.wslconfig` 의 `processors=20 → 24` 는 아직 하지 않았다(CPU 71% 로 3단계를 넘겼다).
+**★ 메모리 limits 가 98% 다.** requests 는 아직 여유가 있으나 limits 합이 노드 용량에 사실상 닿았다. **4단계 착수 전에 반드시 정리해야 한다.**
+
+- 신규 워크로드의 limits 를 보수적으로 잡거나
+- 기존 워크로드(GitLab·Trino·Elasticsearch·Kafka)의 limits 를 실사용 기준으로 낮추거나
+- `.wslconfig` 의 `memory=48GB` 를 올린다(호스트 63.4 GB 중 15 GB 를 Windows 에 남겨 둔 상태다)
+
+`.wslconfig` 의 `processors=20 → 24` 는 아직 하지 않았다. CPU 71% 로 3단계를 넘겼다 — 이번 병목은 CPU 가 아니라 메모리 limits 다.
 
 #### 5단계는 설계가 선행되어야 한다
 

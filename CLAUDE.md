@@ -57,6 +57,7 @@ cd scripts/security-verification && ./run-all.sh [namespace]
 - `infra/` — OpenTofu IaC. `modules/`는 Hetzner/Vultr 이중 구조이나 **Hetzner는 미완성**
 - `argocd/` — AppProject, Application, Argo Events
 - `scripts/security-verification/` — 보안 검증 9종
+- `docker/` — 로컬 빌드 이미지 3종(`spark-iceberg`·`livy`·`ranger-usersync`). `local/build-images.sh` 가 podman 으로 빌드해 k3s containerd 로 반입한다. 레지스트리에 없으므로 클러스터 재구축 시 먼저 돌려야 한다
 - `v1/` — 레거시 매니페스트. **배포 금지.** 단 CI가 이 경로의 Dockerfile을 참조한다(존재하지 않음)
 
 ### ArgoCD Sync Wave (실제 값)
@@ -68,7 +69,7 @@ cd scripts/security-verification && ./run-all.sh [namespace]
 | 2 | messaging | Kafka KRaft, Apicurio, AKHQ |
 | 3 | data-lakehouse | MinIO, Trino, Hive Metastore |
 | **4** | **security/keycloak** | **Keycloak** |
-| 5 | devops · **governance** | GitLab EE · **DS389, LAM, Solr, Ranger admin, Knox** |
+| 5 | devops · **governance** | GitLab EE · **DS389, LAM, Solr, Ranger(admin·usersync), Knox** |
 | 6 | application | admin, cmmn-api, nginx |
 | 7 | observability | Elasticsearch(ECK 3노드), Kibana, Logstash, Filebeat, **Prometheus, Grafana, Loki, Tempo, OTel Collector(agent·gateway)**, Falco, Falcosidekick, Trivy CronJob |
 | 8 | rotation | 로테이션 CronJob 7종 + git-sync |
