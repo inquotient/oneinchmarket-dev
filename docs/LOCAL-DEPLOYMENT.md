@@ -1021,6 +1021,27 @@ apicurio.rest.deletion.group.enabled             = false
 PUT 으로 **런타임 변경**이 되므로, 켰다가 지우고 되돌렸다. 계약 레지스트리의 기본값으로
 타당하다 — 그대로 둔다.
 
+#### 전역 규칙을 세웠다 — 게이트가 실제로 막는다
+
+규칙은 DB 에 사는 **런타임 상태**라 매니페스트로 직접 표현할 수 없다. `postgres`·`ds389` 와 같은 방식으로 `bootstrap/apicurio-rules.yaml` Job 이 멱등하게 세운다(POST → 409 면 PUT). `curl` 이 레지스트리 이미지에 있어 새 이미지를 끌어오지 않는다.
+
+```
+VALIDITY      = FULL       등록 내용이 해당 타입으로 파싱·검증되는가
+COMPATIBILITY = BACKWARD   새 버전이 직전 버전과 하위 호환인가
+```
+
+**실증**
+
+| 시나리오 | 결과 |
+|---|---|
+| 올바른 OpenAPI (비-DRAFT) | `200` |
+| **깨진 내용** | **`400 RuleViolationException` — "Syntax violation for OpenAPI artifact."** |
+| 깨진 내용을 **DRAFT 로** 등록 | `200` — 초안은 규칙을 건너뛴다 |
+
+세 번째가 중요하다. `apicurio.rest.draft.production-mode.enabled=false`(기본)에서는 **DRAFT 버전에 규칙이 평가되지 않는다.** 초안을 자유롭게 고치고 DRAFT 를 벗어날 때 검사받는 흐름이며, 앞의 편집 기능과 정확히 맞물린다. 초안 단계에서도 검사받게 하려면 그 속성을 켜면 된다.
+
+**알고 쓸 것** — `COMPATIBILITY` 는 Avro·Protobuf·JSON Schema 에서 의미가 크고 OPENAPI/ASYNCAPI 는 검사 깊이가 제한적이다. 그래도 전역으로 둔다. 스키마가 들어오는 순간부터 게이트가 서고, 필요하면 아티팩트별 규칙으로 덮을 수 있다.
+
 #### 나머지 도구 — 결론
 
 | 도구 | 결론 | 이유 |
@@ -1050,8 +1071,8 @@ Spectral·Microcks 를 넣기 전에 정할 것은 하나다.
 `admin`·`cmmn-api` 가 Quarkus 이므로 코드 우선이 현재 구조와 마찰이 적다.
 이걸 정해야 OpenAPI Generator 의 위치도 정해진다.
 
-또한 **레지스트리 전역 규칙(`VALIDITY=FULL`·`COMPATIBILITY=BACKWARD`)은 지금도 켤 수 있다.**
-설정만으로 되고, 스펙이 들어오는 순간부터 게이트가 선다.
+레지스트리 전역 규칙은 **이미 세웠다**(위 "전역 규칙을 세웠다" 참조). 스펙이 들어오는
+순간부터 게이트가 선다.
 
 ## 관련 문서
 

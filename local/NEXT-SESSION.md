@@ -17,12 +17,12 @@ limits    메모리 93%  ← 5단계 전에 .wslconfig memory 상향이 사실�
 | 플랫폼 | Cilium 1.16.5 · Istio ambient · Gateway API · ECK 3.2.0 · Kyverno · cert-manager |
 | core | PostgreSQL·MariaDB·MongoDB·Redis · Kafka · Apicurio · AKHQ · MinIO · Trino · Hive MS · Keycloak · admin · cmmn-api · nginx |
 | observability | Elasticsearch·Kibana·Logstash·Filebeat 9.5.2 · Prometheus · Grafana · Loki · Tempo · OTel(agent·gateway) |
-| API 계약 | **Apicurio Registry 3.3.2 + Registry UI**(Studio 후계 편집 기능 활성) |
+| API 계약 | **Apicurio Registry 3.3.2 + Registry UI**(Studio 후계 편집 기능 활성, 전역 규칙 VALIDITY=FULL·COMPATIBILITY=BACKWARD) |
 | governance | DS389 3.1 · LAM 8.3 · Solr 10 · Ranger admin·usersync 2.9.0 · Knox 3.0 |
 | **security** | **Tetragon 1.7.1 · Trivy Operator v0.34.0 · Policy Reporter 3.10.0 · Vault 2.1.0 · Wazuh 4.14.7(manager·indexer, OpenSearch security 활성)** |
 | data | Spark History · Spark Connect · Livy |
 | devops | GitLab 19.3.1-ee.0 |
-| 부트스트랩 | 7종 전부 Complete |
+| 부트스트랩 | 8종 전부 Complete (apicurio-rules 추가) |
 
 ## 바로 확인하는 법
 
