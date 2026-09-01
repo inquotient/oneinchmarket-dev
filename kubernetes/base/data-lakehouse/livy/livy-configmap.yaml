@@ -26,7 +26,7 @@ data:
     # ── 재시작 시 세션 복구
     livy.server.recovery.mode                = recovery
     livy.server.recovery.state-store          = filesystem
-    livy.server.recovery.state-store.url      = s3a://warehouse/livy-recovery
+    livy.server.recovery.state-store.url      = s3a://livy-recovery/
 
     livy.repl.enable-hive-context        = true
     livy.file.local-dir-whitelist        = /opt/spark/jobs

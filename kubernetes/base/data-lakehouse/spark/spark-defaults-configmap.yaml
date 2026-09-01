@@ -42,7 +42,10 @@ data:
 
     # ── 이벤트 로그 (History Server가 읽는다)
     spark.eventLog.enabled                          true
-    spark.eventLog.dir                              s3a://warehouse/spark-events
+    # minio-bootstrap 은 spark-events 를 별도 버킷으로 만든다.
+    # s3a://warehouse/spark-events 는 존재하지 않는 프리픽스다:
+    #   FileNotFoundException: Log directory specified does not exist
+    spark.eventLog.dir                              s3a://spark-events/
 
     # ── 유휴 시 executor 를 0으로 반납한다. 로컬 메모리 예산에서 중요하다.
     spark.dynamicAllocation.enabled                 true

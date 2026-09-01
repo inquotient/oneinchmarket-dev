@@ -86,7 +86,7 @@ spec:
               value: metastore
           volumeMounts:
             - name: jdbc-driver
-              mountPath: /opt/hive/lib/postgresql.jar
+              mountPath: /opt/hive/lib/postgresql-42.7.3.jar
               subPath: postgresql-42.7.3.jar
             - name: hive-config
               mountPath: /opt/hive/conf/hive-site.xml
