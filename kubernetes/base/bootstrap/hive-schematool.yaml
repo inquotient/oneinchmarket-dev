@@ -41,12 +41,18 @@ spec:
               echo "[hive-schematool] PostgreSQL hive_metastore 대기"
               until (echo > /dev/tcp/postgresql-headless/5432) >/dev/null 2>&1; do sleep 3; done
               # 이미 초기화되어 있으면 -info 가 성공한다. 그때는 건너뛴다.
-              if /opt/hive/bin/schematool -dbType postgres -info >/dev/null 2>&1; then
+              # schematool 은 hive-site.xml 만 읽는다. hive-site.xml 에 JDBC 설정이
+              # 없어 Derby 로 떨어졌다(Metastore connection URL: jdbc:derby:...).
+              # SERVICE_OPTS 의 -D 로는 반영되지 않으므로 CLI 플래그로 명시한다.
+              JDBC=(-url "jdbc:postgresql://postgresql-headless:5432/hive_metastore"
+                    -driver org.postgresql.Driver
+                    -userName hive -passWord "$HIVE_DB_PASSWORD")
+              if /opt/hive/bin/schematool -dbType postgres -info "${JDBC[@]}" >/dev/null 2>&1; then
                 echo "[hive-schematool] 스키마가 이미 존재한다 — 건너뜀"
               else
-                /opt/hive/bin/schematool -dbType postgres -initSchema
+                /opt/hive/bin/schematool -dbType postgres -initSchema "${JDBC[@]}"
               fi
-              /opt/hive/bin/schematool -dbType postgres -info
+              /opt/hive/bin/schematool -dbType postgres -info "${JDBC[@]}"
               echo "[hive-schematool] 완료"
           env:
             - name: HIVE_DB_PASSWORD
