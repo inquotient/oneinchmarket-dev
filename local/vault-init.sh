@@ -63,7 +63,9 @@ case "${1:-init}" in
 \"unseal-key\":\"$UNSEAL\",\"root-token\":\"$ROOT\"}}" >/dev/null
       log "unseal 키·root token 을 Secret vault-init 에 저장했다"
     fi
-    "$0" unseal
+    # bash 로 명시 호출한다. `bash local/vault-init.sh` 처럼 실행 비트 없이
+    # 불린 경우 "$0" 직접 실행이 Permission denied 로 실패한다.
+    bash "$0" unseal
     ;;
 
   unseal)
