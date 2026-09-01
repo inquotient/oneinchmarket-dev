@@ -43,6 +43,9 @@ log "마운트 전파 rshared 설정"
 sudo install -m 0644 "${REPO_ROOT}/local/mount-rshared.service" /etc/systemd/system/mount-rshared.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now mount-rshared
+sudo install -m 0644 "${REPO_ROOT}/local/mount-debugfs.service" /etc/systemd/system/mount-debugfs.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now mount-debugfs
 
 # ── 2. kubelet 설정 + k3s ─────────────────────────────────────────────────────
 # NodeSwap 은 kubelet 플래그라 설치 시점에만 정할 수 있다.

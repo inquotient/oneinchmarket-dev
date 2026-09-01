@@ -16,6 +16,8 @@ patches:
   - path: patches/replicas-local.yaml
   # ★ zram 제어 — 스왑 불가 8종을 Guaranteed 로 고정
   - path: patches/qos-guaranteed.yaml
+  - path: patches/kafka-local.yaml
+  - path: patches/nginx-local.yaml
 
   # ── Elasticsearch (ECK CR) — TODO-32: dev 는 3노드 그대로다. 로컬은 1노드.
   #    count 3 → 1 로 −8 GiB. 그리고 Guaranteed 로 스왑에서 배제한다.

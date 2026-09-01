@@ -1,0 +1,24 @@
+# → /etc/systemd/system/mount-debugfs.service
+#
+# ★ WSL2 고유 — /sys/kernel/debug (debugfs) 가 마운트되어 있지 않다.
+#   Falco DaemonSet 이 /sys/kernel/debug 를 hostPath 로 마운트하고
+#   modern_ebpf 드라이버가 이를 요구한다. 없으면:
+#     Falco: An error occurred in an event source, forcing termination...
+#            Error: Initialization issues during scap_init
+#
+#   mount-rshared.service 와 같은 계열의 문제다 — WSL2 의 init 은 일반
+#   배포판이 부팅 시 수행하는 표준 마운트를 하지 않는다.
+[Unit]
+Description=Mount debugfs (Falco modern_ebpf requires /sys/kernel/debug)
+DefaultDependencies=no
+After=local-fs.target
+Before=k3s.service
+ConditionPathIsMountPoint=!/sys/kernel/debug
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/mount -t debugfs debugfs /sys/kernel/debug
+
+[Install]
+WantedBy=multi-user.target

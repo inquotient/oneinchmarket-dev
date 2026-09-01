@@ -63,13 +63,13 @@ spec:
               memory: 1Gi
           livenessProbe:
             httpGet:
-              path: /health/live
+              path: /q/health/live
               port: http
             periodSeconds: 10
             timeoutSeconds: 5
           readinessProbe:
             httpGet:
-              path: /health/ready
+              path: /q/health/ready
               port: http
             periodSeconds: 10
             timeoutSeconds: 5

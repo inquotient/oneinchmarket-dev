@@ -1,0 +1,36 @@
+# TODO-14 — base 의 upstream 이 *.dev.svc.cluster.local 로 하드코딩되어
+# local 네임스페이스에서 해석되지 않는다.
+#   admin-headless.dev.svc.cluster.local could not be resolved (3: Host not found)
+#
+# nginx resolver 는 검색 도메인을 적용하지 않으므로 FQDN 이 필요하다.
+# 근본 해결은 nginx 템플릿 + envsubst 로 네임스페이스를 주입하는 것이며
+# TODO-14 로 남는다.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+data:
+  default.conf: |
+    server {
+        listen 80;
+        server_name _;
+        resolver 10.43.0.10 valid=10s;
+
+        location / {
+            set $admin_upstream http://admin-headless.local.svc.cluster.local:3000;
+            proxy_pass $admin_upstream;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        location /api/ {
+            set $cmmn_api_upstream http://cmmn-api-headless.local.svc.cluster.local:8080;
+            proxy_pass $cmmn_api_upstream;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }
