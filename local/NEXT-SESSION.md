@@ -5,7 +5,7 @@
 ## 지금 상태
 
 ```
-30 Running · 5 Completed · 미해결 0
+30 Running(전부 1/1 Ready) · 5 Completed · 미해결 0
 requests  메모리 51% (23.6/45 GiB)   CPU 68% (13.35/19.5)
 zram      32G 중 81M 사용
 ```
@@ -76,6 +76,7 @@ kubectl -n local port-forward prometheus-0 9090:9090     # up == 16
 - **base 에 네임스페이스를 박지 말 것.** ClusterRoleBinding subject 는 `default` 로 두어야 kustomize 가 오버레이 값으로 바꾼다. 실제 값을 박으면 다른 오버레이에서 **에러 없이** 바인딩이 빗나간다
 - **liveness 에 무거운 CLI 를 쓰지 말 것.** mongodb 가 `mongosh`(Node.js) 로 9회 재시작했다. liveness 는 tcpSocket, 무거운 검사는 readiness 로
 - **`:latest` 는 메이저 스키마 변경을 그대로 가져온다.** Tempo 3.0 이 `ingester`·`compactor` 를 없앴다. prod 는 핀되어 있으나 로컬은 아니다
+- **`0/1 Running` 은 "느린 것"과 "죽는 중"을 구분하지 않는다.** livy 는 startup probe 가 91회 실패하는 동안 사실 매번 예외로 죽고 있었다. 로그를 볼 것
 - **컬렉터가 백엔드보다 먼저 뜨면 `no such host`·`no children to pick from` 이 뜬다.** 재시도로 회복한다. 30초는 기다리고 판단할 것
 - **`kubectl apply --server-side` 가 CR 의 `spec.version` 을 갱신하지 못하는 경우가 있다**(ECK). 직접 patch 하거나 CR 을 재생성해야 한다
 - **ECK 는 다운그레이드를 거부한다.** 존재하지 않는 버전을 CR 에 쓰면 되돌리기가 비싸다

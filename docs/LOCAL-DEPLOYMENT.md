@@ -521,6 +521,21 @@ up: 16 타깃 (pods 12 · cadvisor 1 · apiservers 1 · otel-collector-internal 
 
 5. **초기 `no children to pick from`·`no such host` 는 정상이다.** 게이트웨이가 백엔드보다 먼저 뜨면 gRPC 리졸버가 빈 결과를 캐시한다. 재시도로 스스로 회복한다 — 30초쯤 기다리고 판단할 것.
 
+6. **hive-metastore 가 같은 이유로 10회 재시작했다.** liveness 가 `tcpSocket` 이었는데도 `i/o timeout` 이 났다 — CPU 가 붐비면 JVM 이 TCP accept 조차 늦다. period 10s · timeout 5s · failureThreshold 3(기본)이면 30초만 밀려도 죽는다. 재시작이 스키마 점검부터 다시 돌아 더 붐비게 만드는 악순환이었다. period 20s · timeout 10s · failureThreshold 6 으로 완화했다.
+
+7. **livy 는 애초에 기동한 적이 없었다.** 2단계와 무관하나 이번에 드러났다. 연쇄로 두 건이다.
+
+   ```
+   ① UnsupportedFileSystemException: fs.AbstractFileSystem.s3a.impl=null
+   ② IllegalArgumentException: auth requires livy.server.auth..class to be provided
+   ```
+
+   ①은 `livy.server.recovery.state-store.url = s3a://livy-recovery/` 때문이다. Livy 의 `FileSystemStateStore` 는 Hadoop 의 **FileContext(AbstractFileSystem) API** 를 쓰는데, s3a 의 AbstractFileSystem 구현(`org.apache.hadoop.fs.s3a.S3A`)은 **Hadoop 2.8+** 에 있고 `oneinch/livy` 이미지의 하둡 클라이언트는 **2.7.3** 이다. `fs.s3a.impl`(FileSystem API)만으로는 안 된다. 이미지의 하둡 클라이언트를 3.x 로 올리기 전까지(TODO-37) emptyDir 위 `file:///opt/livy/recovery` 를 쓴다. 레플리카가 1이라 공유 스토어 요구는 없다.
+
+   ②는 `livy.server.auth.type =` 로 **빈 값**을 둔 탓이다. Livy 는 이 키가 null 인지만 보는데 빈 문자열은 null 이 아니다. 빈 타입으로 인증을 켜고 `livy.server.auth..class` 를 찾는다. **끄려면 키를 아예 두지 않아야 한다.**
+
+   교훈은 하나다 — **startup probe 가 계속 실패하는 파드는 "느린 것"이 아니라 "죽는 중"일 수 있다.** `0/1 Running` 은 정상 기동 중과 구분되지 않으므로 로그를 봐야 한다.
+
 #### CPU 예약을 낮췄다 (2026-09-01)
 
 1단계 종료 시점에 CPU requests 가 68%(13/19)였다. 남은 ~130종은 **메모리가 아니라 CPU requests 에서 먼저 스케줄이 막힌다.**
@@ -539,7 +554,8 @@ up: 16 타깃 (pods 12 · cadvisor 1 · apiservers 1 · otel-collector-internal 
 ```
 requests   메모리 51% (23.6/45 GiB)   CPU 68% (13.35/19.5)
 limits     메모리 85%                  CPU 137% (오버커밋)
-파드       30 Running · 5 Completed · 실패 0
+파드       30 Running(전부 Ready) · 5 Completed · 실패 0
+           — livy·mongodb·hive-metastore 결함 3건을 이번에 함께 해소했다
 zram       32G 중 81M 사용 (아직 압박 없음)
 ```
 
