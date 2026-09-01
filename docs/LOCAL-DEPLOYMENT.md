@@ -331,6 +331,61 @@ vmstat si: 0
 
 **§2 의 zram 설계는 아직 시험되지 않았다.** 현재 배포된 것은 `[구현됨]` 매니페스트 24종이며, B안 58.75 GiB 는 `[목표]` 컴포넌트(Prometheus·Grafana·Loki·Tempo·Wazuh·Vault·Kubescape·lakehouse-v1 8종·governance 8종 등 ~40종)를 포함한 수치다. 그것들의 매니페스트 작성이 선행되어야 §2-3 의 압축률 가정을 검증할 수 있다.
 
+
+### 8-8. 이미지 최신화 (2026-09-01)
+
+`:latest` 를 전부 걷어내고 실측 최신으로 고정했다. 현재 워크로드 스펙에 `:latest` **0건**.
+
+#### ★ Bitnami 무료 카탈로그 축소 — prod 의 핀이 이미 깨져 있었다
+
+```
+없음  bitnami/postgresql:16.4.0     <- prod 핀
+없음  bitnami/mariadb:11.4.3        <- prod 핀
+없음  bitnami/redis:7.4.1           <- prod 핀
+```
+
+Bitnami 가 Docker Hub 무료 카탈로그에서 **버전 태그를 전부 내렸다**(2025-08). `bitnami/*` 에는 `latest` 와 다이제스트 아티팩트만 남았고 구버전은 `bitnamilegacy/*` 로 이동했다. **지금 prod 를 배포하면 이 3개가 `ImagePullBackOff` 로 죽는다.**
+
+`bitnamilegacy` 는 동결 스냅샷이라 오히려 다운그레이드(18.6 → 17.6.0)다. → **다이제스트로 고정**한다. 재현 가능하면서 최신이고 **G37(다이제스트 핀 부재)도 함께 해소**된다.
+
+#### 상향 내역
+
+| | 이전(prod 핀) | 현재 |
+|---|---|---|
+| postgresql | 16.4.0 | **18.6** (digest) |
+| mariadb | 11.4.3 | **13.0.1** (digest) |
+| redis | 7.4.1 | **8.10.1** (digest) |
+| mongodb | 7.0.14 | 8.3.8 |
+| kafka | 4.1.1 | 4.3.1 |
+| keycloak | 26.0.7 | 26.7.3 |
+| apicurio | 3.0.4 | 3.3.2 |
+| akhq | 0.25.1 | 0.28.0 |
+| trino | 465 | 483 |
+| nginx | 1.27.3 | 1.31.4 (mainline) |
+| gitlab | 17.6.2-ee.0 | 19.3.1-ee.0 |
+| minio | RELEASE.2024-11-07 | RELEASE.2025-09-07 |
+| **Elastic 스택** | **8.17.0** | **9.5.2 (메이저)** |
+| hive | 4.0.1 | 4.0.1 (스키마 버전 고정) |
+
+`9.5.3` 은 `artifacts-api.elastic.co` 목록에는 있으나 **`docker.elastic.co` 에 이미지가 아직 게시되지 않았다.** 실제 pull 가능한 최신은 9.5.2 다.
+
+#### Elastic 8 → 9 breaking change 3건
+
+| 대상 | 변경 |
+|---|---|
+| **Logstash** | `http.host` → **`api.http.host`** (`Setting "http.host" doesn't exist`) |
+| **Logstash** | `ssl_certificate_verification` **제거** → `ssl_verification_mode` |
+| **Filebeat** | `container` input **제거** → `filestream` + `parsers.container` |
+
+**ECK 웹훅은 다운그레이드를 거부한다** — CR 이 한 번 9.5.3 으로 기록되면 9.5.2 로 내릴 수 없다(`Downgrades are not supported`). CR·PVC 를 지우고 재생성해야 했다. **존재하지 않는 버전을 CR 에 쓰면 되돌리기가 비싸다.**
+
+#### 부수 해소
+
+- 기존 `images:` 블록에 **누락되어 있던 로테이션·스캔 이미지 6종** 추가 (`curl` · `mc` · `alpine/git` · `trivy` · `busybox` · `falco-no-driver`)
+- `rotate-redis` 가 쓰던 **`bitnami/redis-cluster` 는 저장소 태그가 비었다.** 워크로드와 다른 이미지를 쓰던 것도 결함이므로 `bitnami/redis` 로 통일했다
+- `local` 오버레이에도 동일 핀 적용 → Kyverno `disallow-latest` 위반 해소
+- **로컬 빌드 이미지는 `imagePullPolicy: IfNotPresent` + containerd 에 핀 태그를 함께 반입**해야 한다. 태그만 바꾸면 `ImagePullBackOff` 가 난다
+
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용
