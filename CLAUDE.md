@@ -70,7 +70,7 @@ cd scripts/security-verification && ./run-all.sh [namespace]
 | **4** | **security/keycloak** | **Keycloak** |
 | 5 | devops | GitLab EE |
 | 6 | application | admin, cmmn-api, nginx |
-| 7 | observability | Elasticsearch(ECK 3노드), Kibana, Logstash, Filebeat, Falco, Falcosidekick, Trivy CronJob |
+| 7 | observability | Elasticsearch(ECK 3노드), Kibana, Logstash, Filebeat, **Prometheus, Grafana, Loki, Tempo, OTel Collector(agent·gateway)**, Falco, Falcosidekick, Trivy CronJob |
 | 8 | rotation | 로테이션 CronJob 7종 + git-sync |
 
 `kubernetes/base/security/namespaces/`는 **어느 kustomization에도 포함되지 않는 고아 디렉터리**다. 네임스페이스는 오버레이가 각자 정의하며 두 정의가 서로 다르다.
@@ -138,7 +138,7 @@ containers:
         drop: ["ALL"]
 ```
 
-**의도된 예외 3건** — GitLab(root + capability 8종), Falco(privileged + hostNetwork), Filebeat(root + `DAC_READ_SEARCH`). 각각 매니페스트에 사유가 기록되어 있다.
+**의도된 예외 4건** — GitLab(root + capability 8종), Falco(privileged + hostNetwork), Filebeat(root + `DAC_READ_SEARCH`), otel-agent(root + `DAC_READ_SEARCH` — 컨테이너 로그 읽기). 각각 매니페스트에 사유가 기록되어 있다.
 
 ### Annotations
 

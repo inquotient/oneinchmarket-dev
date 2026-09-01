@@ -436,7 +436,7 @@ prod 핀: `postgres:18.6` · `mariadb:12.3.3` · `redis:8.10.1` · 그 외 20종
 | 단계 | 구성요소 | 신규 매니페스트 | 상태 |
 |:-:|---|--:|---|
 | **1** | **Prometheus · Grafana** | 7 | ✅ **완료** — INFRA-601 해소 |
-| 2 | Loki · Tempo · OTel(agent·gateway) | ~12 | 미착수 |
+| **2** | **Loki · Tempo · OTel(agent·gateway)** | 13 | ✅ **완료** — 로그·트레이스 경로 개통 |
 | 3 | governance — DS389 · LAM · Solr · Ranger 2종 · Knox | ~25 | 미착수 |
 | 4 | security-min — Tetragon · Trivy Operator · Policy Reporter · Vault · Wazuh 2종 | ~20 | 미착수 |
 | 5 | lakehouse-v1 — ZK · Hadoop 4종 · HBase 2종 · Hive Server | ~35 | **설계 선행 필요** |
@@ -455,21 +455,93 @@ grafana       1/1 Running   Prometheus + Elasticsearch 데이터소스 프로비
 - Grafana 데이터소스를 **프로비저닝으로 선언**해 UI 수작업을 남기지 않는다
 - `default-deny-ingress` 하에서 스크레이프가 막히므로 네임스페이스 전체에 `prometheus` 인바운드를 허용하는 NetworkPolicy 를 함께 넣었다
 
-#### ★ 다음 단계 전에 풀어야 할 제약 — CPU 가 메모리보다 먼저 막힌다
-
-1단계 완료 시점:
+#### 2단계 결과 (2026-09-01)
 
 ```
-requests   메모리 46% (21.4/45 GiB)   CPU 66% (12.7/19)
-limits     메모리 70%                  CPU 123% (오버커밋)
+loki-0                        1/1 Running
+tempo-0                       1/1 Running
+otel-agent-*    (DaemonSet)   1/1 Running
+otel-gateway-*  (Deployment)  1/1 Running
+
+up: 16 타깃 (pods 12 · cadvisor 1 · apiservers 1 · otel-collector-internal 2)
 ```
 
-**남은 ~130종을 올리면 CPU requests 에서 스케줄이 먼저 실패한다.** 메모리 예산(zram 포함)은 여유가 있으나 CPU 는 아니다.
+파이프라인:
 
-조치:
-1. `.wslconfig` 의 `processors=20` → **24** (호스트 전량)
-2. `local/kubelet-config.yaml` 의 `systemReserved.cpu`·`kubeReserved.cpu` 를 500m → 250m
-3. 신규 서비스의 `requests.cpu` 를 50~100m 로 억제
+```
+앱 ──OTLP──▶ otel-agent (노드마다 1)
+                 │  filelog(/var/log/pods) + hostmetrics + OTLP 수신
+                 │  k8sattributes 로 파드 메타데이터 부착
+                 ▼
+             otel-gateway (백엔드를 아는 유일한 지점)
+                 ├─ traces  ──OTLP gRPC──▶ Tempo
+                 ├─ logs    ──OTLP HTTP──▶ Loki  (/otlp/v1/logs)
+                 └─ metrics ──:8889──────▶ Prometheus 가 스크레이프(pull)
+```
+
+**실측 확인**
+
+| 신호 | 확인 방법 | 결과 |
+|---|---|---|
+| 로그 | `/loki/api/v1/labels` | `k8s_namespace_name`·`k8s_pod_name`·`service_name` 등 8개 라벨, 22개 서비스 |
+| 트레이스 | 합성 스팬을 게이트웨이 `:4318/v1/traces` 로 POST → Tempo `/api/traces/{id}` | 조회 성공. TraceQL `{resource.service.name="…"}` 도 매치 |
+| 메트릭 | `count({__name__=~"system_.*"})` | 46 시리즈 (hostmetrics 가 agent→gateway→Prometheus 로 도달) |
+| 파이프라인 건전성 | `count({__name__=~"otelcol_.*"})` | 130 시리즈 |
+
+**설계 판단**
+
+- **k8sattributes 는 게이트웨이가 아니라 에이전트에 둔다.** 게이트웨이에 두면 소스 IP 가 에이전트 IP 라 `pod_association`의 `connection` 소스가 전부 오배정된다
+- **filelog 는 `file_storage` 확장으로 오프셋을 디스크에 남긴다.** 없으면 재시작마다 `start_at: end` 가 다시 적용되어 그 사이 로그가 사라진다
+- **로그 수집은 Filebeat→ES 와 병존한다.** 목표 아키텍처가 두 계통을 모두 갖는다. 하나로 합치는 것은 별도 결정이다
+- **Loki 저장소는 filesystem.** MinIO 로 옮기면 로그 보존이 레이크하우스 버킷 예산을 침범한다
+- **Tempo `metrics_generator` 는 켜지 않았다.** Prometheus 에 `--web.enable-remote-write-receiver` 를 열어야 하는데 로컬 CPU 예산에서 서비스 그래프의 값이 비용을 넘지 않는다
+- **otel-agent 는 root + `DAC_READ_SEARCH`.** 컨테이너 로그를 읽어야 한다. Filebeat 와 같은 사유의 **4번째 의도된 예외**다. privileged 도 hostNetwork 도 아니다
+
+**2단계에서 실제로 걸린 것**
+
+1. **Tempo 3.0 이 설정 스키마를 바꿨다.** `grafana/tempo:latest` 는 v3.0.0 이고 2.x 의 최상위 `ingester`·`compactor` 키가 사라졌다.
+
+   ```
+   failed to parse configFile: field ingester not found in type app.Config
+                                field compactor not found in type app.Config
+   ```
+
+   | 2.x | 3.0 |
+   |---|---|
+   | `ingester.max_block_duration` | `live_store.max_block_duration` |
+   | `compactor.compaction.block_retention` | `overrides.defaults.compaction.block_retention` |
+
+   분산 모드는 `distributor → Kafka → block_builder` 를 타지만 **single-binary 는 앱 와이어링이 Kafka 소비를 끈다**(`livestore.Config.ConsumeFromKafka`). Kafka 의존이 새로 생기지는 않는다.
+
+2. **ClusterRoleBinding subject 의 네임스페이스가 base 에 박혀 있었다.** `prometheus` 는 `local`, `falco`·`trivy` 는 `dev` 였다. kustomize 네임스페이스 변환기는 subject 의 `default` 만 오버레이 값으로 바꾼다. 실제 값이 박혀 있으면 **다른 오버레이에서 바인딩이 조용히 빗나간다** — 권한이 안 붙는데 에러는 나지 않는다. 셋 다 `default` 로 고쳤다.
+
+3. **`prometheus.io/port` 어노테이션은 포트를 하나만 가리킨다.** 게이트웨이는 앱 메트릭(`:8889`)과 자기 텔레메트리(`:8888`)를 둘 다 내는데 어노테이션으로는 하나뿐이다. `otel-collector-internal` 전용 잡을 Prometheus 설정에 분리했다. 0.159 의 메트릭 이름에는 `_total` 접미사가 없다(`otelcol_exporter_sent_log_records`).
+
+4. **mongodb 의 liveness 가 `mongosh` 였다.** mongosh 는 Node.js CLI 라 기동만으로 수 초가 걸린다. k3s 재시작으로 CPU 가 몰리자 `timeoutSeconds: 5` 를 넘겨 실패했고, **liveness 실패는 컨테이너를 죽이므로** mongod 가 멀쩡한데 9회 재시작했다. liveness 는 `tcpSocket`, readiness 만 mongosh(timeout 15s)로 바꿨다.
+
+5. **초기 `no children to pick from`·`no such host` 는 정상이다.** 게이트웨이가 백엔드보다 먼저 뜨면 gRPC 리졸버가 빈 결과를 캐시한다. 재시도로 스스로 회복한다 — 30초쯤 기다리고 판단할 것.
+
+#### CPU 예약을 낮췄다 (2026-09-01)
+
+1단계 종료 시점에 CPU requests 가 68%(13/19)였다. 남은 ~130종은 **메모리가 아니라 CPU requests 에서 먼저 스케줄이 막힌다.**
+
+적용:
+
+- `local/kubelet-config.yaml` 의 `systemReserved.cpu`·`kubeReserved.cpu` **500m → 250m**
+  → `/etc/rancher/k3s/kubelet-config.yaml` 갱신 후 `sudo systemctl restart k3s`
+  → Allocatable CPU **19 → 19.5**
+- 신규 서비스의 `requests.cpu` 를 50~100m 로 억제 (2단계 4종 합계 350m)
+
+**아직 남은 것** — `.wslconfig` 의 `processors=20 → 24`. `wsl --shutdown` 이 필요해 클러스터가 내려간다. 3단계 착수 직전에 하는 편이 낫다.
+
+2단계 종료 시점:
+
+```
+requests   메모리 51% (23.6/45 GiB)   CPU 68% (13.35/19.5)
+limits     메모리 85%                  CPU 137% (오버커밋)
+파드       30 Running · 5 Completed · 실패 0
+zram       32G 중 81M 사용 (아직 압박 없음)
+```
 
 #### 5단계는 설계가 선행되어야 한다
 
