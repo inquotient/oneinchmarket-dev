@@ -80,7 +80,8 @@ spec:
               command:
                 - /bin/sh
                 - -c
-                - mysqladmin ping -h 127.0.0.1 -u root -p"${MARIADB_ROOT_PASSWORD}"
+                # 공식 MariaDB 11+ 는 mysqladmin 을 mariadb-admin 으로 바꿨다.
+                - mariadb-admin ping -h 127.0.0.1 -u root -p"${MARIADB_ROOT_PASSWORD}"
             periodSeconds: 10
             timeoutSeconds: 5
           volumeMounts:
