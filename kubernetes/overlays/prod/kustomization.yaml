@@ -111,6 +111,8 @@ images:
     newTag: "19.3.1-ee.0"
 
   # ── 보안 ───────────────────────────────────────────────────
+  - name: hashicorp/vault
+    newTag: "2.1.0"
   - name: falcosecurity/falco-no-driver
     newTag: "0.39.2"
   - name: falcosecurity/falcosidekick

@@ -85,3 +85,20 @@ spec:
     - from:
         - podSelector: {matchLabels: {app.kubernetes.io/name: nginx}}
       ports: [{protocol: TCP, port: 8443}]
+---
+# 4단계 — Vault. 아직 소비자가 없다(ADR-024 마이그레이션 전).
+# UI·API 접근 경로만 열어 둔다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-vault-access
+  labels: {app.kubernetes.io/name: allow-vault-access, app.kubernetes.io/component: network-policies, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: vault}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: nginx}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: oauth2-proxy}}
+      ports: [{protocol: TCP, port: 8200}]

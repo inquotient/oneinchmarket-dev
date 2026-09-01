@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vault
+  labels: {app.kubernetes.io/name: vault, app.kubernetes.io/component: security, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+  annotations: {reloader.stakater.com/auto: "true"}
+spec:
+  serviceName: vault-headless
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: vault}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: vault, app.kubernetes.io/component: security, app.kubernetes.io/part-of: oneinchmarket}
+    spec:
+      serviceAccountName: vault
+      securityContext:
+        # hashicorp/vault 이미지의 기본 uid 다.
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: vault
+          image: hashicorp/vault:latest
+          args: ["server", "-config=/vault/config/vault.hcl"]
+          ports:
+            - {containerPort: 8200, name: http, protocol: TCP}
+            - {containerPort: 8201, name: cluster, protocol: TCP}
+          env:
+            - {name: VAULT_ADDR, value: "http://127.0.0.1:8200"}
+            # 컨테이너에서 mlock 은 IPC_LOCK 이 필요하다. 켜려면 capability 를
+            # 되돌려야 하는데, 대신 config 의 disable_mlock 으로 끈다.
+            # 스왑에 키가 남을 수 있다는 뜻이다 — 로컬 검증 범위에서 수용한다.
+            - {name: SKIP_SETCAP, value: "true"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits:   {cpu: 500m, memory: 512Mi}
+          # ★ 프로브에 /v1/sys/health 를 쓰되 봉인 상태를 실패로 보지 않는다.
+          #   기본값으로 두면 sealed(503) 를 실패로 읽어 unseal 하기도 전에
+          #   컨테이너를 죽인다. standbyok·sealedcode·uninitcode 로 200 을 받는다.
+          startupProbe:
+            httpGet:
+              path: "/v1/sys/health?standbyok=true&sealedcode=200&uninitcode=200"
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: "/v1/sys/health?standbyok=true&sealedcode=200&uninitcode=200"
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          # readiness 는 반대다 — 봉인 중이면 트래픽을 받지 않아야 한다.
+          readinessProbe:
+            httpGet: {path: "/v1/sys/health?standbyok=true", port: http}
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - {name: config, mountPath: /vault/config}
+            - {name: data, mountPath: /vault/data}
+      volumes:
+        - name: config
+          configMap: {name: vault-config}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: standard
+        resources: {requests: {storage: 5Gi}}

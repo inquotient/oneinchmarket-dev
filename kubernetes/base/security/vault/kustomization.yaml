@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - vault-headless.yaml
+  - vault-configmap.yaml
+  - vault-statefulset.yaml
+
+commonAnnotations:
+  # Keycloak(4)과 같은 security 계층이다. 아직 다른 워크로드가 Vault 를
+  # 참조하지 않으므로 순서 제약은 없다.
+  argocd.argoproj.io/sync-wave: "4"
