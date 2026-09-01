@@ -426,6 +426,72 @@ PG::UndefinedTable: ERROR: relation "application_settings" does not exist
 
 prod 핀: `postgres:18.6` · `mariadb:12.3.3` · `redis:8.10.1` · 그 외 20종.
 
+
+### 8-10. 목표 아키텍처 배포 — 진행 상황과 다음 단계
+
+`[목표]` 컴포넌트는 **매니페스트가 존재하지 않는 ~40종**이다. 한 번에 올리면 원인 추적이 불가능하므로 의존 순서대로 단계별로 올린다.
+
+#### 단계 계획
+
+| 단계 | 구성요소 | 신규 매니페스트 | 상태 |
+|:-:|---|--:|---|
+| **1** | **Prometheus · Grafana** | 7 | ✅ **완료** — INFRA-601 해소 |
+| 2 | Loki · Tempo · OTel(agent·gateway) | ~12 | 미착수 |
+| 3 | governance — DS389 · LAM · Solr · Ranger 2종 · Knox | ~25 | 미착수 |
+| 4 | security-min — Tetragon · Trivy Operator · Policy Reporter · Vault · Wazuh 2종 | ~20 | 미착수 |
+| 5 | lakehouse-v1 — ZK · Hadoop 4종 · HBase 2종 · Hive Server | ~35 | **설계 선행 필요** |
+| 6 | GlitchTip · Jenkins · Kafka Bridge · Apicurio Studio 4종 | ~20 | 미착수 |
+| 7 | security-full — SafeLine · Kubescape · DT · DefectDojo · Caldera | ~25 | **zram 실측 지점** |
+
+#### 1단계 결과
+
+```
+prometheus-0  1/1 Running   up: apiservers 1 · cadvisor 1 · pods 8
+grafana       1/1 Running   Prometheus + Elasticsearch 데이터소스 프로비저닝
+```
+
+- 스크레이프는 `prometheus.io/scrape` 어노테이션 옵트인 방식. ClusterRole 은 읽기 전용
+- 보존 3일 (문서 §4-6 의 30GB 산정 근거)
+- Grafana 데이터소스를 **프로비저닝으로 선언**해 UI 수작업을 남기지 않는다
+- `default-deny-ingress` 하에서 스크레이프가 막히므로 네임스페이스 전체에 `prometheus` 인바운드를 허용하는 NetworkPolicy 를 함께 넣었다
+
+#### ★ 다음 단계 전에 풀어야 할 제약 — CPU 가 메모리보다 먼저 막힌다
+
+1단계 완료 시점:
+
+```
+requests   메모리 46% (21.4/45 GiB)   CPU 66% (12.7/19)
+limits     메모리 70%                  CPU 123% (오버커밋)
+```
+
+**남은 ~130종을 올리면 CPU requests 에서 스케줄이 먼저 실패한다.** 메모리 예산(zram 포함)은 여유가 있으나 CPU 는 아니다.
+
+조치:
+1. `.wslconfig` 의 `processors=20` → **24** (호스트 전량)
+2. `local/kubelet-config.yaml` 의 `systemReserved.cpu`·`kubeReserved.cpu` 를 500m → 250m
+3. 신규 서비스의 `requests.cpu` 를 50~100m 로 억제
+
+#### 5단계는 설계가 선행되어야 한다
+
+- **TODO-33** — Hive warehouse 를 HDFS 로 되돌릴지, S3A 를 유지하고 HDFS 를 별도 용도로 둘지, Trino 에 두 카탈로그를 병행할지 미결
+- **Kerberos 채택 여부** — 현재 `hadoop.security.authentication = simple`. Hadoop 네이티브 CLI 접근 요구가 없으면 불필요(§8-3 관련 논의)
+- **hbase:2.6.3 로컬 빌드** — `v1/hbase/Dockerfile` 기반. 레지스트리 경로 필요(TODO-37)
+
+#### 3단계 착수 전 반영할 버전 조사 결과
+
+| 구성요소 | v1 기재 | 실제 | 비고 |
+|---|---|---|---|
+| Ranger | `apache/ranger:2.7.0` | **2.9.0** | 2세대 뒤처짐. 스키마 마이그레이션 동반 |
+| ranger-usersync | `eclipse-temurin:8u452...` | **17-jdk** | JDK 8 은 EOL. Ranger 2.9 는 11+ 요구 |
+| Knox | `knox-gateway:2.1.0` **(로컬 빌드)** | **`apache/knox:2.1.0` 공식 이미지 존재** | **로컬 빌드 불필요.** TODO-37 축소, `DEPLOYMENT.md §6-4` 의 Oracle Ampere 논거도 약화 |
+| Solr | `apache/solr:9.10.0-slim` | **존재하지 않음** → `solr:10.0.0-slim` | `apache/solr` 저장소에 태그가 없다. `library/solr` 가 맞다 |
+| DS389 | `389ds/dirsrv:latest` | 3.1 | |
+| LAM | `ldapaccountmanager/lam:latest` | 8.3 | |
+
+Knox 릴리스는 **2.1.0 이 최신**이다. Docker Hub 의 `3.0` 은 RC(`3.0.0-RC1`·`RC2`)이므로 채택하지 않는다.
+
+`postgres-bootstrap` 에 **`ranger` DB·롤 추가**가 3단계의 선행 작업이다(문서에 이미 `(+복원 시 ranger)` 로 표기되어 있다).
+
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용
