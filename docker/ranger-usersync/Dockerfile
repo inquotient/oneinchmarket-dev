@@ -11,7 +11,9 @@
 #   (런타임이 아니라 빌드 시점이다. v1 이 파드 기동마다 받던 것과 다르다.)
 #
 # 베이스는 Apache 가 배포하는 공식 이미지다. admin 이미지와 같은 계열이다.
-ARG RANGER_BASE_IMAGE=apache/ranger-base
+# ★ podman 은 short-name 을 해석하지 않는다(unqualified-search registries 미정의).
+#   레지스트리를 명시해야 한다.
+ARG RANGER_BASE_IMAGE=docker.io/apache/ranger-base
 ARG RANGER_BASE_VERSION=20260123-2-8
 FROM ${RANGER_BASE_IMAGE}:${RANGER_BASE_VERSION}
 
