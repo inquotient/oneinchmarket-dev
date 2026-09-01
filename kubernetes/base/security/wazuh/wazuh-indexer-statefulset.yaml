@@ -57,28 +57,31 @@ spec:
               # ★ 데모 사용자(admin/anomalyadmin/kibanaserver/logstash/
               #   readall/snapshotrestore)를 전부 지운다. 기본 해시가 공개되어
               #   있으므로 남겨 두면 인증을 켠 의미가 없다.
-              cat > "$DST/internal_users.yml" <<YAML
-              ---
-              _meta:
-                type: "internalusers"
-                config_version: 2
-
-              admin:
-                hash: "$ADMIN_HASH"
-                reserved: true
-                backend_roles:
-                - "admin"
-                description: "oneinchmarket admin"
-
-              filebeat:
-                hash: "$FB_HASH"
-                reserved: false
-                backend_roles:
-                - "admin"
-                description: "wazuh-manager 내장 filebeat"
-              YAML
-              # YAML 블록 안의 들여쓰기를 벗긴다(3단계 LDIF 와 같은 함정).
-              sed -i 's/^              //' "$DST/internal_users.yml"
+              # ★ heredoc 을 쓰지 말 것. YAML 블록 스칼라 안에서는 종료
+              #   토큰도 함께 들여쓰기되는데, bash 의 <<TOKEN 은 종료 토큰이
+              #   0열에 있어야 인식한다. 들여쓰면 heredoc 이 끝나지 않아
+              #   스크립트 전체가 구문 오류로 죽고 **로그가 한 줄도 안 나온다.**
+              #   (3단계 LDIF 의 line folding 과 같은 계열의 함정이다.)
+              {
+                printf '%s\n' '---'
+                printf '%s\n' '_meta:'
+                printf '%s\n' '  type: "internalusers"'
+                printf '%s\n' '  config_version: 2'
+                printf '%s\n' ''
+                printf '%s\n' 'admin:'
+                printf '  hash: "%s"\n' "$ADMIN_HASH"
+                printf '%s\n' '  reserved: true'
+                printf '%s\n' '  backend_roles:'
+                printf '%s\n' '  - "admin"'
+                printf '%s\n' '  description: "oneinchmarket admin"'
+                printf '%s\n' ''
+                printf '%s\n' 'filebeat:'
+                printf '  hash: "%s"\n' "$FB_HASH"
+                printf '%s\n' '  reserved: false'
+                printf '%s\n' '  backend_roles:'
+                printf '%s\n' '  - "admin"'
+                printf '%s\n' '  description: "wazuh-manager 내장 filebeat"'
+              } > "$DST/internal_users.yml"
               echo "[render] internal_users.yml 생성 (사용자 2명)"
               grep -E "^(admin|filebeat):" "$DST/internal_users.yml"
           env:
