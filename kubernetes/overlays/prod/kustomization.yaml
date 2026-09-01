@@ -66,11 +66,11 @@ images:
   - name: inquotient/cmmn-api
     digest: sha256:a81293108c297974c5d9cbab37b4f52b830c30fec81000d10b3ee4c97edb850f
 
-  # ── 관측성 (Elastic 8.17.0 → 9.5.3 메이저 업그레이드) ────────
+  # ── 관측성 (Elastic 8.17.0 → 9.5.2 메이저 업그레이드) ────────
   - name: docker.elastic.co/logstash/logstash
-    newTag: "9.5.3"
+    newTag: "9.5.2"
   - name: docker.elastic.co/beats/filebeat
-    newTag: "9.5.3"
+    newTag: "9.5.2"
 
   # ── DevOps ─────────────────────────────────────────────────
   - name: gitlab/gitlab-ee

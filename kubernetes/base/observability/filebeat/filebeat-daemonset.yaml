@@ -27,7 +27,7 @@ spec:
       serviceAccountName: filebeat
       containers:
         - name: filebeat
-          image: docker.elastic.co/beats/filebeat:9.5.3
+          image: docker.elastic.co/beats/filebeat:9.5.2
           args:
             - "-e"
             - "-c"
