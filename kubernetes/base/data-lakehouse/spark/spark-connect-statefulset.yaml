@@ -37,10 +37,11 @@ spec:
           # Always 로 만들어 containerd 에 반입된 이미지를 무시한다.
           imagePullPolicy: IfNotPresent
           # Connect Server 자체가 driver 역할을 하므로 client 모드로 뜬다.
-          command: ["/opt/spark/bin/spark-submit"]
+          # 수동 spark-submit 은 primary resource 해석에서 실패한다
+          #   IllegalArgumentException: path must be absolute
+          # 배포판이 제공하는 공식 기동 스크립트를 쓴다.
+          command: ["/opt/spark/sbin/start-connect-server.sh"]
           args:
-            - "--class"
-            - "org.apache.spark.sql.connect.service.SparkConnectServer"
             - "--conf"
             - "spark.connect.grpc.binding.port=15002"
             - "--conf"
@@ -53,9 +54,6 @@ spec:
             - "spark.driver.blockManager.port=7079"
             - "--conf"
             - "spark.kubernetes.namespace=$(POD_NAMESPACE)"
-            - "--name"
-            - "spark-connect"
-            - "spark-internal"
           ports:
             - containerPort: 15002
               name: grpc
@@ -64,6 +62,10 @@ spec:
               name: ui
               protocol: TCP
           env:
+            # start-connect-server.sh 는 spark-daemon.sh 를 통해 데몬화한다.
+            # 컨테이너에서는 포그라운드로 돌아야 한다.
+            - name: SPARK_NO_DAEMONIZE
+              value: "true"
             - name: POD_IP
               valueFrom:
                 fieldRef:
