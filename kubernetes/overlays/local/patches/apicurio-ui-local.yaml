@@ -1,0 +1,25 @@
+# ★ REGISTRY_API_URL 은 **브라우저가 부르는 주소**다.
+#   Apicurio Registry UI 는 SPA 라 백엔드 호출을 브라우저가 직접 한다.
+#   그래서 base 의 클러스터 내부 DNS(apicurio-registry-headless)는
+#   브라우저에서 풀리지 않는다 — 화면은 뜨지만 목록이 비어 보인다.
+#
+#   외부 진입점(Ingress/Gateway)이 아직 0개이므로 로컬은 port-forward 를
+#   전제로 한다:
+#
+#     kubectl -n local port-forward apicurio-registry-0 8080:8080   # API
+#     kubectl -n local port-forward deploy/apicurio-ui  8888:8080   # 콘솔
+#     → 브라우저에서 http://localhost:8888
+#
+#   진입점이 생기면 이 패치를 지우고 base 를 실제 외부 URL 로 바꾼다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apicurio-ui
+spec:
+  template:
+    spec:
+      containers:
+        - name: apicurio-ui
+          env:
+            - name: REGISTRY_API_URL
+              value: "http://localhost:8080/apis/registry/v3"

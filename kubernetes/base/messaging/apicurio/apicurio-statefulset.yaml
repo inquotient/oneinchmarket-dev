@@ -54,6 +54,14 @@ spec:
                   key: db-password
             - name: REGISTRY_STORAGE_KIND
               value: "sql"
+            # ★ Apicurio Studio 후계 기능 스위치.
+            #   Studio 는 upstream 에서 완전 폐기되었고 그 기능이 Registry
+            #   3.1.0 에 opt-in 으로 흡수되었다. 이 값을 켜야 UI 에 Drafts
+            #   섹션과 버전 콘텐츠 편집이 나타난다.
+            #   속성명: apicurio.rest.mutability.artifact-version-content.enabled
+            #   (Quarkus 규칙으로 env 는 대문자·점/하이픈 -> 밑줄)
+            - name: APICURIO_REST_MUTABILITY_ARTIFACT_VERSION_CONTENT_ENABLED
+              value: "true"
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

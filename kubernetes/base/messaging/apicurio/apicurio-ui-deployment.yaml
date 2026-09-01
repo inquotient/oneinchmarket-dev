@@ -1,0 +1,64 @@
+# Apicurio Registry 웹 콘솔.
+#
+# ★ 왜 이제야 들어오는가 —
+#   Registry 3.x 는 UI 가 **별도 이미지**다. v1 에는 registry-ui 가 있었는데
+#   v2 로 오면서 빠졌고, 그래서 지금까지 레지스트리를 REST 로만 볼 수 있었다
+#   (registry 컨테이너의 /ui/ 는 404 다).
+#
+# ★ 그리고 이것이 Apicurio Studio 의 후계다.
+#   Studio 는 upstream 에서 **완전 폐기**되었고 기능이 Registry 3.1.0 에
+#   opt-in 으로 흡수되었다. 그 스위치가
+#     apicurio.rest.mutability.artifact-version-content.enabled
+#   이며 apicurio-statefulset.yaml 에서 켠다. 그 편집 화면이 보이는 곳이
+#   바로 이 UI 다. 별도 편집기(Swagger Editor 등)를 둘 이유가 없다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apicurio-ui
+  labels: {app.kubernetes.io/name: apicurio-ui, app.kubernetes.io/component: messaging, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+  annotations: {reloader.stakater.com/auto: "true"}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: apicurio-ui}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: apicurio-ui, app.kubernetes.io/component: messaging, app.kubernetes.io/part-of: oneinchmarket}
+    spec:
+      serviceAccountName: apicurio-ui
+      securityContext:
+        # 이미지의 기본 uid 는 1001, gid 는 0(root 그룹)이다.
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 0
+        fsGroup: 0
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: apicurio-ui
+          image: apicurio/apicurio-registry-ui:3.3.2
+          env:
+            # ★ 이 값은 **브라우저가 부르는 주소**다. SPA 가 레지스트리 API 를
+            #   직접 호출하므로 클러스터 내부 DNS 는 브라우저에서 풀리지 않는다.
+            #   외부 진입점(Ingress/Gateway)이 생기면 그 주소로 바꿔야 하고,
+            #   그전까지 로컬은 overlays/local 이 port-forward 주소로 덮는다.
+            - {name: REGISTRY_API_URL, value: "http://apicurio-registry-headless:8080/apis/registry/v3"}
+          ports:
+            - {containerPort: 8080, name: http, protocol: TCP}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 20m, memory: 64Mi}
+            limits:   {cpu: 200m, memory: 192Mi}
+          startupProbe:
+            httpGet: {path: /, port: http}
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /, port: http}
+            periodSeconds: 20
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet: {path: /, port: http}
+            periodSeconds: 15
+            timeoutSeconds: 5

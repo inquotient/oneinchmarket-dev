@@ -54,3 +54,54 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
+---
+# Apicurio Registry 는 지금까지 인바운드 허용 규칙이 없었다.
+# default-deny-ingress 아래에서 파드→레지스트리 호출이 전부 막혀 있었다는 뜻이다
+# (부트스트랩 Job 만 bootstrap-netpol 로 예외였다).
+#
+# ★ 웹 콘솔(apicurio-ui)은 SPA 라 **브라우저가** API 를 직접 부른다.
+#   즉 이 규칙이 UI 때문에 필요한 것은 아니다. 앞단 프록시를 두거나
+#   AKHQ 가 스키마를 조회하게 되면 그때 필요하다. 미리 연다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-apicurio-access
+  labels:
+    app.kubernetes.io/name: allow-apicurio-access
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: apicurio-registry
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: akhq}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: apicurio-ui}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: nginx}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: oauth2-proxy}}
+      ports:
+        - { protocol: TCP, port: 8080 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-apicurio-ui-access
+  labels:
+    app.kubernetes.io/name: allow-apicurio-ui-access
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: apicurio-ui
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: nginx}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: oauth2-proxy}}
+      ports:
+        - { protocol: TCP, port: 8080 }

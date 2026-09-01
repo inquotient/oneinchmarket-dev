@@ -43,6 +43,8 @@ images:
     newTag: "4.3.1"
   - name: apicurio/apicurio-registry
     newTag: "3.3.2"
+  - name: apicurio/apicurio-registry-ui
+    newTag: "3.3.2"                   # 레지스트리와 반드시 같은 버전
   - name: tchiotludo/akhq
     newTag: "0.28.0"
 

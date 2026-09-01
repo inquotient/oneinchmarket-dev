@@ -9,6 +9,9 @@ resources:
   # Apicurio Registry
   - apicurio/apicurio-statefulset.yaml
   - apicurio/apicurio-headless.yaml
+  # Registry 웹 콘솔 — 3.x 는 UI 가 별도 이미지다. Studio 후계 화면이기도 하다.
+  - apicurio/apicurio-ui-service.yaml
+  - apicurio/apicurio-ui-deployment.yaml
   # - apicurio/apicurio-secret.enc.yaml  # SOPS: re-enable after ArgoCD SOPS plugin setup
   # AKHQ
   - akhq/akhq-statefulset.yaml

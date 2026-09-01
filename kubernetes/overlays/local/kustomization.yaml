@@ -23,6 +23,8 @@ patches:
   - path: patches/limits-local.yaml
   # 경합이 늘면서 기동이 느려진 워크로드의 startup 예산 확대
   - path: patches/probes-local.yaml
+  # Apicurio 콘솔의 API 주소는 브라우저 기준이다 — port-forward 주소로 덮는다
+  - path: patches/apicurio-ui-local.yaml
 
   # ── Elasticsearch (ECK CR) — TODO-32: dev 는 3노드 그대로다. 로컬은 1노드.
   #    count 3 → 1 로 −8 GiB. 그리고 Guaranteed 로 스왑에서 배제한다.
