@@ -100,9 +100,11 @@ log "Trivy Operator ${TRIVY_OPERATOR_VERSION}"
 kubectl apply --server-side --force-conflicts \
   -f "https://raw.githubusercontent.com/aquasecurity/trivy-operator/${TRIVY_OPERATOR_VERSION}/deploy/static/trivy-operator.yaml"
 # ★ 기본 동시 스캔 10개는 이 노드에 과하다. 설치 직후 워크로드 40여 개를
-#   한꺼번에 스캔하며 메모리를 밀어붙인다. 2로 낮춘다.
-kubectl -n trivy-system patch cm trivy-operator-config --type merge \
-  -p '{"data":{"scanJob.concurrentLimit":"2"}}' || true
+#   한꺼번에 스캔하며 메모리 limits 를 102%까지 밀어 올렸다. 2로 낮춘다.
+#   키 이름은 OPERATOR_CONCURRENT_SCAN_JOBS_LIMIT 이다.
+#   scanJob.concurrentLimit 같은 이름은 없다 — 잘못 쓰면 조용히 무시되는
+#   키가 하나 늘 뿐이고 동시 스캔은 그대로 10개다.
+kubectl -n trivy-system patch cm trivy-operator-config --type merge -p '{"data":{"OPERATOR_CONCURRENT_SCAN_JOBS_LIMIT":"2","OPERATOR_CONCURRENT_NODE_COLLECTOR_LIMIT":"1","OPERATOR_SCAN_JOB_TTL":"10m"}}' || true
 kubectl -n trivy-system rollout restart deploy/trivy-operator || true
 
 # 5-3. Policy Reporter (Kyverno·Trivy 결과 집계)
