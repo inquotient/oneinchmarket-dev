@@ -7,6 +7,9 @@ metadata:
     app.kubernetes.io/component: messaging
     app.kubernetes.io/part-of: oneinchmarket
 data:
+  # G23 — 미설정 시 /tmp/kafka-logs 를 써 마운트한 PVC 가 무용지물이 되고
+  # 재시작마다 데이터가 사라진다.
+  KAFKA_LOG_DIRS: "/opt/kafka/data"
   KAFKA_PROCESS_ROLES: "broker,controller"
   KAFKA_CONTROLLER_QUORUM_VOTERS: "0@kafka-0.kafka-headless:9093,1@kafka-1.kafka-headless:9093,2@kafka-2.kafka-headless:9093"
   KAFKA_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093"
