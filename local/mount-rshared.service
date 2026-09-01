@@ -1,0 +1,28 @@
+# → /etc/systemd/system/mount-rshared.service
+#
+# ★ WSL2 고유 문제 —
+#   istio-cni 는 파드 네트워크 네임스페이스에 진입하기 위해 /var/run/netns 에
+#   마운트 전파(shared 또는 slave)를 요구한다. 일반 배포판은 systemd 가
+#   부팅 시 `mount --make-rshared /` 를 수행하지만 WSL2 의 init 은 / 를
+#   private 으로 둔다. 그대로 두면:
+#
+#     istio-cni-node: CreateContainerError
+#       failed to generate spec: path "/var/run/netns" is mounted on "/"
+#       but it is not a shared or slave mount
+#     ztunnel: failed to connect to the Istio CNI node agent over
+#       "/var/run/ztunnel/ztunnel.sock"
+#
+#   재부팅하면 원복되므로 유닛으로 고정한다.
+[Unit]
+Description=Make / rshared (Istio ambient istio-cni requires mount propagation)
+DefaultDependencies=no
+After=local-fs.target
+Before=k3s.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/mount --make-rshared /
+
+[Install]
+WantedBy=multi-user.target

@@ -37,6 +37,13 @@ echo madvise | sudo tee /sys/kernel/mm/transparent_hugepage/enabled >/dev/null
 
 log "스왑 구성:"; swapon --show
 
+# ── 1-2. 마운트 전파 (WSL2 는 / 를 private 으로 둔다) ────────────
+# istio-cni 가 /var/run/netns 에 진입하려면 rshared 가 필요하다.
+log "마운트 전파 rshared 설정"
+sudo install -m 0644 "${REPO_ROOT}/local/mount-rshared.service" /etc/systemd/system/mount-rshared.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now mount-rshared
+
 # ── 2. kubelet 설정 + k3s ─────────────────────────────────────────────────────
 # NodeSwap 은 kubelet 플래그라 설치 시점에만 정할 수 있다.
 # 나중에 켜려면 systemd 유닛 편집 + 재시작 = 전 파드 재시작.
