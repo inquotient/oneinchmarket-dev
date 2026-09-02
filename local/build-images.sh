@@ -47,8 +47,15 @@ sudo podman build --format docker \
   -t oneinch/ranger-usersync:latest -t oneinch/ranger-usersync:2.9.0 \
   "${REPO_ROOT}/docker/ranger-usersync"
 
+log "oneinch/hbase 빌드"
+# HBase 는 공식 이미지가 없다(Docker Hub 에 apache/hbase 저장소가 없음).
+# v1/hbase/Dockerfile 을 고쳐 docker/hbase 로 옮겼다 — 상세는 그 파일 주석.
+sudo podman build --format docker \
+  -t oneinch/hbase:latest -t oneinch/hbase:2.6.6 \
+  "${REPO_ROOT}/docker/hbase"
+
 log "k3s containerd 로 반입 (namespace k8s.io)"
-for img in oneinch/spark-iceberg:latest oneinch/livy:latest oneinch/ranger-usersync:latest; do
+for img in oneinch/spark-iceberg:latest oneinch/livy:latest oneinch/ranger-usersync:latest oneinch/hbase:latest; do
   sudo podman save --format docker-archive "localhost/$img" \
     | sudo k3s ctr -n k8s.io images import --base-name "docker.io/$img" -
   log "  imported $img"
