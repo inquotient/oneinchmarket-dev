@@ -20,9 +20,22 @@ limits    메모리 93%  ← 5단계 전에 .wslconfig memory 상향이 사실�
 | API 계약 | **Apicurio Registry 3.3.2 + Registry UI**(Studio 후계 편집 기능 활성, 전역 규칙 VALIDITY=FULL·COMPATIBILITY=BACKWARD) |
 | governance | DS389 3.1 · LAM 8.3 · Solr 10 · Ranger admin·usersync 2.9.0 · Knox 3.0 |
 | **security** | **Tetragon 1.7.1 · Trivy Operator v0.34.0 · Policy Reporter 3.10.0 · Vault 2.1.0 · Wazuh 4.14.7(manager·indexer, OpenSearch security 활성)** |
-| data | Spark History · Spark Connect · Livy |
+| data | Spark History · Spark Connect · Livy · **ZooKeeper 3.9.5 · HDFS(NameNode·DataNode)** |
 | devops | GitLab 19.3.1-ee.0 |
 | 부트스트랩 | 8종 전부 Complete (apicurio-rules 추가) |
+
+## ★ 작업 시작 전에 — WSL keep-alive 를 먼저 띄울 것
+
+```powershell
+powershell -ExecutionPolicy Bypass -File local\keep-alive.ps1
+```
+
+WSL2 는 VM 에 붙은 프로세스가 없으면 VM 을 내린다. systemd 로 k3s 가 돌아도 마찬가지다.
+매니페스트를 Windows 쪽에서 편집하는 동안 WSL 을 건드리지 않으면 VM 이 poweroff 되고,
+다음 `wsl` 명령에 새로 부팅되면서 **40개 파드가 전부 재시작**한다. 노드에는 아무 압박도
+남지 않아 원인이 드러나지 않는다 — 재시작 횟수만 쌓인다(§8-14).
+
+`.wslconfig` 의 `vmIdleTimeout` 은 WSL 2.7.12 에서 무시되었다. 이 스크립트가 확실한 방법이다.
 
 ## 바로 확인하는 법
 
@@ -67,25 +80,38 @@ bash local/vault-init.sh unseal    # 최초 1회는 init
 
 auto-unseal 은 KMS 를 요구하는데 로컬에 없다. `vault-0` 이 0/1 이면 대개 이것이다.
 
-## 다음 작업 — 5단계(lakehouse-v1)
+## 다음 작업 — 5단계 이어서 (HBase · Hive Server)
 
-**설계 결정이 먼저다. 매니페스트를 쓰기 전에 아래를 정할 것.**
+ZooKeeper·HDFS 는 올라가 있고 쓰기·읽기까지 실증했다(§8-14).
 
-- **TODO-33** — Hive warehouse 를 HDFS 로 되돌릴지, S3A 를 유지하고 HDFS 를 별도 용도로 둘지,
-  Trino 에 두 카탈로그를 병행할지 미결
-- **Kerberos 채택 여부** — 현재 `hadoop.security.authentication = simple`.
-  Hadoop 네이티브 CLI 접근 요구가 없으면 불필요
-- **hbase 로컬 빌드** — `v1/hbase/Dockerfile` 기반. `docker/` + `build-images.sh` 경로가 이미 있다
-  (ranger-usersync 가 선례다)
+### HBase 2종 — 로컬 빌드가 선행
 
-### ★ 착수 전에 반드시
+`apache/hbase` 저장소가 Docker Hub 에 **없다**(404). `v1/hbase/Dockerfile` 을 `docker/hbase/` 로
+이식하고 `local/build-images.sh` 에 추가한다 — `ranger-usersync` 가 선례다.
 
-1. **`C:\Users\darka\.wslconfig` 의 `memory=48GB` 상향** — 메모리 limits 가 이미 93% 다.
-   Hadoop·HBase JVM 이 대거 들어오는 5단계는 이대로는 들어가지 않는다.
-   호스트 63.4 GB 중 15 GB 를 Windows 에 남겨 둔 상태이므로 56GB 정도까지 여지가 있다.
-   `processors=20 → 24` 도 같이 볼 것. `wsl --shutdown` 이 필요해 클러스터가 내려간다
-2. **ADR-024(Vault 전환) 결정** — Vault 는 올라가 있으나 시크릿 원천은 아직
-   `local/create-secrets.sh` 다. 전환하면 로테이션 CronJob 8종·git-sync·`.enc.yaml` 12개가 제거된다
+HBase 는 ZooKeeper(`zookeeper-headless:2181`)와 HDFS(`hdfs://hadoop-namenode:8020`)를 쓴다.
+둘 다 준비되어 있고 NetworkPolicy 도 `hbase-master`·`hbase-regionserver` 를 미리 열어 두었다.
+
+### Hive Server — TODO-33 이 여기서 물린다
+
+**이 결정 없이는 배선할 수 없다.**
+
+> Hive warehouse 를 HDFS 로 되돌릴지, S3A(MinIO)를 유지하고 HDFS 를 별도 용도로 둘지,
+> Trino 에 두 카탈로그를 병행할지.
+
+현재 `hive-metastore` 는 S3A 를 쓰고 Trino·Spark 도 그렇다. HDFS 를 넣었다고 해서 자동으로
+옮길 이유는 없다 — HBase 가 HDFS 를 요구해서 올린 것이다.
+
+### 이미 정한 것
+
+- **Kerberos 미채택** — `hadoop.security.authentication=simple`. 채택하려면 별도 결정
+- **HA 없음** — NameNode 1 · DataNode 1 · `dfs.replication=1`
+
+### 그 외 미결
+
+- **ADR-024(Vault 전환)** — Vault 는 올라가 있으나 시크릿 원천은 아직 `local/create-secrets.sh` 다.
+  전환하면 로테이션 CronJob 8종·git-sync·`.enc.yaml` 12개가 제거된다
+- **API 계약 파일 작성** — 기구는 다 섰다(ADR-067). `contracts/` 가 비어 있을 뿐이다
 
 ## 로컬 빌드 이미지 3종
 
@@ -101,6 +127,13 @@ oneinch/ranger-usersync  docker/ranger-usersync   # upstream Dockerfile 이식
 ## 알아둘 함정 (실제로 겪은 것)
 
 `docs/LOCAL-DEPLOYMENT.md §8` 전체를 읽을 것. 특히:
+
+**환경**
+
+- **★ WSL2 는 붙은 프로세스가 없으면 VM 을 내린다.** systemd 로 k3s 가 돌아도 마찬가지다.
+  40개 파드가 전부 재시작하는데 노드에는 아무 압박도 남지 않는다. `local/keep-alive.ps1`
+- **컨테이너가 마운트 지점 자체에 `chmod`·`chown` 을 걸면 PVC 를 한 단계 위에 걸 것.**
+  마운트 루트는 root 소유라 비특권 uid 가 바꾸지 못한다(HDFS DataNode · Wazuh)
 
 **자원**
 

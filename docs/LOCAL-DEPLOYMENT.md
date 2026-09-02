@@ -439,7 +439,7 @@ prod 핀: `postgres:18.6` · `mariadb:12.3.3` · `redis:8.10.1` · 그 외 20종
 | **2** | **Loki · Tempo · OTel(agent·gateway)** | 13 | ✅ **완료** — 로그·트레이스 경로 개통 |
 | **3** | **governance — DS389 · LAM · Solr · Ranger(admin·usersync) · Knox** | 20 | ✅ **완료** — LDAP→Ranger 동기화 실증 |
 | **4** | **security-min — Tetragon · Trivy Operator · Policy Reporter · Vault · Wazuh 2종** | 11 + 오퍼레이터 3 | ✅ **완료** |
-| 5 | lakehouse-v1 — ZK · Hadoop 4종 · HBase 2종 · Hive Server | ~35 | **설계 선행 필요** |
+| **5** | **lakehouse-v1 — ZooKeeper · HDFS** · ~~HBase 2종 · Hive Server~~ | 8 / ~20 | 🔄 **진행 중** — ZK·HDFS 완료, HBase·Hive Server 남음 |
 | 6 | GlitchTip · Jenkins · Kafka Bridge | ~16 | 미착수 — **Apicurio Studio 4종은 삭제**(폐기, §8-13) |
 | 7 | security-full — SafeLine · Kubescape · DT · DefectDojo · Caldera | ~25 | **zram 실측 지점** |
 
@@ -1139,6 +1139,112 @@ Spectral·Microcks 를 넣기 전에 정할 것은 하나다.
 
 레지스트리 전역 규칙은 **이미 세웠다**(위 "전역 규칙을 세웠다" 참조). 스펙이 들어오는
 순간부터 게이트가 선다.
+
+### 8-14. 5단계 1/3 — ZooKeeper + HDFS (2026-09-02)
+
+```
+zookeeper-0        1/1 Running   3.9.5, srvr 응답
+hadoop-namenode-0  1/1 Running   :8020 RPC · :9870 UI
+hadoop-datanode-0  1/1 Running   NN 에 등록 완료
+```
+
+#### ★★ 먼저 — 클러스터가 조용히 죽고 있었다
+
+5단계 착수를 위해 `.wslconfig` 를 고치고 `wsl --shutdown` 을 한 뒤, 부팅 이력에서 **의도하지 않은 재부팅**을 발견했다.
+
+```
+-2  09-01 22:53 → 09-02 15:12   (의도한 wsl --shutdown)
+-1  15:12:41    → 15:21:58      ← 9분 만에 systemd poweroff
+ 0  15:26:59    → ...            ← 그리고 또
+```
+
+**WSL2 는 VM 에 붙은 프로세스가 없으면 VM 을 내린다.** systemd 로 k3s 가 돌고 있어도 마찬가지다. 매니페스트를 Windows 쪽에서 편집하는 동안 WSL 을 건드리지 않으면 VM 이 clean poweroff 되고, 다음 `wsl` 명령에 새로 부팅되면서 **40개 파드가 전부 재시작**한다.
+
+증상이 원인을 가린다.
+
+- 노드에는 아무 압박도 남지 않는다 — `MemoryPressure=False`, Windows 여유 45 GB
+- 재시작 횟수만 조용히 쌓인다 — hive-metastore **35회**, cilium 10회, kyverno 7회
+- Kyverno 웹훅 엔드포인트가 사라져 파드 생성이 `no endpoints available for service "kyverno-svc"` 로 거부되기도 한다
+- 실메모리 사용이 4.8 GiB 로 이상하게 낮게 보인다(전부 막 기동 중이라)
+
+**메모리 상향 때문이 아니다.** 56GB 를 줘도 Windows 는 45 GB 여유였다.
+
+조치 두 가지.
+
+1. `.wslconfig` 의 `[experimental] vmIdleTimeout=86400000` — **다만 WSL 2.7.12 에서는 경고와 함께 무시된다.** 넣어 두되 이것만 믿으면 안 된다
+2. `local/keep-alive.ps1` — `wsl -d Ubuntu -- sleep infinity` 를 숨김 프로세스로 띄운다. **이쪽이 확실한 방법이다.** 로그온 시 자동 실행은 작업 스케줄러로 등록한다
+
+> 이 프로젝트를 로컬에서 다룰 때는 **작업 시작 전에 keep-alive 를 먼저 띄울 것.**
+> 그러지 않으면 원인 모를 재시작에 시간을 쓰게 된다.
+
+#### 자원 — 48GB → 56GB, 20 → 24코어
+
+```
+            상향 전            상향 후
+allocatable CPU 19.5   메모리 45 GiB   →   CPU 23.5   메모리 52.9 GiB
+limits      메모리 94%                 →   80%
+requests    CPU 73%                    →   60%
+```
+
+#### v1 대비 — HA 를 걷어냈다
+
+v1 은 NameNode 2 + JournalNode 5 + ZKFC + RBF 라우터로 **Hadoop 만 9파드**였다. 단일 노드에서는 그 전부가 같은 커널 위에 있어 가용성이 늘지 않는다.
+
+| | v1 | v2 로컬 |
+|---|---|---|
+| NameNode | 2 (HA) | **1** |
+| JournalNode | 5 | **0** |
+| ZKFC · RBF 라우터 | 있음 | **없음** |
+| `dfs.replication` | 3 | **1** (복제본을 늘려도 같은 디스크다) |
+| 인증 | — | `simple`. **Kerberos 미채택** |
+| 그룹 매핑 | ds389 LDAP | **없음** |
+
+- **Kerberos** — Hadoop 네이티브 CLI 접근 요구가 없으면 KDC·keytab 배포·주체 관리가 전부 순비용이다. 채택하려면 별도 결정이 필요하다
+- **LDAP 그룹 매핑** — v1 은 `ou=users` 를 가리켰는데 우리 트리는 `ou=people` 이다. 인증이 `simple` 인 이상 그룹만 LDAP 에서 끌어와 얻는 것이 없다
+- **ZooKeeper 는 HBase 전용**이다. Kafka 는 KRaft 라 쓰지 않고(v1→v2 전환의 핵심 중 하나였다) Hadoop 도 비-HA 라 ZKFC 가 없다
+
+#### 실증
+
+```
+dfsadmin -report   Live datanodes (1) · Capacity 1006.85 GB · Remaining 87.03%
+쓰기               hdfs dfs -put → /oim/smoke/smoke.txt (46 B)
+읽기               oneinchmarket hdfs smoke 2026-09-02T06:54:54Z
+fsck               Status: HEALTHY · 1 block · Under-replicated 0
+ZooKeeper          srvr 응답, 3.9.5
+```
+
+#### 걸린 것
+
+**1. DataNode 가 3초 만에 죽었다 — PVC 마운트 지점의 소유권**
+
+```
+NativeIO$POSIX.chmod → RawLocalFileSystem.setPermission
+  → DiskChecker.mkdirsWithExistsAndPermissionCheck
+DiskErrorException: Too many failed volumes -
+  current valid volumes: 0, volumes configured: 1, volumes failed: 1
+```
+
+DataNode 는 데이터 디렉터리에 `dfs.datanode.data.dir.perm`(기본 700)으로 `chmod` 를 건다. PVC 를 **그 경로에 직접** 걸면 마운트 루트가 root 소유라 uid 1000 이 소유자가 아니어서 EPERM 이다.
+
+→ 한 단계 위(`/hadoop/dfs`)에 걸어 DataNode 가 **자기 소유의** `data/` 를 만들게 한다. `fsGroup` 이 마운트 루트를 그룹 쓰기 가능으로 만들어 하위 디렉터리 생성은 되고, 만든 디렉터리의 소유자는 uid 1000 이라 `chmod` 가 통과한다.
+
+> **일반화** — 컨테이너가 마운트 지점 자체에 `chmod`·`chown` 을 거는 워크로드는
+> PVC 를 한 단계 위에 걸 것. Wazuh 의 `os.chown`(§8-12)과 같은 계열이다.
+
+**2. DataNode 등록에는 호스트명이 필요하다**
+
+`dfs.datanode.use.datanode.hostname=true` 를 넣었다. StatefulSet 파드는 재시작하면 IP 가 바뀌므로 IP 로 등록하면 NameNode 가 죽은 DataNode 를 계속 들고 있게 된다. 그리고 DataNode headless Service 에 `publishNotReadyAddresses: true` 가 필요하다 — DataNode 는 NameNode 에 등록되어야 Ready 인데 등록하려면 자기 호스트명이 풀려야 해서, 기본값이면 서로를 기다리는 교착이 된다.
+
+**3. NetworkPolicy 는 양방향이어야 한다**
+
+등록·하트비트는 DataNode → NameNode 지만 **블록 명령은 NameNode → DataNode** 다. 한쪽만 열면 등록은 되는데 블록이 움직이지 않는다.
+
+#### 남은 것
+
+| | 상태 |
+|---|---|
+| HBase 2종 | **로컬 빌드 필요.** `apache/hbase` 저장소가 Docker Hub 에 없다(404). `v1/hbase/Dockerfile` 과 `docker/` + `build-images.sh` 경로가 있다 |
+| Hive Server | **TODO-33 이 여기서 물린다** — Hive warehouse 를 HDFS 로 되돌릴지, S3A 를 유지할지, Trino 에 두 카탈로그를 병행할지 |
 
 ## 관련 문서
 
