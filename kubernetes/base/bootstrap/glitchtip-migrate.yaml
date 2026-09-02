@@ -17,6 +17,9 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "6"
 spec:
+  # 다른 부트스트랩 Job 과 같은 규약 — 24시간 뒤 정리한다.
+  # migrate 는 멱등이라 TTL 만료 후 재생성되어 다시 돌아도 무해하다.
+  ttlSecondsAfterFinished: 86400
   backoffLimit: 3
   template:
     metadata:
