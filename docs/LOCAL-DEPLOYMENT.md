@@ -1838,6 +1838,70 @@ io.jenkins.plugins.casc.UnknownAttributesException: security:
   잡이 하나도 없다 — 무엇을 Jenkins 로 옮길지가 정해지지 않았다
 - 플러그인 다운로드에 체크섬 검증이 없다 — `docker/spark-iceberg`·`docker/livy` 와
   같은 계열이다(TODO-44)
+
+### 8-22. Pyroscope — 프로파일링 공백을 22 GiB 가 아니라 0.5 GiB 로 (2026-09-03)
+
+Sentry 도입을 검토하다 나온 결론의 실행이다. Sentry 가 GlitchTip 보다 나은 지점은
+**프로파일링과 세션 리플레이 둘뿐**이고, 나머지(트레이싱·메트릭·로그)는 이미
+Tempo·Prometheus·Loki 가 받고 있다. 프로파일링만 따로 채우면 22 GiB 가 필요 없다.
+
+```
+pyroscope-0   1/1 Running   실사용 54Mi (requests 512Mi / limit 1536Mi)
+/ready        ready
+수집 확인     process_cpu:cpu · memory:{alloc,inuse}_{space,objects} ·
+              goroutines · mutex · block  — 10종 이상의 프로파일 타입이 질의된다
+Grafana       datasource `pyroscope` 프로비저닝
+```
+
+#### 산정이 틀렸던 점 — "1 GiB / 2 파드"는 낙관이었다
+
+차트를 렌더해 본 requests 합계가 0.05 GiB 로 나와 그대로 인용했는데, **차트가
+메모리 requests 를 설정하지 않아서**였지 가벼워서가 아니었다. 실제로는 Pyroscope
+2.x 가 **v2 아키텍처**(raft 메타스토어 · memberlist · query-backend 분리)를 쓴다.
+
+> 차트의 선언값은 "필요량"이 아니다. 값이 비어 있는 것과 작은 것은 다르다.
+
+#### 네 번 막혔다 — 전부 v2 아키텍처를 그대로 옮긴 탓
+
+차트가 `-target=all` 에 넘기는 인자를 그대로 옮겼더니 순서대로 걸렸다.
+
+| # | 증상 | 원인 |
+|:-:|---|---|
+| 1 | `failed to create discovery: open /var/run/secrets/.../token: no such file` | `metastore.address=kubernetes:///…` 가 **API 서버 디스커버리**라 SA 토큰을 요구한다. 이 레포는 `automountServiceAccountToken: false` 가 규약이다(SEC-202) |
+| 2 | `address pyroscope-0.pyroscope-headless: missing port in address` | raft `advertise-address` 에 포트 누락 |
+| 3 | `bootstrap peers can't be resolved` | `dnssrvnoa+_raft._tcp.…` 로 **자기 자신조차** 찾지 못한다 |
+| 4 | `/ready` 가 계속 503 | 앞의 셋을 피하려 memberlist 포트까지 걷어냈더니 distributor·ingester·compactor·store-gateway 가 `waiting until X is ACTIVE in the ring` 에서 멈췄다 |
+
+**1번은 토큰을 켜는 대신 DNS 디스커버리로 바꿨다.** 권한을 하나도 주지 않고 해결된다 —
+`automountServiceAccountToken: false` 를 지키는 편이 낫다.
+
+**결론적으로 raft 메타스토어 배선을 전부 걷어냈다.** 1 레플리카에 raft 합의는 얻는 것이
+없다. 남긴 것은 `-target=all` · 설정 파일 · 포트 · 자기 프로파일링, 그리고 **memberlist
+포트**뿐이다. join 대상을 주지 않으면 단일 노드가 자기 링을 만들고 ACTIVE 가 된다.
+
+> **4번이 교훈이다.** 1~3 을 피하려고 관련 인자를 통째로 지웠는데, memberlist 는
+> raft 와 무관하게 **링 참여**에 필요했다. 한 덩어리로 보이는 설정도 역할이 다르다.
+
+#### 검증을 자기 프로파일링으로 잡은 이유
+
+`-self-profiling.disable-push=false` 로 두었다(차트는 끈다). Pyroscope 가 **자기 자신을**
+프로파일링하므로 배포 직후 수집→저장→질의 경로가 실제로 도는지 확인할 수 있다.
+
+이게 없으면 "파드는 Running 인데 데이터가 0" 인 상태를 구분하지 못한다 — 6단계의
+GlitchTip 마이그레이션 누락과 같은 부류이고, OpenReplay 검토에서 우려한 것과도 같다.
+
+#### ★ 남은 것 — 애플리케이션 프로파일링은 아직 안 된다
+
+지금 Pyroscope 가 보는 것은 **자기 자신뿐**이다. `cmmn-api`(Spring Boot)를 프로파일링하려면
+둘 중 하나가 필요하다.
+
+| 경로 | 장애물 |
+|---|---|
+| Pyroscope Java 에이전트 | 앱 재빌드 필요 — **G9(Dockerfile 부재)** |
+| Grafana Alloy eBPF 프로파일링 | 앱 변경 불필요하나 **WSL2 에서 eBPF 가 될지 미검증**. Falco 의 modern_ebpf 는 실패했고(W3) Tetragon 은 동작한다 |
+
+→ **TODO-51.** 둘 중 어느 쪽이든 결정 전까지 Pyroscope 는 자기 자신만 본다.
+"도구는 섰지만 대상이 없다"는 상태를 그대로 기록해 둔다.
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용

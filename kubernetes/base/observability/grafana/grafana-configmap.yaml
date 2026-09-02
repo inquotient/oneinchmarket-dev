@@ -18,6 +18,13 @@ data:
         url: http://prometheus-headless:9090
         isDefault: true
 
+      # 지속 프로파일링. Tempo·Loki 와 같은 계열로 Grafana 에서 함께 본다.
+      - name: Pyroscope
+        type: grafana-pyroscope-datasource
+        uid: pyroscope
+        access: proxy
+        url: http://pyroscope:4040
+
       - name: Elasticsearch
         type: elasticsearch
         uid: elasticsearch

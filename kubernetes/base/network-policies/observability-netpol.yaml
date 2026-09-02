@@ -161,3 +161,56 @@ spec:
       ports:
         - protocol: TCP
           port: 8000
+---
+# Pyroscope — HTTP/질의(4040) · gRPC(9095) · raft(9099) · memberlist(7946)
+#
+# ★ raft·memberlist 는 **자기 자신에게서** 오는 트래픽이다. 1 레플리카라도
+#   부트스트랩이 자기 파드로 접속하므로 pyroscope 를 소스로도 열어야 한다.
+#   HDFS NameNode↔DataNode·HBase master↔regionserver 와 같은 계열의 함정이다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-pyroscope-access
+  labels:
+    app.kubernetes.io/name: allow-pyroscope-access
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: pyroscope
+  policyTypes:
+    - Ingress
+  ingress:
+    # 질의 UI·Grafana
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: grafana
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: nginx
+      ports:
+        - { protocol: TCP, port: 4040 }
+    # 프로파일 수집(push) — 계측 주체가 정해지면 셀렉터를 좁힌다
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: observability
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: application
+      ports:
+        - { protocol: TCP, port: 4040 }
+    # 클러스터 내부 통신 — 자기 자신 포함
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: pyroscope
+      ports:
+        - { protocol: TCP, port: 9095 }
+        - { protocol: TCP, port: 7946 }

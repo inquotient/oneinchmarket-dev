@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pyroscope-config
+  labels:
+    app.kubernetes.io/name: pyroscope
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: oneinchmarket
+data:
+  # ─────────────────────────────────────────────────────────────────────
+  # Pyroscope 2.x — 지속 프로파일링. Sentry 의 프로파일링 역량을 22 GiB 가
+  # 아니라 이 한 종으로 채운다(ADR-036 재검토 맥락).
+  #
+  # ★ 2.x 는 "단일 바이너리 하나"가 아니다. v2 아키텍처라 raft 메타스토어와
+  #   memberlist 를 요구한다. 아래 인자는 공식 Helm 차트가 `-target=all` 에
+  #   실제로 넘기는 값을 1 레플리카 기준으로 옮긴 것이다 — 차트를 배포하지
+  #   않고 렌더해서 근거로만 쓴다(ADR-003 은 유지된다).
+  #
+  # 설정 파일은 비워 둔다. 차트도 `{}` 를 넘기고 나머지는 CLI 인자로 준다.
+  # 저장소는 파일시스템이다 — Loki·Tempo 와 같은 방식이며, MinIO 로 옮기는
+  # 것은 별도 결정으로 남긴다.
+  # ─────────────────────────────────────────────────────────────────────
+  config.yaml: |
+    {}
+  overrides.yaml: |
+    overrides: {}

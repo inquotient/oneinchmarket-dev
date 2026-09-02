@@ -1,0 +1,108 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: pyroscope
+  labels:
+    app.kubernetes.io/name: pyroscope
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  serviceName: pyroscope-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pyroscope
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pyroscope
+        app.kubernetes.io/component: observability
+        app.kubernetes.io/part-of: oneinchmarket
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "4040"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: pyroscope
+      securityContext:
+        # 이미지 실측: uid/gid 10001. 배포판이 distroless 라 sh 가 없다.
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: pyroscope
+          image: grafana/pyroscope:latest
+          # ★ v2 아키텍처(raft 메타스토어·memberlist·query-backend)를 쓰지 않는다.
+          #   차트의 인자를 그대로 옮겼더니 단일 노드에서 세 번 연속 막혔다:
+          #     ① kubernetes:/// 디스커버리가 SA 토큰을 요구 (SEC-202 위반)
+          #     ② raft advertise-address 에 포트 누락
+          #     ③ dnssrvnoa+ 부트스트랩 피어를 자기 자신도 못 찾음
+          #   1 레플리카에 raft 합의는 얻는 것이 없다. 기본 경로로 둔다.
+          args:
+            - -target=all
+            - -config.file=/etc/pyroscope/config.yaml
+            - -runtime-config.file=/etc/pyroscope/overrides/overrides.yaml
+            - -server.http-listen-port=4040
+            # 자기 프로파일링을 켠다 — 수집→저장→질의 경로를 실제로 검증하는
+            # 유일한 데이터 원천이다(애플리케이션 계측은 별건).
+            - -self-profiling.disable-push=false
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef: { fieldPath: metadata.name }
+            - name: JAEGER_AGENT_HOST
+              value: ""
+          ports:
+            - { containerPort: 4040, name: http2,      protocol: TCP }
+            - { containerPort: 9095, name: grpc,       protocol: TCP }
+            # 링 참여용. join 대상을 주지 않으면 단일 노드가 자기 링을 만든다.
+            - { containerPort: 7946, name: memberlist, protocol: TCP }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1536Mi
+          # raft 부트스트랩 + 메타스토어 초기화에 시간이 든다.
+          startupProbe:
+            httpGet: { path: /ready, port: http2 }
+            failureThreshold: 40
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /ready, port: http2 }
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet: { path: /ready, port: http2 }
+            periodSeconds: 15
+            timeoutSeconds: 5
+          volumeMounts:
+            - { name: config, mountPath: /etc/pyroscope/config.yaml, subPath: config.yaml }
+            - { name: config, mountPath: /etc/pyroscope/overrides/overrides.yaml, subPath: overrides.yaml }
+            # 차트와 같은 방식 — 같은 PVC 를 두 경로에 건다.
+            - { name: data, mountPath: /data }
+      volumes:
+        - name: config
+          configMap:
+            name: pyroscope-config
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 10Gi

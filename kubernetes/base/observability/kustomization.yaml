@@ -52,6 +52,10 @@ resources:
   - glitchtip/glitchtip-service.yaml
   - glitchtip/glitchtip-web-deployment.yaml
   - glitchtip/glitchtip-worker-deployment.yaml
+  # Pyroscope - 지속 프로파일링. Sentry 대안(ADR-036 맥락)
+  - pyroscope/pyroscope-configmap.yaml
+  - pyroscope/pyroscope-headless.yaml
+  - pyroscope/pyroscope-statefulset.yaml
   # Trivy - Weekly Image Scan
   - trivy/trivy-cronjob.yaml
   - trivy/trivy-rbac.yaml

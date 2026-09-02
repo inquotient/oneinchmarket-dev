@@ -632,6 +632,7 @@ dev에서 ambient는 꺼져 있다(`overlays/dev/namespace.yaml:10`, 커밋 `33e
 - **TODO-48** — HiveServer2 의 `hadoop.proxyuser.hive.*=*` 는 Kerberos 가 없는 로컬 전제다. dev/prod 에서는 위임 대상을 실제 클라이언트 사용자로 좁히거나 Knox/Ranger 경유로 대체해야 한다 (SEC 신규 항목 후보).
 - **TODO-49** — HiveServer2 는 Tez **로컬 모드**로 돈다(`tez.local.mode=true`). DAG 가 HiveServer2 JVM 안에서 실행되므로 분산 실행·동시 질의 규모에 한계가 있다. 실배치에서는 YARN(ResourceManager·NodeManager)을 올리고 로컬 모드를 끄거나, HiveQL 경로 자체를 Trino·Spark 로 흡수할지 결정한다.
 - **TODO-50 해소**(2026-09-03) — `docker/jenkins/` 로컬 빌드 이미지에 `jenkins-plugin-cli` 로 플러그인을 굽고(요청 4종 + 의존 55종 = 59개), JCasC 로 관리자 계정·인가 전략을 선언했다. `runSetupWizard=false` 를 **보안 영역 선언과 함께** 주므로 인증 없는 Jenkins 가 되지 않는다. 비밀번호는 `jenkins-secret` 에서 환경변수로 주입되어 ConfigMap 에 평문이 남지 않는다.
+- **TODO-51** — Pyroscope 가 애플리케이션을 프로파일링하지 못한다(자기 자신만 본다). ⓐ Pyroscope Java 에이전트를 `cmmn-api` 이미지에 넣으려면 G9(Dockerfile 부재) 해소가 선행된다 ⓑ Grafana Alloy 의 eBPF 프로파일링은 앱 변경이 필요 없으나 WSL2 에서 동작할지 미검증이다 — Falco 의 modern_ebpf 는 실패했고(W3) Tetragon 은 동작하므로 해봐야 안다. 결정 전까지 Pyroscope 는 "도구는 섰지만 대상이 없는" 상태다.
   - 남은 것: **에이전트가 없어 빌드가 컨트롤러에서 돈다**(`numExecutors: 1`). 에이전트를 붙이면 0 으로 내리고 `mode: EXCLUSIVE` 로 바꿀 것. `allow-jenkins-access` 에 `jenkins-agent` 셀렉터를 미리 열어 두었다.
   - 남은 것: **TODO-40**(Jenkins ↔ GitLab CI 역할 분담)은 여전히 미결이다. 지금 Jenkins 에는 잡이 하나도 없다.
   - 플러그인 버전을 고정하지 않는다 — `jenkins-plugin-cli` 가 코어 호환 버전을 고르므로, 버전을 박으면 base 의 `:lts` 가 올라갈 때 조합이 깨진다. 재현성은 이미지 태그로 잡는다(TODO-44 와 같은 계열의 미검증 다운로드는 남는다).

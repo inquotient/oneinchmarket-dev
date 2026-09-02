@@ -1,0 +1,51 @@
+# ★ headless 여야 한다. raft·grpc 가 **SRV 레코드**로 피어를 찾는다
+#   (`dnssrvnoa+_raft._tcp.…`, `dns:///_grpc._tcp.…`). SRV 이름은 포트
+#   이름에서 나오므로 포트 name 을 `raft`·`grpc` 로 정확히 맞춰야 한다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: pyroscope-headless
+  labels:
+    app.kubernetes.io/name: pyroscope
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - { port: 4040, targetPort: http2,      protocol: TCP, name: http2 }
+    - { port: 9095, targetPort: grpc,       protocol: TCP, name: grpc }
+    # ★ 링(ring) 참여에 필요하다. 없으면 distributor·ingester·compactor·
+    #   store-gateway 가 "waiting until X is ACTIVE in the ring" 에서
+    #   멈추고 /ready 가 계속 503 을 준다.
+    - { port: 7946, targetPort: memberlist, protocol: TCP, name: memberlist }
+  selector:
+    app.kubernetes.io/name: pyroscope
+---
+# Grafana·사용자가 HTTP 로 붙는 통상 Service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: pyroscope
+  labels:
+    app.kubernetes.io/name: pyroscope
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  type: ClusterIP
+  ports:
+    - { port: 4040, targetPort: http2, protocol: TCP, name: http2 }
+  selector:
+    app.kubernetes.io/name: pyroscope
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pyroscope
+  labels:
+    app.kubernetes.io/name: pyroscope
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+automountServiceAccountToken: false
