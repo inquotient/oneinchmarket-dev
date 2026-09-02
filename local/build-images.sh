@@ -21,6 +21,11 @@ for s in docker.socket docker containerd; do
   systemctl list-unit-files "$s"* >/dev/null 2>&1 && sudo systemctl disable --now "$s" 2>/dev/null || true
 done
 
+# ★ 빌드는 --network host 로 한다.
+#   `podman network ls` 에 k3s 가 만든 `cilium`(cilium-cni) 네트워크가 함께
+#   보이고, 빌드 컨테이너가 그쪽을 잡으면 밖으로 나가지 못한다.
+#   실제로 HBase tarball 을 받다 curl(28) Failed to connect 로 죽었다.
+#   호스트에서는 되고 컨테이너에서만 안 되므로 원인을 찾는 데 시간이 든다.
 if ! command -v podman >/dev/null 2>&1; then
   log "podman 설치"
   sudo apt-get update -qq
@@ -29,12 +34,12 @@ fi
 podman --version
 
 log "oneinch/spark-iceberg 빌드"
-sudo podman build --format docker \
+sudo podman build --format docker --network host \
   -t oneinch/spark-iceberg:latest -t oneinch/spark-iceberg:3.5.6 \
   "${REPO_ROOT}/docker/spark-iceberg"
 
 log "oneinch/livy 빌드"
-sudo podman build --format docker \
+sudo podman build --format docker --network host \
   -t oneinch/livy:latest -t oneinch/livy:0.9.0-incubating \
   "${REPO_ROOT}/docker/livy"
 
@@ -43,14 +48,14 @@ log "oneinch/ranger-usersync 빌드"
 #   apache/ranger @ release-ranger-2.9.0
 #     dev-support/ranger-docker/Dockerfile.ranger-usersync
 # 베이스(apache/ranger-base)와 릴리스 tarball 모두 Apache 배포물이다.
-sudo podman build --format docker \
+sudo podman build --format docker --network host \
   -t oneinch/ranger-usersync:latest -t oneinch/ranger-usersync:2.9.0 \
   "${REPO_ROOT}/docker/ranger-usersync"
 
 log "oneinch/hbase 빌드"
 # HBase 는 공식 이미지가 없다(Docker Hub 에 apache/hbase 저장소가 없음).
 # v1/hbase/Dockerfile 을 고쳐 docker/hbase 로 옮겼다 — 상세는 그 파일 주석.
-sudo podman build --format docker \
+sudo podman build --format docker --network host \
   -t oneinch/hbase:latest -t oneinch/hbase:2.6.6 \
   "${REPO_ROOT}/docker/hbase"
 
