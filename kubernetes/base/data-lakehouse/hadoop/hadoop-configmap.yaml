@@ -36,6 +36,18 @@ data:
         <name>hadoop.tmp.dir</name>
         <value>/hadoop/tmp</value>
       </property>
+      <!-- ★ proxyuser — HiveServer2 가 Tez 태스크를 UGI.doAs 로 실행한다.
+           hive.server2.enable.doAs=false 여도 세션 UGI 가 프록시로 감싸여
+           "User: hive is not allowed to impersonate hive" 로 TezTask 가 죽는다.
+           simple 인증이라 위임을 검증할 수단이 없으므로 hive 만 열어 둔다. -->
+      <property>
+        <name>hadoop.proxyuser.hive.hosts</name>
+        <value>*</value>
+      </property>
+      <property>
+        <name>hadoop.proxyuser.hive.groups</name>
+        <value>*</value>
+      </property>
     </configuration>
 
   hdfs-site.xml: |

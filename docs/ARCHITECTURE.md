@@ -585,7 +585,7 @@ dev에서 ambient는 꺼져 있다(`overlays/dev/namespace.yaml:10`, 커밋 `33e
 - **TODO-10** — 스키마 부트스트랩 주체 (G22).
 - **TODO-11** — Iceberg 카탈로그: HMS vs REST vs JDBC.
 - **TODO-12** — Trino coordinator/worker 분리 및 spill 스토리지.
-- **TODO-33** — HDFS ↔ MinIO 이중 스토리지. Hive warehouse 위치.
+- **TODO-33** — ~~HDFS ↔ MinIO 이중 스토리지. Hive warehouse 위치.~~ **로컬에서 해소**(LOCAL-DEPLOYMENT §8-16). 한 HiveServer2 가 `hdfs://` 와 `s3a://` 를 동시에 처리한다 — `hadoop-hdfs-client` 와 `hadoop-aws` 가 한 클래스패스에 공존하고 `FileSystem` 이 스킴별로 구현체를 고른다. 정할 것은 **기본값뿐**이다: `fs.defaultFS=hdfs://…`(scratch·중간 결과), `hive.metastore.warehouse.dir=s3a://…`(기본 웨어하우스). 나머지는 테이블·DB 의 `LOCATION`/`MANAGEDLOCATION` 으로 지정한다. dev/prod 적용은 미결.
 
 ### 보안
 
@@ -629,6 +629,8 @@ dev에서 ambient는 꺼져 있다(`overlays/dev/namespace.yaml:10`, 커밋 `33e
 - **TODO-45** — Livy 0.9.0-incubating의 Kubernetes 전용 튜닝 키(앱 조회 타임아웃·UI 프록시)를 릴리스 문서와 대조해 `livy-configmap.yaml`에 반영한다. 현재 `livy.spark.*` 패스스루만 사용한다.
 - **TODO-46** — Livy·Spark History 앞단 `oauth2-proxy`(Keycloak OIDC) 매니페스트 미작성. NetworkPolicy는 이미 `oauth2-proxy` 셀렉터를 전제한다.
 - **TODO-47** — G41 해소 방식 결정. ⓐ 이미지 참조를 전용 ConfigMap 키로 분리해 prod가 그 키만 패치 ⓑ kustomize `replacements`로 ConfigMap 내부 문자열 치환 ⓒ `spark-submit --conf`로 제출 시점 주입. **ⓐ가 전체 `spark-defaults.conf`를 prod에 복제하지 않아 드리프트 위험이 없다** (ADR-011 교훈).
+- **TODO-48** — HiveServer2 의 `hadoop.proxyuser.hive.*=*` 는 Kerberos 가 없는 로컬 전제다. dev/prod 에서는 위임 대상을 실제 클라이언트 사용자로 좁히거나 Knox/Ranger 경유로 대체해야 한다 (SEC 신규 항목 후보).
+- **TODO-49** — HiveServer2 는 Tez **로컬 모드**로 돈다(`tez.local.mode=true`). DAG 가 HiveServer2 JVM 안에서 실행되므로 분산 실행·동시 질의 규모에 한계가 있다. 실배치에서는 YARN(ResourceManager·NodeManager)을 올리고 로컬 모드를 끄거나, HiveQL 경로 자체를 Trino·Spark 로 흡수할지 결정한다.
 
 ---
 

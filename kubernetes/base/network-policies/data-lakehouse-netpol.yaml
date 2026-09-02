@@ -305,3 +305,34 @@ spec:
       ports:
         - { protocol: TCP, port: 16020 }
         - { protocol: TCP, port: 16030 }
+---
+# HiveServer2 — JDBC(10000) · WebUI(10002).
+# 클라이언트는 레이크하우스 내부(beeline·Trino)와 애플리케이션 계층이다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-hive-server-access
+  labels:
+    app.kubernetes.io/name: allow-hive-server-access
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: hive-server
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: data-lakehouse
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: application
+      ports:
+        - protocol: TCP
+          port: 10000
+        - protocol: TCP
+          port: 10002

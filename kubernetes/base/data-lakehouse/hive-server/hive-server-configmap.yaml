@@ -1,0 +1,159 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hive-server-config
+  labels:
+    app.kubernetes.io/name: hive-server
+    app.kubernetes.io/component: data-lakehouse
+    app.kubernetes.io/part-of: oneinchmarket
+data:
+  # ─────────────────────────────────────────────────────────────────────
+  # HiveServer2 는 메타스토어와 **다중 파일시스템**을 동시에 쓴다.
+  #   fs.defaultFS       = hdfs://hadoop-namenode:8020  (기본 FS · scratch)
+  #   warehouse.dir      = s3a://warehouse/tables       (기본 웨어하우스)
+  # 두 스킴의 구현체가 한 클래스패스에 공존한다:
+  #   hadoop-hdfs-client-3.3.6.jar  ·  tools/lib/hadoop-aws-3.3.6.jar
+  # 따라서 `LOCATION 'hdfs://...'` 와 `LOCATION 's3a://...'` 를 테이블마다
+  # 골라 쓸 수 있고, HDFS 전용 Hive 를 따로 띄울 이유가 없다.
+  # ─────────────────────────────────────────────────────────────────────
+  hive-site.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+    <configuration>
+      <!-- ── 원격 메타스토어 ── 스키마는 hive-metastore 가 소유한다 -->
+      <property>
+        <name>hive.metastore.uris</name>
+        <value>thrift://hive-metastore-headless:9083</value>
+      </property>
+      <property>
+        <name>hive.metastore.warehouse.dir</name>
+        <value>s3a://warehouse/tables</value>
+      </property>
+      <property>
+        <name>hive.metastore.event.db.notification.api.auth</name>
+        <value>false</value>
+      </property>
+
+      <!-- ── 기본 파일시스템은 HDFS ── scratchdir · 중간 결과가 여기 쌓인다 -->
+      <property>
+        <name>fs.defaultFS</name>
+        <value>hdfs://hadoop-namenode:8020</value>
+      </property>
+      <property>
+        <name>hive.exec.scratchdir</name>
+        <value>/tmp/hive</value>
+      </property>
+      <property>
+        <name>hive.exec.local.scratchdir</name>
+        <value>/tmp/hive-local</value>
+      </property>
+      <property>
+        <name>hive.downloaded.resources.dir</name>
+        <value>/tmp/hive-resources</value>
+      </property>
+
+      <!-- ── S3A(MinIO) ── 메타스토어와 동일 설정 -->
+      <property>
+        <name>fs.s3a.endpoint</name>
+        <value>http://minio-headless:9000</value>
+      </property>
+      <!-- ★ 자격증명은 값이 아니라 공급자로 넘긴다.
+           fs.s3a.access.key 에 ${env:MINIO_ACCESS_KEY} 를 쓰던 방식은
+           HiveServer2 에서는 HiveConf.get() 이 치환해 주지만 독립
+           메타스토어에서는 치환되지 않아 리터럴이 그대로 키가 되고
+           MinIO 가 403 Forbidden 을 돌려준다. 조용히 틀리는 설정이다.
+           EnvironmentVariableCredentialsProvider 는 AWS SDK 가 직접
+           AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY 를 읽으므로
+           Hadoop 의 변수 치환 규칙에 의존하지 않는다. -->
+      <property>
+        <name>fs.s3a.aws.credentials.provider</name>
+        <value>com.amazonaws.auth.EnvironmentVariableCredentialsProvider</value>
+      </property>
+      <property>
+        <name>fs.s3a.path.style.access</name>
+        <value>true</value>
+      </property>
+      <property>
+        <name>fs.s3a.impl</name>
+        <value>org.apache.hadoop.fs.s3a.S3AFileSystem</value>
+      </property>
+      <property>
+        <name>fs.s3a.connection.ssl.enabled</name>
+        <value>false</value>
+      </property>
+
+      <!-- ── HiveServer2 ── -->
+      <property>
+        <name>hive.server2.thrift.bind.host</name>
+        <value>0.0.0.0</value>
+      </property>
+      <property>
+        <name>hive.server2.thrift.port</name>
+        <value>10000</value>
+      </property>
+      <property>
+        <name>hive.server2.webui.host</name>
+        <value>0.0.0.0</value>
+      </property>
+      <property>
+        <name>hive.server2.webui.port</name>
+        <value>10002</value>
+      </property>
+      <!-- doAs=false : 클라이언트 유저를 위임하지 않고 항상 hive 로 실행한다.
+           NameNode 가 simple 인증이라 위임을 검증할 근거가 없다.
+           단, 이것만으로 프록시가 완전히 사라지지는 않는다 — 아래 proxyuser 참조. -->
+      <property>
+        <name>hive.server2.enable.doAs</name>
+        <value>false</value>
+      </property>
+      <property>
+        <name>hive.server2.active.passive.ha.enable</name>
+        <value>false</value>
+      </property>
+
+      <!-- ── 실행 엔진 : Tez 로컬 모드 ──
+           YARN(ResourceManager/NodeManager)을 띄우지 않는다. DAG 를
+           HiveServer2 JVM 안에서 실행한다. 스모크·소규모 질의용이며,
+           분산 실행이 필요해지면 YARN 2파드를 추가하고 tez.local.mode 를
+           끄는 것이 업그레이드 경로다(TODO-49). -->
+      <property>
+        <name>hive.execution.engine</name>
+        <value>tez</value>
+      </property>
+      <property>
+        <name>tez.local.mode</name>
+        <value>true</value>
+      </property>
+      <property>
+        <name>tez.runtime.optimize.local.fetch</name>
+        <value>true</value>
+      </property>
+      <property>
+        <name>hive.tez.exec.inplace.progress</name>
+        <value>false</value>
+      </property>
+      <property>
+        <name>hive.exec.submit.local.task.via.child</name>
+        <value>false</value>
+      </property>
+
+      <!-- ── 통계 : 로컬 모드에서 자동 통계 수집은 DAG 를 하나 더 만든다 ── -->
+      <property>
+        <name>hive.stats.autogather</name>
+        <value>false</value>
+      </property>
+
+      <!-- ★ proxyuser — Tez 로컬 모드는 이 JVM 안에서 UGI.doAs 로 태스크를 돈다.
+           ProxyUsers 검사가 같은 프로세스에서 일어나므로 NameNode 의
+           core-site.xml 뿐 아니라 여기에도 있어야 한다.
+           증상: TezTask return code 1,
+                 "User: hive is not allowed to impersonate hive" -->
+      <property>
+        <name>hadoop.proxyuser.hive.hosts</name>
+        <value>*</value>
+      </property>
+      <property>
+        <name>hadoop.proxyuser.hive.groups</name>
+        <value>*</value>
+      </property>
+    </configuration>

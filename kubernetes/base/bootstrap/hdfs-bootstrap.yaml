@@ -65,11 +65,16 @@ spec:
               mk /warehouse hive   755   # Hive 가 HDFS 를 쓸 때의 위치(TODO-33)
               mk /tmp       hadoop 1777  # 스티키. 여러 사용자가 공유한다
               mk /user      hadoop 755
+              # ★ Tez 는 세션마다 hive-exec jar 를 HDFS 에 올린다.
+              #   위치는 hive.user.install.directory(기본 /user) + 사용자명 이다.
+              #   /user/hive 가 없으면 Hive 가 /user 에 mkdir 을 시도하고
+              #   Permission denied 로 TezTask 가 return code 1 로 죽는다.
+              mk /user/hive hive   755
 
               echo "[hdfs-bootstrap] 검증"
               hdfs dfs -ls "$NN/"
               # 소유자가 어긋나면 실패로 끝낸다 — 조용한 성공을 만들지 않는다.
-              for want in "/hbase:hbase" "/warehouse:hive"; do
+              for want in "/hbase:hbase" "/warehouse:hive" "/user/hive:hive"; do
                 p="${want%%:*}"; u="${want##*:}"
                 got=$(hdfs dfs -stat "%u" "$NN$p" 2>/dev/null)
                 if [ "$got" != "$u" ]; then

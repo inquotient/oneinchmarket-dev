@@ -1243,9 +1243,206 @@ DataNode 는 데이터 디렉터리에 `dfs.datanode.data.dir.perm`(기본 700)�
 
 | | 상태 |
 |---|---|
-| HBase 2종 | **로컬 빌드 필요.** `apache/hbase` 저장소가 Docker Hub 에 없다(404). `v1/hbase/Dockerfile` 과 `docker/` + `build-images.sh` 경로가 있다 |
-| Hive Server | **TODO-33 이 여기서 물린다** — Hive warehouse 를 HDFS 로 되돌릴지, S3A 를 유지할지, Trino 에 두 카탈로그를 병행할지 |
+| HBase 2종 | **로컬 빌드 필요.** `apache/hbase` 저장소가 Docker Hub 에 없다(404) → §8-15 에서 `docker/hbase/Dockerfile` 로 해소 |
+| Hive Server | **TODO-33 이 여기서 물린다** — Hive warehouse 를 HDFS 로 되돌릴지, S3A 를 유지할지 → §8-16 에서 "양자택일이 아니다"로 해소 |
 
+
+### 8-15. 5단계 2/3 — HBase (2026-09-02)
+
+#### 이미지 — `docker/hbase/Dockerfile`
+
+`apache/hbase` 는 Docker Hub 에 없다(404). `v1/hbase/Dockerfile` 이 있었으나 그대로 쓸 수 없어 새로 썼다.
+
+| v1 의 문제 | 고친 것 |
+|---|---|
+| `FROM openjdk:8` — HBase 2.6 은 JDK 8 을 지원 종료했다 | `eclipse-temurin:17-jre-noble` |
+| 체크섬 검증 없음 | `HBASE_SHA512` ARG + `sha512sum -c -` |
+| root 로 실행 | `groupadd -g 1001 hbase` + `USER hbase` |
+| `archive.apache.org` 고정 | `dlcdn.apache.org` (미러) |
+
+`local/build-images.sh` 가 이제 4종을 빌드한다 — `spark-iceberg`, `livy`, `ranger-usersync`, `hbase`. 전부 `--network host` 다(§8-14).
+
+#### 결과
+
+```
+hbase-master-0        1/1 Running   registered as active master
+hbase-regionserver-0  1/1 Running   reportForDuty -> Serving as ...
+create/put/get        value=hbase  (HDFS 위)
+HDFS                  /hbase/data/default/oim_smoke/{.tabledesc,<region>/cf}
+```
+
+#### 걸린 것 — NetworkPolicy 는 "소스로 등록"만으로는 부족하다
+
+RegionServer 가 init 에서 멈췄다. `hbase-master`·`hbase-regionserver` 는 다른 정책의 **from 목록에는** 들어 있었지만 **자기 자신을 podSelector 로 하는 ingress 정책이 없었다**. default-deny-ingress 아래에서는 인바운드 정책이 없으면 아무도 들어오지 못한다.
+
+> **점검 항목** — 워크로드를 추가할 때 "이 워크로드가 접속할 대상"만 열고 끝내기 쉽다.
+> `podSelector` 가 그 워크로드인 정책이 실제로 존재하는지 따로 확인할 것.
+
+### 8-16. 5단계 3/3 — HiveServer2 · "Hive 는 Hadoop 과 같이 쓸 수 있나"
+
+#### 결론 — 쓸 수 있다. Hadoop 전용 Hive 를 따로 띄울 이유가 없다
+
+`apache/hive:4.0.1` 한 이미지 안에 두 파일시스템 구현체가 함께 들어 있다.
+
+```
+/opt/hadoop/share/hadoop/hdfs/hadoop-hdfs-client-3.3.6.jar   ← hdfs://
+/opt/hadoop/share/hadoop/tools/lib/hadoop-aws-3.3.6.jar      ← s3a://
+/opt/hadoop/share/hadoop/tools/lib/aws-java-sdk-bundle-1.12.367.jar
+```
+
+Hadoop 의 `FileSystem` 은 URI 스킴별로 구현체를 고르므로, 한 HiveServer2 가 데이터베이스·테이블마다 `LOCATION 'hdfs://...'` 와 `LOCATION 's3a://...'` 를 섞어 쓸 수 있다. **인스턴스를 나눠야 하는 제약은 없다.**
+
+그래서 다음 배치로 끝냈다.
+
+| | |
+|---|---|
+| `fs.defaultFS` | `hdfs://hadoop-namenode:8020` — scratchdir·중간 결과가 HDFS 로 간다 |
+| `hive.metastore.warehouse.dir` | `s3a://warehouse/tables` — 기본 웨어하우스는 그대로 오브젝트 스토리지 |
+| 테이블별 | `LOCATION` 으로 스킴을 골라 쓴다 |
+
+TODO-33("warehouse 를 HDFS 로 되돌릴지")은 **양자택일이 아니었다**. 기본값만 정하면 되고, 나머지는 테이블 단위로 지정한다.
+
+#### 실행 엔진 — YARN 을 띄우지 않는다
+
+Hive 4 의 기본 엔진은 Tez 이고 Tez 는 보통 YARN 을 요구한다. ResourceManager + NodeManager 2파드를 더 올리는 대신 **Tez 로컬 모드**(`tez.local.mode=true`)를 썼다 — DAG 를 HiveServer2 JVM 안에서 실행한다. 이미지에 Tez 0.10.4 가 이미 들어 있다.
+
+- 적합: 스모크·DDL·소규모 질의, 카탈로그 호환성 확인
+- 부적합: 실제 분산 배치 — 그때는 YARN 2파드를 올리고 `tez.local.mode` 를 끈다 (TODO-49)
+
+대량 처리 경로는 이미 Spark(K8s 네이티브)와 Trino 가 맡고 있어 로컬에서 YARN 을 세울 이유가 약하다.
+
+#### 걸린 것 6건 — 전부 "조용히 틀리는" 부류였다
+
+**1. entrypoint 가 매번 schematool 을 돌린다**
+
+```bash
+SKIP_SCHEMA_INIT="${IS_RESUME:-false}"
+: ${DB_DRIVER:=derby}
+...
+$HIVE_HOME/bin/schematool -dbType $DB_DRIVER -initOrUpgradeSchema || exit 1
+```
+
+`IS_RESUME` 를 주지 않으면 HiveServer2 도 **derby 로** 스키마 초기화를 시도하고 실패하면 `exit 1` 한다. 스키마 소유자는 hive-metastore 이므로 `IS_RESUME=true` 로 건너뛴다.
+
+**2. 알림 이벤트 API 인가는 메타스토어 쪽 설정이다**
+
+HiveServer2 가 기동하지 않고 60초마다 재시도했다. 파드 stdout 에는 `Hive Session ID = ...` 만 반복될 뿐 이유가 없었다 — 실제 로그는 `/tmp/hive/hive.log` 에 있다.
+
+```
+WARN  server.HiveServer2: Error starting HiveServer2 on attempt 1, will retry in 60000ms
+java.lang.RuntimeException: Error initializing notification event poll
+Caused by: TApplicationException: Internal error processing get_current_notificationEventId
+```
+
+메타스토어 로그에 원인과 처방이 함께 있었다.
+
+```
+ERROR metastore.HMSHandler: Not authorized to make the get_notification_events_count call.
+      You can try to disable metastore.metastore.event.db.notification.api.auth
+```
+
+`metastore.event.db.notification.api.auth=false` 를 **hive-metastore 의** hive-site.xml 에 넣어야 한다. HiveServer2 쪽에 같은 이름을 넣어도 서버 판정은 바뀌지 않는다.
+
+**3. `hadoop-aws` 는 기본 클래스패스에 없다**
+
+```
+ClassNotFoundException: Class org.apache.hadoop.fs.s3a.S3AFileSystem not found
+```
+
+`share/hadoop/tools/lib` 는 Hadoop 기본 클래스패스에서 빠져 있다. hive-site.xml 에 `fs.s3a.impl` 을 적어 두어도 **클래스가 없으면 의미가 없다.** `HADOOP_CLASSPATH` 에 두 jar 를 명시했다(와일드카드로 tools/lib 전체를 넣으면 쓰지 않는 azure·gcs 커넥터와 중복 SDK 가 딸려 온다).
+
+> 이 문제는 **메타스토어에도 원래 있었다.** `hive.metastore.warehouse.dir=s3a://...` 로
+> 설정돼 있었지만 Hive 가 그 경로를 실제로 해석할 일이 없어 드러나지 않았다.
+> Trino·Spark 는 각자의 S3 클라이언트를 쓰므로 레이크하우스는 정상으로 보였다.
+
+**4. `${env:...}` 치환은 메타스토어에서 동작하지 않는다**
+
+```
+AccessDeniedException s3a://warehouse/... : AmazonS3Exception: Forbidden (403)
+```
+
+`fs.s3a.access.key` 에 `${env:MINIO_ACCESS_KEY}` 를 쓰던 방식은 HiveServer2 에서는 `HiveConf.get()` 이 치환해 주지만 독립 메타스토어에서는 치환되지 않아 **리터럴 문자열이 그대로 액세스 키가 된다.** MinIO 는 이를 403 으로 돌려준다 — 설정 오류처럼 보이지 않고 권한 오류처럼 보인다.
+
+→ 값이 아니라 **공급자**로 넘긴다. `fs.s3a.aws.credentials.provider=com.amazonaws.auth.EnvironmentVariableCredentialsProvider` + `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`. AWS SDK 가 환경변수를 직접 읽으므로 Hadoop 의 변수 치환 규칙에 의존하지 않는다.
+
+#### 덤으로 드러난 것 — 메타스토어 재시작 39회의 원인
+
+`overlays/local/patches/qos-guaranteed.yaml` 이 hive-metastore 를 **512Mi** 로 고정하고 있었는데 entrypoint 는 `HADOOP_CLIENT_OPTS` 에 `-Xmx1G` 를 박아 넣는다. 힙만으로 한계를 넘으니 JVM 이 아니라 커널이 죽인다. 힙을 `SERVICE_OPTS` 의 `-Xmx768m` 로 눌러 잡고(뒤에 온 `-Xmx` 가 이긴다) limit 을 1280Mi 로 올렸다.
+
+> **일반화** — 컨테이너 limit 을 줄일 때 **그 안에서 도는 JVM 의 `-Xmx` 를 같이 보지 않으면**
+> 워크로드는 "가끔 죽는" 상태로 남는다. Guaranteed QoS 는 스왑도 못 쓰므로 여유가 없다.
+
+또 hive-metastore StatefulSet 이 같은 ConfigMap 을 `envFrom` 으로도 참조하고 있었다. 이 ConfigMap 의 유일한 키가 `hive-site.xml` 이라 **`hive-site.xml` 이라는 이름의 환경변수에 XML 전문이 들어가 있었다.** 제거했다.
+
+**5. `doAs=false` 로도 프록시는 남는다**
+
+```
+TezTask return code 1: User: hive is not allowed to impersonate hive
+```
+
+`hive.server2.enable.doAs=false` 는 **클라이언트 유저를 위임하지 않는다**는 뜻이지 UGI 프록시를 아예 쓰지 않는다는 뜻이 아니다. Tez 태스크는 `UGI.doAs` 로 감싸여 실행되고, `ProxyUsers` 검사는 자기가 자기를 위임하는 경우도 화이트리스트를 요구한다.
+
+```xml
+<property><name>hadoop.proxyuser.hive.hosts</name><value>*</value></property>
+<property><name>hadoop.proxyuser.hive.groups</name><value>*</value></property>
+```
+
+**두 곳 모두** 필요하다 — NameNode 의 `core-site.xml`(원격 검사)과 HiveServer2 의 `hive-site.xml`(Tez 로컬 모드는 같은 JVM 안에서 검사한다).
+
+**6. Tez 는 `/user/<유저>` 에 jar 를 올린다**
+
+```
+Permission denied: user=hive, access=WRITE, inode="/user":hadoop:supergroup:drwxr-xr-x
+```
+
+`hive.user.install.directory`(기본 `/user`) 아래에 세션마다 `hive-exec` jar 를 업로드한다. `/user/hive` 가 미리 있으면 `/user` 에 쓸 필요가 없다. `hdfs-bootstrap` 에 `mk /user/hive hive 755` 를 추가하고 검증 목록에도 넣었다.
+
+#### 검증 — 한 인스턴스가 두 파일시스템을 JOIN 한다
+
+`apache/hive:4.0.1` beeline 파드에서 HiveServer2 에 접속해 실행했다.
+
+```sql
+-- HDFS 쪽
+CREATE DATABASE oim_hdfs
+  LOCATION        'hdfs://hadoop-namenode:8020/warehouse/oim_hdfs.db'
+  MANAGEDLOCATION 'hdfs://hadoop-namenode:8020/warehouse/oim_hdfs_managed.db';
+CREATE EXTERNAL TABLE oim_hdfs.t (id INT, v STRING) STORED AS TEXTFILE;
+INSERT INTO oim_hdfs.t VALUES (1, 'from-hdfs');
+
+-- S3A(MinIO) 쪽
+CREATE DATABASE oim_s3
+  LOCATION        's3a://warehouse/tables/oim_s3.db'
+  MANAGEDLOCATION 's3a://warehouse/tables/oim_s3_managed.db';
+CREATE EXTERNAL TABLE oim_s3.t (id INT, v STRING) STORED AS TEXTFILE;
+INSERT INTO oim_s3.t VALUES (1, 'from-s3a');
+
+-- 한 질의에서 두 스킴을 JOIN
+SELECT h.v, s.v FROM oim_hdfs.t h JOIN oim_s3.t s ON h.id = s.id;
+```
+
+```
+from-hdfs	from-s3a
+
+DESCRIBE FORMATTED oim_hdfs.t → Location: hdfs://hadoop-namenode:8020/warehouse/oim_hdfs.db/t
+DESCRIBE FORMATTED oim_s3.t   → Location: s3a://warehouse/tables/oim_s3.db/t
+```
+
+`INSERT` 는 Tez DAG 를 돌리므로 로컬 모드 실행 경로도 함께 검증된다.
+
+> `MANAGEDLOCATION` 을 명시한 이유 — `CREATE DATABASE ... LOCATION` 은 **external**
+> 위치만 정한다. 관리 위치는 `hive.metastore.warehouse.dir`(=S3A) 를 따르므로,
+> 명시하지 않으면 HDFS 데이터베이스인데 관리 경로만 S3A 로 남는다.
+
+#### 최종 상태
+
+| | |
+|---|---|
+| `hive-metastore-0` | 1/1 · 1280Mi Guaranteed · 힙 768m |
+| `hive-server-0` | 1/1 · thrift 10000 · WebUI 10002 · 힙 1536m |
+| HDFS | `/hbase`(hbase) `/warehouse`(hive) `/user/hive`(hive) `/tmp`(1777) |
+| NetworkPolicy | `allow-hive-server-access` — data-lakehouse·application 계층에서 10000/10002 |
+
+`local/NEXT-SESSION.md` 의 재현 절차에 스모크 SQL 을 그대로 옮겨 두었다. 레포에는 Job 을 커밋하지 않는다 — 테스트용 데이터베이스를 sync 마다 만들게 되기 때문이다.
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용

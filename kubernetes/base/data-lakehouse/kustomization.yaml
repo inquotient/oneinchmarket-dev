@@ -37,6 +37,10 @@ resources:
   - hbase/hbase-service.yaml
   - hbase/hbase-master-statefulset.yaml
   - hbase/hbase-regionserver-statefulset.yaml
+  # HiveServer2 - JDBC 게이트웨이. 원격 메타스토어 + Tez 로컬 모드
+  - hive-server/hive-server-configmap.yaml
+  - hive-server/hive-server-headless.yaml
+  - hive-server/hive-server-statefulset.yaml
   # Apache Livy - REST 세션 게이트웨이 (Jupyter/Zeppelin 백엔드)
   - livy/livy-configmap.yaml
   - livy/livy-rbac.yaml

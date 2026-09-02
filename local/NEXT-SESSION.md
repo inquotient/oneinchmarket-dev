@@ -1,16 +1,18 @@
 # 다음 세션 인수인계
 
-> 브랜치 `local` · 최종 갱신 2026-09-01 (4단계 완료)
+> 브랜치 `local` · 최종 갱신 2026-09-02 (5단계 완료 — 목표 아키텍처 전 구성요소 기동)
 
 ## 지금 상태
 
 ```
-local            39 Running(전부 1/1 Ready) · 6 Completed · 미해결 0
-tetragon 2 · trivy-system 1 · policy-reporter 1
+전체 75 파드 · 미준비 0 · 미완 StatefulSet 0
 
-requests  메모리 60% (28.0/45 GiB)   CPU 73% (14.3/19.5)
-limits    메모리 93%  ← 5단계 전에 .wslconfig memory 상향이 사실상 전제
+requests  메모리 61% (33.2/54 GiB)   CPU 63% (15.0/23.6)
+limits    메모리 98%   ← 더 올리려면 .wslconfig memory 를 다시 봐야 한다
 ```
+
+> 재시작 횟수가 전반적으로 5~20 이다. 대부분 **WSL2 VM 이 내려갔다 올라온** 흔적이다
+> (아래 keep-alive 항목). 워크로드 결함이 아니다.
 
 | 계층 | 상태 |
 |---|---|
@@ -20,9 +22,9 @@ limits    메모리 93%  ← 5단계 전에 .wslconfig memory 상향이 사실�
 | API 계약 | **Apicurio Registry 3.3.2 + Registry UI**(Studio 후계 편집 기능 활성, 전역 규칙 VALIDITY=FULL·COMPATIBILITY=BACKWARD) |
 | governance | DS389 3.1 · LAM 8.3 · Solr 10 · Ranger admin·usersync 2.9.0 · Knox 3.0 |
 | **security** | **Tetragon 1.7.1 · Trivy Operator v0.34.0 · Policy Reporter 3.10.0 · Vault 2.1.0 · Wazuh 4.14.7(manager·indexer, OpenSearch security 활성)** |
-| data | Spark History · Spark Connect · Livy · **ZooKeeper 3.9.5 · HDFS(NameNode·DataNode)** |
+| data | Spark History · Spark Connect · Livy · ZooKeeper 3.9.5 · HDFS(NameNode·DataNode) · **HBase 2.6.6(master·regionserver) · HiveServer2 4.0.1** |
 | devops | GitLab 19.3.1-ee.0 |
-| 부트스트랩 | 8종 전부 Complete (apicurio-rules 추가) |
+| 부트스트랩 | 9종 전부 Complete (hdfs-bootstrap 이 `/user/hive` 추가) |
 
 ## ★ 작업 시작 전에 — WSL keep-alive 를 먼저 띄울 것
 
@@ -80,45 +82,78 @@ bash local/vault-init.sh unseal    # 최초 1회는 init
 
 auto-unseal 은 KMS 를 요구하는데 로컬에 없다. `vault-0` 이 0/1 이면 대개 이것이다.
 
-## 다음 작업 — 5단계 이어서 (HBase · Hive Server)
+## 다음 작업
 
-ZooKeeper·HDFS 는 올라가 있고 쓰기·읽기까지 실증했다(§8-14).
+**5단계로 목표 아키텍처의 구성요소는 전부 올라갔다.** 남은 것은 결정과 마감이다.
 
-### HBase 2종 — 로컬 빌드가 선행
+### 1. API 계약 파일 작성 (기구는 다 섰다)
 
-`apache/hbase` 저장소가 Docker Hub 에 **없다**(404). `v1/hbase/Dockerfile` 을 `docker/hbase/` 로
-이식하고 `local/build-images.sh` 에 추가한다 — `ranger-usersync` 가 선례다.
+`contracts/{openapi,asyncapi,schemas}/` 가 비어 있다. Spectral 린트·`publish-contracts` CI 잡·
+Apicurio 전역 규칙(VALIDITY=FULL·COMPATIBILITY=BACKWARD)은 이미 동작한다. 계약 우선으로
+결정했으므로(ADR-067) `cmmn-api`·`admin` 의 실제 스키마를 계약으로 옮기는 일이 남았다.
 
-HBase 는 ZooKeeper(`zookeeper-headless:2181`)와 HDFS(`hdfs://hadoop-namenode:8020`)를 쓴다.
-둘 다 준비되어 있고 NetworkPolicy 도 `hbase-master`·`hbase-regionserver` 를 미리 열어 두었다.
+### 2. ADR-024 — Vault 를 시크릿 원천으로
 
-### Hive Server — TODO-33 이 여기서 물린다
+Vault 는 올라가 있으나 시크릿 원천은 아직 `local/create-secrets.sh` 다. 전환하면 로테이션
+CronJob 8종·git-sync·`.enc.yaml` 12개가 제거된다. **unseal 키가 같은 클러스터의 Secret 에
+있다는 점을 이 결정에서 반드시 다룰 것.**
 
-**이 결정 없이는 배선할 수 없다.**
+### 3. dev/prod 로의 반영
 
-> Hive warehouse 를 HDFS 로 되돌릴지, S3A(MinIO)를 유지하고 HDFS 를 별도 용도로 둘지,
-> Trino 에 두 카탈로그를 병행할지.
+로컬에서 고친 것 중 **환경 무관한 결함**이 여럿이다 — dev/prod 에도 그대로 있다.
 
-현재 `hive-metastore` 는 S3A 를 쓰고 Trino·Spark 도 그렇다. HDFS 를 넣었다고 해서 자동으로
-옮길 이유는 없다 — HBase 가 HDFS 를 요구해서 올린 것이다.
+| 고친 것 | dev/prod 영향 |
+|---|---|
+| `hadoop-aws` 가 Hive 클래스패스에 없음 | 동일. Hive 가 `s3a://` 를 해석하려는 순간 실패한다 |
+| `${env:...}` 가 메타스토어에서 치환 안 됨 | 동일. 403 이라 권한 문제로 오진하기 쉽다 |
+| 메타스토어 `envFrom` 이 XML 을 환경변수로 | 동일(무해하나 진단을 방해한다) |
+| `metastore.event.db.notification.api.auth` | HiveServer2 를 dev/prod 에 넣는 순간 같은 벽 |
 
-### 이미 정한 것
+TODO-48(proxyuser 범위)·TODO-49(Tez 로컬 모드)는 **로컬 전제**라 그대로 옮기면 안 된다.
 
-- **Kerberos 미채택** — `hadoop.security.authentication=simple`. 채택하려면 별도 결정
-- **HA 없음** — NameNode 1 · DataNode 1 · `dfs.replication=1`
+### 4. 남은 운영 결정
 
-### 그 외 미결
+- **Reloader 미설치** — ConfigMap 을 고칠 때마다 수동 재기동한다. 구성요소가 늘어 비용이 커졌다
+- **Trivy CronJob(주간)과 Trivy Operator 공존** — 제거는 dev/prod 영향이 있어 별도 결정
+- **Wazuh indexer 의 `filebeat` 사용자가 `all_access`**
 
-- **ADR-024(Vault 전환)** — Vault 는 올라가 있으나 시크릿 원천은 아직 `local/create-secrets.sh` 다.
-  전환하면 로테이션 CronJob 8종·git-sync·`.enc.yaml` 12개가 제거된다
-- **API 계약 파일 작성** — 기구는 다 섰다(ADR-067). `contracts/` 가 비어 있을 뿐이다
+### 이미 정한 것 (되묻지 말 것)
 
-## 로컬 빌드 이미지 3종
+- **Kerberos 미채택** — `hadoop.security.authentication=simple`
+- **HA 없음** — NameNode 1 · DataNode 1 · `dfs.replication=1` · ZooKeeper 1
+- **YARN 미배치** — HiveServer2 는 Tez 로컬 모드. 분산 실행은 Spark·Trino 가 맡는다 (TODO-49)
+- **TODO-33 해소** — Hive warehouse 는 양자택일이 아니었다. 기본값만 정하고
+  (`fs.defaultFS`=HDFS, `warehouse.dir`=S3A) 나머지는 `LOCATION` 으로 지정한다
+
+### Hive 다중 파일시스템 재현 (§8-16)
+
+```sql
+CREATE DATABASE oim_hdfs
+  LOCATION        'hdfs://hadoop-namenode:8020/warehouse/oim_hdfs.db'
+  MANAGEDLOCATION 'hdfs://hadoop-namenode:8020/warehouse/oim_hdfs_managed.db';
+CREATE EXTERNAL TABLE oim_hdfs.t (id INT, v STRING) STORED AS TEXTFILE;
+INSERT INTO oim_hdfs.t VALUES (1, 'from-hdfs');
+
+CREATE DATABASE oim_s3
+  LOCATION        's3a://warehouse/tables/oim_s3.db'
+  MANAGEDLOCATION 's3a://warehouse/tables/oim_s3_managed.db';
+CREATE EXTERNAL TABLE oim_s3.t (id INT, v STRING) STORED AS TEXTFILE;
+INSERT INTO oim_s3.t VALUES (1, 'from-s3a');
+
+SELECT h.v, s.v FROM oim_hdfs.t h JOIN oim_s3.t s ON h.id = s.id;   -- from-hdfs  from-s3a
+```
+
+`beeline -u jdbc:hive2://hive-server-headless:10000/default -n hive` 로 접속한다.
+**프로브 파드에는 `environment: local` 과 `app.kubernetes.io/component: data-lakehouse`
+라벨이 있어야 한다** — 없으면 NetworkPolicy 가 막고 증상은 `UnknownHostException` 이다.
+
+## 로컬 빌드 이미지 4종
 
 ```
 oneinch/spark-iceberg    docker/spark-iceberg
 oneinch/livy             docker/livy
 oneinch/ranger-usersync  docker/ranger-usersync   # upstream Dockerfile 이식
+oneinch/hbase            docker/hbase             # apache/hbase 가 Docker Hub 에 없다(404)
 ```
 
 `local/build-images.sh` 가 podman 으로 빌드해 k3s containerd 로 반입한다.
@@ -174,6 +209,19 @@ oneinch/ranger-usersync  docker/ranger-usersync   # upstream Dockerfile 이식
 - **`:latest` 는 메이저 스키마 변경을 그대로 가져온다**(Tempo 3.0 이 `ingester`·`compactor` 를 없앴다)
 - **podman 은 short-name 을 해석하지 않는다.** `docker.io/` 를 명시할 것
 - **kustomize 의 원격 git fetch 는 27초 하드 타임아웃이 있다.** 큰 저장소는 얕은 클론 후 로컬에서 읽을 것
+- **`kubectl rollout status` 는 `rollout restart` 직후 이전 리비전 기준으로 통과한다.**
+  파드가 아직 Terminating 인데 "complete" 가 나온다. 확실히 기다리려면 파드의
+  `controller-revision-hash` 가 STS 의 `updateRevision` 과 같은지까지 볼 것
+- **`hive-site.xml` 의 `${env:...}` 는 HiveServer2 에서만 치환된다.** 독립 메타스토어는
+  치환하지 않아 리터럴이 그대로 자격증명이 되고 **403 으로 돌아온다**(권한 오류처럼 보인다).
+  → 값이 아니라 공급자로 넘길 것(`fs.s3a.aws.credentials.provider`)
+- **`fs.s3a.impl` 을 적어 두어도 클래스가 클래스패스에 없으면 무의미하다.**
+  `hadoop-aws` 는 `share/hadoop/tools/lib` 에 있고 이 경로는 기본 클래스패스가 아니다
+- **컨테이너 `limit` 을 줄일 때 그 안 JVM 의 `-Xmx` 를 같이 볼 것.**
+  hive-metastore 가 limit 512Mi / 힙 1G 로 재시작 39회를 쌓고 있었다.
+  Guaranteed QoS 는 스왑도 못 쓰므로 여유가 없다
+- **엔트리포인트가 인자를 덧붙이는 방식이면 "뒤에 온 값이 이긴다"를 이용할 것**
+  (`HADOOP_CLIENT_OPTS="-Xmx1G $SERVICE_OPTS"` → `SERVICE_OPTS` 에 `-Xmx768m`)
 
 ## 정리해 두면 좋을 것
 
