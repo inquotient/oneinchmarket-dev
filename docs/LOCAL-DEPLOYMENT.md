@@ -439,7 +439,7 @@ prod 핀: `postgres:18.6` · `mariadb:12.3.3` · `redis:8.10.1` · 그 외 20종
 | **2** | **Loki · Tempo · OTel(agent·gateway)** | 13 | ✅ **완료** — 로그·트레이스 경로 개통 |
 | **3** | **governance — DS389 · LAM · Solr · Ranger(admin·usersync) · Knox** | 20 | ✅ **완료** — LDAP→Ranger 동기화 실증 |
 | **4** | **security-min — Tetragon · Trivy Operator · Policy Reporter · Vault · Wazuh 2종** | 11 + 오퍼레이터 3 | ✅ **완료** |
-| **5** | **lakehouse-v1 — ZooKeeper · HDFS** · ~~HBase 2종 · Hive Server~~ | 8 / ~20 | 🔄 **진행 중** — ZK·HDFS 완료, HBase·Hive Server 남음 |
+| **5** | **lakehouse-v1 — ZooKeeper · HDFS · HBase 2종 · HiveServer2** | 20 | ✅ **완료** — HDFS·S3A 동시 처리 실증(§8-16). 단 `overlays/local/` 전용(§8-18) |
 | 6 | GlitchTip · Jenkins · Kafka Bridge | ~16 | 미착수 — **Apicurio Studio 4종은 삭제**(폐기, §8-13) |
 | 7 | security-full — SafeLine · Kubescape · DT · DefectDojo · Caldera | ~25 | **zram 실측 지점** |
 
@@ -1612,6 +1612,38 @@ prod   hive-metastore(11)  실패 0
 `apache/hadoop`·`zookeeper`·`oneinch/hbase` 는 이제 prod 에서 대상이 없다. kustomize 는
 대상 없는 `images:` 항목을 조용히 무시하므로 오류가 나지는 않지만, 그대로 두면 "prod 가
 이것들을 배포한다"고 읽힌다. **미사용임을 주석으로 표시**하고 승격 시점을 위해 값은 유지했다.
+
+### 8-19. zram 이 처음으로 동작했다 (2026-09-03)
+
+§8-6·§8-7 은 두 번 모두 *"zram 은 사실상 미사용(mem_used 2~4 MiB)"* 으로 끝났다. 5단계까지
+올린 지금 처음으로 실제 스왑이 발생했다.
+
+```
+/dev/zram0  lzo-rle  DISKSIZE 32G  DATA 234.4M  COMPR 70.7M  TOTAL 73.5M
+used swap 252 MB / 41.9 GB
+```
+
+**압축률 234.4 / 70.7 = 3.32 배.** §7 의 커널 빌드 검토는 lzo-rle 를 2.2 로 잡고
+`ZRAM_BACKEND_ZSTD` 로 3.2 까지 올리는 것을 근거로 삼았는데, **실측 lzo-rle 가 이미 그
+가정치를 넘는다.**
+
+> 다만 표본이 234 MiB 로 작다. 지금 스왑된 것은 기동 후 손대지 않은 콜드 페이지라
+> 압축이 잘 되는 쪽에 치우쳐 있을 수 있다. **7단계(zram 실측 지점)에서 수 GiB 규모로
+> 다시 볼 것.** 지금 수치로 커널 빌드 필요 없음을 결론짓기에는 이르다.
+
+`vmstat` 의 스왑인은 여전히 관측되지 않는다 — 스왑 아웃만 있었고 되읽지 않았다는 뜻이라
+스래싱은 없다.
+
+#### 6단계 착수 시점의 여유
+
+```
+requests  33.2 / 54 GiB (61%)   ← 스케줄링을 실제로 막는 값. 여유 약 21 GiB
+limits    53.3 / 54 GiB (98%)   ← 오버커밋 허용치라 게이트가 아니다
+실사용    27 GiB used / 27 GiB available
+```
+
+상위 소비: GitLab 3,665 Mi · Elasticsearch 1,849 Mi · Logstash 1,781 Mi ·
+Ranger admin 1,162 Mi · cmmn-api 1,017 Mi
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용

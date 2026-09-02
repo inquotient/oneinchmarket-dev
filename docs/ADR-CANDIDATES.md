@@ -211,6 +211,39 @@ Microcks 는 6단계로 미룬다(§8-13).
 - **통제**: Livy는 세션당 driver를 띄우므로 `livy.server.session.max-creation = 3`, `timeout = 1h`로 상한을 건다(G40).
 ## 매니페스트 · GitOps
 
+### ADR-068 — 환경 분리는 브랜치가 아니라 Kustomize 오버레이로 한다
+**상태: `Accepted`** (2026-09-03)
+
+**결정** — `local`·`dev`·`prod` 는 오버레이로 나눈다. 브랜치는 **버전 축**(`main`=v1, `v2`)이지 환경 축이 아니다. `local` 브랜치는 환경 브랜치가 아니라 **v2 를 실배포로 검증하는 작업 라인**이며, 끝나면 `v2` 로 합치고 소멸한다.
+
+**근거 — 측정값이 브랜치 분리를 반대한다.** `local` 이 `v2` 보다 앞선 116 커밋의 경로 분포:
+
+| 커밋이 건드린 경로 | 건수 | 브랜치 분리 시 |
+|---|--:|---|
+| 로컬 전용만 (`overlays/local/`·`local/`) | 23 (20%) | 그 브랜치에만 남으면 된다 |
+| **공유만** (`base/`·`docs/`·CI·`argocd/`) | **57 (49%)** | 매번 dev·prod 브랜치로 전파해야 한다 |
+| **혼재** | **36 (31%)** | **자동 전파 불가** |
+
+파일 기준으로도 462개 중 로컬 전용은 45개(약 10%)다. 환경 브랜치의 전제는 "브랜치 간 차이 = 환경 차이"인데 이 레포의 실측은 정반대다.
+
+**혼재 커밋 36건이 결정적이다.** cherry-pick 하면 로컬 전제(`dfs.replication=1`·`tez.local.mode=true`)가 딸려가고, 안 하면 공유 수정(`hadoop-aws` 클래스패스·S3A 자격증명·capability·메모리)이 누락된다. "커밋을 환경별로 쪼개 올린다"는 규율로만 막히며, **도구가 보장하던 것을 사람에게 넘기는 것**이다. 오버레이는 구조로 보장한다 — §8-18 에서 dev/prod 렌더의 로컬 전용 워크로드 0개·로컬 전제 값 0개를 확인했다.
+
+**기각 — `local` 을 `v3` 로 개명하는 안.** 기계적 비용은 0 에 가깝다(원격 미푸시, 문서 5줄). 그러나 ⓐ 커밋을 한 건도 dev/prod 로 옮기지 못하면서 ⓑ "다른 세대니 갈라져 있는 게 당연하다"는 명분을 주어 드리프트를 고착시킨다. 내용상으로도 v3 가 아니다 — `v1→v2` 는 교체(Hadoop→MinIO/Trino, raw YAML→Kustomize)였으나 `local` 의 116 커밋은 대부분 **v2 의 결함 수정과 미완 항목(G1~G41·TODO 47건) 충족**이다.
+
+> **v3 를 정당하게 선언할 조건** — ADR-022(Hadoop/HBase/Hive 복원)를 dev/prod 에 채택하고 `overlays/local/lakehouse-local/` 을 base 로 승격할 때. 데이터 계층 구조가 실제로 달라지는 시점이다. 현재 그 결정(TODO-48·49)은 미결이다.
+
+**prod 보호는 브랜치가 아니라 `targetRevision` 으로 한다.** 현재 dev·prod Application 이 **둘 다** `targetRevision: v2` + `automated{prune,selfHeal}` 이라 `.gitlab-ci.yml` 의 prod `when: manual` 게이트가 **무력하다** — v2 에 커밋되는 순간 prod 에 반영된다. prod 의 `targetRevision` 을 태그로 고정하면 승격이 명시적 행위가 되고, 브랜치 분리로 얻으려던 것(prod 가 dev 에 끌려가지 않음)을 드리프트 비용 없이 얻는다.
+
+**머지 시점** — 7단계까지 모두 끝난 뒤 (2026-09-03 결정). 그때까지 `local` 은 유지한다.
+
+| | |
+|---|---|
+| **비용** | 머지 지연만큼 공유 수정이 dev/prod 에 도달하지 않는다. 현재 미도달 93건 |
+| **완화** | `local` 은 `v2` 대비 **0 뒤처짐**이라 fast-forward 가 유지된다. 누가 `v2` 에 커밋하면 이 성질이 깨지므로, 그때는 즉시 rebase 할 것 |
+| **머지 시 파급** | dev 오버레이가 98 → 234 오브젝트(신규 136·삭제 0), **신규 워크로드 26종**. dev 는 auto-sync 라 즉시 반영된다 → **머지 전에 prod 태그 고정, dev `automated` 일시 해제, wave 순 분할 머지**가 전제다 |
+
+**dev/prod 가 같은 클러스터를 쓴다**(`destination.server: https://kubernetes.default.svc`). 물리적으로 분리하게 되면 `destination.server` 가 갈라지는 것이지, 그때도 브랜치가 갈라질 이유는 아니다.
+
 ### ADR-003 — Helm 미사용, 수기 YAML + Kustomize
 **상태: `Accepted`**
 
@@ -600,13 +633,13 @@ CNCF Sandbox 로 계속 유지된다(3.3.2, 2026-08-27). **Registry 는 대체 �
 
 | 상태 | 건수 |
 |---|--:|
-| Accepted | 9 |
+| Accepted | 10 |
 | Accepted (조건부) | 1 |
 | Proposed | 27 |
 | Open | 14 |
 | Superseded | 2 |
 | Partially Reverted | 1 |
-| **합계** | **54** |
+| **합계** | **55** |
 
 > 번호는 001~066 범위에서 부여했으나 일부 번호는 통합·병합되어 실제 항목 수는 54건이다.
 

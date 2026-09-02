@@ -2,6 +2,26 @@
 
 > 브랜치 `local` · 최종 갱신 2026-09-02 (5단계 완료 · local/dev/prod 분리)
 
+## ★ 브랜치 정책 — 결정됨 (ADR-068)
+
+**환경은 오버레이로 나눈다. 브랜치는 버전 축이다.** `local` 은 환경 브랜치가 아니라
+v2 를 실배포로 검증하는 작업 라인이며, **7단계까지 끝난 뒤 `v2` 로 합치고 소멸한다.**
+`v3` 로 개명하지 않는다 — 커밋을 옮기지 못하면서 드리프트에 명분만 준다.
+
+**머지 전에 반드시 (순서 그대로):**
+
+1. **prod `targetRevision` 을 태그로 고정** — 지금 dev·prod 가 **둘 다** `v2` 를 보고
+   `selfHeal` 이라 CI 의 prod `when: manual` 이 무력하다. 머지하면 dev 만이 아니라
+   prod 도 같이 맞는다
+2. **dev 의 `automated` 를 일시 해제** — 머지 시 dev 오버레이가 98 → 234 오브젝트,
+   **신규 워크로드 26종**이 한 번에 뜬다
+3. **wave 순으로 분할 머지** — 오퍼레이터(ECK·Kyverno·cert-manager·Tetragon) →
+   관측성 → 거버넌스 → 보안. 오퍼레이터가 로컬에서만 검증된 상태라 첫 단계가 관문이다
+
+**지금 상태** — `local` 은 `v2` 대비 116 앞 · **0 뒤**(fast-forward 유지).
+누가 `v2` 에 커밋하면 이 성질이 깨지므로 그때는 즉시 rebase 할 것.
+공유 수정 93건이 아직 dev/prod 에 미도달이다.
+
 ## 지금 상태
 
 ```
@@ -86,6 +106,19 @@ auto-unseal 은 KMS 를 요구하는데 로컬에 없다. `vault-0` 이 0/1 이�
 
 **5단계로 목표 아키텍처의 구성요소는 전부 올라갔다.** 남은 것은 결정과 마감이다.
 
+### 0. 남은 단계 — 6·7단계 (머지의 전제)
+
+ADR-068 로 **7단계까지 끝낸 뒤 머지**하기로 정했다. 즉 아래 둘이 머지의 선행 조건이다.
+
+| 단계 | 구성요소 | 신규 매니페스트 | 비고 |
+|:-:|---|--:|---|
+| 6 | GlitchTip · Jenkins · Kafka Bridge | ~16 | Apicurio Studio 4종은 폐기라 제외(§8-13) |
+| 7 | security-full — SafeLine · Kubescape · Dependency-Track · DefectDojo · Caldera | ~25 | **zram 실측 지점** |
+
+**용량이 실제 제약이다.** 현재 limits 합이 이미 99% 다(requests 61%). 7단계는 §2 의 zram
+설계가 처음으로 시험되는 지점이며, 여기서 압축률 가정이 틀리면 `.wslconfig` 를 다시 봐야 한다.
+6단계 착수 전에 남은 여유를 실측할 것.
+
 ### 1. API 계약 파일 작성 (기구는 다 섰다)
 
 `contracts/{openapi,asyncapi,schemas}/` 가 비어 있다. Spectral 린트·`publish-contracts` CI 잡·
@@ -98,7 +131,7 @@ Vault 는 올라가 있으나 시크릿 원천은 아직 `local/create-secrets.s
 CronJob 8종·git-sync·`.enc.yaml` 12개가 제거된다. **unseal 키가 같은 클러스터의 Secret 에
 있다는 점을 이 결정에서 반드시 다룰 것.**
 
-### 3. ~~dev/prod 로의 반영~~ — 완료 (§8-17)
+### 3. ~~dev/prod 로의 반영~~ — 완료 (§8-17·§8-18). 머지는 7단계 이후 (ADR-068)
 
 수정 대부분이 `kubernetes/base/` 에 있어 dev·prod 가 자동 상속한다. 로컬 전용 값
 (메타스토어 힙)은 `$(HIVE_HEAP)` 로 분리해 오버레이가 한 줄만 덮게 했고, `proxyuser` 는
