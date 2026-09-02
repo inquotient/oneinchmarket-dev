@@ -76,21 +76,4 @@ data:
         <name>metastore.expression.proxy</name>
         <value>org.apache.hadoop.hive.metastore.DefaultPartitionExpressionProxy</value>
       </property>
-
-      <!-- ★ proxyuser — Tez 로컬 모드는 이 JVM 안에서 UGI.doAs 로 태스크를 돈다.
-           ProxyUsers 검사가 같은 프로세스에서 일어나므로 NameNode 의
-           core-site.xml 뿐 아니라 여기에도 있어야 한다.
-           증상: TezTask return code 1,
-                 "User: hive is not allowed to impersonate hive" -->
-      <property>
-        <name>hadoop.proxyuser.hive.hosts</name>
-        <value>*</value>
-      </property>
-      <property>
-        <!-- groups=* 가 아니라 users=hive 다. 위임 대상을 hive 하나로 못박는다.
-             지금 필요한 것은 "hive 가 hive 로 실행"뿐이고, groups=* 는 임의
-             사용자로의 위임까지 열어 준다. doAs 를 켤 때 다시 볼 것(TODO-48). -->
-        <name>hadoop.proxyuser.hive.users</name>
-        <value>hive</value>
-      </property>
     </configuration>

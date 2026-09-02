@@ -53,13 +53,19 @@ images:
     newTag: "RELEASE.2025-09-07T16-13-09Z"
   - name: trinodb/trino
     newTag: "483"
+  # ── ↓ 아래 3종은 현재 prod 에 렌더되지 않는다 ─────────────────
+  #   ZooKeeper·HDFS·HBase 는 매니페스트가 단일 노드를 전제해
+  #   overlays/local/lakehouse-local/ 로 옮겼다. 핀은 승격 시점을 위해
+  #   남겨 둔다 — kustomize 는 대상이 없는 images 항목을 무시한다.
+  #   승격 조건은 lakehouse-local/kustomization.yaml 머리말 참조.
   - name: apache/hadoop
-    newTag: "3.4.3"                    # 3.5 는 새 마이너다. Hive/HBase 클라이언트와 같은 계열을 유지한다
+    newTag: "3.4.3"                   # 3.5 는 새 마이너다. Hive/HBase 클라이언트와 같은 계열을 유지한다
   - name: zookeeper
     newTag: "3.9.5"
   # 로컬 빌드. Docker Hub 에 apache/hbase 저장소가 없다.
   - name: oneinch/hbase
     newTag: "2.6.6"
+  # ── ↑ 여기까지 미사용 ────────────────────────────────────────
   - name: apache/hive
     newTag: "4.0.1"                   # 스키마 버전 고정. 상향 시 schematool -upgradeSchema 필요
   - name: oneinch/spark-iceberg

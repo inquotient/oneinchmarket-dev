@@ -54,6 +54,7 @@ cd scripts/security-verification && ./run-all.sh [namespace]
 
 - `kubernetes/base/` — 카테고리별 Kustomize base 매니페스트
 - `kubernetes/overlays/dev/`, `overlays/prod/` — 환경별 패치
+- `kubernetes/overlays/local/lakehouse-local/` — **local 전용 리소스.** ZooKeeper·HDFS·HBase·HiveServer2 는 매니페스트가 단일 노드를 전제(`dfs.replication=1`·비-HA·`tez.local.mode=true`)해 base 에 두지 않는다. ConfigMap 안의 XML 값은 오버레이가 부분적으로 덮을 수 없기 때문이다. 승격 조건은 그 디렉터리의 `kustomization.yaml` 머리말에 있다
 - `infra/` — OpenTofu IaC. `modules/`는 Hetzner/Vultr 이중 구조이나 **Hetzner는 미완성**
 - `argocd/` — AppProject, Application, Argo Events
 - **cert-manager 실사용처** — `kubernetes/base/security/wazuh/wazuh-certs.yaml`(selfsigned Issuer -> CA -> 노드·admin 인증서). TODO-02 의 첫 사례다
@@ -70,7 +71,7 @@ cd scripts/security-verification && ./run-all.sh [namespace]
 | 0 | network-policies, service-mesh, security/kyverno | default-deny NetPol, Istio PeerAuth/AuthzPolicy/waypoint, Kyverno 6정책 |
 | 1 | database | PostgreSQL, MariaDB, MongoDB, Redis |
 | 2 | messaging | Kafka KRaft, Apicurio Registry + **Registry UI**, AKHQ |
-| 3 | data-lakehouse | MinIO, Trino, Hive Metastore + **HiveServer2**, Spark, Livy, ZooKeeper, HDFS(NameNode·DataNode), **HBase(master·regionserver)** |
+| 3 | data-lakehouse | MinIO, Trino, Hive Metastore, Spark, Livy — **ZooKeeper·HDFS·HBase·HiveServer2 는 `overlays/local/lakehouse-local/` 로 분리**(단일 노드 전제) |
 | **4** | **security/keycloak · security/vault · security/wazuh** | **Keycloak, Vault, Wazuh(manager·indexer)** |
 | 5 | devops · **governance** | GitLab EE · **DS389, LAM, Solr, Ranger(admin·usersync), Knox** |
 | 6 | application | admin, cmmn-api, nginx |

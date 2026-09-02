@@ -1528,6 +1528,90 @@ local  -Xmx768m     dev  -Xmx1536m     prod  -Xmx1536m
   더한다(재실행 4회 후 JOIN 이 4행). 존재 확인용이라 그대로 두었다
 - **dev/prod 에는 아직 적용하지 않았다.** base 를 상속하므로 다음 sync 때 HiveServer2 가
   함께 올라간다 — Tez 로컬 모드(TODO-49)와 `proxyuser`(TODO-48)를 그 전에 결정할 것
+
+### 8-18. local / dev / prod 분리 (2026-09-02)
+
+§8-17 은 "dev/prod 는 base 를 상속하므로 다음 sync 때 HiveServer2 가 함께 올라간다"를
+**결정 대기 항목으로 남겼다.** 그 상태 자체가 결함이다 — 검증하지 않은 단일 노드 설정이
+아무도 결정하지 않은 채로 dev/prod 에 도달한다.
+
+#### base 에 들어간 로컬 전제 — hive-server 만의 문제가 아니었다
+
+| 값 | base 값 | dev/prod 목표 |
+|---|---|---|
+| `dfs.replication` | `1` | 3 |
+| NameNode HA | 없음(JournalNode·ZKFC 부재) | NN 2 + JN 3 |
+| `hbase.master.wait.on.regionservers.mintostart` | `1` | RegionServer 수에 맞춤 |
+| `tez.local.mode` | `true`(YARN 없음) | YARN 또는 다른 엔진 |
+| `hadoop.proxyuser.hive.hosts` | `*` | 좁히거나 Knox·Ranger 경유 |
+
+레플리카 `1` 은 문제가 아니다 — base 는 1 로 두고 오버레이가 올리는 것이 이 레포의 규약이다.
+문제는 **ConfigMap 안의 XML 값**이다. 키 하나가 파일 전체를 담고 있어 오버레이가 일부만
+덮을 수단이 없다. 덮으려면 XML 전문을 복제해야 하고 그 순간 드리프트다.
+
+#### 결정 — 설정 분리 방식이 정해질 때까지 base 에 올리지 않는다
+
+```
+kubernetes/overlays/local/lakehouse-local/
+  kustomization.yaml          승격 조건을 머리말에 적어 둔다
+  workloads/                  sync-wave 3
+    zookeeper/ hadoop/ hbase/ hive-server/
+    serviceaccount.yaml       hive-server SA
+    hdfs-bootstrap.yaml
+  netpol/                     sync-wave 0
+    netpol.yaml               대상 정책 7종
+```
+
+`workloads` 와 `netpol` 을 나눈 이유 — **wave 가 다르다.** kustomize 의
+`commonAnnotations` 는 기존 값을 덮어쓰므로 한 kustomization 으로는 두 wave 를 만들 수 없다.
+base 가 `data-lakehouse`(3)와 `network-policies`(0)를 따로 두는 것과 같은 구조다.
+
+**base 에 남는 것** — MinIO·Trino·Hive Metastore·Spark·Livy. 오브젝트 스토리지만 쓰므로
+환경 의존 값이 없다.
+
+#### 검증 — 렌더 결과로 확인한다
+
+```
+                zookeeper  namenode  datanode  hbase-m  hbase-rs  hive-server  hdfs-bootstrap
+local              2          2         1         2        2          2             1
+dev                0          0         0         0        0          0             0
+prod               0          0         0         0        0          0             0
+
+dev 에 남은 로컬 전제 값:
+  dfs.replication 0 · tez.local.mode 0 · hadoop.proxyuser 0 · mintostart 0 · hbase.rootdir 0
+```
+
+#### 곁가지 1 — 메타스토어의 `proxyuser` 는 애초에 필요 없었다
+
+§8-16 에서 `hadoop.proxyuser.hive.*` 를 NameNode·HiveServer2·**메타스토어** 세 곳에 넣었다.
+근거가 있었던 것은 앞의 둘뿐이고 메타스토어는 "혹시 몰라서"였다. 빼고 스모크를 다시 돌려
+**필요 없음을 확인했다.** 덕분에 base 에서 로컬 전제가 완전히 사라졌다.
+
+> 증상 없이 넣은 설정은 뺐을 때 아무 일도 일어나지 않는다. 그런 줄이 base 에 남으면
+> "왜 있는지 모르지만 무서워서 못 지우는" 설정이 된다.
+
+#### 곁가지 2 — XML 정합성은 파서로 확인한다
+
+`sed` 로 XML 블록을 잘라내다 `</property>` 를 하나 남겼다. **kustomize 도 kubectl 도
+통과한다** — ConfigMap 안의 값은 그저 문자열이기 때문이다. Hive 가 기동할 때 파싱에서
+터진다.
+
+렌더 결과의 모든 `*-site.xml` 을 실제 XML 파서에 넣어 검사했다.
+
+```
+local  core-site(6) hdfs-site(8) hbase-site(12) hive-metastore(11) hive-server(26)  실패 0
+dev    hive-metastore(11)  실패 0
+prod   hive-metastore(11)  실패 0
+```
+
+> **ConfigMap 안의 구조화 문서(XML·JSON·properties)는 `kustomize build` 가 검사하지
+> 않는다.** kubeconform 도 마찬가지다 — 스키마상 그냥 문자열이다. 별도로 파싱할 것.
+
+#### prod 의 이미지 핀 3종은 남겼다
+
+`apache/hadoop`·`zookeeper`·`oneinch/hbase` 는 이제 prod 에서 대상이 없다. kustomize 는
+대상 없는 `images:` 항목을 조용히 무시하므로 오류가 나지는 않지만, 그대로 두면 "prod 가
+이것들을 배포한다"고 읽힌다. **미사용임을 주석으로 표시**하고 승격 시점을 위해 값은 유지했다.
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용

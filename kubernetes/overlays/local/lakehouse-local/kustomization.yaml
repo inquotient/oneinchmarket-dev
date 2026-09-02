@@ -1,0 +1,30 @@
+# ─────────────────────────────────────────────────────────────────────────
+# 5단계 레이크하우스 — **local 오버레이 전용**
+#
+# ZooKeeper · HDFS · HBase · HiveServer2 를 base 가 아니라 여기에 둔다.
+# 매니페스트가 단일 노드를 전제하고 있어 그대로 dev/prod 로 나가면 안 된다.
+#
+#   dfs.replication = 1                              (prod 목표는 3)
+#   NameNode 비-HA — JournalNode·ZKFC 가 없다         (목표는 NN 2 + JN 3)
+#   hbase.master.wait.on.regionservers.mintostart = 1
+#   tez.local.mode = true — YARN 을 띄우지 않는다      (TODO-49)
+#   hadoop.proxyuser.hive.hosts = *                   (TODO-48 · SEC-211)
+#
+# 이 값들은 전부 ConfigMap 안의 XML 문자열이다. base 에 두면 오버레이가
+# 덮을 수단이 없어(키 하나를 통째로 복제해야 한다) dev/prod 가 그대로
+# 상속한다. 설정을 환경별로 나누는 방식이 정해지기 전까지 base 에 올리지 않는다.
+#
+# **base 로 승격하는 조건**
+#   1. TODO-49 — 실행 엔진. Tez 로컬 모드로 둘지, YARN 을 올릴지
+#   2. TODO-48 — proxyuser 위임 범위. Knox·Ranger 경유로 대체할지
+#   3. hdfs-site / tez 설정을 환경별로 나누는 방식 확정
+#
+# base 에 남는 것 — MinIO·Trino·Hive Metastore·Spark·Livy 는 오브젝트
+# 스토리지만 쓰므로 환경 의존 값이 없다.
+# ─────────────────────────────────────────────────────────────────────────
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - workloads     # sync-wave 3 — base/data-lakehouse 와 같은 wave
+  - netpol        # sync-wave 0 — base/network-policies 와 같은 wave

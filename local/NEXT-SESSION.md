@@ -1,6 +1,6 @@
 # 다음 세션 인수인계
 
-> 브랜치 `local` · 최종 갱신 2026-09-02 (5단계 완료 — 목표 아키텍처 전 구성요소 기동)
+> 브랜치 `local` · 최종 갱신 2026-09-02 (5단계 완료 · local/dev/prod 분리)
 
 ## 지금 상태
 
@@ -105,9 +105,15 @@ CronJob 8종·git-sync·`.enc.yaml` 12개가 제거된다. **unseal 키가 같�
 `groups=*` → `users=hive` 로 좁혔다(SEC-211). prod 는 이미지 핀·PSS·Kyverno·PDB 모두
 따로 할 일이 없었다.
 
-**남은 판단** — dev/prod 는 base 를 상속하므로 **다음 sync 때 HiveServer2 가 함께 올라간다.**
-그 전에 TODO-49(Tez 로컬 모드로 둘지 YARN 을 올릴지)와 TODO-48(`proxyuser hosts=*`)을
-결정할 것. 둘 다 로컬 전제다.
+**그리고 §8-18 에서 아예 분리했다.** ZooKeeper·HDFS·HBase·HiveServer2 는 매니페스트가
+단일 노드를 전제하므로 base 가 아니라 `overlays/local/lakehouse-local/` 에 있다.
+**dev/prod 는 이 4종을 렌더하지 않는다** — 렌더 결과로 확인했다.
+
+base 로 승격하려면 세 가지가 필요하다:
+1. TODO-49 — 실행 엔진. Tez 로컬 모드로 둘지, YARN 을 올릴지
+2. TODO-48 — proxyuser 위임 범위. Knox·Ranger 경유로 대체할지
+3. `hdfs-site`·`tez` 설정을 환경별로 나누는 방식 확정
+   (지금은 ConfigMap 키 하나가 XML 전문이라 오버레이가 일부만 덮을 수 없다)
 
 ### 4. 남은 운영 결정
 
@@ -207,6 +213,17 @@ oneinch/hbase            docker/hbase             # apache/hbase 가 Docker Hub 
 - **`:latest` 는 메이저 스키마 변경을 그대로 가져온다**(Tempo 3.0 이 `ingester`·`compactor` 를 없앴다)
 - **podman 은 short-name 을 해석하지 않는다.** `docker.io/` 를 명시할 것
 - **kustomize 의 원격 git fetch 는 27초 하드 타임아웃이 있다.** 큰 저장소는 얕은 클론 후 로컬에서 읽을 것
+- **ConfigMap 안의 XML·JSON·properties 는 `kustomize build` 도 `kubeconform` 도 검사하지
+  않는다.** 스키마상 그냥 문자열이라 `</property>` 하나가 남아도 apply 까지 통과하고
+  워크로드가 기동할 때 파싱에서 터진다. 렌더 결과를 실제 파서에 넣어 확인할 것
+  (`kustomize build | python3 -c "...ET.fromstring..."`)
+- **오버레이가 못 덮는 값은 base 에 두지 말 것.** ConfigMap 은 키 하나가 파일 전문이라
+  일부만 덮을 수 없다 — 덮으려면 전문을 복제해야 하고 그 순간 드리프트다.
+  환경 의존 값이 XML 안에 있으면 그 워크로드는 오버레이에 두는 편이 낫다
+  (`overlays/local/lakehouse-local/`)
+- **`kubectl apply` 의 `configured` 는 실제 변경을 뜻하지 않는다.** 어드미션 웹훅이 매
+  쓰기마다 객체를 변형하면 `last-applied` 가 어긋나 매번 `configured` 가 찍힌다.
+  실제 차이는 `kubectl diff -f -` 로 볼 것(종료 코드 0 이면 차이 없음)
 - **`kubectl rollout status` 는 `rollout restart` 직후 이전 리비전 기준으로 통과한다.**
   파드가 아직 Terminating 인데 "complete" 가 나온다. 확실히 기다리려면 파드의
   `controller-revision-hash` 가 STS 의 `updateRevision` 과 같은지까지 볼 것

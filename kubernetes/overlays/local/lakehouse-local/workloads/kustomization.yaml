@@ -1,0 +1,32 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  # ZooKeeper — HBase 전용. Kafka 는 KRaft 라 쓰지 않는다
+  - zookeeper/zookeeper-headless.yaml
+  - zookeeper/zookeeper-statefulset.yaml
+  # Hadoop HDFS — 비-HA. NameNode 1 + DataNode 1
+  - hadoop/hadoop-configmap.yaml
+  - hadoop/hadoop-namenode-service.yaml
+  - hadoop/hadoop-namenode-statefulset.yaml
+  - hadoop/hadoop-datanode-service.yaml
+  - hadoop/hadoop-datanode-statefulset.yaml
+  # HBase — HDFS 위. ZooKeeper 로 마스터 선출·메타 위치
+  - hbase/hbase-configmap.yaml
+  - hbase/hbase-service.yaml
+  - hbase/hbase-master-statefulset.yaml
+  - hbase/hbase-regionserver-statefulset.yaml
+  # HiveServer2 — JDBC 게이트웨이. 원격 메타스토어 + Tez 로컬 모드
+  - hive-server/hive-server-configmap.yaml
+  - hive-server/hive-server-headless.yaml
+  - hive-server/hive-server-statefulset.yaml
+  - serviceaccount.yaml
+  # 부트스트랩 — /hbase · /warehouse · /user/hive · /tmp
+  # 이 Job 은 매니페스트에 자기 wave("3")를 이미 갖고 있다
+  - hdfs-bootstrap.yaml
+
+commonLabels:
+  app.kubernetes.io/part-of: oneinchmarket
+
+commonAnnotations:
+  argocd.argoproj.io/sync-wave: "3"

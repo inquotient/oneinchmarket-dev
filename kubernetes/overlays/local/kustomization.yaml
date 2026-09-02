@@ -10,6 +10,10 @@ namespace: local
 resources:
   - namespace.yaml
   - ../../base
+  # ★ 5단계 레이크하우스는 로컬 전용이다 — 단일 노드 전제가 매니페스트에
+  #   박혀 있어 base 에 두면 dev/prod 가 그대로 상속한다. 승격 조건은
+  #   lakehouse-local/kustomization.yaml 머리말 참조.
+  - lakehouse-local
 
 patches:
   # 로컬 레플리카 1
