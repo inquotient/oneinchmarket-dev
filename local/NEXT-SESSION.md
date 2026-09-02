@@ -139,7 +139,7 @@ limits    56.1 / 54 GiB (105%)  ← 오버커밋. 게이트는 아니지만 100%
 | 트레이스·메트릭·로그 | ✅ OTel → Tempo·Prometheus·Loki. **앱 수신 지점은 `otel-agent:4318`** (§8-23 에서 도달 경로 복구) |
 | 오류 추적 | ✅ GlitchTip. Sentry SDK 그대로 쓴다 |
 | 프로파일링 | △ Pyroscope 는 섰으나 **앱 계측 수단 미결**(TODO-51) |
-| 세션 리플레이 | ✗ OpenReplay 로 결정(ADR-069). **전제 2건 미해결** |
+| 세션 리플레이 | ✗ OpenReplay 로 결정(ADR-069). ClickHouse 를 **OpenReplay 전용으로** 함께 들인다(ADR-070 — 범용 분석 저장소로 확대하지 않는다). **전제 2건 미해결** |
 
 **Sentry 는 기각했다** — ADR-036 에 A안/B안 비교와 재검토 조건 3가지를 명문화했다.
 요약: 이 호스트(물리 63.4 GiB)에 +22 GiB 가 들어가지 않고, 이미 채택한 OTel 경로와

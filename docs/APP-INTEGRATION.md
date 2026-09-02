@@ -214,7 +214,7 @@ startupProbe:                        # 기동 예산. 이게 끝나야 liveness 
 | **외부 진입점** | 없다. Ingress·Gateway·NodePort·LoadBalancer 객체 0개. 접근은 전부 `port-forward` 다. 브라우저에서 직접 호출하는 프런트엔드 계측(세션 리플레이 등)이 여기서 막힌다 |
 | **앱 이미지 빌드** | `v1/admin/Dockerfile`·`v1/cmmn-api/Dockerfile` 이 없다(G9). CI 의 build 잡도 이 경로를 참조해 동작하지 않는다. **에이전트를 이미지에 넣는 모든 방법이 여기 묶여 있다** |
 | **앱 프로파일링** | TODO-51. 4절 참조 |
-| **세션 리플레이** | 미도입. OpenReplay 로 하기로 정했으나(ADR-069) **위 두 줄이 선행 전제**다 — 브라우저 트래커는 프런트엔드에 심어야 하고(G9), 브라우저에서 수집기로 보내려면 HTTPS 진입점이 필요하다. Sentry 로 갈아타지 않는 이유는 ADR-036 의 A안/B안 비교에 있다 |
+| **세션 리플레이** | 미도입. OpenReplay 로 하기로 정했고 ClickHouse 를 그 전용으로 함께 들인다(ADR-069·070). 다만 **위 두 줄이 선행 전제**다 — 브라우저 트래커는 프런트엔드에 심어야 하고(G9), 브라우저에서 수집기로 보내려면 HTTPS 진입점이 필요하다. Sentry 로 갈아타지 않는 이유는 ADR-036 의 A안/B안 비교에 있다 |
 | **시크릿** | SOPS 가 미작동이라 로컬은 `local/create-secrets.sh` 가 런타임에 만든다. dev/prod 는 미해결(G2·G3) |
 
 ---

@@ -584,7 +584,8 @@ ClickHouse 도 함께 돌아온다. 둘은 분리해서 결정할 수 없다.
 >
 > 이 ADR 이 기각된 근거는 "ClickHouse 를 안 쓴다"가 아니라 **"Snuba 를 안 쓴다"** 로
 > 좁혀 읽어야 정확하다. ClickHouse 자체는 세션 리플레이를 채택하면 어차피 들어온다.
-> 그때는 **OpenReplay 가 패키징한 것을 쓸지, 공용 인스턴스를 세울지**가 새 결정이 된다.
+> 그 결정은 **ADR-070** 에서 내렸다 — ClickHouse 를 넣되 **용도를 OpenReplay 하나로
+> 한정한다.** 이 ADR(Sentry Snuba 용)의 기각은 그대로 유지된다.
 ### ADR-038 — Sentry 전용 Kafka · Redis 인스턴스 분리
 **상태: `Kafka 부분 Rejected — 전제 소멸` · `Redis 부분 Accepted(공유)`** (2026-09-03)
 
@@ -736,11 +737,66 @@ B안은 이미 채택한 OTel 경로(ADR-039)와 중복된다.
 
 **용량** — 공식 최소 2 vCPU / 8 GB RAM / 50 GB 스토리지. 현재 노드 여유는 requests
 기준 약 18 GiB, 디스크 869 GB 라 둘 다 수용한다. ClickHouse 를 함께 들여오며, 그때
-**OpenReplay 가 패키징한 것을 쓸지 공용 인스턴스를 세울지**가 파생 결정이다(ADR-037 정정 참조).
+**ClickHouse 도입은 ADR-070 으로 확정됐다** — 넣되 **용도를 OpenReplay 하나로 못박는다.** 범용 분석 저장소로 확대하지 않으며(Trino/Iceberg·Elasticsearch·Loki 를 대체하지 않는다) 패키징 vs 자체 관리만 파생 결정으로 남는다.
 
 **미확인** — 커뮤니티 에디션과 엔터프라이즈의 저장소 구성 차이를 끝까지 확인하지
 못했다. Kafka 는 엔터프라이즈 쪽이라는 정황이 있다. 도입 시 차트를 렌더해 실제
 구성요소를 세는 것이 선행되어야 한다.
+
+### ADR-070 — ClickHouse 는 OpenReplay 전용으로만 도입한다
+**상태: `Accepted (범위 한정)`** (2026-09-03)
+
+**결정** — ClickHouse 를 아키텍처에 넣는다. **단 용도는 OpenReplay 하나뿐이다**(ADR-069).
+범용 분석 저장소로 확대하지 않는다.
+
+#### 왜 범위를 못 박는가
+
+ClickHouse 는 들어오는 순간 여러 곳을 대체할 수 있어 보인다. 셋 다 하지 않는다.
+
+| 확대 후보 | 하지 않는 이유 |
+|---|---|
+| **Trino/Iceberg 대체** (분석 질의 엔진) | v2 의 근간 결정이다. 흔들면 MinIO·Hive Metastore·Spark 배선이 전부 딸려온다 |
+| **Elasticsearch 대체** (로그) | ES 는 로그 저장소가 아니라 **보안·감사 평면**을 겸한다 — Keycloak 감사 이벤트·Falco 런타임 알림(둘 다 Kafka 경유 Logstash)·Trivy 취약점 리포트가 ES 에만 있다. Falco·Trivy 는 ES/OpenSearch 와 네이티브로 붙는다 |
+| **Loki 대체** (앱 로그) | Loki 는 Grafana 안에서 trace ID 로 Tempo·Pyroscope 와 이미 연결된다. ADR-039(OTel 표준)와 정렬돼 있다 |
+
+> **컨테이너 로그는 두 저장소에 들어간다** — `/var/log/containers/*.log` 가
+> `/var/log/pods/` 로의 심볼릭 링크라 Filebeat 과 otel-agent 가 같은 바이트를 읽는다.
+> 다만 이는 결함이 아니라 **ADR-027 의 설계**다(보존기간 기반 분리 — Loki 는
+> 단기 7~14일로 Grafana 상관 분석용, ES 는 장기 보존·전문 검색).
+> **그 위에 ClickHouse 를 얹으면 세 번째 계층이 되는데, 채울 보존 구간이 없다.**
+
+#### 순서 — 지금 세우지 않는다
+
+ClickHouse 는 **OpenReplay 와 함께 온다.** 먼저 세우면 소비자가 없는 저장소가 된다.
+ADR-069 의 전제가 그대로 이 결정의 전제다.
+
+```
+1. Ingress + TLS        (배포 블로커 #6)
+2. G9 결정              프런트엔드 계측 경로
+3. OpenReplay + ClickHouse   ← 여기서 함께 들어온다
+```
+
+#### 남은 파생 결정 — 패키징 vs 자체 관리
+
+| | OpenReplay 차트가 패키징한 것 | `base/database/clickhouse/` 로 자체 관리 |
+|---|---|---|
+| 손 | 적다 | 많다 — 수기 YAML |
+| 레포 규약 | 차트가 소유 | **PostgreSQL·MariaDB·Redis·MongoDB 와 같은 자리** |
+| 버전·자원 통제 | 차트에 묶인다 | 직접 정한다 |
+| 다른 소비자가 생기면 | 곤란 | 자연스럽다 |
+
+**권고는 자체 관리다** — 이 레포는 데이터 저장소를 `base/database/` 에 수기로 두는
+규약이 확립돼 있고(4종), 차트에 저장소를 맡기면 자원·핀·보안 규약(securityContext·
+프로브·NetworkPolicy)이 그것만 예외가 된다. 다만 **OpenReplay 를 실제로 세울 때
+차트를 렌더해 스키마 초기화 방식을 확인한 뒤 확정**한다 — 애플리케이션이 스키마를
+만드는 방식이면 자체 관리가 더 번거로울 수 있다.
+
+#### 미확인
+
+- 커뮤니티 에디션과 엔터프라이즈의 저장소 구성 차이를 끝까지 확인하지 못했다.
+  Kafka 는 엔터프라이즈 쪽이라는 정황이 있다(ADR-069 동일 항목)
+- ClickHouse 의 실제 소요를 이 워크로드에서 측정한 적이 없다. OpenReplay 공식
+  최소 사양 **2 vCPU / 8 GB / 50 GB** 는 스택 전체 기준이며 그중 ClickHouse 몫은 미상
 
 ## 결정 요약
 
@@ -771,6 +827,7 @@ B안은 이미 채택한 OTel 경로(ADR-039)와 중복된다.
 | 상태 | 건수 |
 |---|--:|
 | Accepted | 12 |
+| Accepted (범위 한정) | 1 |
 | Accepted (조건부) | 1 |
 | Proposed | 27 |
 | Proposed (조건부) | 1 |
@@ -778,7 +835,7 @@ B안은 이미 채택한 OTel 경로(ADR-039)와 중복된다.
 | Superseded | 2 |
 | Rejected (전제 소멸) | 1 |
 | Partially Reverted | 1 |
-| **합계** | **57** |
+| **합계** | **58** |
 
 > 번호는 001~066 범위에서 부여했으나 일부 번호는 통합·병합되어 실제 항목 수는 54건이다.
 
