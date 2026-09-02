@@ -12,3 +12,4 @@ resources:
   - minio-bootstrap.yaml
   - ds389-bootstrap.yaml
   - apicurio-rules.yaml
+  - hdfs-bootstrap.yaml

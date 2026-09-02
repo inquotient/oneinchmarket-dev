@@ -32,6 +32,11 @@ resources:
   - hadoop/hadoop-namenode-statefulset.yaml
   - hadoop/hadoop-datanode-service.yaml
   - hadoop/hadoop-datanode-statefulset.yaml
+  # HBase - HDFS 위. ZooKeeper 로 마스터 선출·메타 위치
+  - hbase/hbase-configmap.yaml
+  - hbase/hbase-service.yaml
+  - hbase/hbase-master-statefulset.yaml
+  - hbase/hbase-regionserver-statefulset.yaml
   # Apache Livy - REST 세션 게이트웨이 (Jupyter/Zeppelin 백엔드)
   - livy/livy-configmap.yaml
   - livy/livy-rbac.yaml

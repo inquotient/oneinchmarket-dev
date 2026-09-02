@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hbase-regionserver
+  labels: {app.kubernetes.io/name: hbase-regionserver, app.kubernetes.io/component: data-lakehouse, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+  annotations: {reloader.stakater.com/auto: "true"}
+spec:
+  serviceName: hbase-regionserver
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: hbase-regionserver}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: hbase-regionserver, app.kubernetes.io/component: data-lakehouse, app.kubernetes.io/part-of: oneinchmarket}
+    spec:
+      serviceAccountName: hbase
+      securityContext:
+        # ★ 1001 이다. noble 베이스에 uid 1000 의 ubuntu 사용자가 이미 있어
+        #   docker/hbase 가 hbase 를 1001 로 만든다.
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        - name: wait-deps
+          image: busybox:1.36
+          command: ["/bin/sh","-c"]
+          args:
+            - |
+              set -eu
+              echo "[wait] HDFS NameNode"
+              until nc -z hadoop-namenode 8020; do sleep 3; done
+              echo "[wait] ZooKeeper"
+              until nc -z zookeeper-headless 2181; do sleep 3; done
+              echo "[wait] HBase Master"
+              until nc -z hbase-master 16000; do sleep 3; done
+              echo "[wait] 완료"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits:   {cpu: 100m, memory: 64Mi}
+      containers:
+        - name: hbase-regionserver
+          image: oneinch/hbase:2.6.6
+          imagePullPolicy: IfNotPresent
+          # foreground 로 띄운다. `hbase master start` 는 데몬화하지 않으므로
+          # 컨테이너 수명과 프로세스 수명이 일치한다.
+          command: ["hbase", "regionserver", "start"]
+          env:
+            - {name: HBASE_CONF_DIR, value: /opt/hbase/conf}
+            # ★ 힙은 여기서 준다. 이미지에 JAVA_TOOL_OPTIONS 를 박으면
+            #   hbase shell 같은 보조 명령까지 같은 힙을 잡는다.
+            - {name: HBASE_HEAPSIZE, value: "1024m"}
+            - {name: HBASE_REGIONSERVER_OPTS, value: "-XX:+UseContainerSupport"}
+          ports:
+            - {containerPort: 16020, name: rpc, protocol: TCP}
+            - {containerPort: 16030, name: info, protocol: TCP}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            # RegionServer 는 memstore·blockcache 를 든다. 마스터보다 넉넉히.
+            requests: {cpu: 100m, memory: 896Mi}
+            limits:   {cpu: "1",  memory: 1536Mi}
+          startupProbe:
+            httpGet: {path: /rs-status, port: info}
+            failureThreshold: 60
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: {port: rpc}
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            httpGet: {path: /rs-status, port: info}
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - {name: hbase-config, mountPath: /opt/hbase/conf/hbase-site.xml, subPath: hbase-site.xml}
+            # HDFS 접근에 필요하다. HBase 는 HBASE_CONF_DIR 에서 하둡 설정도 읽는다.
+            - {name: hadoop-config, mountPath: /opt/hbase/conf/core-site.xml, subPath: core-site.xml}
+            - {name: hadoop-config, mountPath: /opt/hbase/conf/hdfs-site.xml, subPath: hdfs-site.xml}
+            - {name: tmp, mountPath: /opt/hbase/tmp}
+      volumes:
+        - name: hbase-config
+          configMap: {name: hbase-config}
+        - name: hadoop-config
+          configMap: {name: hadoop-config}
+        - name: tmp
+          emptyDir: {}

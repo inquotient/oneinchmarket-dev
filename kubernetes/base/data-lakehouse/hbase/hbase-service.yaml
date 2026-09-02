@@ -1,0 +1,34 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hbase
+  labels: {app.kubernetes.io/name: hbase, app.kubernetes.io/component: data-lakehouse, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hbase-master
+  labels: {app.kubernetes.io/name: hbase-master, app.kubernetes.io/component: data-lakehouse, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  clusterIP: None
+  # RegionServer 가 마스터를 찾기 전에 마스터가 Ready 가 되지 않는다 —
+  # 마스터는 RegionServer 를 기다린다. 서로를 기다리지 않게 열어 둔다.
+  publishNotReadyAddresses: true
+  ports:
+    - {name: rpc, port: 16000, targetPort: 16000, protocol: TCP}
+    - {name: info, port: 16010, targetPort: 16010, protocol: TCP}
+  selector: {app.kubernetes.io/name: hbase-master}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hbase-regionserver
+  labels: {app.kubernetes.io/name: hbase-regionserver, app.kubernetes.io/component: data-lakehouse, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - {name: rpc, port: 16020, targetPort: 16020, protocol: TCP}
+    - {name: info, port: 16030, targetPort: 16030, protocol: TCP}
+  selector: {app.kubernetes.io/name: hbase-regionserver}
