@@ -1443,6 +1443,91 @@ DESCRIBE FORMATTED oim_s3.t   → Location: s3a://warehouse/tables/oim_s3.db/t
 | NetworkPolicy | `allow-hive-server-access` — data-lakehouse·application 계층에서 10000/10002 |
 
 `local/NEXT-SESSION.md` 의 재현 절차에 스모크 SQL 을 그대로 옮겨 두었다. 레포에는 Job 을 커밋하지 않는다 — 테스트용 데이터베이스를 sync 마다 만들게 되기 때문이다.
+
+### 8-17. 로컬에서 고친 것을 dev/prod 로 (2026-09-02)
+
+§8-16 의 수정 대부분은 `kubernetes/base/` 에 있어 dev·prod 가 **자동으로 상속한다.**
+문제는 그중 일부가 **로컬 전용 값**인데 base 에 들어갔다는 점이었다. 분리했다.
+
+#### 1. 힙을 별도 키로 분리 — 오버레이가 한 줄만 덮게
+
+`hive-metastore` 의 `SERVICE_OPTS` 는 JDBC 접속 문자열까지 담고 있다. 여기에 `-Xmx768m`
+(로컬 limit 1280Mi 기준)을 넣어 버리면 dev/prod 도 768m 가 되고, 되돌리려면 오버레이가
+**JDBC 문자열 전체를 복제**해야 한다 — ADR-011 이 경고한 드리프트다.
+
+```yaml
+# base — limit 2Gi 기준
+- name: HIVE_HEAP
+  value: "-Xmx1536m"
+- name: SERVICE_OPTS
+  value: >-
+    -Djavax.jdo.option.ConnectionURL=jdbc:postgresql://…
+    $(HIVE_HEAP)          # ← k8s 가 파드 생성 시 펼친다
+```
+
+```yaml
+# overlays/local/patches/qos-guaranteed.yaml — limit 1280Mi 기준
+env:
+  - name: HIVE_HEAP
+    value: "-Xmx768m"
+```
+
+`env` 는 `name` 을 키로 하는 병합 리스트라 전략적 병합 패치가 이 항목만 덮는다.
+
+```
+local  -Xmx768m     dev  -Xmx1536m     prod  -Xmx1536m
+```
+
+> **"뒤에 온 `-Xmx` 가 이긴다"는 추정이 아니다.** 같은 이미지의 JVM 으로 확인했다.
+>
+> ```
+> java -Xmx1G -Xmx768m -XX:+PrintFlagsFinal -version | grep MaxHeapSize
+>   → MaxHeapSize := 805306368        (= 768 MiB)
+> java -Xmx1G          -XX:+PrintFlagsFinal -version | grep MaxHeapSize
+>   → MaxHeapSize := 1073741824       (= 1 GiB)
+> ```
+>
+> entrypoint 가 `HADOOP_CLIENT_OPTS="$HADOOP_CLIENT_OPTS -Xmx1G $SERVICE_OPTS"` 로
+> 조립하므로, 이미지가 박아 넣은 기본 힙을 **덮어쓰는 유일한 수단**이 이것이다.
+
+#### 2. `proxyuser` 를 `groups=*` → `users=hive` 로
+
+기능에 필요한 것은 "hive 가 hive 로 실행"뿐인데 `groups=*` 는 **임의 사용자로의 위임**까지
+연다. Kerberos 를 채택하지 않아(`hadoop.security.authentication=simple`) 위임 자체를 검증할
+수단이 없으므로 범위를 최소로 좁혔다. 좁힌 뒤에도 스모크는 통과한다.
+
+`hosts=*` 는 남았다 — 파드 IP 가 고정이 아니라 좁힐 대상이 마땅치 않다. **SEC-211** 로
+기록했고 dev/prod 에서는 Knox·Ranger 경유로 대체할지 결정한다(TODO-48).
+
+#### 3. prod 에서 따로 할 일은 없었다
+
+| 점검 | 결과 |
+|---|---|
+| 이미지 핀닝(Kyverno `disallow-latest` Enforce) | `apache/hive: 4.0.1` 이 이미 `images:` 에 있다 |
+| PSS `restricted` | hive-server 는 uid 1000 · `drop:["ALL"]` · `RuntimeDefault` — 적격 |
+| Kyverno require-probes·resources·labels | 전부 충족 |
+| PDB | **추가하지 않는다.** prod PDB 는 레플리카 2 이상인 8종에만 있다. 레플리카 1 에 `minAvailable: 1` 을 걸면 노드를 비울 수 없다 (hive-metastore 도 같은 이유로 없다) |
+
+#### 문서에서 바로잡은 사실 3건
+
+배포 결과가 문서의 **예측과 달랐던** 것들이다.
+
+- **SECURITY.md `[목표]` 예외 — "Hadoop/HBase/Knox(root 실행)"은 빗나갔다.**
+  셋 다 비특권으로 돈다: hadoop uid 1000 · hbase uid 1001 · knox uid 8000, 전부
+  `drop:["ALL"]`. v1 매니페스트가 root 로 돌았던 것이지 이미지의 제약이 아니었다
+- **NetworkPolicy 공백은 6건이 아니라 3건**(Keycloak·Trino·GitLab). MinIO·Hive
+  Metastore·Apicurio 는 이후 배포 과정에서 해소됐는데 표가 따라오지 않았다
+- **COMPONENTS.md 의 "Kerberos는 필요 없다 — HDFS가 아니라 S3를 쓰므로"** 는 근거가
+  사라졌다. HBase 가 HDFS 를 요구해 HDFS 가 들어왔다. 결론(미채택)은 같지만 이유가 다르다
+
+> `[목표]` 로 표시된 표는 **실배포로 확인하기 전까지 추정**이다. 세 건 모두 그 표에 있었다.
+
+#### 남긴 것
+
+- 스모크 SQL 은 **멱등이 아니다.** `CREATE ... IF NOT EXISTS` 뒤의 `INSERT` 는 매번 행을
+  더한다(재실행 4회 후 JOIN 이 4행). 존재 확인용이라 그대로 두었다
+- **dev/prod 에는 아직 적용하지 않았다.** base 를 상속하므로 다음 sync 때 HiveServer2 가
+  함께 올라간다 — Tez 로컬 모드(TODO-49)와 `proxyuser`(TODO-48)를 그 전에 결정할 것
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용

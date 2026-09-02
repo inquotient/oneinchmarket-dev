@@ -106,10 +106,13 @@ spec:
     spec:
       containers:
         - name: hive-metastore
+          # ★ 힙과 limit 은 같이 움직여야 한다.
+          #   512Mi 였는데 entrypoint 가 HADOOP_CLIENT_OPTS 에 -Xmx1G 를 박아
+          #   넣어 힙만으로 한계를 넘었다 - 재시작 39회의 원인이었다.
+          #   base 는 limit 2Gi / 힙 1536m 이다. 로컬은 둘 다 낮춘다.
+          env:
+            - name: HIVE_HEAP
+              value: "-Xmx768m"
           resources:
-            # ★ 512Mi 였다. entrypoint 가 HADOOP_CLIENT_OPTS 에 -Xmx1G 를 박아
-            #   넣으므로 힙만으로 한계를 넘는다 - 재시작 39회의 원인이었다.
-            #   힙은 SERVICE_OPTS 의 -Xmx768m 로 눌렀고(뒤에 온 -Xmx 가 이긴다)
-            #   메타스페이스*스레드 스택을 더해 1280Mi 로 잡는다.
             requests: { cpu: 500m, memory: 1280Mi }
             limits:   { cpu: 500m, memory: 1280Mi }

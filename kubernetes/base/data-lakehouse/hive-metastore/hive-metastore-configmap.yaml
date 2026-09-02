@@ -87,7 +87,10 @@ data:
         <value>*</value>
       </property>
       <property>
-        <name>hadoop.proxyuser.hive.groups</name>
-        <value>*</value>
+        <!-- groups=* 가 아니라 users=hive 다. 위임 대상을 hive 하나로 못박는다.
+             지금 필요한 것은 "hive 가 hive 로 실행"뿐이고, groups=* 는 임의
+             사용자로의 위임까지 열어 준다. doAs 를 켤 때 다시 볼 것(TODO-48). -->
+        <name>hadoop.proxyuser.hive.users</name>
+        <value>hive</value>
       </property>
     </configuration>

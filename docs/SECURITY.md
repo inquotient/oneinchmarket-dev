@@ -194,8 +194,9 @@ v1 매니페스트를 v2로 복원할 때 **모든 ConfigMap 평문 자격증명
 | admin | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
 | cmmn-api | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
 | nginx | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ · **default SA** |
-| hive-metastore | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **❌** | ❌ |
-| minio | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **❌** | ✅ |
+| hive-metastore | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| **hive-server** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| minio | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | trino | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **❌** | ❌ |
 | mariadb | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | mongodb | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -203,7 +204,7 @@ v1 매니페스트를 v2로 복원할 때 **모든 ConfigMap 평문 자격증명
 | redis | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **gitlab** | ⚠️ `runAsUser: 0` | ⚠️ **drop 없이 capability 8종 추가** | ⚠️ `true` | ✅(pod) | ✅ | ✅ | **❌** | ❌ |
 | akhq | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
-| apicurio | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **❌** | ❌ |
+| apicurio | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
 | kafka | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (9092만, **9093 없음**) | ✅ |
 | **falco** | ⚠️ 미설정 | ⚠️ 미설정 | ⚠️ 미설정 | ⚠️ 미설정 | ✅ | ✅ | N/A(hostNetwork) | N/A |
 | falcosidekick | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ · **default SA** |
@@ -216,7 +217,9 @@ v1 매니페스트를 v2로 복원할 때 **모든 ConfigMap 평문 자격증명
 **요약**
 
 - securityContext 위생은 **GitLab·Falco·Filebeat 3건을 제외하고 전 워크로드에 적용**되어 있다. 계획서 Phase 3의 실질적 성과다.
-- **NetworkPolicy 커버리지 공백 6건** — Keycloak·MinIO·Trino·Hive Metastore·Apicurio·GitLab. default-deny 하에서 정당한 인바운드 경로가 없다.
+- **NetworkPolicy 커버리지 공백 3건** — Keycloak·Trino·GitLab. default-deny 하에서 정당한 인바운드 경로가 없다.
+  (MinIO·Hive Metastore·Apicurio 는 이후 배포 과정에서 해소되었다. 대상 정책이 있는 워크로드는
+  현재 41종이다 — `kustomize build | grep podSelector` 로 확인할 것)
 - **AuthorizationPolicy 대상은 4개뿐**이고, SA 부재(G18)로 principal 매칭이 되지 않아 사실상 무효다.
 
 ---
@@ -229,7 +232,12 @@ v1 매니페스트를 v2로 복원할 때 **모든 ConfigMap 평문 자격증명
 | **Filebeat** | `runAsUser: 0`, capability `DAC_READ_SEARCH` | 명시(`filebeat-daemonset.yaml:23-24,49-51`) | 호스트 로그 읽기. **blanket privileged보다 좁은 범위 — 모범 사례** | 동일 |
 | **GitLab EE** | `runAsUser: 0`, `allowPrivilegeEscalation: true`, capability 8종 | 주석 명시(`gitlab-statefulset.yaml:28`) | Omnibus chef/reconfigure가 root 요구 | 동일. **세 예외 중 가장 넓다 — `drop: ALL`조차 없다** |
 
-`[목표]` 추가 예외 — Tetragon(`privileged`, `hostPID`), Cilium agent(`privileged`, `SYS_MODULE`, bpf 마운트), Suricata/Zeek(`NET_ADMIN`, `NET_RAW`), Wazuh agent(호스트 FS, `hostPID`), Kubescape node-agent(eBPF), node-exporter(`hostPID`, `/proc`·`/sys`), Hadoop/HBase/Knox(root 실행).
+`[목표]` 추가 예외 — Tetragon(`privileged`, `hostPID`), Cilium agent(`privileged`, `SYS_MODULE`, bpf 마운트), Suricata/Zeek(`NET_ADMIN`, `NET_RAW`), Wazuh agent(호스트 FS, `hostPID`), Kubescape node-agent(eBPF), node-exporter(`hostPID`, `/proc`·`/sys`).
+
+> ~~Hadoop/HBase/Knox(root 실행)~~ — **예측이 빗나갔다.** 실제로 배포해 보니 셋 다
+> 비특권으로 돈다: hadoop uid 1000 · hbase uid 1001 · knox uid 8000, 전부
+> `drop: ["ALL"]` 이다. v1 매니페스트가 root 로 돌던 것이지 이미지의 제약이 아니었다.
+> `[목표]` 예외 목록은 실배포로 확인하기 전까지 추정이라는 점에 주의할 것.
 
 **어느 예외도 네임스페이스 범위 Kyverno `exclude`나 per-NS PSA 오버라이드와 짝지어져 있지 않다.** 현재는 Kyverno가 Audit이고 dev PSA가 `privileged`로 낮춰진 덕에 동작한다.
 
@@ -370,6 +378,7 @@ Vault 채택 시 **G19·G20·G21·G30·SEC-403이 전부 소멸**한다. CronJob
 | SEC-208 | Bridge 관리·메타데이터 엔드포인트는 외부에 노출하지 않는다 | 🎯 | Ingress path 화이트리스트 |
 | SEC-209 | ArgoCD AppProject는 사용하는 모든 API 그룹을 화이트리스트한다 | ❌ | G17 |
 | SEC-210 | Keycloak을 사용자 마스터로 하고 LDAP은 페더레이션한다 | 🎯 | TODO-35 |
+| SEC-211 | Hadoop `proxyuser` 위임은 사용자·호스트를 한정한다 | ⚠️ | `users=hive` 로 좁혔으나 `hosts=*` 다. Kerberos 미채택(`authentication=simple`)이라 위임 자체를 검증할 수단이 없다 — dev/prod 는 Knox·Ranger 경유로 대체할지 결정할 것 (TODO-48) |
 
 ### SEC-3xx — 런타임 보안
 

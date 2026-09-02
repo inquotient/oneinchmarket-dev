@@ -157,7 +157,11 @@ v1 복원으로 Knox·Ranger가 돌아오면 **원래 목적이 복구된다.**
 - ETL 잡 자체는 **미결정**이다. `spark-etl-cronjob.yaml`은 존재하지 않으며 **TODO-42** 결정 전까지 만들지 않는다
 - 네 실행 경로(ETL Job · History · Connect · Livy)가 `spark-config` ConfigMap 하나를 공유한다. Iceberg 카탈로그 좌표는 `trino-configmap.yaml:31-41`과 동일한 Hive Metastore·warehouse를 가리킨다 — **Spark가 쓴 테이블을 Trino가 즉시 조회한다**
 - driver/executor는 **상시 구동이 아니다.** `PriorityClass: batch-low` + `spark.dynamicAllocation.minExecutors=0`으로 상시 용량 산정에서 제외한다. 잡 실행 시 driver 1Gi + executor N×2Gi가 일시적으로 추가된다
-- **Kerberos는 필요 없다.** HDFS가 아니라 S3(MinIO)를 쓰므로 GSSAPI 경로가 없다. MinIO 자격증명(향후 OIDC+STS)으로 충분하다
+- **Kerberos는 채택하지 않는다.** ~~HDFS가 아니라 S3(MinIO)를 쓰므로 GSSAPI 경로가 없다~~ —
+  **HDFS 가 들어왔으므로 이 근거는 더 이상 성립하지 않는다**(HBase 가 요구한다). 대신
+  `hadoop.security.authentication=simple` 로 명시적으로 비활성화했다. 그 대가로
+  HiveServer2 가 `hadoop.proxyuser.hive.*` 를 필요로 한다 — 위임 대상은 `users=hive`
+  하나로 좁혔으나 `hosts=*` 는 그대로다(TODO-48). MinIO 자격증명(향후 OIDC+STS)은 별개다
 - **G39** — Ranger가 Spark 경로의 인가를 커버하지 못한다. **G40** — Livy 세션당 driver 생성으로 메모리 폭주 가능
 - Trino 카탈로그 2종: `iceberg`(`catalog.type=hive_metastore`, PARQUET), `hive`. 둘 다 `thrift://hive-metastore-headless:9083` + `s3.endpoint=http://minio-headless:9000` (path-style, `us-east-1`)
 - Hive Metastore warehouse: `s3a://warehouse/tables`
@@ -296,24 +300,40 @@ RBAC: `secret-rotator` SA + 네임스페이스 Role (`secrets` `get`/`patch`, **
 
 ---
 
-## 5. lakehouse-v1 `[목표]`
+## 5. lakehouse-v1 `[목표]` — 로컬은 배포 완료
 
 ADR-022 복원 대상. 로컬 소요 9.2 GB (레플리카 1 기준).
 
+> **2026-09-02** — 브랜치 `local` 에서 **비-HA 구성으로 전부 기동했다**
+> (LOCAL-DEPLOYMENT §8-14~16). JournalNode·RBF Router 는 HA 전용이라 만들지
+> 않았다. 아래 표의 "HA Rep" 은 여전히 목표값이며, 실배포한 것은 "로컬 Rep" 이다.
+
 | 서비스 | v1 이미지 | HA Rep | 로컬 Rep | MEM | 의존 |
 |---|---|:-:|:-:|--:|---|
-| **zookeeper** | `zookeeper:latest` | 3 | 1 | 0.7 | — |
-| **hadoop-journalnode** | `apache/hadoop:3.4.1` | 3 | 0 | — | ZK |
-| **hadoop-namenode** | `apache/hadoop:3.4.1` | 2 | 1 | 1.5 | JN, ZK |
-| **hadoop-datanode** | `apache/hadoop:3.4.1` | 3 | 1 | 1.5 | NN |
-| **hadoop-rbf-router** | `apache/hadoop:3.4.1` | 1 | 1 | 0.8 | NN |
-| **hbase-hmaster** | `hbase:2.6.3` **(로컬 빌드)** | 2 | 1 | 1.2 | ZK, HDFS |
-| **hbase-regionserver** | `hbase:2.6.3` **(로컬 빌드)** | 3 | 1 | 2.0 | HMaster |
-| **hive-server** | `apache/hive:4.2.0` | 1 | 1 | 1.5 | Hive Metastore |
+| **zookeeper** | `zookeeper:3.9.5` | 3 | 1 | 0.7 | — |
+| **hadoop-journalnode** | `apache/hadoop:3.4.3` | 3 | 0 | — | ZK · **미배포**(HA 전용) |
+| **hadoop-namenode** | `apache/hadoop:3.4.3` | 2 | 1 | 1.5 | JN, ZK |
+| **hadoop-datanode** | `apache/hadoop:3.4.3` | 3 | 1 | 1.5 | NN |
+| **hadoop-rbf-router** | `apache/hadoop:3.4.3` | 1 | 0 | — | NN · **미배포**(단일 NN 에 불필요) |
+| **hbase-hmaster** | `oneinch/hbase:2.6.6` **(로컬 빌드)** | 2 | 1 | 1.2 | ZK, HDFS |
+| **hbase-regionserver** | `oneinch/hbase:2.6.6` **(로컬 빌드)** | 3 | 1 | 2.0 | HMaster |
+| **hive-server** | `apache/hive:4.0.1` | 1 | 1 | 1.5 | Hive Metastore |
 
-**TODO-33** — Hive warehouse를 HDFS로 되돌릴지, S3A를 유지하고 HDFS를 별도 용도로 둘지, Trino에 두 카탈로그를 병행할지 미결정.
+**TODO-33 해소** — 양자택일이 아니었다. `apache/hive:4.0.1` 한 이미지에 `hadoop-hdfs-client`
+와 `hadoop-aws` 가 함께 있고 Hadoop `FileSystem` 이 URI 스킴별로 구현체를 고르므로 **한
+HiveServer2 가 `hdfs://` 와 `s3a://` 를 동시에 처리한다.** 정할 것은 기본값뿐이다 —
+`fs.defaultFS`=HDFS(scratch·중간 결과), `hive.metastore.warehouse.dir`=S3A(기본 웨어하우스).
+나머지는 DB·테이블의 `LOCATION`/`MANAGEDLOCATION` 으로 지정한다. 로컬에서 두 스킴의 테이블을
+한 질의로 JOIN 해 실증했다(LOCAL-DEPLOYMENT §8-16). **dev/prod 적용은 아직 하지 않았다.**
 
-**TODO-37** — `hbase:2.6.3`은 `v1/hbase/Dockerfile` 기반 로컬 빌드 이미지다. 레지스트리 경로·빌드 파이프라인이 필요하다.
+> `hadoop-aws` 는 `share/hadoop/tools/lib` 에 있고 이 경로는 Hadoop 기본 클래스패스가
+> **아니다.** `HADOOP_CLASSPATH` 에 넣지 않으면 `fs.s3a.impl` 을 적어 두어도
+> `ClassNotFoundException: S3AFileSystem` 이다 — 메타스토어에도 원래 있던 결함이다.
+
+**TODO-37** — `oneinch/hbase:2.6.6` 은 `docker/hbase/Dockerfile` 기반 로컬 빌드 이미지다.
+`local/build-images.sh` 가 podman 으로 빌드해 k3s containerd 로 반입한다. **레지스트리 경로·
+CI 빌드 파이프라인은 여전히 없다** — `oneinch/spark-iceberg`·`oneinch/livy`·
+`oneinch/ranger-usersync` 와 같은 상태다.
 
 ---
 

@@ -98,18 +98,16 @@ Vault 는 올라가 있으나 시크릿 원천은 아직 `local/create-secrets.s
 CronJob 8종·git-sync·`.enc.yaml` 12개가 제거된다. **unseal 키가 같은 클러스터의 Secret 에
 있다는 점을 이 결정에서 반드시 다룰 것.**
 
-### 3. dev/prod 로의 반영
+### 3. ~~dev/prod 로의 반영~~ — 완료 (§8-17)
 
-로컬에서 고친 것 중 **환경 무관한 결함**이 여럿이다 — dev/prod 에도 그대로 있다.
+수정 대부분이 `kubernetes/base/` 에 있어 dev·prod 가 자동 상속한다. 로컬 전용 값
+(메타스토어 힙)은 `$(HIVE_HEAP)` 로 분리해 오버레이가 한 줄만 덮게 했고, `proxyuser` 는
+`groups=*` → `users=hive` 로 좁혔다(SEC-211). prod 는 이미지 핀·PSS·Kyverno·PDB 모두
+따로 할 일이 없었다.
 
-| 고친 것 | dev/prod 영향 |
-|---|---|
-| `hadoop-aws` 가 Hive 클래스패스에 없음 | 동일. Hive 가 `s3a://` 를 해석하려는 순간 실패한다 |
-| `${env:...}` 가 메타스토어에서 치환 안 됨 | 동일. 403 이라 권한 문제로 오진하기 쉽다 |
-| 메타스토어 `envFrom` 이 XML 을 환경변수로 | 동일(무해하나 진단을 방해한다) |
-| `metastore.event.db.notification.api.auth` | HiveServer2 를 dev/prod 에 넣는 순간 같은 벽 |
-
-TODO-48(proxyuser 범위)·TODO-49(Tez 로컬 모드)는 **로컬 전제**라 그대로 옮기면 안 된다.
+**남은 판단** — dev/prod 는 base 를 상속하므로 **다음 sync 때 HiveServer2 가 함께 올라간다.**
+그 전에 TODO-49(Tez 로컬 모드로 둘지 YARN 을 올릴지)와 TODO-48(`proxyuser hosts=*`)을
+결정할 것. 둘 다 로컬 전제다.
 
 ### 4. 남은 운영 결정
 
@@ -221,7 +219,11 @@ oneinch/hbase            docker/hbase             # apache/hbase 가 Docker Hub 
   hive-metastore 가 limit 512Mi / 힙 1G 로 재시작 39회를 쌓고 있었다.
   Guaranteed QoS 는 스왑도 못 쓰므로 여유가 없다
 - **엔트리포인트가 인자를 덧붙이는 방식이면 "뒤에 온 값이 이긴다"를 이용할 것**
-  (`HADOOP_CLIENT_OPTS="-Xmx1G $SERVICE_OPTS"` → `SERVICE_OPTS` 에 `-Xmx768m`)
+  (`HADOOP_CLIENT_OPTS="-Xmx1G $SERVICE_OPTS"` → `SERVICE_OPTS` 에 `-Xmx768m`).
+  같은 이미지에서 `java -Xmx1G -Xmx768m -XX:+PrintFlagsFinal -version` 으로 확인 가능하다
+- **오버레이가 덮을 값은 처음부터 별도 env 키로 뺄 것.** 한 문자열에 접속 정보와 튜닝이
+  섞여 있으면 오버레이가 전체를 복제하게 되고 그때부터 드리프트다. `$(KEY)` 는 k8s 가
+  파드 생성 시 펼쳐 주고, `env` 는 `name` 키 병합이라 패치가 그 항목만 덮는다
 
 ## 정리해 두면 좋을 것
 

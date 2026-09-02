@@ -83,16 +83,22 @@ spec:
             #   쓰지 않는 커넥터와 중복 SDK 를 함께 끌어온다.
             - name: HADOOP_CLASSPATH
               value: /opt/hadoop/share/hadoop/tools/lib/hadoop-aws-3.3.6.jar:/opt/hadoop/share/hadoop/tools/lib/aws-java-sdk-bundle-1.12.367.jar
-            # ★ SERVICE_OPTS 는 entrypoint 가 HADOOP_CLIENT_OPTS 뒤에 붙인다.
-            #   기본 -Xmx1G 가 앞에 있으므로 여기 -Xmx768m 이 최종값이 된다.
-            #   컨테이너 limit(1280Mi)보다 힙이 크면 JVM 이 아니라 커널이 죽인다.
+            # ★ 힙만 따로 뺀 이유 — SERVICE_OPTS 는 JDBC 접속 문자열까지 담고 있어
+            #   오버레이가 힙만 바꾸려면 전체를 복제해야 한다(드리프트). 힙을 별도
+            #   키로 두고 $(HIVE_HEAP) 로 참조하면 오버레이는 이 한 줄만 덮는다.
+            #   entrypoint 가 HADOOP_CLIENT_OPTS="$HADOOP_CLIENT_OPTS -Xmx1G $SERVICE_OPTS"
+            #   로 조립하므로 뒤에 온 -Xmx 가 최종값이다.
+            #   base limit 은 2Gi — 힙 + 메타스페이스 + 스레드 스택이 들어간다.
+            #   로컬은 1280Mi 라 overlays/local/patches/limits-local.yaml 에서 낮춘다.
+            - name: HIVE_HEAP
+              value: "-Xmx1536m"
             - name: SERVICE_OPTS
               value: >-
                 -Djavax.jdo.option.ConnectionDriverName=org.postgresql.Driver
                 -Djavax.jdo.option.ConnectionURL=jdbc:postgresql://postgresql-headless:5432/hive_metastore
                 -Djavax.jdo.option.ConnectionUserName=hive
                 -Djavax.jdo.option.ConnectionPassword=$(DB_PASSWORD)
-                -Xmx768m
+                $(HIVE_HEAP)
           # envFrom 을 쓰지 않는다 — 이 ConfigMap 의 유일한 키가 "hive-site.xml"
           # 이라 hive-site.xml 이라는 이름의 환경변수에 XML 전문이 들어갔다.
           # 설정은 아래 volumeMounts 의 파일 마운트로만 전달한다.
