@@ -26,6 +26,10 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: kafka-bridge
+        # OpenReplay — 세션 이벤트 파이프라인이 Kafka 를 쓴다
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: openreplay
         # schema-reg 는 Apicurio Registry 로 대체되어 존재하지 않는다.
         # Apicurio 는 SQL(PostgreSQL) 저장소라 Kafka 에 접속하지 않는다 —
         # 셀렉터를 옮기지 않고 삭제한다.

@@ -765,45 +765,45 @@ spec:
         - name: version_number
           value: v1.27.2
         - name: pg_host
-          value: postgresql.db.svc.cluster.local
+          value: postgresql-headless.local.svc.cluster.local
         - name: pg_port
           value: '5432'
         - name: pg_dbname
-          value: postgres
+          value: openreplay
         - name: ch_host
-          value: clickhouse-openreplay-clickhouse.db.svc.cluster.local
+          value: clickhouse-headless.local.svc.cluster.local
         - name: ch_port
           value: '9000'
         - name: ch_port_http
           value: '8123'
         - name: ch_username
-          value: default
+          value: openreplay
         - name: ch_password
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: clickhouse-password
+              name: clickhouse-secret
+              key: password
         - name: pg_user
-          value: postgres
+          value: openreplay
         - name: pg_password
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: postgresql-password
+              name: openreplay-secret
+              key: db-password
         - name: SITE_URL
           value: https://openreplay.local
         - name: S3_HOST
-          value: https://openreplay.local
+          value: http://minio-headless.local.svc.cluster.local:9000
         - name: S3_KEY
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: access-key
+              name: minio-secret
+              key: root-user
         - name: S3_SECRET
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: secret-key
+              name: minio-secret
+              key: root-password
         - name: AWS_DEFAULT_REGION
           value: us-east-1
         - name: EMAIL_HOST
@@ -901,12 +901,24 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 5
         env:
+        - name: CLICKHOUSE_USERNAME
+          value: openreplay
+        - name: CLICKHOUSE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: clickhouse-secret
+              key: password
+        - name: redis_password
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: redis-password
         - name: TOKEN_SECRET
           value: secret_token_string
         - name: ch_db
-          value: default
+          value: openreplay
         - name: KAFKA_SERVERS
-          value: kafka.db.svc.cluster.local:9092
+          value: kafka-headless.local.svc.cluster.local:9092
         - name: KAFKA_USE_SSL
           value: 'false'
         - name: JWT_SECRET
@@ -922,37 +934,37 @@ spec:
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: access-key
+              name: minio-secret
+              key: root-user
         - name: AWS_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: secret-key
+              name: minio-secret
+              key: root-password
         - name: AWS_ENDPOINT
-          value: https://openreplay.local
+          value: http://minio-headless.local.svc.cluster.local:9000
         - name: AWS_REGION
           value: us-east-1
         - name: BUCKET_NAME
           value: mobs
         - name: CH_USERNAME
-          value: default
+          value: openreplay
         - name: CH_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: clickhouse-password
+              name: clickhouse-secret
+              key: password
         - name: CLICKHOUSE_STRING
-          value: clickhouse-openreplay-clickhouse.db.svc.cluster.local:9000/default
+          value: clickhouse-headless.local.svc.cluster.local:9000
         - name: CLICKHOUSE_HTTP_STRING
-          value: clickhouse-openreplay-clickhouse.db.svc.cluster.local:8123/default
+          value: clickhouse-headless.local.svc.cluster.local:8123/default
         - name: pg_password
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: postgresql-password
+              name: openreplay-secret
+              key: db-password
         - name: POSTGRES_STRING
-          value: postgres://postgres:$(pg_password)@postgresql.db.svc.cluster.local:5432/postgres
+          value: postgres://openreplay:$(pg_password)@postgresql-headless.local.svc.cluster.local:5432/openreplay
         - name: ASSIST_URL
           value: http://assist-openreplay.local.svc.cluster.local:9001/assist/%s
         - name: ASSIST_KEY
@@ -961,7 +973,7 @@ spec:
               name: or-secrets
               key: assist-key
         - name: REDIS_STRING
-          value: redis://redis-master.db.svc.cluster.local:6379
+          value: redis://:$(redis_password)@redis-headless.local.svc.cluster.local:6379/4
         ports:
         - name: http
           containerPort: 8080
@@ -1043,16 +1055,21 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 5
         env:
+        - name: redis_password
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: redis-password
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: access-key
+              name: minio-secret
+              key: root-user
         - name: AWS_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: secret-key
+              name: minio-secret
+              key: root-password
         - name: BUCKET_NAME
           value: sessions-assets
         - name: LICENSE_KEY
@@ -1062,17 +1079,17 @@ spec:
               key: license-key
               optional: true
         - name: AWS_ENDPOINT
-          value: https://openreplay.local
+          value: http://minio-headless.local.svc.cluster.local:9000
         - name: AWS_REGION
           value: us-east-1
         - name: KAFKA_SERVERS
-          value: kafka.db.svc.cluster.local:9092
+          value: kafka-headless.local.svc.cluster.local:9092
         - name: KAFKA_USE_SSL
           value: 'false'
         - name: ASSETS_ORIGIN
           value: https://openreplay.local/sessions-assets
         - name: REDIS_STRING
-          value: redis://redis-master.db.svc.cluster.local:6379
+          value: redis://:$(redis_password)@redis-headless.local.svc.cluster.local:6379/4
         ports:
         - name: http
           containerPort: 9000
@@ -1145,7 +1162,7 @@ spec:
         - name: AWS_DEFAULT_REGION
           value: us-east-1
         - name: REDIS_URL
-          value: redis-master.db.svc.cluster.local
+          value: redis-headless.local.svc.cluster.local
         - name: CLEAR_SOCKET_TIME
           value: '720'
         - name: MAX_BACKPRESSURE_KB
@@ -1226,18 +1243,23 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 5
         env:
+        - name: redis_password
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: redis-password
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: access-key
+              name: minio-secret
+              key: root-user
         - name: AWS_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: secret-key
+              name: minio-secret
+              key: root-password
         - name: AWS_ENDPOINT
-          value: https://openreplay.local
+          value: http://minio-headless.local.svc.cluster.local:9000
         - name: AWS_REGION
           value: us-east-1
         - name: BUCKET_NAME
@@ -1249,7 +1271,7 @@ spec:
               key: license-key
               optional: true
         - name: KAFKA_SERVERS
-          value: kafka.db.svc.cluster.local:9092
+          value: kafka-headless.local.svc.cluster.local:9092
         - name: KAFKA_USE_SSL
           value: 'false'
         - name: TOKEN_SECRET
@@ -1260,12 +1282,12 @@ spec:
         - name: pg_password
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: postgresql-password
+              name: openreplay-secret
+              key: db-password
         - name: POSTGRES_STRING
-          value: postgres://postgres:$(pg_password)@postgresql.db.svc.cluster.local:5432/postgres
+          value: postgres://openreplay:$(pg_password)@postgresql-headless.local.svc.cluster.local:5432/openreplay
         - name: REDIS_STRING
-          value: redis://redis-master.db.svc.cluster.local:6379
+          value: redis://:$(redis_password)@redis-headless.local.svc.cluster.local:6379/4
         - name: FS_CLEAN_HRS
           value: '24'
         ports:
@@ -1340,19 +1362,24 @@ spec:
           periodSeconds: 30
           timeoutSeconds: 15
         env:
+        - name: redis_password
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: redis-password
         - name: REDIS_STRING
-          value: redis://redis-master.db.svc.cluster.local:6379
+          value: redis://:$(redis_password)@redis-headless.local.svc.cluster.local:6379/4
         - name: KAFKA_SERVERS
-          value: kafka.db.svc.cluster.local
+          value: kafka-headless.local.svc.cluster.local:9092
         - name: ch_user
-          value: default
+          value: openreplay
         - name: ch_password
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: clickhouse-password
+              name: clickhouse-secret
+              key: password
         - name: ch_host
-          value: clickhouse-openreplay-clickhouse.db.svc.cluster.local
+          value: clickhouse-headless.local.svc.cluster.local
         - name: ch_port
           value: '9000'
         - name: ch_port_http
@@ -1400,32 +1427,32 @@ spec:
         - name: version_number
           value: v1.27.22
         - name: pg_host
-          value: postgresql.db.svc.cluster.local
+          value: postgresql-headless.local.svc.cluster.local
         - name: pg_port
           value: '5432'
         - name: pg_dbname
-          value: postgres
+          value: openreplay
         - name: pg_user
-          value: postgres
+          value: openreplay
         - name: pg_password
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: postgresql-password
+              name: openreplay-secret
+              key: db-password
         - name: SITE_URL
           value: https://openreplay.local
         - name: S3_HOST
-          value: https://openreplay.local
+          value: http://minio-headless.local.svc.cluster.local:9000
         - name: S3_KEY
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: access-key
+              name: minio-secret
+              key: root-user
         - name: S3_SECRET
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: secret-key
+              name: minio-secret
+              key: root-password
         - name: AWS_DEFAULT_REGION
           value: us-east-1
         - name: sessions_region
@@ -1595,15 +1622,27 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 5
         env:
+        - name: CLICKHOUSE_USERNAME
+          value: openreplay
+        - name: CLICKHOUSE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: clickhouse-secret
+              key: password
+        - name: redis_password
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: redis-password
         - name: CH_USERNAME
-          value: default
+          value: openreplay
         - name: CH_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: clickhouse-password
+              name: clickhouse-secret
+              key: password
         - name: CLICKHOUSE_STRING
-          value: clickhouse-openreplay-clickhouse.db.svc.cluster.local:9000/default
+          value: clickhouse-headless.local.svc.cluster.local:9000
         - name: LICENSE_KEY
           valueFrom:
             secretKeyRef:
@@ -1611,20 +1650,20 @@ spec:
               key: license-key
               optional: true
         - name: KAFKA_SERVERS
-          value: kafka.db.svc.cluster.local:9092
+          value: kafka-headless.local.svc.cluster.local:9092
         - name: KAFKA_USE_SSL
           value: 'false'
         - name: pg_password
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: postgresql-password
+              name: openreplay-secret
+              key: db-password
         - name: POSTGRES_STRING
-          value: postgres://postgres:$(pg_password)@postgresql.db.svc.cluster.local:5432/postgres
+          value: postgres://openreplay:$(pg_password)@postgresql-headless.local.svc.cluster.local:5432/openreplay
         - name: REDIS_STRING
-          value: redis://redis-master.db.svc.cluster.local:6379
+          value: redis://:$(redis_password)@redis-headless.local.svc.cluster.local:6379/4
         - name: ch_db
-          value: default
+          value: openreplay
         ports:
         - name: http
           containerPort: 9000
@@ -1700,6 +1739,11 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 5
         env:
+        - name: redis_password
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: redis-password
         - name: LICENSE_KEY
           valueFrom:
             secretKeyRef:
@@ -1707,18 +1751,18 @@ spec:
               key: license-key
               optional: true
         - name: KAFKA_SERVERS
-          value: kafka.db.svc.cluster.local:9092
+          value: kafka-headless.local.svc.cluster.local:9092
         - name: KAFKA_USE_SSL
           value: 'false'
         - name: pg_password
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: postgresql-password
+              name: openreplay-secret
+              key: db-password
         - name: POSTGRES_STRING
-          value: postgres://postgres:$(pg_password)@postgresql.db.svc.cluster.local:5432/postgres
+          value: postgres://openreplay:$(pg_password)@postgresql-headless.local.svc.cluster.local:5432/openreplay
         - name: REDIS_STRING
-          value: redis://redis-master.db.svc.cluster.local:6379
+          value: redis://:$(redis_password)@redis-headless.local.svc.cluster.local:6379/4
         ports:
         - name: http
           containerPort: 9000
@@ -1848,6 +1892,11 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 5
         env:
+        - name: redis_password
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: redis-password
         - name: LICENSE_KEY
           valueFrom:
             secretKeyRef:
@@ -1855,11 +1904,11 @@ spec:
               key: license-key
               optional: true
         - name: KAFKA_SERVERS
-          value: kafka.db.svc.cluster.local:9092
+          value: kafka-headless.local.svc.cluster.local:9092
         - name: KAFKA_USE_SSL
           value: 'false'
         - name: REDIS_STRING
-          value: redis://redis-master.db.svc.cluster.local:6379
+          value: redis://:$(redis_password)@redis-headless.local.svc.cluster.local:6379/4
         ports:
         - name: http
           containerPort: 9000
@@ -1935,6 +1984,11 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 5
         env:
+        - name: redis_password
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: redis-password
         - name: BUCKET_NAME
           value: uxtesting-records
         - name: CACHE_ASSETS
@@ -1942,17 +1996,17 @@ spec:
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: access-key
+              name: minio-secret
+              key: root-user
         - name: AWS_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: secret-key
+              name: minio-secret
+              key: root-password
         - name: AWS_REGION
           value: us-east-1
         - name: AWS_ENDPOINT
-          value: https://openreplay.local
+          value: http://minio-headless.local.svc.cluster.local:9000
         - name: LICENSE_KEY
           valueFrom:
             secretKeyRef:
@@ -1960,18 +2014,18 @@ spec:
               key: license-key
               optional: true
         - name: KAFKA_SERVERS
-          value: kafka.db.svc.cluster.local:9092
+          value: kafka-headless.local.svc.cluster.local:9092
         - name: KAFKA_USE_SSL
           value: 'false'
         - name: pg_password
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: postgresql-password
+              name: openreplay-secret
+              key: db-password
         - name: POSTGRES_STRING
-          value: postgres://postgres:$(pg_password)@postgresql.db.svc.cluster.local:5432/postgres
+          value: postgres://openreplay:$(pg_password)@postgresql-headless.local.svc.cluster.local:5432/openreplay
         - name: REDIS_STRING
-          value: redis://redis-master.db.svc.cluster.local:6379
+          value: redis://:$(redis_password)@redis-headless.local.svc.cluster.local:6379/4
         - name: JWT_SECRET
           valueFrom:
             secretKeyRef:
@@ -2062,18 +2116,23 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 5
         env:
+        - name: redis_password
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: redis-password
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: access-key
+              name: minio-secret
+              key: root-user
         - name: AWS_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: secret-key
+              name: minio-secret
+              key: root-password
         - name: AWS_ENDPOINT
-          value: https://openreplay.local
+          value: http://minio-headless.local.svc.cluster.local:9000
         - name: AWS_REGION
           value: us-east-1
         - name: BUCKET_NAME
@@ -2085,7 +2144,7 @@ spec:
               key: license-key
               optional: true
         - name: KAFKA_SERVERS
-          value: kafka.db.svc.cluster.local:9092
+          value: kafka-headless.local.svc.cluster.local:9092
         - name: KAFKA_USE_SSL
           value: 'false'
         - name: TOKEN_SECRET
@@ -2096,12 +2155,12 @@ spec:
         - name: pg_password
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: postgresql-password
+              name: openreplay-secret
+              key: db-password
         - name: POSTGRES_STRING
-          value: postgres://postgres:$(pg_password)@postgresql.db.svc.cluster.local:5432/postgres
+          value: postgres://openreplay:$(pg_password)@postgresql-headless.local.svc.cluster.local:5432/openreplay
         - name: REDIS_STRING
-          value: redis://redis-master.db.svc.cluster.local:6379
+          value: redis://:$(redis_password)@redis-headless.local.svc.cluster.local:6379/4
         - name: FS_CLEAN_HRS
           value: '24'
         ports:
@@ -2185,18 +2244,23 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 5
         env:
+        - name: redis_password
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: redis-password
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: access-key
+              name: minio-secret
+              key: root-user
         - name: AWS_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: secret-key
+              name: minio-secret
+              key: root-password
         - name: AWS_ENDPOINT
-          value: https://openreplay.local
+          value: http://minio-headless.local.svc.cluster.local:9000
         - name: AWS_REGION
           value: us-east-1
         - name: BUCKET_NAME
@@ -2213,18 +2277,18 @@ spec:
               key: license-key
               optional: true
         - name: KAFKA_SERVERS
-          value: kafka.db.svc.cluster.local:9092
+          value: kafka-headless.local.svc.cluster.local:9092
         - name: KAFKA_USE_SSL
           value: 'false'
         - name: pg_password
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: postgresql-password
+              name: openreplay-secret
+              key: db-password
         - name: POSTGRES_STRING
-          value: postgres://postgres:$(pg_password)@postgresql.db.svc.cluster.local:5432/postgres
+          value: postgres://openreplay:$(pg_password)@postgresql-headless.local.svc.cluster.local:5432/openreplay
         - name: REDIS_STRING
-          value: redis://redis-master.db.svc.cluster.local:6379
+          value: redis://:$(redis_password)@redis-headless.local.svc.cluster.local:6379/4
         - name: TOKEN_SECRET
           value: secret_token_string
         ports:
@@ -2302,6 +2366,11 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 5
         env:
+        - name: redis_password
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: redis-password
         - name: LICENSE_KEY
           valueFrom:
             secretKeyRef:
@@ -2309,7 +2378,7 @@ spec:
               key: license-key
               optional: true
         - name: KAFKA_SERVERS
-          value: kafka.db.svc.cluster.local:9092
+          value: kafka-headless.local.svc.cluster.local:9092
         - name: KAFKA_USE_SSL
           value: 'false'
         - name: ASSETS_ORIGIN
@@ -2317,12 +2386,12 @@ spec:
         - name: pg_password
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: postgresql-password
+              name: openreplay-secret
+              key: db-password
         - name: POSTGRES_STRING
-          value: postgres://postgres:$(pg_password)@postgresql.db.svc.cluster.local:5432/postgres
+          value: postgres://openreplay:$(pg_password)@postgresql-headless.local.svc.cluster.local:5432/openreplay
         - name: REDIS_STRING
-          value: redis://redis-master.db.svc.cluster.local:6379
+          value: redis://:$(redis_password)@redis-headless.local.svc.cluster.local:6379/4
         ports:
         - name: http
           containerPort: 9000
@@ -2395,13 +2464,13 @@ spec:
         - name: S3_KEY
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: access-key
+              name: minio-secret
+              key: root-user
         - name: S3_SECRET
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: secret-key
+              name: minio-secret
+              key: root-password
         - name: AWS_REGION
           value: us-east-1
         - name: LICENSE_KEY
@@ -2485,6 +2554,11 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 5
         env:
+        - name: redis_password
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: redis-password
         - name: CACHE_ASSETS
           value: 'true'
         - name: FS_CLEAN_HRS
@@ -2494,19 +2568,19 @@ spec:
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: access-key
+              name: minio-secret
+              key: root-user
         - name: AWS_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: secret-key
+              name: minio-secret
+              key: root-password
         - name: BUCKET_NAME
           value: spots
         - name: AWS_REGION
           value: us-east-1
         - name: AWS_ENDPOINT
-          value: https://openreplay.local
+          value: http://minio-headless.local.svc.cluster.local:9000
         - name: LICENSE_KEY
           valueFrom:
             secretKeyRef:
@@ -2514,7 +2588,7 @@ spec:
               key: license-key
               optional: true
         - name: KAFKA_SERVERS
-          value: kafka.db.svc.cluster.local:9092
+          value: kafka-headless.local.svc.cluster.local:9092
         - name: KAFKA_USE_SSL
           value: 'false'
         - name: JWT_SECRET
@@ -2530,12 +2604,12 @@ spec:
         - name: pg_password
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: postgresql-password
+              name: openreplay-secret
+              key: db-password
         - name: POSTGRES_STRING
-          value: postgres://postgres:$(pg_password)@postgresql.db.svc.cluster.local:5432/postgres
+          value: postgres://openreplay:$(pg_password)@postgresql-headless.local.svc.cluster.local:5432/openreplay
         - name: REDIS_STRING
-          value: redis://redis-master.db.svc.cluster.local:6379
+          value: redis://:$(redis_password)@redis-headless.local.svc.cluster.local:6379/4
         ports:
         - name: http
           containerPort: 8080
@@ -2617,18 +2691,23 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 5
         env:
+        - name: redis_password
+          valueFrom:
+            secretKeyRef:
+              name: redis-secret
+              key: redis-password
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: access-key
+              name: minio-secret
+              key: root-user
         - name: AWS_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: secret-key
+              name: minio-secret
+              key: root-password
         - name: AWS_ENDPOINT
-          value: https://openreplay.local
+          value: http://minio-headless.local.svc.cluster.local:9000
         - name: AWS_REGION
           value: us-east-1
         - name: BUCKET_NAME
@@ -2640,11 +2719,11 @@ spec:
               key: license-key
               optional: true
         - name: KAFKA_SERVERS
-          value: kafka.db.svc.cluster.local:9092
+          value: kafka-headless.local.svc.cluster.local:9092
         - name: KAFKA_USE_SSL
           value: 'false'
         - name: REDIS_STRING
-          value: redis://redis-master.db.svc.cluster.local:6379
+          value: redis://:$(redis_password)@redis-headless.local.svc.cluster.local:6379/4
         - name: FS_CLEAN_HRS
           value: '24'
         ports:
@@ -3295,12 +3374,12 @@ metadata:
     app.kubernetes.io/part-of: oneinchmarket
     app.kubernetes.io/component: observability
 data:
-  PGHOST: cG9zdGdyZXNxbC5kYi5zdmMuY2x1c3Rlci5sb2NhbA==
+  PGHOST: cG9zdGdyZXNxbC1oZWFkbGVzcy5sb2NhbC5zdmMuY2x1c3Rlci5sb2NhbA==
   PGPORT: NTQzMg==
-  PGDATABASE: cG9zdGdyZXM=
-  PGUSER: cG9zdGdyZXM=
+  PGDATABASE: b3BlbnJlcGxheQ==
+  PGUSER: b3BlbnJlcGxheQ==
   PGPASSWORD: e3sgcmFuZEFscGhhTnVtIDIwfX0=
-  CLICKHOUSE_USER: ZGVmYXVsdA==
+  CLICKHOUSE_USER: b3BlbnJlcGxheQ==
   CLICKHOUSE_PASSWORD: ''
   MINIO_HOST: aHR0cDovL21pbmlvLWhlYWRsZXNzLmxvY2FsLnN2Yy5jbHVzdGVyLmxvY2FsOjkwMDA=
   MINIO_ACCESS_KEY: e3sgcmFuZEFscGhhTnVtIDIwIH19
@@ -3740,6 +3819,7 @@ spec:
       labels:
         app.kubernetes.io/part-of: oneinchmarket
         app.kubernetes.io/component: observability
+        app.kubernetes.io/instance: openreplay
     spec:
       initContainers:
       - name: git
@@ -3788,14 +3868,14 @@ spec:
           \ . || exit 10\n  git sparse-checkout set scripts/schema scripts/helmcharts\
           \ ee/scripts || exit 10\n  \n  ls /opt/openreplay/openreplay\n  git log\
           \ -1\nfi\n\n\n\nexit_count=0\n\nexit_count=0\nerror_connection=1\n\nwhile\
-          \ [ $exit_count -le 20 ];do\n  nc -zv postgresql.db.svc.cluster.local 5432\
-          \ -w 1\n  if [ $? -ne 0 ]; then\n    echo \"[info] postgresql is not up;\
-          \ retrying in 5 seconds\"\n    sleep 4\n    exit_count=$(($exit_count+1))\n\
+          \ [ $exit_count -le 20 ];do\n  nc -zv postgresql-headless.local.svc.cluster.local\
+          \ 5432 -w 1\n  if [ $? -ne 0 ]; then\n    echo \"[info] postgresql is not\
+          \ up; retrying in 5 seconds\"\n    sleep 4\n    exit_count=$(($exit_count+1))\n\
           \    echo $exit_count\n  else\n    error_connection=0\n    break\n  fi\n\
           done\n\nif [ $error_connection -eq 1 ]; then\n  echo \"[error] postgres\
           \ is not running. Check kubectl get po -n db; exiting\"\n  exit 100\nfi\n\
           \n# Checking variable is empty. Shell independant method.\nexit_count=0\n\
-          error_connection=1\n\nwhile [ $exit_count -le 20 ];do\n  nc -zv clickhouse-openreplay-clickhouse.db.svc.cluster.local\
+          error_connection=1\n\nwhile [ $exit_count -le 20 ];do\n  nc -zv clickhouse-headless.local.svc.cluster.local\
           \ 9000 -w 1\n  if [ $? -ne 0 ]; then\n    echo \"[info] clickhouse is not\
           \ up; retrying in 5 seconds\"\n    sleep 4\n    exit_count=$(($exit_count+1))\n\
           \    echo $exit_count\n  else\n    error_connection=0\n    break\n  fi\n\
@@ -3821,13 +3901,13 @@ spec:
         image: ghcr.io/openreplay/postgres:17
         env:
         - name: PGHOST
-          value: postgresql.db.svc.cluster.local
+          value: postgresql-headless.local.svc.cluster.local
         - name: PGPORT
           value: '5432'
         - name: PGDATABASE
-          value: postgres
+          value: openreplay
         - name: PGUSER
-          value: postgres
+          value: openreplay
         - name: PGPASSWORD
           valueFrom:
             secretKeyRef:
@@ -3863,18 +3943,18 @@ spec:
         - name: SKIP_PERMISSION_CHANGE
           value: 'false'
         - name: CH_HOST
-          value: clickhouse-openreplay-clickhouse.db.svc.cluster.local
+          value: clickhouse-headless.local.svc.cluster.local
         - name: CH_PORT
           value: '9000'
         - name: CH_PORT_HTTP
           value: '8123'
         - name: CH_USERNAME
-          value: default
+          value: openreplay
         - name: CH_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: clickhouse-password
+              name: clickhouse-secret
+              key: password
         - name: CH_USE_TLS
           value: 'false'
         command:
@@ -3926,13 +4006,13 @@ spec:
         - name: CHART_APP_VERSION
           value: v1.27.0
         - name: PGHOST
-          value: postgresql.db.svc.cluster.local
+          value: postgresql-headless.local.svc.cluster.local
         - name: PGPORT
           value: '5432'
         - name: PGDATABASE
-          value: postgres
+          value: openreplay
         - name: PGUSER
-          value: postgres
+          value: openreplay
         - name: PGPASSWORD
           valueFrom:
             secretKeyRef:
@@ -3946,54 +4026,6 @@ spec:
         - /opt/migrations/dbops.sh
         - 'false'
         - postgresql
-        volumeMounts:
-        - name: shared
-          mountPath: /opt/openreplay
-        - name: dbmigrationscript
-          mountPath: /opt/migrations/
-        resources:
-          requests:
-            cpu: 25m
-            memory: 128Mi
-          limits:
-            cpu: 500m
-            memory: 384Mi
-      - name: minio
-        image: ghcr.io/openreplay/minio:2025
-        env:
-        - name: OPENREPLAY_VERSION
-          valueFrom:
-            configMapKeyRef:
-              name: openreplay-version
-              key: version
-              optional: true
-        - name: SKIP_PERMISSION_CHANGE
-          value: 'false'
-        - name: FORCE_MIGRATION
-          value: 'false'
-        - name: UPGRADE_FRONTENT
-          value: ''
-        - name: PREVIOUS_APP_VERSION
-          value: v1.27.0
-        - name: CHART_APP_VERSION
-          value: v1.27.0
-        - name: MINIO_ACCESS_KEY
-          valueFrom:
-            secretKeyRef:
-              name: or-secrets
-              key: access-key
-        - name: MINIO_SECRET_KEY
-          valueFrom:
-            secretKeyRef:
-              name: or-secrets
-              key: secret-key
-        - name: MINIO_HOST
-          value: http://minio-headless.local.svc.cluster.local:9000
-        command:
-        - /bin/bash
-        - /opt/migrations/dbops.sh
-        - 'false'
-        - minio
         volumeMounts:
         - name: shared
           mountPath: /opt/openreplay
@@ -4024,18 +4056,18 @@ spec:
         - name: CHART_APP_VERSION
           value: v1.27.0
         - name: CH_HOST
-          value: clickhouse-openreplay-clickhouse.db.svc.cluster.local
+          value: clickhouse-headless.local.svc.cluster.local
         - name: CH_PORT
           value: '9000'
         - name: CH_PORT_HTTP
           value: '8123'
         - name: CH_USERNAME
-          value: default
+          value: openreplay
         - name: CH_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: clickhouse-password
+              name: clickhouse-secret
+              key: password
         - name: CH_USE_TLS
           value: 'false'
         command:
