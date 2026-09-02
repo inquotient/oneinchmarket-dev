@@ -9,6 +9,7 @@ resources:
   - application-netpol.yaml
   - data-lakehouse-netpol.yaml
   - bootstrap-netpol.yaml
+  - devops-netpol.yaml
   - observability-prom-netpol.yaml
   - observability-otel-netpol.yaml
   - governance-netpol.yaml

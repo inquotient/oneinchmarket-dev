@@ -47,6 +47,11 @@ resources:
   - falcosidekick/falcosidekick-service.yaml
   - falcosidekick/falcosidekick-configmap.yaml
   # - falcosidekick/falcosidekick-secret.enc.yaml  # SOPS: re-enable after ArgoCD SOPS plugin setup
+  # GlitchTip - 오류 추적 (ADR-036 ⓓ). web + worker
+  - glitchtip/glitchtip-configmap.yaml
+  - glitchtip/glitchtip-service.yaml
+  - glitchtip/glitchtip-web-deployment.yaml
+  - glitchtip/glitchtip-worker-deployment.yaml
   # Trivy - Weekly Image Scan
   - trivy/trivy-cronjob.yaml
   - trivy/trivy-rbac.yaml

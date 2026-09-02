@@ -58,6 +58,8 @@ mk hive-metastore-secret "db-password=$(gen)"
 mk cmmn-api-secret       "db-password=$MARIA_APP"     # MariaDB cmmn DB 사용자와 동일해야 한다
 mk elasticsearch-secret  "elastic-password=$(gen)"    # ECK 가 만드는 -es-elastic-user 와 별개다
 mk grafana-secret        "admin-password=$(gen)"
+# GlitchTip — SECRET_KEY 는 Django 세션·서명 키다. 50자 이상 권장.
+mk glitchtip-secret      "db-password=$(gen)"        "secret-key=$(gen 64)"
 mk argocd-admin-secret   "admin-password=$(gen)"
 # Slack 미연동. 빈 값이면 Falcosidekick 이 Slack 출력을 비활성한다.
 mk falcosidekick-secret  "slack-webhook-url="

@@ -1,0 +1,80 @@
+# devops 계층의 대상 NetworkPolicy.
+#
+# 이 파일이 없어서 GitLab 이 "NetworkPolicy 커버리지 공백 3건" 중 하나였다
+# (SECURITY.md §4). Jenkins 를 넣으면서 함께 만든다 — default-deny-ingress
+# 아래에서는 대상 정책이 없으면 아무도 도달하지 못한다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-jenkins-access
+  labels:
+    app.kubernetes.io/name: allow-jenkins-access
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: jenkins
+  policyTypes:
+    - Ingress
+  ingress:
+    # 웹 UI. 외부 노출은 인증 앞단(oauth2-proxy)을 거친다 — TODO-46 과 같은 계열.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: devops
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: nginx
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: oauth2-proxy
+      ports:
+        - protocol: TCP
+          port: 8080
+    # JNLP 인바운드 에이전트. 에이전트는 아직 없으나 포트를 열어 두면
+    # 첫 에이전트를 붙일 때 "왜 안 붙는지" 를 다시 찾지 않아도 된다.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: jenkins-agent
+      ports:
+        - protocol: TCP
+          port: 50000
+---
+# GitLab — 기존 공백 해소. 매니페스트가 실제로 여는 포트는 80·443·22 다
+# (컨테이너 포트·Service 양쪽 확인. 레지스트리 5050 은 열지 않는다).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gitlab-access
+  labels:
+    app.kubernetes.io/name: allow-gitlab-access
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: gitlab
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: devops
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: nginx
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: oauth2-proxy
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 22

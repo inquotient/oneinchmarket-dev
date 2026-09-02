@@ -202,7 +202,10 @@ v1 매니페스트를 v2로 복원할 때 **모든 ConfigMap 평문 자격증명
 | mongodb | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | postgresql | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | redis | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **gitlab** | ⚠️ `runAsUser: 0` | ⚠️ **drop 없이 capability 8종 추가** | ⚠️ `true` | ✅(pod) | ✅ | ✅ | **❌** | ❌ |
+| **gitlab** | ⚠️ `runAsUser: 0` | ⚠️ **drop 없이 capability 8종 추가** | ⚠️ `true` | ✅(pod) | ✅ | ✅ | ✅ | ❌ |
+| **kafka-bridge** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| **jenkins** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| **glitchtip** (web·worker) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
 | akhq | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
 | apicurio | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
 | kafka | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (9092만, **9093 없음**) | ✅ |
@@ -217,9 +220,9 @@ v1 매니페스트를 v2로 복원할 때 **모든 ConfigMap 평문 자격증명
 **요약**
 
 - securityContext 위생은 **GitLab·Falco·Filebeat 3건을 제외하고 전 워크로드에 적용**되어 있다. 계획서 Phase 3의 실질적 성과다.
-- **NetworkPolicy 커버리지 공백 3건** — Keycloak·Trino·GitLab. default-deny 하에서 정당한 인바운드 경로가 없다.
-  (MinIO·Hive Metastore·Apicurio 는 이후 배포 과정에서 해소되었다. 대상 정책이 있는 워크로드는
-  현재 41종이다 — `kustomize build | grep podSelector` 로 확인할 것)
+- **NetworkPolicy 커버리지 공백 2건** — Keycloak·Trino. default-deny 하에서 정당한 인바운드 경로가 없다.
+  (MinIO·Hive Metastore·Apicurio 는 이후 배포 과정에서, GitLab 은 6단계에서 `devops-netpol.yaml`
+  을 신설하며 해소되었다 — `kustomize build | grep podSelector` 로 확인할 것)
 - **AuthorizationPolicy 대상은 4개뿐**이고, SA 부재(G18)로 principal 매칭이 되지 않아 사실상 무효다.
 
 ---
@@ -379,6 +382,7 @@ Vault 채택 시 **G19·G20·G21·G30·SEC-403이 전부 소멸**한다. CronJob
 | SEC-209 | ArgoCD AppProject는 사용하는 모든 API 그룹을 화이트리스트한다 | ❌ | G17 |
 | SEC-210 | Keycloak을 사용자 마스터로 하고 LDAP은 페더레이션한다 | 🎯 | TODO-35 |
 | SEC-211 | Hadoop `proxyuser` 위임은 사용자·호스트를 한정한다 | ⚠️ | `users=hive` 로 좁혔으나 `hosts=*` 다. Kerberos 미채택(`authentication=simple`)이라 위임 자체를 검증할 수단이 없다 — dev/prod 는 Knox·Ranger 경유로 대체할지 결정할 것 (TODO-48) |
+| SEC-212 | Kyverno `disallow-root-user` 는 파드 레벨 `runAsNonRoot` 를 인정한다 | ✅ | 단일 `pattern` 으로 `containers[*]` 만 검사하던 것을 `anyPattern` 으로 고쳤다. 이 레포 규약은 파드 레벨이라 **prod 렌더의 컨테이너 53개 전부가 위반**이었고, prod 는 Enforce 라 배포가 통째로 거부될 상태였다(LOCAL-DEPLOYMENT §8-20). PSS `restricted` 의 판정도 "파드 또는 컨테이너"다 |
 
 ### SEC-3xx — 런타임 보안
 

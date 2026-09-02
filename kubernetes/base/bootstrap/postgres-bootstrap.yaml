@@ -80,6 +80,8 @@ spec:
               # 만들 수 있으나, 롤 비밀번호 원천을 한 곳에 모으기 위해 여기서
               # 먼저 만든다. setup.sh 는 이미 있으면 건너뛴다.
               ensure ranger         ranger         "$RANGER_DB_PASSWORD"
+              # glitchtip-configmap.yaml — DATABASE_URL 의 롤·DB 이름
+              ensure glitchtip      glitchtip      "$GLITCHTIP_DB_PASSWORD"
 
               echo "[postgres-bootstrap] 완료"
               $PSQL -d postgres -c "\l"
@@ -96,6 +98,8 @@ spec:
               valueFrom: { secretKeyRef: { name: hive-metastore-secret, key: db-password } }
             - name: RANGER_DB_PASSWORD
               valueFrom: { secretKeyRef: { name: ranger-secret, key: db-password } }
+            - name: GLITCHTIP_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: glitchtip-secret, key: db-password } }
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

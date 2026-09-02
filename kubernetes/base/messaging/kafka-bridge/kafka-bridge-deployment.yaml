@@ -1,0 +1,97 @@
+# ADR-033 — 브리지는 StatefulSet 이 아니라 Deployment 다. 상태를 디스크에
+# 두지 않는다. 단 **컨슈머 API 는 세션이 파드에 고정**되므로 replicas>1 로
+# 늘릴 때는 세션 어피니티가 필수다(지금은 1).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-bridge
+  labels:
+    app.kubernetes.io/name: kafka-bridge
+    app.kubernetes.io/component: messaging
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafka-bridge
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kafka-bridge
+        app.kubernetes.io/component: messaging
+        app.kubernetes.io/part-of: oneinchmarket
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8081"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: kafka-bridge
+      securityContext:
+        runAsNonRoot: true
+        # ★ 이미지 uid 는 1001, gid 는 0(root 그룹)이다.
+        #   ConfigMap 은 0644 로 마운트되어 world-readable 이므로
+        #   runAsGroup 을 1001 로 두어도 설정 파일을 읽는 데 문제가 없다.
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: kafka-bridge
+          image: quay.io/strimzi/kafka-bridge:latest
+          # 이미지에 entrypoint 가 없고 Cmd 만 있다. 인자를 주려면 command 와
+          # args 를 모두 명시해야 한다 — args 만 주면 Cmd 를 덮어써 버린다.
+          command: ["/opt/strimzi/bin/kafka_bridge_run.sh"]
+          args: ["--config-file=/opt/strimzi/custom-config/application.properties"]
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+            - containerPort: 8081
+              name: management
+              protocol: TCP
+          env:
+            # 실행 스크립트가 -Dvertx.cacheDirBase=/tmp/vertx-cache 를 붙인다.
+            # /tmp 는 아래 emptyDir 로 쓰기 가능하게 만든다.
+            - name: JAVA_OPTS
+              value: "-Xms64m -Xmx256m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: 50m
+              memory: 192Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          # ★ 프로브는 관리 포트(8081)다. 8080 의 /healthy·/ready 는 501 이다.
+          startupProbe:
+            httpGet: { path: /ready, port: management }
+            failureThreshold: 20
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthy, port: management }
+            periodSeconds: 15
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet: { path: /ready, port: management }
+            periodSeconds: 10
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: config
+              mountPath: /opt/strimzi/custom-config
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: kafka-bridge-config
+        - name: tmp
+          emptyDir:
+            sizeLimit: 128Mi

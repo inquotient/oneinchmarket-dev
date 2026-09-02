@@ -1,0 +1,91 @@
+# 워커 — 이벤트 수집 후처리·정리 작업.
+# 6.x 는 celery 가 아니라 `manage.py runworker --scheduler` 를 쓴다
+# (SERVER_ROLE=worker 가 bin/run-worker.sh 를 고른다). 스케줄러가 포함되므로
+# 별도 beat 파드가 필요 없다 — ADR-036 ⓓ 의 "3~4 파드"가 여기서 2 파드로 준다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: glitchtip-worker
+  labels:
+    app.kubernetes.io/name: glitchtip
+    app.kubernetes.io/instance: worker
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: glitchtip
+      app.kubernetes.io/instance: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: glitchtip
+        app.kubernetes.io/instance: worker
+        app.kubernetes.io/component: observability
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: glitchtip
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 5000
+        runAsGroup: 5000
+        fsGroup: 5000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: glitchtip
+          image: glitchtip/glitchtip:latest
+          env:
+            - name: SERVER_ROLE
+              value: worker
+            - name: GLITCHTIP_DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: glitchtip-secret, key: db-password }
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: redis-secret, key: redis-password }
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef: { name: glitchtip-secret, key: secret-key }
+            - name: DATABASE_URL
+              value: postgres://glitchtip:$(GLITCHTIP_DB_PASSWORD)@postgresql-headless:5432/glitchtip
+            - name: VALKEY_URL
+              value: redis://:$(REDIS_PASSWORD)@redis-headless:6379/3
+          envFrom:
+            - configMapRef:
+                name: glitchtip-config
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: 100m
+              memory: 384Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          # HTTP 를 열지 않으므로 exec 프로브를 쓴다(filebeat 와 같은 방식).
+          # DB 왕복까지 확인하면 워커가 살아 있는지가 실제로 검증된다.
+          startupProbe:
+            exec:
+              command: ["./manage.py", "check", "--database", "default"]
+            failureThreshold: 30
+            periodSeconds: 10
+            timeoutSeconds: 20
+          livenessProbe:
+            exec:
+              command: ["./manage.py", "check", "--database", "default"]
+            periodSeconds: 60
+            timeoutSeconds: 20
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["./manage.py", "check", "--database", "default"]
+            periodSeconds: 60
+            timeoutSeconds: 20

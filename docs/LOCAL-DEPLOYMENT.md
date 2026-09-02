@@ -440,7 +440,7 @@ prod 핀: `postgres:18.6` · `mariadb:12.3.3` · `redis:8.10.1` · 그 외 20종
 | **3** | **governance — DS389 · LAM · Solr · Ranger(admin·usersync) · Knox** | 20 | ✅ **완료** — LDAP→Ranger 동기화 실증 |
 | **4** | **security-min — Tetragon · Trivy Operator · Policy Reporter · Vault · Wazuh 2종** | 11 + 오퍼레이터 3 | ✅ **완료** |
 | **5** | **lakehouse-v1 — ZooKeeper · HDFS · HBase 2종 · HiveServer2** | 20 | ✅ **완료** — HDFS·S3A 동시 처리 실증(§8-16). 단 `overlays/local/` 전용(§8-18) |
-| 6 | GlitchTip · Jenkins · Kafka Bridge | ~16 | 미착수 — **Apicurio Studio 4종은 삭제**(폐기, §8-13) |
+| **6** | **GlitchTip · Jenkins · Kafka Bridge** | 16 | ✅ **완료** — 브리지 HTTP 왕복 실증(§8-20). Apicurio Studio 4종은 폐기라 제외 |
 | 7 | security-full — SafeLine · Kubescape · DT · DefectDojo · Caldera | ~25 | **zram 실측 지점** |
 
 #### 1단계 결과
@@ -1644,6 +1644,124 @@ limits    53.3 / 54 GiB (98%)   ← 오버커밋 허용치라 게이트가 아�
 
 상위 소비: GitLab 3,665 Mi · Elasticsearch 1,849 Mi · Logstash 1,781 Mi ·
 Ranger admin 1,162 Mi · cmmn-api 1,017 Mi
+
+### 8-20. 6단계 — Kafka Bridge · Jenkins · GlitchTip (2026-09-03)
+
+세 구성요소 모두 기동하고 기능까지 확인했다. Apicurio Studio 4종은 폐기라 제외했다(§8-13).
+
+```
+kafka-bridge-*      1/1  HTTP produce/consume 왕복 확인
+jenkins-0           1/1  /login 200 (devops 계층에서)
+glitchtip-web-*     1/1  /_health/ 200
+glitchtip-worker-*  1/1  manage.py runworker --scheduler
+glitchtip-migrate   Complete — 미적용 마이그레이션 0 건
+```
+
+#### 이미지 계약을 먼저 실측했다
+
+이 세션에서 entrypoint 추측으로 여러 번 물렸으므로(Vault `-config`, Hive `IS_RESUME`)
+매니페스트를 쓰기 전에 이미지를 직접 열었다. **네 건이 추측과 달랐다.**
+
+| | 확인된 사실 |
+|---|---|
+| kafka-bridge | uid **1001**/gid 0. entrypoint 없이 Cmd 만 있어 `command`·`args` 를 **둘 다** 써야 한다. 설정은 `--config-file=<경로>` |
+| kafka-bridge | 헬스는 `http.management.port`(**8081**)다. **8080 의 `/healthy`·`/ready` 는 501 을 준다** — 프로브를 8080 에 걸면 영원히 실패한다 |
+| glitchtip | uid **5000**(app), 포트 8000. Redis 변수명이 `REDIS_URL` 이 아니라 **`VALKEY_URL`** 이다(6.x 개명) |
+| glitchtip | **`bin/start.sh` 는 `$DYNO`(Heroku)일 때만 migrate 를 돌린다.** 쿠버네티스에서는 절대 실행되지 않는다 |
+
+마지막 항목이 특히 조용하다 — 마이그레이션 없이 뜨면 파드는 Running 인데 요청마다
+`relation does not exist` 가 난다. `glitchtip-migrate` Job(wave 6)을 따로 두고 끝에
+`showmigrations --plan` 으로 미적용 건수를 세어 0 이 아니면 `exit 1` 하게 했다.
+
+메트릭도 실측했다 — `bridge.metrics=strimziMetricsReporter` 는 별도 설정 파일이 필요
+없고(`jmxPrometheusExporter` 는 요구한다) 활성화하면 `:8081/metrics` 가 200 을 준다.
+배포 직후 Prometheus 가 바로 스크레이프했다.
+
+#### ★ 곁가지에서 나온 것 — prod 배포가 통째로 거부될 상태였다
+
+Jenkins 파드 이벤트에 Kyverno 위반이 찍혔다.
+
+```
+policy disallow-root-user/validate-run-as-non-root fail:
+  Containers must set securityContext.runAsNonRoot to true.
+  rule failed at path /spec/containers/0/securityContext/runAsNonRoot/
+```
+
+내 매니페스트만의 문제가 아니었다. **prod 렌더를 전수 조사하니 컨테이너 53개 전부가
+위반이고, 컨테이너 레벨에 `runAsNonRoot` 를 명시한 것은 0개였다.**
+
+원인은 매니페스트가 아니라 **정책 쪽이다.**
+
+```yaml
+# 고치기 전 — containers[*] 만 본다
+pattern:
+  spec:
+    containers:
+      - securityContext:
+          runAsNonRoot: true
+```
+
+이 레포의 규약은 `runAsNonRoot` 를 **파드 레벨에 한 번** 두는 것이고, Pod Security
+Standards `restricted` 의 실제 판정도 "파드 레벨 **또는** 컨테이너 레벨"이다 —
+컨테이너에서 정의하지 않으면 파드 값을 상속한다. 정책이 자기가 구현한다고 적어 둔
+표준보다 엄격했다. `anyPattern` 으로 양쪽을 인정하게 고쳤다.
+
+**local 은 Audit 이라 이벤트로만 쌓였고 아무도 보지 않았다. prod 는 Enforce 다** —
+그대로 배포하면 53개 컨테이너가 admission 에서 거부된다. 첫 prod 배포에서야 드러났을
+결함이고, 그때는 "매니페스트 53개를 고칠 것인가"로 오진하기 좋았다.
+
+고친 뒤:
+
+```
+disallow-root-user   pass 147 · fail 16
+local 네임스페이스의 남은 위반 = 의도된 예외 7건뿐
+  falco · filebeat · otel-agent · lam · ds389 · gitlab · wazuh-manager
+나머지는 kube-system·istio-system·tetragon·trivy-system (TODO-13·15 소관)
+```
+
+> **일반화** — 정책이 `Audit` 인 환경에서만 돌려 보면 "정책이 있다"는 것만 알 뿐
+> **그 정책이 무엇을 거부할지는 모른다.** Enforce 환경에 올리기 전에 렌더 결과를
+> 정책 기준으로 전수 검사할 것.
+
+#### 그 외 결정
+
+- **Jenkins 는 설치 마법사를 켠 채로 둔다.** `runSetupWizard=false` 는 흔히 쓰이지만
+  관리자 계정·보안 영역을 함께 넣지 않으면 **인증 없는 Jenkins** 가 된다. 선언으로
+  넣으려면 JCasC 플러그인이 필요한데 공식 이미지에 없고 런타임에 받으면 SEC-512
+  계열이 된다 → **TODO-50**. 그때까지 초기 비밀번호로 1회 설정한다.
+  ```
+  kubectl -n local exec jenkins-0 -- cat /var/jenkins_home/secrets/initialAdminPassword
+  ```
+- **Jenkins 태그는 `:lts`.** base 의 기본은 `:latest` 지만 Jenkins 의 latest 는 주간
+  릴리스다. "base 는 움직이는 태그, prod 는 핀" 이라는 정책 자체는 지켜진다
+- **GlitchTip 은 2 파드다.** ADR-036 ⓓ 는 3~4 파드로 봤으나 6.x 의 워커가
+  `--scheduler` 를 포함해 beat 파드가 필요 없다
+- **PostgreSQL `max_locks_per_transaction` 256 → 512.** GlitchTip 은 이벤트 테이블을
+  파티셔닝하고, 파티션을 하나로 좁히지 못하는 질의는 모든 파티션과 인덱스에 락을 건다.
+  설치 문서가 자체 호스팅에 512 를 권장한다. 이 값은 소비자 중 가장 큰 요구를 따른다
+- **ADR-037(ClickHouse)·ADR-038(전용 Kafka·Redis)은 불필요해졌다.** GlitchTip 은
+  Django + PostgreSQL + Redis 만 쓴다. Redis 는 DB 인덱스 3 으로 기존 인스턴스를 공유한다
+- **`devops-netpol.yaml` 신설.** GitLab 이 "NetworkPolicy 커버리지 공백 3건" 중
+  하나였는데 devops 계층에 netpol 파일 자체가 없었다. Jenkins 를 넣으면서 함께 만들어
+  공백이 2건(Keycloak·Trino)으로 줄었다
+
+#### 스모크 — 접근 통제까지 함께 확인한다
+
+```
+1. 토픽 목록  ["keycloak-events","falco-alerts","dev.api.cmmn.menu",…]
+2. produce    {"offsets":[{"partition":0,"offset":1}]}
+3. 구독       HTTP 204
+4. consume    [{"topic":"oim.bridge.smoke","key":"k1","value":{"src":"kafka-bridge",…}}]
+5. Jenkins    application -> jenkins:8080 = 000   ← 차단이 정상이다
+6. GlitchTip  application -> :8000/_health/ = 200
+SMOKE OK
+```
+
+5번을 실패가 아니라 **기대값**으로 둔 것이 요점이다. 처음에는 이 호출이 응답 없이
+멈춰 스모크가 2분간 매달렸는데, 원인은 결함이 아니라 `allow-jenkins-access` 가
+`devops`·`nginx`·`oauth2-proxy` 만 열기 때문이었다. 브리지에 자체 인증이 없는 것과
+같은 이유로(SEC-206) **NetworkPolicy 가 사실상 유일한 접근 통제**라, 열려 있는지가
+아니라 **닫혀 있는지**를 확인해야 한다.
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용

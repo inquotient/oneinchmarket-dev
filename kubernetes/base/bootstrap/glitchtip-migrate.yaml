@@ -1,0 +1,82 @@
+# GlitchTip 스키마 마이그레이션.
+#
+# ★ 이미지의 bin/start.sh 는 `$DYNO`(Heroku) 가 있을 때만 `manage.py migrate`
+#   를 돌린다. 쿠버네티스에서는 절대 실행되지 않으므로 이 Job 이 없으면
+#   web/worker 가 "relation does not exist" 로 죽는다. 조용히 틀리는 부류다.
+#
+# wave 6 — PostgreSQL(1)·postgres-bootstrap(1) 뒤, GlitchTip(7) 앞.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: glitchtip-migrate
+  labels:
+    app.kubernetes.io/name: glitchtip-migrate
+    app.kubernetes.io/component: bootstrap
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: glitchtip-migrate
+        app.kubernetes.io/component: bootstrap
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      restartPolicy: Never
+      serviceAccountName: glitchtip
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 5000
+        runAsGroup: 5000
+        fsGroup: 5000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: glitchtip/glitchtip:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              echo "[glitchtip-migrate] PostgreSQL 대기"
+              for i in $(seq 1 60); do
+                ./manage.py check --database default >/dev/null 2>&1 && break
+                sleep 5
+              done
+              echo "[glitchtip-migrate] migrate"
+              ./manage.py migrate --noinput
+
+              # 검증 — 아무것도 하지 않은 Job 이 Complete 로 남지 않게 한다.
+              echo "[glitchtip-migrate] 검증"
+              ./manage.py showmigrations --plan 2>/dev/null | head -3
+              PENDING=$(./manage.py showmigrations --plan 2>/dev/null | grep -c '^\[ \]' || true)
+              if [ "${PENDING:-0}" -ne 0 ]; then
+                echo "[glitchtip-migrate] 실패 — 미적용 마이그레이션 ${PENDING} 건"
+                exit 1
+              fi
+              echo "[glitchtip-migrate] 완료 — 미적용 0 건"
+          env:
+            - name: GLITCHTIP_DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: glitchtip-secret, key: db-password }
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef: { name: glitchtip-secret, key: secret-key }
+            - name: DATABASE_URL
+              value: postgres://glitchtip:$(GLITCHTIP_DB_PASSWORD)@postgresql-headless:5432/glitchtip
+            # 마이그레이션은 Redis 를 쓰지 않는다. 빈 문자열이면 비활성이다.
+            - name: VALKEY_URL
+              value: ""
+          envFrom:
+            - configMapRef:
+                name: glitchtip-config
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits:   { cpu: "1",  memory: 768Mi }

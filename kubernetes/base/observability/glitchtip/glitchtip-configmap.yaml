@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: glitchtip-config
+  labels:
+    app.kubernetes.io/name: glitchtip
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: oneinchmarket
+data:
+  # ─────────────────────────────────────────────────────────────────────
+  # GlitchTip 6.2.6 (ADR-036 ⓓ) — Sentry SDK 호환 오류 추적.
+  # Sentry 자체(ⓑ)는 ClickHouse·Kafka·Snuba·22종 매니페스트를 요구해
+  # Helm 예외(ADR-003)까지 필요했다. GlitchTip 은 Django + PostgreSQL +
+  # Redis 만 쓴다 → ADR-037(ClickHouse)·ADR-038(전용 Kafka·Redis) 불필요.
+  #
+  # 이미지 계약은 실측으로 확인했다:
+  #   Cmd        ./bin/start.sh   WorkingDir /code   uid/gid 5000(app)
+  #   포트       8000 (granian)
+  #   SERVER_ROLE  web | worker | worker_with_beat | all_in_one
+  #   ★ start.sh 는 **Heroku 환경(DYNO)일 때만** migrate 를 돌린다.
+  #     쿠버네티스에서는 절대 실행되지 않으므로 마이그레이션 Job 이 필수다.
+  #   ★ Redis 주소 변수명은 REDIS_URL 이 아니라 **VALKEY_URL** 이다.
+  # ─────────────────────────────────────────────────────────────────────
+  DEBUG: "false"
+  LOG_LEVEL: "INFO"
+  # 조직 생성은 잠근다. 열어 두면 도달 가능한 누구나 조직을 만든다.
+  ENABLE_ORGANIZATION_CREATION: "false"
+  ENABLE_USER_REGISTRATION: "false"
+  ENABLE_TEST_API: "false"
+  ENABLE_OBSERVABILITY_API: "true"
+  # 메일 미연동 — 콘솔로 흘린다. SMTP 가 생기면 EMAIL_URL 로 교체한다.
+  EMAIL_BACKEND: "django.core.mail.backends.console.EmailBackend"
+  # 단일 노드 기준. 워커 동시성이 곧 메모리다.
+  VTASKS_CONCURRENCY: "2"
+  # ALLOWED_HOSTS 를 좁히면 Service DNS·프로브가 막힌다. 진입점이 생기면
+  # 그 호스트로 좁힌다(현재 외부 진입점 없음).
+  ALLOWED_HOSTS: "*"

@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jenkins-config
+  labels:
+    app.kubernetes.io/name: jenkins
+    app.kubernetes.io/component: devops
+    app.kubernetes.io/part-of: oneinchmarket
+data:
+  # ─────────────────────────────────────────────────────────────────────
+  # ★ 설치 마법사를 끄지 않는다.
+  #   `jenkins.install.runSetupWizard=false` 는 흔히 쓰이지만, 관리자 계정과
+  #   보안 영역(security realm)을 함께 넣지 않으면 **인증 없는 Jenkins** 가 된다.
+  #   그 상태에서 도달 가능한 누구나 스크립트 콘솔로 임의 코드를 실행한다.
+  #   계정을 선언으로 넣으려면 JCasC 플러그인이 필요한데 공식 이미지에는 없고,
+  #   런타임에 받으면 SEC-512(런타임 외부 의존) 계열이 된다 → TODO-50.
+  #   그때까지는 마법사를 켠 채로 두고 초기 비밀번호로 1회 설정한다.
+  #     kubectl -n <ns> exec jenkins-0 -- cat /var/jenkins_home/secrets/initialAdminPassword
+  # ─────────────────────────────────────────────────────────────────────
+  JAVA_OPTS: >-
+    -Djava.awt.headless=true
+    -Dhudson.model.DownloadService.noSignatureCheck=false
+    -Djenkins.model.Jenkins.slaveAgentPort=50000
+    -XX:MaxRAMPercentage=70
+  # 리버스 프록시 뒤가 아니므로 비워 둔다. Ingress 를 붙이면 그 주소를 넣는다.
+  JENKINS_SLAVE_AGENT_PORT: "50000"

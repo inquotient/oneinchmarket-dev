@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: jenkins
+  labels:
+    app.kubernetes.io/name: jenkins
+    app.kubernetes.io/component: devops
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  serviceName: jenkins-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: jenkins
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: jenkins
+        app.kubernetes.io/component: devops
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: jenkins
+      securityContext:
+        # 이미지 실측: uid/gid 1000(jenkins), /var/jenkins_home 이 jenkins 소유.
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: jenkins
+          # ★ `:lts` 를 쓴다. base 의 기본 태그 정책은 `:latest` 지만 Jenkins 의
+          #   latest 는 **주간 릴리스**라 파괴적 변경이 예고 없이 들어온다.
+          #   lts 도 움직이는 태그이므로 "base 는 움직이는 태그, prod 는 핀"
+          #   이라는 정책 자체는 지켜진다.
+          image: jenkins/jenkins:lts
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+            - containerPort: 50000
+              name: agent
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: jenkins-config
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: 200m
+              memory: 768Mi
+            limits:
+              cpu: "2"
+              memory: 1536Mi
+          # 첫 기동은 플러그인 없이도 40~90초 걸린다(초기화 + 홈 디렉터리 구성).
+          startupProbe:
+            httpGet: { path: /login, port: http }
+            failureThreshold: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /login, port: http }
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet: { path: /login, port: http }
+            periodSeconds: 15
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: jenkins-home
+              mountPath: /var/jenkins_home
+  volumeClaimTemplates:
+    - metadata:
+        name: jenkins-home
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi

@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: glitchtip-web
+  labels:
+    app.kubernetes.io/name: glitchtip
+    app.kubernetes.io/instance: web
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: glitchtip
+      app.kubernetes.io/instance: web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: glitchtip
+        app.kubernetes.io/instance: web
+        app.kubernetes.io/component: observability
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: glitchtip
+      securityContext:
+        # 이미지 실측: uid/gid 5000(app)
+        runAsNonRoot: true
+        runAsUser: 5000
+        runAsGroup: 5000
+        fsGroup: 5000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: glitchtip
+          image: glitchtip/glitchtip:latest
+          ports:
+            - containerPort: 8000
+              name: http
+              protocol: TCP
+          env:
+            - name: SERVER_ROLE
+              value: web
+            - name: GLITCHTIP_DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: glitchtip-secret, key: db-password }
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: redis-secret, key: redis-password }
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef: { name: glitchtip-secret, key: secret-key }
+            # 접속 문자열은 비밀번호를 포함한다. k8s 가 $(VAR) 를 파드 생성
+            # 시점에 펼치므로 ConfigMap 에 평문을 두지 않아도 된다.
+            - name: DATABASE_URL
+              value: postgres://glitchtip:$(GLITCHTIP_DB_PASSWORD)@postgresql-headless:5432/glitchtip
+            # ★ REDIS_URL 이 아니라 VALKEY_URL 이다(6.x 에서 개명).
+            #   DB 인덱스 3 — GitLab 등 다른 소비자와 키 공간을 나눈다.
+            #   ADR-038(전용 Redis 분리)은 ⓓ 채택으로 불필요해졌다.
+            - name: VALKEY_URL
+              value: redis://:$(REDIS_PASSWORD)@redis-headless:6379/3
+          envFrom:
+            - configMapRef:
+                name: glitchtip-config
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: 100m
+              memory: 384Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          startupProbe:
+            httpGet: { path: /_health/, port: http }
+            failureThreshold: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /_health/, port: http }
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet: { path: /_health/, port: http }
+            periodSeconds: 15
+            timeoutSeconds: 5

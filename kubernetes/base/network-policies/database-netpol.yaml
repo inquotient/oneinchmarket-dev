@@ -31,6 +31,13 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: ranger-admin
+        # 6단계 — GlitchTip(web·worker)과 마이그레이션 Job.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: glitchtip
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: glitchtip-migrate
       ports:
         - protocol: TCP
           port: 5432
@@ -112,6 +119,11 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/component: application
+        # 6단계 — GlitchTip 은 VALKEY_URL 로 같은 Redis 를 쓴다(DB 인덱스 3).
+        # ADR-038(전용 Redis 분리)은 GlitchTip 채택으로 불필요해졌다.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: glitchtip
       ports:
         - protocol: TCP
           port: 6379

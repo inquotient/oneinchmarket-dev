@@ -21,12 +21,14 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: akhq
+        # ADR-032 — kafka-rest(Confluent REST Proxy) 를 Strimzi Kafka Bridge 로
+        # 교체했다. v1 셀렉터 이름을 개명해 기존 규칙을 되살린다.
         - podSelector:
             matchLabels:
-              app.kubernetes.io/name: kafka-rest
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/name: schema-reg
+              app.kubernetes.io/name: kafka-bridge
+        # schema-reg 는 Apicurio Registry 로 대체되어 존재하지 않는다.
+        # Apicurio 는 SQL(PostgreSQL) 저장소라 Kafka 에 접속하지 않는다 —
+        # 셀렉터를 옮기지 않고 삭제한다.
       ports:
         - protocol: TCP
           port: 9092
@@ -105,3 +107,42 @@ spec:
         - podSelector: {matchLabels: {app.kubernetes.io/name: oauth2-proxy}}
       ports:
         - { protocol: TCP, port: 8080 }
+---
+# Kafka Bridge — HTTP(8080) · 관리/메트릭(8081)
+#
+# ★ 브리지에는 자체 인증·인가가 없다(SEC-206). 도달 가능한 누구나
+#   produce/consume 한다. 따라서 이 정책이 사실상 유일한 접근 통제다.
+#   외부 노출은 반드시 인증을 강제하는 앞단(oauth2-proxy·Knox)을 거쳐야 하며,
+#   그 매니페스트가 생기기 전까지 진입점을 만들지 않는다(ADR-035).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-kafka-bridge-access
+  labels:
+    app.kubernetes.io/name: allow-kafka-bridge-access
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kafka-bridge
+  policyTypes:
+    - Ingress
+  ingress:
+    # HTTP API — 애플리케이션 계층만. 인증 앞단이 생기면 그 셀렉터로 좁힌다.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: application
+      ports:
+        - protocol: TCP
+          port: 8080
+    # 관리 포트는 Prometheus 만. 헬스·메트릭이라 애플리케이션에 열지 않는다.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 8081

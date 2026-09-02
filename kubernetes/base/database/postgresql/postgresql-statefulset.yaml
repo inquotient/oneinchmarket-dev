@@ -38,10 +38,15 @@ spec:
           # GitLab 은 structure.sql(6만 줄)을 단일 트랜잭션으로 적재한다.
           # 기본 max_locks_per_transaction=64 로는 out of shared memory 가 난다.
           # 공식 이미지에는 EXTRA_FLAGS 류 환경변수가 없어 args 로 넘긴다.
+          #
+          # 256 -> 512 (6단계) — GlitchTip 은 이벤트 테이블을 파티셔닝한다.
+          # 파티션을 하나로 좁히지 못하는 질의는 **모든 파티션과 그 인덱스에
+          # 락을 건다.** GlitchTip 설치 문서가 자체 호스팅에 512 를 권장하는
+          # 이유이고, 이 값은 소비자 중 가장 큰 요구를 따라간다.
           args:
             - postgres
             - -c
-            - max_locks_per_transaction=256
+            - max_locks_per_transaction=512
           ports:
             - containerPort: 5432
               name: postgresql

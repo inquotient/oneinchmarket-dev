@@ -12,8 +12,10 @@ metadata:
     policies.kyverno.io/category: Pod Security Standards (Restricted)
     policies.kyverno.io/severity: high
     policies.kyverno.io/description: >-
-      Containers must not run as the root user. This policy validates that
-      all containers set securityContext.runAsNonRoot to true.
+      Containers must not run as the root user. Satisfied by runAsNonRoot=true
+      at the pod level (inherited by every container) or on each container.
+      Pod Security Standards "restricted" accepts either form — a container
+      that leaves runAsNonRoot undefined inherits the pod-level value.
 spec:
   validationFailureAction: Audit
   background: true
@@ -25,9 +27,22 @@ spec:
               kinds:
                 - Pod
       validate:
-        message: "Containers must set securityContext.runAsNonRoot to true."
-        pattern:
-          spec:
-            containers:
-              - securityContext:
-                  runAsNonRoot: true
+        message: >-
+          Set securityContext.runAsNonRoot=true on the pod or on every container.
+        # ★ anyPattern 이어야 한다.
+        #   단일 pattern 으로 containers[*] 만 검사하면 **파드 레벨 설정을
+        #   인정하지 않는다.** 이 레포의 규약은 파드 레벨이라 prod 렌더의
+        #   컨테이너 53개가 전부 위반으로 잡혔다 — 컨테이너 레벨에 명시한
+        #   것은 0개였다. local 은 Audit 이라 이벤트로만 남아 드러나지 않았고
+        #   prod 는 Enforce 라 **배포가 통째로 거부될 상태였다.**
+        #   PSS restricted 의 실제 판정도 "파드 레벨 또는 컨테이너 레벨"이다.
+        anyPattern:
+          # ⓐ 파드 레벨에서 한 번 선언 — 이 레포의 규약
+          - spec:
+              securityContext:
+                runAsNonRoot: true
+          # ⓑ 컨테이너마다 선언 — 파드 레벨을 쓰지 않는 경우
+          - spec:
+              containers:
+                - securityContext:
+                    runAsNonRoot: true

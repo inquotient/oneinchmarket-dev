@@ -13,6 +13,10 @@ resources:
   - apicurio/apicurio-ui-service.yaml
   - apicurio/apicurio-ui-deployment.yaml
   # - apicurio/apicurio-secret.enc.yaml  # SOPS: re-enable after ArgoCD SOPS plugin setup
+  # Kafka Bridge - HTTP -> Kafka 단일 진입점 (ADR-032·033)
+  - kafka-bridge/kafka-bridge-configmap.yaml
+  - kafka-bridge/kafka-bridge-service.yaml
+  - kafka-bridge/kafka-bridge-deployment.yaml
   # AKHQ
   - akhq/akhq-statefulset.yaml
   - akhq/akhq-headless.yaml
