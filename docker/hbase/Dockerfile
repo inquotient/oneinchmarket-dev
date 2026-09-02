@@ -22,7 +22,9 @@
 #  반드시 일치해야 한다.
 #  HDFS 는 uid 가 아니라 **사용자 이름**으로 권한을 판단하므로,
 #  HDFS 쪽 /hbase 소유자를 `hbase` 로 맞춰 두면 된다(hdfs-bootstrap Job).
-FROM eclipse-temurin:17-jre-noble
+# ★ podman 은 short-name 을 해석하지 않는다. 레지스트리를 명시한다
+#   (ranger-usersync 에서 이미 겪은 것이다).
+FROM docker.io/library/eclipse-temurin:17-jre-noble
 
 ARG HBASE_VERSION=2.6.6
 # https://dlcdn.apache.org/hbase/2.6.6/hbase-2.6.6-bin.tar.gz.sha512
