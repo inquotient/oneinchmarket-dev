@@ -246,3 +246,62 @@ spec:
         - podSelector: {matchLabels: {app.kubernetes.io/name: hbase-regionserver}}
       ports:
         - { protocol: TCP, port: 2181 }
+---
+# 5단계 2/3 — HBase.
+#
+# ★ 마스터와 RegionServer 는 **양방향**이다. RegionServer 가 마스터에
+#   등록(16000)하고, 마스터는 region 배정 명령을 RegionServer(16020)로 보낸다.
+#   한쪽만 열면 등록은 되는데 region 이 배정되지 않는다.
+#   (HDFS NameNode↔DataNode 와 같은 구조다.)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-hbase-master-access
+  labels:
+    app.kubernetes.io/name: allow-hbase-master-access
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: hbase-master
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: hbase-regionserver}}
+        # 클라이언트. Trino·Spark 가 HBase 커넥터를 쓰게 되면 여기로 들어온다.
+        - podSelector: {matchLabels: {app.kubernetes.io/name: trino}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: spark-connect}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: livy}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: hive-server}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: nginx}}
+      ports:
+        - { protocol: TCP, port: 16000 }
+        - { protocol: TCP, port: 16010 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-hbase-regionserver-access
+  labels:
+    app.kubernetes.io/name: allow-hbase-regionserver-access
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: hbase-regionserver
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: hbase-master}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: trino}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: spark-connect}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: livy}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: hive-server}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: nginx}}
+      ports:
+        - { protocol: TCP, port: 16020 }
+        - { protocol: TCP, port: 16030 }
