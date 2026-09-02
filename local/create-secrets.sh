@@ -63,6 +63,8 @@ mk glitchtip-secret      "db-password=$(gen)"        "secret-key=$(gen 64)"
 # Jenkins — JCasC 가 이 값으로 관리자 계정을 만든다(설치 마법사 대신).
 JK_ADMIN="Jk$(gen 16)#A1"
 mk jenkins-secret        "admin-password=$JK_ADMIN"
+# ClickHouse — OpenReplay 전용(ADR-070).
+mk clickhouse-secret     "password=$(gen)"
 mk argocd-admin-secret   "admin-password=$(gen)"
 # Slack 미연동. 빈 값이면 Falcosidekick 이 Slack 출력을 비활성한다.
 mk falcosidekick-secret  "slack-webhook-url="

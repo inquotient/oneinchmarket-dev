@@ -1,0 +1,62 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clickhouse-config
+  labels:
+    app.kubernetes.io/name: clickhouse
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: oneinchmarket
+data:
+  # ─────────────────────────────────────────────────────────────────────
+  # ClickHouse — **OpenReplay 전용**이다(ADR-070).
+  #   범용 분석 저장소로 쓰지 않는다. Trino/Iceberg·Elasticsearch·Loki 를
+  #   대체하지 않는다 — 각각의 이유는 ADR-070 에 있다.
+  #
+  # 이미지 계약(실측): uid/gid 101 · 8123(HTTP)·9000(네이티브)·9009(인터서버)
+  #   데이터 /var/lib/clickhouse · entrypoint /entrypoint.sh
+  # ─────────────────────────────────────────────────────────────────────
+  # config.d 는 기본 설정을 덮어쓰는 조각이다. 원본을 통째로 복제하지 않는다.
+  10-limits.xml: |
+    <clickhouse>
+      <!-- ★ 컨테이너 limit 을 넘지 않게 막는다.
+           ClickHouse 는 기본적으로 호스트 RAM 을 기준으로 잡으려 한다.
+           cgroup 을 읽는 버전이라도 명시가 안전하다 — Trino 가 -Xmx 를
+           limit 과 같게 두어 문제였던 것과 같은 계열이다. -->
+      <max_server_memory_usage_to_ram_ratio>0.7</max_server_memory_usage_to_ram_ratio>
+      <!-- 단일 노드다. 분산 조정이 없으므로 관련 기능을 켜지 않는다. -->
+      <mark_cache_size>268435456</mark_cache_size>
+      <!-- replace="replace" 가 없으면 기본 설정의 listen_host 에 **추가**되어
+           같은 주소를 두 번 바인드하고 "Address already in use" 경고가
+           4줄 남는다. 빼 버리면 반대로 9000 이 아예 열리지 않는다. -->
+      <listen_host replace="replace">0.0.0.0</listen_host>
+      <logger>
+        <level>information</level>
+        <console>1</console>
+      </logger>
+    </clickhouse>
+  10-users.xml: |
+    <clickhouse>
+      <users>
+        <!-- ★ 기본 사용자는 비밀번호가 없다. 그대로 두면 8123/9000 에
+             도달하는 누구나 인증 없이 질의한다 — 실제로 그랬다:
+               자격증명 없이 clickhouse-client 로 SELECT 1 이 통과했다
+             NetworkPolicy 로 openreplay 만 열어 두었으나 그것만이 통제이면
+             정책 하나가 어긋나는 순간 전면 노출이다. 루프백으로 묶는다.
+             엔트리포인트의 초기화는 파드 안에서 도므로 영향받지 않는다. -->
+        <default>
+          <profile>default</profile>
+          <quota>default</quota>
+          <networks>
+            <ip>127.0.0.1</ip>
+            <ip>::1</ip>
+          </networks>
+        </default>
+      </users>
+      <profiles>
+        <default>
+          <!-- 질의 하나가 컨테이너를 넘어뜨리지 않게 한다. -->
+          <max_memory_usage>1500000000</max_memory_usage>
+          <max_execution_time>60</max_execution_time>
+        </default>
+      </profiles>
+    </clickhouse>

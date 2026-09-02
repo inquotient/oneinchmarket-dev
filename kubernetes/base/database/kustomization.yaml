@@ -2,6 +2,10 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
+  # ClickHouse - OpenReplay 전용 (ADR-070). 범용 분석 저장소가 아니다.
+  - clickhouse/clickhouse-configmap.yaml
+  - clickhouse/clickhouse-headless.yaml
+  - clickhouse/clickhouse-statefulset.yaml
   # PostgreSQL
   - postgresql/postgresql-statefulset.yaml
   - postgresql/postgresql-headless.yaml
