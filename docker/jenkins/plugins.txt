@@ -1,0 +1,14 @@
+# Jenkins 를 **선언적으로** 구성하기 위한 최소 플러그인.
+# 공식 이미지에는 플러그인이 하나도 없다. 런타임에 받으면 SEC-512(런타임
+# 외부 의존) 계열이 되므로 빌드 시점에 굽는다.
+#
+# 버전을 고정하지 않는 이유 — jenkins-plugin-cli 는 **코어 버전과 호환되는**
+# 최신을 고른다. 여기서 버전을 박으면 base 의 `:lts` 가 올라갈 때마다
+# 호환되지 않는 조합이 되어 빌드가 깨진다. 재현성은 이미지 태그로 잡는다.
+#
+# configuration-as-code 만이 필수다. 나머지 3종은 이것 없이는 Jenkins 가
+# 파이프라인 하나 돌리지 못해 "떠 있지만 쓸 수 없는" 상태가 되기에 넣는다.
+configuration-as-code
+git
+workflow-aggregator
+credentials-binding

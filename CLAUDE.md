@@ -61,7 +61,7 @@ cd scripts/security-verification && ./run-all.sh [namespace]
 - `scripts/security-verification/` — 보안 검증 9종
 - `contracts/` — **API 계약 원천**(계약 우선, ADR-067). `openapi/`·`asyncapi/`·`schemas/`. CI 가 Spectral 로 린트하고 Apicurio 에 게시한다
 - `.spectral.yaml` — 계약 스타일·거버넌스 룰셋
-- `docker/` — 로컬 빌드 이미지 4종(`spark-iceberg`·`livy`·`ranger-usersync`·`hbase`). `local/build-images.sh` 가 podman 으로 빌드해 k3s containerd 로 반입한다. 레지스트리에 없으므로 클러스터 재구축 시 먼저 돌려야 한다
+- `docker/` — 로컬 빌드 이미지 5종(`spark-iceberg`·`livy`·`ranger-usersync`·`hbase`·`jenkins`). `local/build-images.sh` 가 podman 으로 빌드해 k3s containerd 로 반입한다. 레지스트리에 없으므로 클러스터 재구축 시 먼저 돌려야 한다
 - `v1/` — 레거시 매니페스트. **배포 금지.** 단 CI가 이 경로의 Dockerfile을 참조한다(존재하지 않음)
 
 ### ArgoCD Sync Wave (실제 값)

@@ -124,6 +124,10 @@ images:
   # ── DevOps ─────────────────────────────────────────────────
   - name: gitlab/gitlab-ee
     newTag: "19.3.1-ee.0"
+  # 로컬 빌드. 공식 이미지에는 플러그인이 없어 JCasC 로 관리자 계정을
+  # 선언할 수 없다 — docker/jenkins/Dockerfile 참조.
+  - name: oneinch/jenkins
+    newTag: "lts"
 
   # ── 보안 ───────────────────────────────────────────────────
   - name: hashicorp/vault

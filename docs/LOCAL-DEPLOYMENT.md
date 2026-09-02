@@ -1762,6 +1762,82 @@ SMOKE OK
 `devops`·`nginx`·`oauth2-proxy` 만 열기 때문이었다. 브리지에 자체 인증이 없는 것과
 같은 이유로(SEC-206) **NetworkPolicy 가 사실상 유일한 접근 통제**라, 열려 있는지가
 아니라 **닫혀 있는지**를 확인해야 한다.
+
+### 8-21. Jenkins 마무리 — 설치 마법사 대신 JCasC (2026-09-03)
+
+§8-20 은 Jenkins 를 **설치 마법사가 뜬 채로** 남겨 두고 TODO-50 으로 미뤘다. 이제 닫는다.
+
+#### 왜 커스텀 이미지가 필요했나
+
+`jenkins.install.runSetupWizard=false` 는 흔히 쓰이지만, **그것만 주면 보안 영역이 없는
+= 인증 없는 Jenkins** 가 된다. 도달 가능한 누구나 스크립트 콘솔로 임의 코드를 실행한다.
+관리자 계정을 선언으로 넣으려면 `configuration-as-code` 플러그인이 필요한데 **공식
+이미지에는 플러그인이 하나도 없다.** 런타임에 받으면 SEC-512(런타임 외부 의존)다.
+
+→ `docker/jenkins/` 로컬 빌드 이미지에 빌드 시점으로 굽는다. 요청 4종
+(`configuration-as-code`·`git`·`workflow-aggregator`·`credentials-binding`)에 의존까지
+합쳐 **59개**가 들어간다.
+
+플러그인 버전은 고정하지 않는다 — `jenkins-plugin-cli` 가 **코어와 호환되는** 버전을
+고르므로, 여기서 버전을 박으면 베이스 `:lts` 가 올라갈 때 조합이 깨진다. 재현성은
+이미지 태그로 잡는다.
+
+#### 검증 — 로그인이 실제로 되는지까지
+
+```
+익명   /api/json                 -> 403   (allowAnonymousRead: false)
+admin  /api/json                 -> 200   systemMessage 가 JCasC 값으로 뜬다
+       ?tree=numExecutors,mode   -> {"mode":"NORMAL","numExecutors":1}  마법사 없음
+       /manage/configuration-as-code/ -> 200
+활성 플러그인 59 — 요청 4종 전부 있음
+```
+
+비밀번호는 `jenkins-secret` 에서 **환경변수**로 주입되고 JCasC 가 `${JENKINS_ADMIN_PASSWORD}`
+로 읽는다. ConfigMap 에 평문이 남지 않는다. `local/create-secrets.sh` 가 값을 만들고
+마지막에 출력한다.
+
+#### 걸린 것 2건
+
+**1. `--base-name` 이 항상 `docker.io/` 이름을 만들어 주지는 않는다**
+
+```
+Failed to pull image "oneinch/jenkins:latest":
+  failed to resolve reference "docker.io/oneinch/jenkins:latest"
+```
+
+`k3s ctr images import --base-name docker.io/...` 로 반입했는데 containerd 에는
+`localhost/oneinch/jenkins:latest` **하나만** 들어갔다. 아카이브가 이미 이름을 갖고
+있으면 `--base-name` 이 쓰이지 않는다. 앞선 4종은 우연히 양쪽 이름이 다 생겼던 것이라
+같은 스크립트인데도 이번만 실패했다.
+
+→ `local/build-images.sh` 의 반입 루프에 **명시적 `ctr images tag`** 를 넣어 확정했다.
+
+**2. JCasC 는 모르는 속성을 만나면 기동을 중단시킨다**
+
+```
+SEVERE  Failed ConfigurationAsCode.init
+io.jenkins.plugins.casc.UnknownAttributesException: security:
+  Invalid configuration elements for type: GlobalConfigurationCategory$Security
+  : globalJobDslSecurityConfiguration
+```
+
+`globalJobDslSecurityConfiguration` 은 `job-dsl` 플러그인이 제공하는데 설치하지 않았다.
+추측으로 넣은 블록이었다.
+
+> **이건 좋은 동작이다.** 무시하고 지나갔다면 "설정을 넣었는데 적용되지 않는" 상태가
+> 조용히 남는다 — 이 세션에서 반복해 만난 부류다. JCasC 는 그렇게 하지 않는다.
+> 대신 **플러그인과 설정은 한 몸으로 움직여야 한다** — 플러그인을 추가할 때 설정도,
+> 설정을 추가할 때 플러그인도 함께 본다.
+
+#### 남은 것
+
+- **에이전트가 없어 빌드가 컨트롤러에서 돈다**(`numExecutors: 1`). 에이전트를 붙이면
+  0 으로 내리고 `mode: EXCLUSIVE` 로 바꿀 것. `allow-jenkins-access` 에 `jenkins-agent`
+  셀렉터를 미리 열어 두었다
+- **TODO-40**(Jenkins ↔ GitLab CI 역할 분담)은 그대로 미결이다. 지금 Jenkins 에는
+  잡이 하나도 없다 — 무엇을 Jenkins 로 옮길지가 정해지지 않았다
+- 플러그인 다운로드에 체크섬 검증이 없다 — `docker/spark-iceberg`·`docker/livy` 와
+  같은 계열이다(TODO-44)
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용

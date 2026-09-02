@@ -85,6 +85,12 @@ kubectl -n local port-forward prometheus-0 9090:9090
 # 거버넌스
 kubectl -n local port-forward ranger-admin-0 6080:6080   # admin / ranger-secret 의 db-password
 kubectl -n local port-forward deploy/lam 8080:80
+# DevOps — Jenkins 는 JCasC 로 구성된다(마법사 없음). 익명 접근은 403 이다.
+kubectl -n local port-forward jenkins-0 8081:8080        # admin / jenkins-secret 의 admin-password
+# 오류 추적 (GlitchTip)
+kubectl -n local port-forward deploy/glitchtip-web 8000:8000
+# Kafka HTTP 게이트웨이 — 자체 인증이 없다(SEC-206). 외부에 열지 말 것
+kubectl -n local port-forward deploy/kafka-bridge 8082:8080
 # 보안
 kubectl -n local port-forward vault-0 8200:8200          # root token 은 Secret vault-init
 # indexer 는 TLS + 기본 인증이다. 자격증명은 Secret wazuh-secret
@@ -190,13 +196,14 @@ SELECT h.v, s.v FROM oim_hdfs.t h JOIN oim_s3.t s ON h.id = s.id;   -- from-hdfs
 **프로브 파드에는 `environment: local` 과 `app.kubernetes.io/component: data-lakehouse`
 라벨이 있어야 한다** — 없으면 NetworkPolicy 가 막고 증상은 `UnknownHostException` 이다.
 
-## 로컬 빌드 이미지 4종
+## 로컬 빌드 이미지 5종
 
 ```
 oneinch/spark-iceberg    docker/spark-iceberg
 oneinch/livy             docker/livy
 oneinch/ranger-usersync  docker/ranger-usersync   # upstream Dockerfile 이식
 oneinch/hbase            docker/hbase             # apache/hbase 가 Docker Hub 에 없다(404)
+oneinch/jenkins          docker/jenkins           # 공식 이미지에 플러그인이 없다 (JCasC)
 ```
 
 `local/build-images.sh` 가 podman 으로 빌드해 k3s containerd 로 반입한다.

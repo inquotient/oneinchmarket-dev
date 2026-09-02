@@ -507,7 +507,7 @@ CNCF Sandbox 로 계속 유지된다(3.3.2, 2026-08-27). **Registry 는 대체 �
 - **`[UNVERIFIED]`**: Logstash `opensearch` output 플러그인의 Wazuh Indexer 호환. 대안은 Wazuh Manager syslog 수집기 경유.
 
 ### ADR-036 — 애플리케이션 오류 추적 도입 및 배포 방식
-**상태: `Open`**
+**상태: `Accepted` — ⓓ GlitchTip** (2026-09-03) — 6단계에서 배포·검증했다(LOCAL-DEPLOYMENT §8-20). 실제 파드 수는 **2개**다(web·worker) — 6.x 의 워커가 `--scheduler` 를 포함해 별도 beat 파드가 없어 아래 "3~4 파드" 추정보다 줄었다. 이 채택으로 ADR-037(ClickHouse)·ADR-038 의 Kafka 절반이 전제 소멸로 기각된다.
 
 - **선택지**: ⓐ 수기 YAML 22종(유지보수 부담 과다) ⓑ **커뮤니티 Helm 차트**(ADR-003 예외 필요) ⓒ SaaS(자체 호스팅·데이터 경계 방침과 배치) ⓓ **GlitchTip**(Sentry SDK 완전 호환, Django + PostgreSQL + Redis만 필요, ClickHouse·Kafka·Snuba 불필요, 3~4 파드).
 - **권고**: 대상 애플리케이션이 2개뿐이고 **OTel 채택으로 백엔드 잠김이 사라졌으므로 ⓓ**. 22 파드/28 Gi → 3~4 파드/4 Gi, 클라우드 비용 −$384/월, 로컬 배포 가능성 16 GB 차이.
@@ -515,10 +515,55 @@ CNCF Sandbox 로 계속 유지된다(3.3.2, 2026-08-27). **Registry 는 대체 �
 - **전제 조건**: 애플리케이션 SDK 계측 — G9(Dockerfile 부재)로 빌드 불가하나 **ADR-042의 자동 계측이 이를 우회한다.**
 
 ### ADR-037 — Sentry Snuba용 ClickHouse 도입
-**상태: `Open`** — Snuba가 ClickHouse 스키마에 강결합되어 **Trino/Iceberg로 대체 불가**하다. ADR-036 ⓓ 채택 시 불필요.
+**상태: `Rejected — 전제 소멸`** (2026-09-03) — ~~Snuba가 ClickHouse 스키마에 강결합되어 Trino/Iceberg로 대체 불가하다.~~
+
+**ADR-036 ⓓ(GlitchTip)를 실제로 배포하며 전제가 사라졌다.** ClickHouse 는 Sentry
+*자체*가 필요로 한 것이 아니라 **Snuba** 가 필요로 한 것이다. Sentry 의 이벤트 검색·
+집계는 Snuba 라는 별도 서비스가 담당하고, Snuba 의 저장소가 ClickHouse 다.
+
+GlitchTip 에는 **Snuba 가 없다.** Django 애플리케이션이 이벤트를 PostgreSQL 에 직접
+넣고 검색·집계도 그 위의 SQL 로 한다. 저장 계층이 하나 사라지므로 그 저장 계층을
+위한 결정도 함께 사라진다.
+
+> **증거** — 6단계에서 PostgreSQL 의 `max_locks_per_transaction` 을 256 → 512 로
+> 올려야 했다. GlitchTip 이 **이벤트 테이블을 PostgreSQL 에서 파티셔닝**하고, 파티션을
+> 하나로 좁히지 못하는 질의가 모든 파티션과 인덱스에 락을 걸기 때문이다. 이벤트가
+> 실제로 PostgreSQL 에 산다는 뜻이다(LOCAL-DEPLOYMENT §8-20).
+
+**되살아나는 조건** — ADR-036 이 ⓑ(Sentry Helm)로 뒤집힐 때. Snuba 가 돌아오면
+ClickHouse 도 함께 돌아온다. 둘은 분리해서 결정할 수 없다.
 
 ### ADR-038 — Sentry 전용 Kafka · Redis 인스턴스 분리
-**상태: `Open`** — Sentry는 자체 토픽을 다수 생성하고 특정 버전에 결합된다. **레이크하우스 Kafka와 공유하면 v2의 핵심 데이터 경로가 Sentry 이벤트 폭주에 영향받는다.** ADR-036 ⓓ 채택 시 불필요.
+**상태: `Kafka 부분 Rejected — 전제 소멸` · `Redis 부분 Accepted(공유)`** (2026-09-03)
+
+원래 근거는 *"Sentry는 자체 토픽을 다수 생성하고 특정 버전에 결합된다. 레이크하우스
+Kafka와 공유하면 v2의 핵심 데이터 경로가 Sentry 이벤트 폭주에 영향받는다"* 였다.
+**두 절반의 운명이 다르다.**
+
+#### Kafka — 전제가 통째로 사라졌다
+
+Sentry 는 Kafka 를 **수집 버퍼**로 쓴다. relay 가 이벤트를 토픽에 넣고 Snuba 컨슈머가
+꺼내 ClickHouse 에 적재하는 구조라, 자체 토픽이 여러 개 생기고 브로커 버전에 묶인다.
+
+**GlitchTip 은 Kafka 를 아예 쓰지 않는다.** 공식 `compose.yml` 의 의존 서비스는
+`postgres` 와 `valkey` 둘뿐이고, 배포한 파드의 환경변수에도 Kafka·ClickHouse·Snuba
+관련 설정이 **0건**이다(§8-20). 격리할 트래픽 자체가 존재하지 않으므로 "전용 Kafka"는
+해결할 문제가 없다.
+
+#### Redis — 공유하되 위험은 남는다
+
+GlitchTip 은 Redis 를 쓴다(`VALKEY_URL`). 다만 **이벤트 버퍼가 아니라 워커의 작업
+큐·캐시**다 — `manage.py runworker --scheduler` 가 여기서 작업을 꺼낸다. 수집 경로의
+대용량 스트림이 아니라는 점이 Sentry 와 다르다.
+
+→ **DB 인덱스 3 으로 기존 인스턴스를 공유한다.** 별도 인스턴스를 띄우지 않는다.
+
+> **다만 인덱스 분리는 키 공간 분리이지 자원 격리가 아니다.** Redis 는 인스턴스당
+> 단일 스레드이고 현재 `maxmemory` 도 설정하지 않았다(limit 1Gi, `--appendonly yes`).
+> GlitchTip 이 폭주하면 GitLab·애플리케이션 계층과 **같은 CPU·메모리를 다투고**,
+> 축출 정책이 없어 한계에 닿으면 축출이 아니라 컨테이너 OOMKill 이 난다.
+> 이벤트량이 늘면 ⓐ `maxmemory` + `allkeys-lru` 설정 ⓑ 전용 인스턴스 분리 순으로
+> 재검토할 것. 지금 규모(애플리케이션 2개)에서는 공유가 합리적이라는 판단이다.
 
 ### ADR-039 — OpenTelemetry를 텔레메트리 수집 표준으로 채택
 **상태: `Proposed`**
@@ -613,7 +658,7 @@ CNCF Sandbox 로 계속 유지된다(3.3.2, 2026-08-27). **Registry 는 대체 �
 |---|---|---|
 | **025** | 런타임 보안: Tetragon vs Falco | Tetragon |
 | **024** | 시크릿 관리: Vault vs SOPS+age | Vault |
-| **036** | APM 배포: Sentry(Helm) vs GlitchTip | Sentry Helm — **GlitchTip 재검토 권고** |
+| **036** | APM 배포: Sentry(Helm) vs GlitchTip | **GlitchTip(ⓓ) 채택·배포 완료**(2026-09-03, §8-20) |
 | **053** | Hyper-V 프로비저닝 방식 | `taliesins/hyperv` 우선 검토 |
 
 ### 확정된 결정 (사용자 지시)
@@ -633,13 +678,14 @@ CNCF Sandbox 로 계속 유지된다(3.3.2, 2026-08-27). **Registry 는 대체 �
 
 | 상태 | 건수 |
 |---|--:|
-| Accepted | 10 |
+| Accepted | 12 |
 | Accepted (조건부) | 1 |
 | Proposed | 27 |
-| Open | 14 |
+| Open | 12 |
 | Superseded | 2 |
+| Rejected (전제 소멸) | 1 |
 | Partially Reverted | 1 |
-| **합계** | **55** |
+| **합계** | **56** |
 
 > 번호는 001~066 범위에서 부여했으나 일부 번호는 통합·병합되어 실제 항목 수는 54건이다.
 

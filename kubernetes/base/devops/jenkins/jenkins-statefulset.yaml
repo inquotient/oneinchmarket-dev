@@ -33,11 +33,14 @@ spec:
           type: RuntimeDefault
       containers:
         - name: jenkins
-          # ★ `:lts` 를 쓴다. base 의 기본 태그 정책은 `:latest` 지만 Jenkins 의
-          #   latest 는 **주간 릴리스**라 파괴적 변경이 예고 없이 들어온다.
-          #   lts 도 움직이는 태그이므로 "base 는 움직이는 태그, prod 는 핀"
-          #   이라는 정책 자체는 지켜진다.
-          image: jenkins/jenkins:lts
+          # 로컬 빌드 이미지 — 공식 이미지에는 플러그인이 없어 JCasC 로
+          # 관리자 계정을 선언할 수 없다(= 인증 없는 Jenkins). 상세는
+          # docker/jenkins/Dockerfile 주석과 TODO-50.
+          # 베이스는 `jenkins/jenkins:lts` 다 — latest 는 주간 릴리스다.
+          image: oneinch/jenkins:latest
+          # 레지스트리에 없다. containerd 로 직접 반입하므로 Always 면
+          # ImagePullBackOff 가 난다(§8-2).
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
               name: http
@@ -45,6 +48,12 @@ spec:
             - containerPort: 50000
               name: agent
               protocol: TCP
+          env:
+            # JCasC 의 ${JENKINS_ADMIN_PASSWORD} 가 이 값을 읽는다.
+            # ConfigMap 에는 평문이 남지 않는다.
+            - name: JENKINS_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: jenkins-secret, key: admin-password }
           envFrom:
             - configMapRef:
                 name: jenkins-config
@@ -77,6 +86,15 @@ spec:
           volumeMounts:
             - name: jenkins-home
               mountPath: /var/jenkins_home
+            # JENKINS_HOME 바깥에 둔다 — PVC 안에는 ConfigMap 을 겹쳐
+            # 마운트할 수 없다. 이미지의 CASC_JENKINS_CONFIG 가 이 경로다.
+            - name: casc
+              mountPath: /var/jenkins_casc
+              readOnly: true
+      volumes:
+        - name: casc
+          configMap:
+            name: jenkins-casc
   volumeClaimTemplates:
     - metadata:
         name: jenkins-home

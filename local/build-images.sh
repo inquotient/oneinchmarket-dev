@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 커스텀 이미지 2종 빌드 후 k3s containerd 로 직접 반입한다.
+# 커스텀 이미지 5종 빌드 후 k3s containerd 로 직접 반입한다.
 # 레지스트리(registry.oneinchmarket.co.kr)를 참조하는 매니페스트가 없고
 # imagePullSecrets 도 없으므로, 로컬에서는 import 가 정답이다.
 #
@@ -59,10 +59,23 @@ sudo podman build --format docker --network host \
   -t oneinch/hbase:latest -t oneinch/hbase:2.6.6 \
   "${REPO_ROOT}/docker/hbase"
 
+log "oneinch/jenkins 빌드"
+# 공식 이미지에는 플러그인이 없다. JCasC 로 관리자 계정을 선언하려면
+# configuration-as-code 플러그인이 필요하고, 런타임에 받으면 SEC-512 다.
+# 상세는 docker/jenkins/Dockerfile 주석.
+sudo podman build --format docker --network host \
+  -t oneinch/jenkins:latest -t oneinch/jenkins:lts \
+  "${REPO_ROOT}/docker/jenkins"
+
 log "k3s containerd 로 반입 (namespace k8s.io)"
-for img in oneinch/spark-iceberg:latest oneinch/livy:latest oneinch/ranger-usersync:latest oneinch/hbase:latest; do
+for img in oneinch/spark-iceberg:latest oneinch/livy:latest oneinch/ranger-usersync:latest oneinch/hbase:latest oneinch/jenkins:latest; do
   sudo podman save --format docker-archive "localhost/$img" \
     | sudo k3s ctr -n k8s.io images import --base-name "docker.io/$img" -
+  # ★ --base-name 이 항상 docker.io 이름을 만들어 주지는 않는다.
+  #   아카이브가 이미 localhost/... 이름을 갖고 있으면 그대로 들어가고
+  #   매니페스트가 참조하는 docker.io/... 는 생기지 않아 ImagePullBackOff 가
+  #   난다 — jenkins 에서 실제로 그랬다. 명시적으로 태그해 확정한다.
+  sudo k3s ctr -n k8s.io images tag --force "localhost/$img" "docker.io/$img" >/dev/null 2>&1 || true
   log "  imported $img"
 done
 

@@ -631,7 +631,10 @@ dev에서 ambient는 꺼져 있다(`overlays/dev/namespace.yaml:10`, 커밋 `33e
 - **TODO-47** — G41 해소 방식 결정. ⓐ 이미지 참조를 전용 ConfigMap 키로 분리해 prod가 그 키만 패치 ⓑ kustomize `replacements`로 ConfigMap 내부 문자열 치환 ⓒ `spark-submit --conf`로 제출 시점 주입. **ⓐ가 전체 `spark-defaults.conf`를 prod에 복제하지 않아 드리프트 위험이 없다** (ADR-011 교훈).
 - **TODO-48** — HiveServer2 의 `hadoop.proxyuser.hive.*=*` 는 Kerberos 가 없는 로컬 전제다. dev/prod 에서는 위임 대상을 실제 클라이언트 사용자로 좁히거나 Knox/Ranger 경유로 대체해야 한다 (SEC 신규 항목 후보).
 - **TODO-49** — HiveServer2 는 Tez **로컬 모드**로 돈다(`tez.local.mode=true`). DAG 가 HiveServer2 JVM 안에서 실행되므로 분산 실행·동시 질의 규모에 한계가 있다. 실배치에서는 YARN(ResourceManager·NodeManager)을 올리고 로컬 모드를 끄거나, HiveQL 경로 자체를 Trino·Spark 로 흡수할지 결정한다.
-- **TODO-50** — Jenkins 를 선언적으로 구성하려면 JCasC(configuration-as-code) 플러그인이 필요한데 공식 이미지에 없다. 런타임 다운로드는 SEC-512(런타임 외부 의존) 계열이므로, `docker/jenkins/` 로컬 빌드 이미지에 `jenkins-plugin-cli` 로 굽는 것이 경로다. 그때까지 설치 마법사를 켠 채로 두고 초기 비밀번호로 1회 설정한다 — `runSetupWizard=false` 만 주면 **인증 없는 Jenkins** 가 되므로 쓰지 않는다.
+- **TODO-50 해소**(2026-09-03) — `docker/jenkins/` 로컬 빌드 이미지에 `jenkins-plugin-cli` 로 플러그인을 굽고(요청 4종 + 의존 55종 = 59개), JCasC 로 관리자 계정·인가 전략을 선언했다. `runSetupWizard=false` 를 **보안 영역 선언과 함께** 주므로 인증 없는 Jenkins 가 되지 않는다. 비밀번호는 `jenkins-secret` 에서 환경변수로 주입되어 ConfigMap 에 평문이 남지 않는다.
+  - 남은 것: **에이전트가 없어 빌드가 컨트롤러에서 돈다**(`numExecutors: 1`). 에이전트를 붙이면 0 으로 내리고 `mode: EXCLUSIVE` 로 바꿀 것. `allow-jenkins-access` 에 `jenkins-agent` 셀렉터를 미리 열어 두었다.
+  - 남은 것: **TODO-40**(Jenkins ↔ GitLab CI 역할 분담)은 여전히 미결이다. 지금 Jenkins 에는 잡이 하나도 없다.
+  - 플러그인 버전을 고정하지 않는다 — `jenkins-plugin-cli` 가 코어 호환 버전을 고르므로, 버전을 박으면 base 의 `:lts` 가 올라갈 때 조합이 깨진다. 재현성은 이미지 태그로 잡는다(TODO-44 와 같은 계열의 미검증 다운로드는 남는다).
 
 ---
 

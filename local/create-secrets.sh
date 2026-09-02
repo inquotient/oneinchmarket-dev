@@ -60,6 +60,9 @@ mk elasticsearch-secret  "elastic-password=$(gen)"    # ECK 가 만드는 -es-el
 mk grafana-secret        "admin-password=$(gen)"
 # GlitchTip — SECRET_KEY 는 Django 세션·서명 키다. 50자 이상 권장.
 mk glitchtip-secret      "db-password=$(gen)"        "secret-key=$(gen 64)"
+# Jenkins — JCasC 가 이 값으로 관리자 계정을 만든다(설치 마법사 대신).
+JK_ADMIN="Jk$(gen 16)#A1"
+mk jenkins-secret        "admin-password=$JK_ADMIN"
 mk argocd-admin-secret   "admin-password=$(gen)"
 # Slack 미연동. 빈 값이면 Falcosidekick 이 Slack 출력을 비활성한다.
 mk falcosidekick-secret  "slack-webhook-url="
@@ -102,6 +105,7 @@ printf "  LAM        (마스터 설정) %s\n" "$LAM_PW"
 printf "  DS389      cn=Directory Manager / %s\n" "$DS_DM"
 printf "  Wazuh API  wazuh-wui / %s\n"       "$WZ_PW"
 printf "  Wazuh idx  admin / %s\n"           "$WZ_IDX"
+printf "  Jenkins    admin / %s\n"           "$JK_ADMIN"
 echo
 echo "[secrets] 생성 결과"
 kubectl -n "$NS" get secret -l app.kubernetes.io/part-of=oneinchmarket
