@@ -1,0 +1,81 @@
+# ZooKeeper — HBase 가 요구한다.
+#
+# ★ Kafka 는 이것을 쓰지 않는다. Kafka 는 KRaft 모드라 ZooKeeper 가 없다
+#   (v1 → v2 전환의 핵심 중 하나였다). 여기의 ZooKeeper 는 **HBase 전용**이다.
+#   Hadoop 도 비-HA 로 두었으므로 ZKFC 가 없어 쓰지 않는다.
+#
+# 단일 인스턴스다. 앙상블은 과반수 합의가 목적인데 단일 노드에서는
+# 3개를 띄워도 같은 커널 위에 있어 얻는 것이 없다.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: zookeeper
+  labels: {app.kubernetes.io/name: zookeeper, app.kubernetes.io/component: data-lakehouse, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+  annotations: {reloader.stakater.com/auto: "true"}
+spec:
+  serviceName: zookeeper-headless
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: zookeeper}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: zookeeper, app.kubernetes.io/component: data-lakehouse, app.kubernetes.io/part-of: oneinchmarket}
+    spec:
+      serviceAccountName: zookeeper
+      securityContext:
+        # zookeeper 이미지의 기본 uid 다.
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: zookeeper
+          image: zookeeper:3.9.5
+          env:
+            - {name: ZOO_MY_ID, value: "1"}
+            - {name: ZOO_SERVERS, value: "server.1=0.0.0.0:2888:3888;2181"}
+            - {name: ZOO_STANDALONE_ENABLED, value: "true"}
+            - {name: ZOO_4LW_COMMANDS_WHITELIST, value: "srvr,ruok,conf,stat"}
+            # 힙을 명시한다. 기본값은 컨테이너 한도를 모른다.
+            - {name: JVMFLAGS, value: "-Xms256m -Xmx256m"}
+          ports:
+            - {containerPort: 2181, name: client, protocol: TCP}
+            - {containerPort: 2888, name: peer, protocol: TCP}
+            - {containerPort: 3888, name: leader, protocol: TCP}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 50m, memory: 384Mi}
+            limits:   {cpu: 500m, memory: 768Mi}
+          startupProbe:
+            exec:
+              command: ["/bin/bash","-c","echo ruok | nc -w 2 localhost 2181 | grep -q imok"]
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: {port: client}
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command: ["/bin/bash","-c","echo ruok | nc -w 2 localhost 2181 | grep -q imok"]
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: datalog, mountPath: /datalog}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: standard
+        resources: {requests: {storage: 5Gi}}
+    - metadata: {name: datalog}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: standard
+        resources: {requests: {storage: 5Gi}}

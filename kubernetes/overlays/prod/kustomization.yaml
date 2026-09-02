@@ -53,6 +53,10 @@ images:
     newTag: "RELEASE.2025-09-07T16-13-09Z"
   - name: trinodb/trino
     newTag: "483"
+  - name: apache/hadoop
+    newTag: "3.4.3"                    # 3.5 는 새 마이너다. Hive/HBase 클라이언트와 같은 계열을 유지한다
+  - name: zookeeper
+    newTag: "3.9.5"
   - name: apache/hive
     newTag: "4.0.1"                   # 스키마 버전 고정. 상향 시 schematool -upgradeSchema 필요
   - name: oneinch/spark-iceberg

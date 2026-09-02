@@ -1,0 +1,81 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hadoop-config
+  labels: {app.kubernetes.io/name: hadoop, app.kubernetes.io/component: data-lakehouse, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+data:
+  # ★ v1 대비 가장 큰 차이 — HA 를 걷어냈다.
+  #   v1 은 NameNode 2 + JournalNode 5 + ZKFC + RBF 라우터로 9파드였다.
+  #   단일 노드에서는 그 전부가 같은 커널 위에 있어 가용성이 늘지 않는다.
+  #   NameNode 1 + DataNode 1 로 간다. dfs.replication 도 3 -> 1 이다
+  #   (복제본을 3개 두어도 같은 디스크에 쌓인다).
+  #
+  # ★ Kerberos 는 채택하지 않았다(hadoop.security.authentication=simple).
+  #   Hadoop 네이티브 CLI 접근 요구가 없으면 KDC·keytab 배포·주체 관리가
+  #   전부 순비용이다. 채택하려면 별도 결정이 필요하다.
+  #
+  # ★ LDAP 그룹 매핑도 뺐다. v1 은 ds389 를 group mapping 원천으로 삼았는데
+  #   (ou=users 를 가리켰고 우리 트리는 ou=people 이다) 인증이 simple 인 이상
+  #   그룹만 LDAP 에서 끌어와 얻는 것이 없다.
+  core-site.xml: |
+    <?xml version="1.0"?>
+    <configuration>
+      <property>
+        <name>fs.defaultFS</name>
+        <value>hdfs://hadoop-namenode:8020</value>
+      </property>
+      <property>
+        <name>hadoop.security.authentication</name>
+        <value>simple</value>
+      </property>
+      <property>
+        <name>hadoop.http.staticuser.user</name>
+        <value>hadoop</value>
+      </property>
+      <property>
+        <name>hadoop.tmp.dir</name>
+        <value>/hadoop/tmp</value>
+      </property>
+    </configuration>
+
+  hdfs-site.xml: |
+    <?xml version="1.0"?>
+    <configuration>
+      <!-- 단일 DataNode. 복제본을 늘려도 같은 디스크다. -->
+      <property>
+        <name>dfs.replication</name>
+        <value>1</value>
+      </property>
+      <property>
+        <name>dfs.namenode.name.dir</name>
+        <value>file:///hadoop/dfs/name</value>
+      </property>
+      <property>
+        <name>dfs.datanode.data.dir</name>
+        <value>file:///hadoop/dfs/data</value>
+      </property>
+      <!-- 컨테이너 안에서는 파드 IP 로만 바인드된다. 0.0.0.0 을 명시한다. -->
+      <property>
+        <name>dfs.namenode.rpc-bind-host</name>
+        <value>0.0.0.0</value>
+      </property>
+      <property>
+        <name>dfs.namenode.servicerpc-bind-host</name>
+        <value>0.0.0.0</value>
+      </property>
+      <property>
+        <name>dfs.namenode.http-bind-host</name>
+        <value>0.0.0.0</value>
+      </property>
+      <!-- ★ DataNode 등록을 IP 가 아니라 호스트명으로 한다.
+           StatefulSet 파드는 재시작하면 IP 가 바뀌므로 IP 로 등록하면
+           NameNode 가 죽은 DataNode 를 계속 들고 있게 된다. -->
+      <property>
+        <name>dfs.datanode.use.datanode.hostname</name>
+        <value>true</value>
+      </property>
+      <property>
+        <name>dfs.client.use.datanode.hostname</name>
+        <value>true</value>
+      </property>
+    </configuration>

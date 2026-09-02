@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hadoop-namenode
+  labels: {app.kubernetes.io/name: hadoop-namenode, app.kubernetes.io/component: data-lakehouse, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+  annotations: {reloader.stakater.com/auto: "true"}
+spec:
+  serviceName: hadoop-namenode-headless
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: hadoop-namenode}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: hadoop-namenode, app.kubernetes.io/component: data-lakehouse, app.kubernetes.io/part-of: oneinchmarket}
+    spec:
+      serviceAccountName: hadoop
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        - name: format-namenode
+          image: apache/hadoop:3.4.3
+          command: ["/bin/bash","-c"]
+          args:
+            - |
+              set -euo pipefail
+              if [ -d /hadoop/dfs/name/current ]; then
+                echo "[format] 이미 포맷되어 있다 - 건너뛴다"
+                exit 0
+              fi
+              echo "[format] NameNode 포맷"
+              hdfs namenode -format -nonInteractive -force -clusterId oim-local
+              echo "[format] 완료"
+          env:
+            - {name: HADOOP_CONF_DIR, value: /opt/hadoop/etc/hadoop}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 50m, memory: 256Mi}
+            limits:   {cpu: 500m, memory: 1Gi}
+          volumeMounts:
+            - {name: data, mountPath: /hadoop/dfs/name}
+            - {name: config, mountPath: /opt/hadoop/etc/hadoop/core-site.xml, subPath: core-site.xml}
+            - {name: config, mountPath: /opt/hadoop/etc/hadoop/hdfs-site.xml, subPath: hdfs-site.xml}
+      containers:
+        - name: hadoop-namenode
+          image: apache/hadoop:3.4.3
+          command: ["hdfs", "namenode"]
+          env:
+            - {name: HADOOP_CONF_DIR, value: /opt/hadoop/etc/hadoop}
+            - {name: HADOOP_LOG_DIR, value: /tmp/hadoop-logs}
+            - {name: HDFS_NAMENODE_OPTS, value: "-Xms512m -Xmx512m"}
+          ports:
+            - {containerPort: 8020, name: rpc, protocol: TCP}
+            - {containerPort: 9870, name: http, protocol: TCP}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 100m, memory: 768Mi}
+            limits:   {cpu: "1",  memory: 1536Mi}
+          startupProbe:
+            httpGet: {path: /, port: http}
+            failureThreshold: 40
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: {port: rpc}
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            httpGet: {path: /, port: http}
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - {name: data, mountPath: /hadoop/dfs/name}
+            - {name: config, mountPath: /opt/hadoop/etc/hadoop/core-site.xml, subPath: core-site.xml}
+            - {name: config, mountPath: /opt/hadoop/etc/hadoop/hdfs-site.xml, subPath: hdfs-site.xml}
+      volumes:
+        - name: config
+          configMap: {name: hadoop-config}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: standard
+        resources: {requests: {storage: 20Gi}}
