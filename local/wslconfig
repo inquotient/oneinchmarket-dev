@@ -22,6 +22,16 @@ processors=24
 swap=8GB
 
 [experimental]
+# ★★ 유휴 타임아웃 — 이것이 없으면 클러스터가 조용히 죽는다.
+#   WSL2 는 VM 에 붙은 프로세스가 없으면 기본 60초 뒤 VM 을 내린다.
+#   systemd 로 k3s 가 돌고 있어도 마찬가지다. 편집을 Windows 쪽에서 하는
+#   동안(매니페스트 작성 등) WSL 을 건드리지 않으면 VM 이 poweroff 되고,
+#   다음 wsl 명령에 새로 부팅되면서 **40개 파드가 전부 재시작**한다.
+#   실제로 겪었다 — 부팅 이력에 9분짜리 세션이 남았고 hive-metastore 는
+#   재시작이 35회까지 올라갔다. 노드 이벤트에는 압박이 없어 원인이
+#   드러나지 않는다(Windows 여유 45GB, MemoryPressure=False).
+#   24시간으로 둔다.
+vmIdleTimeout=86400000
 # ★ 필수 — kubelet 은 기동 시점 총 메모리로 자원을 계산한다.
 #   메모리 회수가 일어나면 예측 불가한 OOMKill·축출이 발생한다.
 autoMemoryReclaim=disabled
