@@ -514,6 +514,50 @@ CNCF Sandbox 로 계속 유지된다(3.3.2, 2026-08-27). **Registry 는 대체 �
 - **Sentry가 필요한 경우**: APM·프로파일링·세션 리플레이·대규모 이슈 워크플로가 요구사항일 때. 이 경우 ⓑ.
 - **전제 조건**: 애플리케이션 SDK 계측 — G9(Dockerfile 부재)로 빌드 불가하나 **ADR-042의 자동 계측이 이를 우회한다.**
 
+
+#### 재검토 — Sentry 단독 vs 현재 구성 + OpenReplay (2026-09-03)
+
+"세션 리플레이가 필요하면 Sentry 로 가야 하는가"를 두 안으로 비교했다.
+
+| | **A안** 현재 구성 + OpenReplay | **B안** Sentry 단독 |
+|---|---|---|
+| 추가 메모리 | **+8 GiB** (공식 최소 2 vCPU / 8 GB / 50 GB) | **+22 GiB** (GlitchTip 0.75 회수 시 +21) |
+| 노드 여유(약 18 GiB) 대비 | 들어간다 | **들어가지 않는다** |
+| 걷어내는 것 | 없다 | GlitchTip |
+| 되살아나는 결정 | 없다 | ADR-037(ClickHouse) · ADR-038 Kafka 절반 |
+| ADR-003 Helm 예외 | 불필요 | **필요** |
+| 가역성 | 지우면 끝(가산적) | 교체 + ADR 3건 뒤집기 |
+
+**ClickHouse 는 판단 근거가 아니다.** OpenReplay 도 ClickHouse 를 쓴다 — 두 안 모두
+가진다. 차이는 **Snuba 와 Sentry 전용 Kafka 토픽 군**이며 B안만 그것을 추가로 짊어진다.
+(아래 "권고" 항목의 *ClickHouse·Kafka·Snuba 불필요* 는 GlitchTip 단독일 때의 서술이다.)
+
+**중복이 결정적이다.** ADR-039 로 OTel 을 표준으로 채택했고 Tempo·Loki·Prometheus·
+Pyroscope 가 이미 돈다. Sentry 의 가치는 **Sentry SDK 로 전부 보낼 때** 최대인데, 그러면
+텔레메트리 경로를 둘로 나눠 운영하게 된다. 22 GiB 중 상당 부분이 이미 가진 것을 다시
+사는 값이다. A안은 세션 리플레이만 채우고 나머지를 건드리지 않는다.
+
+**B안의 실재하는 장점** — 하나의 이벤트에서 오류 → 트레이스 → 프로파일 → 리플레이로
+이어지는 상관관계다. A안은 UI 가 셋(Grafana · GlitchTip · OpenReplay)이 되고 사람이
+trace ID 로 손수 잇는다. 다만 Grafana 안에서는 Tempo·Loki·Pyroscope 가 trace ID 로
+이미 연결되고, GlitchTip 도 Sentry SDK 를 쓰므로 이벤트에 trace ID 를 태그로 실으면
+연결은 가능하다 — 자동은 아니나 끊기지도 않는다.
+
+**결론: A안.** B안은 이 호스트에 물리적으로 들어가지 않는다(63.4 GiB 물리 RAM 이라
+`.wslconfig` 상향 여지도 없다). "좋은데 못 쓰는 선택"이다.
+
+#### Sentry 를 다시 볼 조건
+
+아래 중 하나라도 성립하면 B안을 재검토한다. 그전까지는 재론하지 않는다.
+
+1. **호스트가 128 GB 이상**이 되거나 dev/prod 로 대상이 옮겨간다
+2. **상관관계 단절이 실제로 아프다고 판명**된다 — GlitchTip ↔ Grafana 를 trace ID 로
+   잇는 방식으로 감당되지 않는 장애 대응이 반복될 때
+3. **APM·프로파일링을 Sentry 로 일원화**하기로 결정한다 — 즉 ADR-039(OTel 표준)를
+   뒤집을 때. 그때는 Tempo·Pyroscope 를 함께 재검토해야 한다
+
+되살아나는 것: ADR-037(ClickHouse — Snuba 와 분리 불가) · ADR-038 Kafka 절반 ·
+ADR-003 Helm 예외.
 ### ADR-037 — Sentry Snuba용 ClickHouse 도입
 **상태: `Rejected — 전제 소멸`** (2026-09-03) — ~~Snuba가 ClickHouse 스키마에 강결합되어 Trino/Iceberg로 대체 불가하다.~~
 
@@ -533,6 +577,14 @@ GlitchTip 에는 **Snuba 가 없다.** Django 애플리케이션이 이벤트를
 **되살아나는 조건** — ADR-036 이 ⓑ(Sentry Helm)로 뒤집힐 때. Snuba 가 돌아오면
 ClickHouse 도 함께 돌아온다. 둘은 분리해서 결정할 수 없다.
 
+
+> **정정 (2026-09-03)** — 위 서술은 *"GlitchTip 을 고르면 ClickHouse 를 들이지 않아도
+> 된다"* 로 읽힌다. **세션 리플레이를 도입하는 순간 그 이점은 사라진다** — OpenReplay 도
+> ClickHouse 를 분석 질의 계층으로 쓴다(ADR-069).
+>
+> 이 ADR 이 기각된 근거는 "ClickHouse 를 안 쓴다"가 아니라 **"Snuba 를 안 쓴다"** 로
+> 좁혀 읽어야 정확하다. ClickHouse 자체는 세션 리플레이를 채택하면 어차피 들어온다.
+> 그때는 **OpenReplay 가 패키징한 것을 쓸지, 공용 인스턴스를 세울지**가 새 결정이 된다.
 ### ADR-038 — Sentry 전용 Kafka · Redis 인스턴스 분리
 **상태: `Kafka 부분 Rejected — 전제 소멸` · `Redis 부분 Accepted(공유)`** (2026-09-03)
 
@@ -650,6 +702,46 @@ GlitchTip 은 Redis 를 쓴다(`VALKEY_URL`). 다만 **이벤트 버퍼가 아�
 
 ---
 
+### ADR-069 — 세션 리플레이는 OpenReplay 로 하되 전제 2건이 선행한다
+**상태: `Proposed (조건부)`** (2026-09-03)
+
+**결정** — 세션 리플레이 역량이 필요해지면 **OpenReplay** 를 쓴다. Sentry 로 갈아타지
+않는다. 근거는 ADR-036 의 A안/B안 비교다 — 요약하면 **+8 GiB vs +22 GiB**, 그리고
+B안은 이미 채택한 OTel 경로(ADR-039)와 중복된다.
+
+**다만 지금은 도입하지 않는다.** 전제 2건이 미해결이고, 그 전에 올리면 "떠 있지만
+데이터가 0" 인 상태가 된다 — 6단계 GlitchTip 마이그레이션 누락과 같은 부류다.
+
+| 전제 | 상태 | 왜 필수인가 |
+|---|---|---|
+| **외부 HTTPS 진입점** | 없음 — Ingress·Gateway·NodePort·LoadBalancer 객체 0개(배포 블로커 #6) | 트래커가 **브라우저에서** 수집기로 보낸다. OpenReplay 문서가 TLS 를 필수로 명시한다 |
+| **프런트엔드 계측 경로** | 없음 — `v1/admin/Dockerfile` 부재(G9) | 트래커는 브라우저 JS 다. **OTel 자동 계측(ADR-042)은 서버 사이드라 이걸 대신하지 못한다** |
+
+> ADR-036 의 *"ADR-042 의 자동 계측이 G9 를 우회한다"* 는 **서버 사이드에만** 해당한다.
+> 세션 리플레이에는 적용되지 않는다.
+
+**우회로** — nginx 가 `admin` 앞단에 있으므로(`nginx-configmap.yaml`) `sub_filter` 로
+`</head>` 앞에 트래커 스크립트를 주입할 수 있다. 동작은 하지만 프록시가 HTML 을 고쳐
+쓰는 방식이라 정공법은 아니다. G9 해소(앱 빌드 경로 확보)가 본래 답이다.
+
+**순서**
+
+```
+1. Ingress + TLS (cert-manager 는 이미 설치돼 있다 — Wazuh 인증서에 사용 중)
+   └ 블로커 #6 해소. OpenReplay 와 무관하게 그 자체로 필요하다 —
+     GlitchTip·Grafana·Jenkins 접근이 port-forward 를 벗어난다
+2. G9 결정 — 앱 빌드 경로를 만들지, nginx sub_filter 로 갈지
+3. OpenReplay 도입
+```
+
+**용량** — 공식 최소 2 vCPU / 8 GB RAM / 50 GB 스토리지. 현재 노드 여유는 requests
+기준 약 18 GiB, 디스크 869 GB 라 둘 다 수용한다. ClickHouse 를 함께 들여오며, 그때
+**OpenReplay 가 패키징한 것을 쓸지 공용 인스턴스를 세울지**가 파생 결정이다(ADR-037 정정 참조).
+
+**미확인** — 커뮤니티 에디션과 엔터프라이즈의 저장소 구성 차이를 끝까지 확인하지
+못했다. Kafka 는 엔터프라이즈 쪽이라는 정황이 있다. 도입 시 차트를 렌더해 실제
+구성요소를 세는 것이 선행되어야 한다.
+
 ## 결정 요약
 
 ### 즉시 결정이 필요한 항목
@@ -681,11 +773,12 @@ GlitchTip 은 Redis 를 쓴다(`VALKEY_URL`). 다만 **이벤트 버퍼가 아�
 | Accepted | 12 |
 | Accepted (조건부) | 1 |
 | Proposed | 27 |
+| Proposed (조건부) | 1 |
 | Open | 12 |
 | Superseded | 2 |
 | Rejected (전제 소멸) | 1 |
 | Partially Reverted | 1 |
-| **합계** | **56** |
+| **합계** | **57** |
 
 > 번호는 001~066 범위에서 부여했으나 일부 번호는 통합·병합되어 실제 항목 수는 54건이다.
 

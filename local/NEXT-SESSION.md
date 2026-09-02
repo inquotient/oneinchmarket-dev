@@ -131,6 +131,23 @@ limits    56.1 / 54 GiB (105%)  ← 오버커밋. 게이트는 아니지만 100%
 7단계(~25 매니페스트)는 §2 의 zram 설계가 처음으로 제대로 시험되는 지점이다.
 **착수 전에 requests 여유를 다시 볼 것** — limits 가 아니라 requests 가 한계다.
 
+
+### 0-2. 관측성 — 정해진 것과 남은 것 (2026-09-03)
+
+| 역량 | 상태 |
+|---|---|
+| 트레이스·메트릭·로그 | ✅ OTel → Tempo·Prometheus·Loki. **앱 수신 지점은 `otel-agent:4318`** (§8-23 에서 도달 경로 복구) |
+| 오류 추적 | ✅ GlitchTip. Sentry SDK 그대로 쓴다 |
+| 프로파일링 | △ Pyroscope 는 섰으나 **앱 계측 수단 미결**(TODO-51) |
+| 세션 리플레이 | ✗ OpenReplay 로 결정(ADR-069). **전제 2건 미해결** |
+
+**Sentry 는 기각했다** — ADR-036 에 A안/B안 비교와 재검토 조건 3가지를 명문화했다.
+요약: 이 호스트(물리 63.4 GiB)에 +22 GiB 가 들어가지 않고, 이미 채택한 OTel 경로와
+중복된다. **"틀린 선택"이 아니라 "이 호스트에서 못 쓰는 선택"이다.**
+
+**다음 한 걸음은 Ingress + TLS 다.** 세션 리플레이의 전제이면서, 그 자체로 배포
+블로커 #6(외부 진입점 0개) 해소다 — GlitchTip·Grafana·Jenkins 접근이 `port-forward`
+를 벗어난다. cert-manager 는 이미 설치돼 있다(Wazuh 인증서에 사용 중).
 ### 1. API 계약 파일 작성 (기구는 다 섰다)
 
 `contracts/{openapi,asyncapi,schemas}/` 가 비어 있다. Spectral 린트·`publish-contracts` CI 잡·
