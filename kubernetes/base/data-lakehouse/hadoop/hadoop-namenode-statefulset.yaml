@@ -43,7 +43,8 @@ spec:
             requests: {cpu: 50m, memory: 256Mi}
             limits:   {cpu: 500m, memory: 1Gi}
           volumeMounts:
-            - {name: data, mountPath: /hadoop/dfs/name}
+            # DataNode 와 같은 이유로 한 단계 위에 건다(대칭을 맞춘다).
+            - {name: data, mountPath: /hadoop/dfs}
             - {name: config, mountPath: /opt/hadoop/etc/hadoop/core-site.xml, subPath: core-site.xml}
             - {name: config, mountPath: /opt/hadoop/etc/hadoop/hdfs-site.xml, subPath: hdfs-site.xml}
       containers:
@@ -78,7 +79,8 @@ spec:
             timeoutSeconds: 10
             failureThreshold: 6
           volumeMounts:
-            - {name: data, mountPath: /hadoop/dfs/name}
+            # DataNode 와 같은 이유로 한 단계 위에 건다(대칭을 맞춘다).
+            - {name: data, mountPath: /hadoop/dfs}
             - {name: config, mountPath: /opt/hadoop/etc/hadoop/core-site.xml, subPath: core-site.xml}
             - {name: config, mountPath: /opt/hadoop/etc/hadoop/hdfs-site.xml, subPath: hdfs-site.xml}
       volumes:

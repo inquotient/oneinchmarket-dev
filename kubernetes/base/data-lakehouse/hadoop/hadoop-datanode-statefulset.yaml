@@ -69,7 +69,14 @@ spec:
             timeoutSeconds: 10
             failureThreshold: 6
           volumeMounts:
-            - {name: data, mountPath: /hadoop/dfs/data}
+            # ★ PVC 를 /hadoop/dfs/data 에 직접 걸면 안 된다.
+            #   DataNode 는 데이터 디렉터리에 chmod(dfs.datanode.data.dir.perm,
+            #   기본 700)를 거는데 마운트 루트는 root 소유라 uid 1000 이
+            #   바꿀 수 없다:
+            #     NativeIO$POSIX.chmod -> DiskChecker
+            #     Too many failed volumes - valid: 0, configured: 1, failed: 1
+            #   한 단계 위에 걸어 DataNode 가 자기 소유의 data/ 를 만들게 한다.
+            - {name: data, mountPath: /hadoop/dfs}
             - {name: config, mountPath: /opt/hadoop/etc/hadoop/core-site.xml, subPath: core-site.xml}
             - {name: config, mountPath: /opt/hadoop/etc/hadoop/hdfs-site.xml, subPath: hdfs-site.xml}
       volumes:
