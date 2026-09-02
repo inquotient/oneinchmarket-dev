@@ -32,6 +32,10 @@ spec:
               valueFrom: {fieldRef: {fieldPath: status.podIP}}
             - name: OTEL_RESOURCE_ATTRIBUTES
               value: "k8s.cluster.name=oneinchmarket"
+          # 애플리케이션은 `otel-agent` Service 로 보낸다 — 그 Service 가
+          # internalTrafficPolicy: Local 이라 **같은 노드의 파드**로만 간다.
+          # hostPort 는 쓰지 않는다: 이 클러스터의 Cilium 구성에서는 바인드
+          # 되지 않는다(노드에 리슨이 잡히지 않고 curl 이 000 을 준다).
           ports:
             - {containerPort: 4317, name: otlp-grpc, protocol: TCP}
             - {containerPort: 4318, name: otlp-http, protocol: TCP}

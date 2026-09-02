@@ -1902,9 +1902,60 @@ GlitchTip 마이그레이션 누락과 같은 부류이고, OpenReplay 검토에
 
 → **TODO-51.** 둘 중 어느 쪽이든 결정 전까지 Pyroscope 는 자기 자신만 본다.
 "도구는 섰지만 대상이 없다"는 상태를 그대로 기록해 둔다.
+
+### 8-23. otel-agent 에 도달 경로가 없었다 (2026-09-03)
+
+애플리케이션 연동 문서를 쓰다 드러났다. **문서화가 결함을 찾은 사례다.**
+
+`allow-otel-agent-ingress` 는 `podSelector: {}` 로 **네임스페이스 전체**에 4317·4318 을
+열어 두었다. 그런데 `otel-agent` DaemonSet 에는 **hostPort 도, hostNetwork 도, Service 도
+없었다.** 애플리케이션이 주소를 지정할 방법 자체가 없어, 트레이싱 배선이 문서상으로만
+존재했다.
+
+> 정책이 열려 있다고 경로가 있는 것이 아니다. NetworkPolicy 는 **도달했을 때**
+> 통과시킬지를 정할 뿐, 도달 수단을 만들어 주지 않는다.
+
+#### hostPort 는 이 클러스터에서 동작하지 않는다
+
+DaemonSet 의 표준 해법인 hostPort 를 먼저 넣었다. 롤아웃은 성공했으나 실제로는 죽어 있었다.
+
+```
+sudo ss -lntp | grep -E ":4317|:4318"   →  리슨 없음
+curl 127.0.0.1:4318          →  000
+curl <노드IP>:4318           →  000
+```
+
+Cilium 구성이 hostPort 를 처리하지 않는다. **파드는 Running 이고 롤아웃도 성공하므로
+증상이 보이지 않는다** — 앱이 붙는 순간에야 드러난다.
+
+#### 해법 — Service + `internalTrafficPolicy: Local`
+
+```yaml
+spec:
+  internalTrafficPolicy: Local   # 같은 노드의 파드로만 라우팅
+```
+
+DaemonSet 앞의 보통 Service 는 **아무 노드의** 에이전트나 고른다. 앱은 자기 노드의
+에이전트로 보내야 게이트웨이 쪽 `k8sattributes` 가 소스 IP 로 보낸 파드를 식별한다.
+`internalTrafficPolicy: Local` 이 hostPort 없이 그 성질을 준다 — **CNI 에 의존하지
+않는다는 점이 hostPort 보다 낫다.**
+
+검증(`component: application` 라벨을 단 파드에서):
+
+```
+POST http://otel-agent:4318/v1/traces -> 200
+POST http://otel-agent:4318/v1/logs   -> 200
+```
+
+#### 문서
+
+`docs/APP-INTEGRATION.md` 를 신설했다. 애플리케이션 개발자가 이 플랫폼에 붙일 때 보는
+문서이며 **실제로 호출해 확인한 것만** 적는다. 확인하지 못한 것(앱 프로파일링 경로 등)은
+"미검증"으로 표시한다 — 개발자가 그 문서를 보고 코드를 쓰기 때문이다.
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용
 - [COMPONENTS.md](./COMPONENTS.md) — 구성요소별 메모리, 의존 관계
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — 컴포넌트 경계, 갭(G1~G41), TODO
+- [APP-INTEGRATION.md](./APP-INTEGRATION.md) — **애플리케이션 연동 가이드.** 앱 개발 시 여기부터 볼 것
 - [ADR-CANDIDATES.md](./ADR-CANDIDATES.md) — ADR-051~053(로컬 타깃), ADR-066(FreeIPA 제거)

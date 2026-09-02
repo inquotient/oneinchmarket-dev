@@ -28,6 +28,7 @@ resources:
   - otel/otel-agent-rbac.yaml
   - otel/otel-agent-configmap.yaml
   - otel/otel-agent-daemonset.yaml
+  - otel/otel-agent-service.yaml
   - otel/otel-gateway-service.yaml
   - otel/otel-gateway-configmap.yaml
   - otel/otel-gateway-deployment.yaml
