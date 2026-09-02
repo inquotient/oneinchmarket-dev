@@ -82,6 +82,8 @@ spec:
               ensure ranger         ranger         "$RANGER_DB_PASSWORD"
               # glitchtip-configmap.yaml — DATABASE_URL 의 롤·DB 이름
               ensure glitchtip      glitchtip      "$GLITCHTIP_DB_PASSWORD"
+              # openreplay — 세션 리플레이(ADR-069). 차트의 postgresqlUser/Database.
+              ensure openreplay     openreplay     "$OPENREPLAY_DB_PASSWORD"
 
               echo "[postgres-bootstrap] 완료"
               $PSQL -d postgres -c "\l"
@@ -100,6 +102,8 @@ spec:
               valueFrom: { secretKeyRef: { name: ranger-secret, key: db-password } }
             - name: GLITCHTIP_DB_PASSWORD
               valueFrom: { secretKeyRef: { name: glitchtip-secret, key: db-password } }
+            - name: OPENREPLAY_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: openreplay-secret, key: db-password } }
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

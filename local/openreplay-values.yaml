@@ -1,0 +1,31 @@
+# OpenReplay — 이 클러스터의 기존 저장소로 배선한다.
+# 차트가 패키징한 postgresql·redis·kafka·minio·clickhouse 는 쓰지 않는다.
+postgresql:
+  postgresqlHost: "postgresql-headless.local.svc.cluster.local"
+  postgresqlPort: "5432"
+  postgresqlUser: "openreplay"
+  postgresqlDatabase: "openreplay"
+clickhouse:
+  chHost: "clickhouse-headless.local.svc.cluster.local"
+  chPort: "9000"
+  username: "openreplay"
+  database: "openreplay"
+redis:
+  redisHost: "redis-headless.local.svc.cluster.local"
+  redisPort: "6379"
+kafka:
+  kafkaHost: "kafka-headless.local.svc.cluster.local"
+  kafkaPort: "9092"
+  kafkaUseSsl: "false"
+global:
+  domainName: "openreplay.local"
+  s3:
+    endpoint: "http://minio-headless.local.svc.cluster.local:9000"
+    region: "us-east-1"
+
+# ★ 인그레스 컨트롤러는 이 차트로 들이지 않는다.
+#   플랫폼 계층 구성요소를 애플리케이션 차트에 묶으면 소유권이 흐려진다.
+#   외부 진입점(배포 블로커 #6) 도입은 ADR-069 의 순서 1이며 별도 결정이다.
+#   결과적으로 아래 Ingress 12개는 **컨트롤러가 없어 비활성**이다 — 의도된 상태다.
+ingress-nginx:
+  enabled: false

@@ -1,0 +1,4068 @@
+# 생성 파일 — 직접 고치지 말 것. local/render-openreplay.sh 가 만든다.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: alerts-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: alerts-0.1.1
+    app.kubernetes.io/name: alerts
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.2
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: api-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: api-0.1.1
+    app.kubernetes.io/name: api
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.10
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: assets-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: assets-0.1.1
+    app.kubernetes.io/name: assets
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.2
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: assist-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: assist-0.1.1
+    app.kubernetes.io/name: assist
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.4
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: canvases-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: canvases-0.1.1
+    app.kubernetes.io/name: canvases
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: chalice-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: chalice-0.1.7
+    app.kubernetes.io/name: chalice
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.22
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: db-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: db-0.1.1
+    app.kubernetes.io/name: db
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.3
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ender-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: ender-0.1.1
+    app.kubernetes.io/name: ender
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.4
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: frontend-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: frontend-0.1.10
+    app.kubernetes.io/name: frontend
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.27
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: heuristics-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: heuristics-0.1.1
+    app.kubernetes.io/name: heuristics
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.1
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: http-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: http-0.1.1
+    app.kubernetes.io/name: http
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.3
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: images-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: images-0.1.1
+    app.kubernetes.io/name: images
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: integrations-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: integrations-0.1.1
+    app.kubernetes.io/name: integrations
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.2
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sink-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: sink-0.1.1
+    app.kubernetes.io/name: sink
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.2
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sourcemapreader-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: sourcemapreader-0.1.1
+    app.kubernetes.io/name: sourcemapreader
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spot-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: spot-0.1.1
+    app.kubernetes.io/name: spot
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: storage-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: storage-0.1.1
+    app.kubernetes.io/name: storage
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.1
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alerts-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: alerts-0.1.1
+    app.kubernetes.io/name: alerts
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.2
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9000
+    targetPort: http
+    protocol: TCP
+    name: http
+  - port: 8888
+    targetPort: metrics
+    protocol: TCP
+    name: metrics
+  selector:
+    app.kubernetes.io/name: alerts
+    app.kubernetes.io/instance: openreplay
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: api-0.1.1
+    app.kubernetes.io/name: api
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.10
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: http
+    protocol: TCP
+    name: http
+  - port: 8888
+    targetPort: metrics
+    protocol: TCP
+    name: metrics
+  selector:
+    app.kubernetes.io/name: api
+    app.kubernetes.io/instance: openreplay
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: assets-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: assets-0.1.1
+    app.kubernetes.io/name: assets
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.2
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9000
+    targetPort: http
+    protocol: TCP
+    name: http
+  - port: 8888
+    targetPort: metrics
+    protocol: TCP
+    name: metrics
+  selector:
+    app.kubernetes.io/name: assets
+    app.kubernetes.io/instance: openreplay
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: assist-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: assist-0.1.1
+    app.kubernetes.io/name: assist
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.4
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8888
+    targetPort: metrics
+    protocol: TCP
+    name: metrics
+  - port: 9001
+    targetPort: socketio
+    protocol: TCP
+    name: socketio
+  selector:
+    app.kubernetes.io/name: assist
+    app.kubernetes.io/instance: openreplay
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: canvases-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: canvases-0.1.1
+    app.kubernetes.io/name: canvases
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: http
+    protocol: TCP
+    name: http
+  - port: 8888
+    targetPort: metrics
+    protocol: TCP
+    name: metrics
+  selector:
+    app.kubernetes.io/name: canvases
+    app.kubernetes.io/instance: openreplay
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chalice-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: chalice-0.1.7
+    app.kubernetes.io/name: chalice
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.22
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8000
+    targetPort: http
+    protocol: TCP
+    name: http
+  - port: 8888
+    targetPort: metrics
+    protocol: TCP
+    name: metrics
+  selector:
+    app.kubernetes.io/name: chalice
+    app.kubernetes.io/instance: openreplay
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: db-0.1.1
+    app.kubernetes.io/name: db
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.3
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9000
+    targetPort: http
+    protocol: TCP
+    name: http
+  - port: 8888
+    targetPort: metrics
+    protocol: TCP
+    name: metrics
+  selector:
+    app.kubernetes.io/name: db
+    app.kubernetes.io/instance: openreplay
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ender-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: ender-0.1.1
+    app.kubernetes.io/name: ender
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.4
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9000
+    targetPort: http
+    protocol: TCP
+    name: http
+  - port: 8888
+    targetPort: metrics
+    protocol: TCP
+    name: metrics
+  selector:
+    app.kubernetes.io/name: ender
+    app.kubernetes.io/instance: openreplay
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: openreplay-tracker
+  labels:
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  type: ExternalName
+  externalName: static.openreplay.com
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: frontend-0.1.10
+    app.kubernetes.io/name: frontend
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.27
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: frontend
+    protocol: TCP
+    name: frontend
+  selector:
+    app.kubernetes.io/name: frontend
+    app.kubernetes.io/instance: openreplay
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: heuristics-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: heuristics-0.1.1
+    app.kubernetes.io/name: heuristics
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.1
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9000
+    targetPort: http
+    protocol: TCP
+    name: http
+  - port: 8888
+    targetPort: metrics
+    protocol: TCP
+    name: metrics
+  selector:
+    app.kubernetes.io/name: heuristics
+    app.kubernetes.io/instance: openreplay
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: http-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: http-0.1.1
+    app.kubernetes.io/name: http
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.3
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: http
+    protocol: TCP
+    name: http
+  - port: 8888
+    targetPort: metrics
+    protocol: TCP
+    name: metrics
+  selector:
+    app.kubernetes.io/name: http
+    app.kubernetes.io/instance: openreplay
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: images-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: images-0.1.1
+    app.kubernetes.io/name: images
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: http
+    protocol: TCP
+    name: http
+  - port: 8888
+    targetPort: metrics
+    protocol: TCP
+    name: metrics
+  selector:
+    app.kubernetes.io/name: images
+    app.kubernetes.io/instance: openreplay
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: integrations-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: integrations-0.1.1
+    app.kubernetes.io/name: integrations
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.2
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: http
+    protocol: TCP
+    name: http
+  - port: 8888
+    targetPort: metrics
+    protocol: TCP
+    name: metrics
+  selector:
+    app.kubernetes.io/name: integrations
+    app.kubernetes.io/instance: openreplay
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sink-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: sink-0.1.1
+    app.kubernetes.io/name: sink
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.2
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9000
+    targetPort: http
+    protocol: TCP
+    name: http
+  - port: 8888
+    targetPort: metrics
+    protocol: TCP
+    name: metrics
+  selector:
+    app.kubernetes.io/name: sink
+    app.kubernetes.io/instance: openreplay
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sourcemapreader-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: sourcemapreader-0.1.1
+    app.kubernetes.io/name: sourcemapreader
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8888
+    targetPort: metrics
+    protocol: TCP
+    name: metrics
+  - port: 9000
+    targetPort: sourcemapreader
+    protocol: TCP
+    name: sourcemapreader
+  selector:
+    app.kubernetes.io/name: sourcemapreader
+    app.kubernetes.io/instance: openreplay
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spot-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: spot-0.1.1
+    app.kubernetes.io/name: spot
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: http
+    protocol: TCP
+    name: http
+  - port: 8888
+    targetPort: metrics
+    protocol: TCP
+    name: metrics
+  selector:
+    app.kubernetes.io/name: spot
+    app.kubernetes.io/instance: openreplay
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: storage-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: storage-0.1.1
+    app.kubernetes.io/name: storage
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.1
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9000
+    targetPort: http
+    protocol: TCP
+    name: http
+  - port: 8888
+    targetPort: metrics
+    protocol: TCP
+    name: metrics
+  selector:
+    app.kubernetes.io/name: storage
+    app.kubernetes.io/instance: openreplay
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alerts-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: alerts-0.1.1
+    app.kubernetes.io/name: alerts
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.2
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: alerts
+      app.kubernetes.io/instance: openreplay
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: alerts
+        app.kubernetes.io/instance: openreplay
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/component: observability
+    spec:
+      serviceAccountName: alerts-openreplay
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1001
+        runAsUser: 1001
+      shareProcessNamespace: true
+      containers:
+      - name: alerts
+        securityContext:
+          runAsGroup: 1001
+          runAsUser: 1001
+        image: public.ecr.aws/p1t3u8a3/alerts:v1.27.2
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: version_number
+          value: v1.27.2
+        - name: pg_host
+          value: postgresql.db.svc.cluster.local
+        - name: pg_port
+          value: '5432'
+        - name: pg_dbname
+          value: postgres
+        - name: ch_host
+          value: clickhouse-openreplay-clickhouse.db.svc.cluster.local
+        - name: ch_port
+          value: '9000'
+        - name: ch_port_http
+          value: '8123'
+        - name: ch_username
+          value: default
+        - name: ch_password
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: clickhouse-password
+        - name: pg_user
+          value: postgres
+        - name: pg_password
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: postgresql-password
+        - name: SITE_URL
+          value: https://openreplay.local
+        - name: S3_HOST
+          value: https://openreplay.local
+        - name: S3_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: access-key
+        - name: S3_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: secret-key
+        - name: AWS_DEFAULT_REGION
+          value: us-east-1
+        - name: EMAIL_HOST
+          value: ''
+        - name: EMAIL_PORT
+          value: '587'
+        - name: EMAIL_USER
+          value: ''
+        - name: EMAIL_PASSWORD
+          value: ''
+        - name: EMAIL_USE_TLS
+          value: 'true'
+        - name: EMAIL_USE_SSL
+          value: 'false'
+        - name: EMAIL_SSL_KEY
+          value: ''
+        - name: EMAIL_SSL_CERT
+          value: ''
+        - name: EMAIL_FROM
+          value: OpenReplay<do-not-reply@openreplay.com>
+        - name: LOGLEVEL
+          value: INFO
+        - name: PYTHONUNBUFFERED
+          value: '0'
+        ports:
+        - name: http
+          containerPort: 9000
+          protocol: TCP
+        - name: metrics
+          containerPort: 8888
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 20m
+            memory: 64Mi
+          limits:
+            cpu: 300m
+            memory: 192Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: api-0.1.1
+    app.kubernetes.io/name: api
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.10
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api
+      app.kubernetes.io/instance: openreplay
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api
+        app.kubernetes.io/instance: openreplay
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/component: observability
+    spec:
+      serviceAccountName: api-openreplay
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1001
+        runAsUser: 1001
+      shareProcessNamespace: true
+      containers:
+      - name: api
+        securityContext:
+          runAsGroup: 1001
+          runAsUser: 1001
+        image: public.ecr.aws/p1t3u8a3/api:v1.27.10
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8888
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 3
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8888
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+        env:
+        - name: TOKEN_SECRET
+          value: secret_token_string
+        - name: ch_db
+          value: default
+        - name: KAFKA_SERVERS
+          value: kafka.db.svc.cluster.local:9092
+        - name: KAFKA_USE_SSL
+          value: 'false'
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: jwt-secret
+        - name: ASSIST_JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: assist-jwt-secret
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: access-key
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: secret-key
+        - name: AWS_ENDPOINT
+          value: https://openreplay.local
+        - name: AWS_REGION
+          value: us-east-1
+        - name: BUCKET_NAME
+          value: mobs
+        - name: CH_USERNAME
+          value: default
+        - name: CH_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: clickhouse-password
+        - name: CLICKHOUSE_STRING
+          value: clickhouse-openreplay-clickhouse.db.svc.cluster.local:9000/default
+        - name: CLICKHOUSE_HTTP_STRING
+          value: clickhouse-openreplay-clickhouse.db.svc.cluster.local:8123/default
+        - name: pg_password
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: postgresql-password
+        - name: POSTGRES_STRING
+          value: postgres://postgres:$(pg_password)@postgresql.db.svc.cluster.local:5432/postgres
+        - name: ASSIST_URL
+          value: http://assist-openreplay.local.svc.cluster.local:9001/assist/%s
+        - name: ASSIST_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: assist-key
+        - name: REDIS_STRING
+          value: redis://redis-master.db.svc.cluster.local:6379
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        - name: metrics
+          containerPort: 8888
+          protocol: TCP
+        volumeMounts:
+        - name: datadir
+          mountPath: /mnt/efs
+        resources:
+          requests:
+            cpu: 50m
+            memory: 256Mi
+          limits:
+            cpu: '1'
+            memory: 768Mi
+      volumes:
+      - name: datadir
+        hostPath:
+          path: /openreplay/storage/nfs
+          type: DirectoryOrCreate
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: assets-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: assets-0.1.1
+    app.kubernetes.io/name: assets
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.2
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: assets
+      app.kubernetes.io/instance: openreplay
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: assets
+        app.kubernetes.io/instance: openreplay
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/component: observability
+    spec:
+      serviceAccountName: assets-openreplay
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1001
+        runAsUser: 1001
+      shareProcessNamespace: true
+      containers:
+      - name: assets
+        securityContext:
+          runAsGroup: 1001
+          runAsUser: 1001
+        image: public.ecr.aws/p1t3u8a3/assets:v1.27.2
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8888
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 3
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8888
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: access-key
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: secret-key
+        - name: BUCKET_NAME
+          value: sessions-assets
+        - name: LICENSE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: license-key
+              optional: true
+        - name: AWS_ENDPOINT
+          value: https://openreplay.local
+        - name: AWS_REGION
+          value: us-east-1
+        - name: KAFKA_SERVERS
+          value: kafka.db.svc.cluster.local:9092
+        - name: KAFKA_USE_SSL
+          value: 'false'
+        - name: ASSETS_ORIGIN
+          value: https://openreplay.local/sessions-assets
+        - name: REDIS_STRING
+          value: redis://redis-master.db.svc.cluster.local:6379
+        ports:
+        - name: http
+          containerPort: 9000
+          protocol: TCP
+        - name: metrics
+          containerPort: 8888
+          protocol: TCP
+        volumeMounts: null
+        resources:
+          requests:
+            cpu: 25m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 384Mi
+      volumes: null
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: assist-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: assist-0.1.1
+    app.kubernetes.io/name: assist
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.4
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: assist
+      app.kubernetes.io/instance: openreplay
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: assist
+        app.kubernetes.io/instance: openreplay
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/component: observability
+    spec:
+      serviceAccountName: assist-openreplay
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1001
+        runAsUser: 1001
+      shareProcessNamespace: true
+      containers:
+      - name: assist
+        securityContext:
+          runAsGroup: 1001
+          runAsUser: 1001
+        image: public.ecr.aws/p1t3u8a3/assist:v1.27.4
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: ASSIST_JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: assist-jwt-secret
+        - name: ASSIST_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: assist-key
+        - name: AWS_DEFAULT_REGION
+          value: us-east-1
+        - name: REDIS_URL
+          value: redis-master.db.svc.cluster.local
+        - name: CLEAR_SOCKET_TIME
+          value: '720'
+        - name: MAX_BACKPRESSURE_KB
+          value: '128'
+        - name: debug
+          value: '0'
+        - name: redis
+          value: 'false'
+        ports:
+        - name: metrics
+          containerPort: 8888
+        - name: socketio
+          containerPort: 9001
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 50m
+            memory: 256Mi
+          limits:
+            cpu: '1'
+            memory: 768Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: canvases-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: canvases-0.1.1
+    app.kubernetes.io/name: canvases
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: canvases
+      app.kubernetes.io/instance: openreplay
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: canvases
+        app.kubernetes.io/instance: openreplay
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/component: observability
+    spec:
+      serviceAccountName: canvases-openreplay
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1001
+        runAsUser: 1001
+      shareProcessNamespace: true
+      containers:
+      - name: canvases
+        securityContext:
+          runAsGroup: 1001
+          runAsUser: 1001
+        image: public.ecr.aws/p1t3u8a3/canvases:v1.27.0
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8888
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 3
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8888
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: access-key
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: secret-key
+        - name: AWS_ENDPOINT
+          value: https://openreplay.local
+        - name: AWS_REGION
+          value: us-east-1
+        - name: BUCKET_NAME
+          value: mobs
+        - name: LICENSE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: license-key
+              optional: true
+        - name: KAFKA_SERVERS
+          value: kafka.db.svc.cluster.local:9092
+        - name: KAFKA_USE_SSL
+          value: 'false'
+        - name: TOKEN_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: token-secret
+        - name: pg_password
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: postgresql-password
+        - name: POSTGRES_STRING
+          value: postgres://postgres:$(pg_password)@postgresql.db.svc.cluster.local:5432/postgres
+        - name: REDIS_STRING
+          value: redis://redis-master.db.svc.cluster.local:6379
+        - name: FS_CLEAN_HRS
+          value: '24'
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        - name: metrics
+          containerPort: 8888
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 25m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 384Mi
+        volumeMounts:
+        - name: datadir
+          mountPath: /mnt/efs
+      volumes:
+      - name: datadir
+        hostPath:
+          path: /openreplay/storage/nfs
+          type: DirectoryOrCreate
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chalice-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: chalice-0.1.7
+    app.kubernetes.io/name: chalice
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.22
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: chalice
+      app.kubernetes.io/instance: openreplay
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: chalice
+        app.kubernetes.io/instance: openreplay
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/component: observability
+    spec:
+      serviceAccountName: chalice-openreplay
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1001
+        runAsUser: 1001
+      shareProcessNamespace: true
+      containers:
+      - name: chalice
+        securityContext:
+          runAsGroup: 1001
+          runAsUser: 1001
+        image: public.ecr.aws/p1t3u8a3/chalice:v1.27.22
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          httpGet:
+            path: /signup
+            port: 8000
+          initialDelaySeconds: 120
+          periodSeconds: 30
+          timeoutSeconds: 15
+        env:
+        - name: REDIS_STRING
+          value: redis://redis-master.db.svc.cluster.local:6379
+        - name: KAFKA_SERVERS
+          value: kafka.db.svc.cluster.local
+        - name: ch_user
+          value: default
+        - name: ch_password
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: clickhouse-password
+        - name: ch_host
+          value: clickhouse-openreplay-clickhouse.db.svc.cluster.local
+        - name: ch_port
+          value: '9000'
+        - name: ch_port_http
+          value: '8123'
+        - name: sourcemaps_reader
+          value: http://sourcemapreader-openreplay.local.svc.cluster.local:9000/{}/sourcemaps
+        - name: ASSIST_URL
+          value: http://assist-openreplay.local.svc.cluster.local:9001/assist/%s
+        - name: JWT_REFRESH_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: jwt-refresh-secret
+        - name: JWT_SPOT_REFRESH_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: jwt-spot-refresh-secret
+        - name: ASSIST_JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: assist-jwt-secret
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: jwt-secret
+        - name: ASSIST_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: assist-key
+        - name: JWT_SPOT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: jwt-spot-secret
+        - name: LICENSE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: license-key
+              optional: true
+        - name: version_number
+          value: v1.27.22
+        - name: pg_host
+          value: postgresql.db.svc.cluster.local
+        - name: pg_port
+          value: '5432'
+        - name: pg_dbname
+          value: postgres
+        - name: pg_user
+          value: postgres
+        - name: pg_password
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: postgresql-password
+        - name: SITE_URL
+          value: https://openreplay.local
+        - name: S3_HOST
+          value: https://openreplay.local
+        - name: S3_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: access-key
+        - name: S3_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: secret-key
+        - name: AWS_DEFAULT_REGION
+          value: us-east-1
+        - name: sessions_region
+          value: us-east-1
+        - name: ASSIST_RECORDS_BUCKET
+          value: records
+        - name: sessions_bucket
+          value: mobs
+        - name: IOS_VIDEO_BUCKET
+          value: mobs
+        - name: sourcemaps_bucket
+          value: sourcemaps
+        - name: js_cache_bucket
+          value: sessions-assets
+        - name: EMAIL_HOST
+          value: ''
+        - name: EMAIL_PORT
+          value: '587'
+        - name: EMAIL_USER
+          value: ''
+        - name: EMAIL_PASSWORD
+          value: ''
+        - name: EMAIL_USE_TLS
+          value: 'true'
+        - name: EMAIL_USE_SSL
+          value: 'false'
+        - name: EMAIL_SSL_KEY
+          value: ''
+        - name: EMAIL_SSL_CERT
+          value: ''
+        - name: EMAIL_FROM
+          value: OpenReplay<do-not-reply@openreplay.com>
+        - name: SCIM_ACCESS_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: scim-access-secret-key
+              optional: true
+        - name: SCIM_REFRESH_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: scim-refresh-secret-key
+              optional: true
+        - name: CH_COMPRESSION
+          value: 'false'
+        - name: JWT_EXPIRATION
+          value: '86400'
+        - name: LOGLEVEL
+          value: INFO
+        - name: PYTHONUNBUFFERED
+          value: '0'
+        - name: SAML2_MD_URL
+          value: ''
+        - name: SCIM_ACCESS_TOKEN_EXPIRE_SECONDS
+          value: '86400'
+        - name: announcement_url
+          value: ''
+        - name: assist_secret
+          value: ''
+        - name: async_Token
+          value: ''
+        - name: captcha_key
+          value: ''
+        - name: captcha_server
+          value: ''
+        - name: iceServers
+          value: ''
+        - name: idp_entityId
+          value: ''
+        - name: idp_name
+          value: ''
+        - name: idp_sls_url
+          value: ''
+        - name: idp_sso_url
+          value: ''
+        - name: idp_tenantKey
+          value: ''
+        - name: idp_x509cert
+          value: ''
+        - name: jwt_algorithm
+          value: HS512
+        - name: root_path
+          value: /api
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        ports:
+        - name: http
+          containerPort: 8000
+          protocol: TCP
+        - name: metrics
+          containerPort: 8888
+          protocol: TCP
+        volumeMounts:
+        - name: datadir
+          mountPath: /mnt/efs
+        resources:
+          requests:
+            cpu: 50m
+            memory: 256Mi
+          limits:
+            cpu: '1'
+            memory: 768Mi
+      volumes:
+      - name: datadir
+        hostPath:
+          path: /openreplay/storage/nfs
+          type: DirectoryOrCreate
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: db-0.1.1
+    app.kubernetes.io/name: db
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.3
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: db
+      app.kubernetes.io/instance: openreplay
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: db
+        app.kubernetes.io/instance: openreplay
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/component: observability
+    spec:
+      serviceAccountName: db-openreplay
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1001
+        runAsUser: 1001
+      shareProcessNamespace: true
+      containers:
+      - name: db
+        securityContext:
+          runAsGroup: 1001
+          runAsUser: 1001
+        image: public.ecr.aws/p1t3u8a3/db:v1.27.3
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8888
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 3
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8888
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+        env:
+        - name: CH_USERNAME
+          value: default
+        - name: CH_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: clickhouse-password
+        - name: CLICKHOUSE_STRING
+          value: clickhouse-openreplay-clickhouse.db.svc.cluster.local:9000/default
+        - name: LICENSE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: license-key
+              optional: true
+        - name: KAFKA_SERVERS
+          value: kafka.db.svc.cluster.local:9092
+        - name: KAFKA_USE_SSL
+          value: 'false'
+        - name: pg_password
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: postgresql-password
+        - name: POSTGRES_STRING
+          value: postgres://postgres:$(pg_password)@postgresql.db.svc.cluster.local:5432/postgres
+        - name: REDIS_STRING
+          value: redis://redis-master.db.svc.cluster.local:6379
+        - name: ch_db
+          value: default
+        ports:
+        - name: http
+          containerPort: 9000
+          protocol: TCP
+        - name: metrics
+          containerPort: 8888
+          protocol: TCP
+        volumeMounts: null
+        resources:
+          requests:
+            cpu: 25m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 384Mi
+      volumes: null
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ender-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: ender-0.1.1
+    app.kubernetes.io/name: ender
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.4
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ender
+      app.kubernetes.io/instance: openreplay
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ender
+        app.kubernetes.io/instance: openreplay
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/component: observability
+    spec:
+      serviceAccountName: ender-openreplay
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1001
+        runAsUser: 1001
+      shareProcessNamespace: true
+      containers:
+      - name: ender
+        securityContext:
+          runAsGroup: 1001
+          runAsUser: 1001
+        image: public.ecr.aws/p1t3u8a3/ender:v1.27.4
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8888
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 3
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8888
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+        env:
+        - name: LICENSE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: license-key
+              optional: true
+        - name: KAFKA_SERVERS
+          value: kafka.db.svc.cluster.local:9092
+        - name: KAFKA_USE_SSL
+          value: 'false'
+        - name: pg_password
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: postgresql-password
+        - name: POSTGRES_STRING
+          value: postgres://postgres:$(pg_password)@postgresql.db.svc.cluster.local:5432/postgres
+        - name: REDIS_STRING
+          value: redis://redis-master.db.svc.cluster.local:6379
+        ports:
+        - name: http
+          containerPort: 9000
+          protocol: TCP
+        - name: metrics
+          containerPort: 8888
+          protocol: TCP
+        volumeMounts: null
+        resources:
+          requests:
+            cpu: 25m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 384Mi
+      volumes: null
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: frontend-0.1.10
+    app.kubernetes.io/name: frontend
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.27
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: frontend
+      app.kubernetes.io/instance: openreplay
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: frontend
+        app.kubernetes.io/instance: openreplay
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/component: observability
+    spec:
+      serviceAccountName: frontend-openreplay
+      securityContext: null
+      shareProcessNamespace: true
+      containers:
+      - name: frontend
+        securityContext: null
+        image: public.ecr.aws/p1t3u8a3/frontend:v1.27.27
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: TRACKER_HOST
+          value: https://openreplay.local/script
+        - name: HTTP_PORT
+          value: '80'
+        ports:
+        - name: frontend
+          containerPort: 8080
+          protocol: TCP
+        volumeMounts: null
+        resources:
+          requests:
+            cpu: 25m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 384Mi
+      volumes: null
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: heuristics-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: heuristics-0.1.1
+    app.kubernetes.io/name: heuristics
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.1
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: heuristics
+      app.kubernetes.io/instance: openreplay
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: heuristics
+        app.kubernetes.io/instance: openreplay
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/component: observability
+    spec:
+      serviceAccountName: heuristics-openreplay
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1001
+        runAsUser: 1001
+      shareProcessNamespace: true
+      containers:
+      - name: heuristics
+        securityContext:
+          runAsGroup: 1001
+          runAsUser: 1001
+        image: public.ecr.aws/p1t3u8a3/heuristics:v1.27.1
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8888
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 3
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8888
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+        env:
+        - name: LICENSE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: license-key
+              optional: true
+        - name: KAFKA_SERVERS
+          value: kafka.db.svc.cluster.local:9092
+        - name: KAFKA_USE_SSL
+          value: 'false'
+        - name: REDIS_STRING
+          value: redis://redis-master.db.svc.cluster.local:6379
+        ports:
+        - name: http
+          containerPort: 9000
+          protocol: TCP
+        - name: metrics
+          containerPort: 8888
+          protocol: TCP
+        volumeMounts: null
+        resources:
+          requests:
+            cpu: 20m
+            memory: 64Mi
+          limits:
+            cpu: 300m
+            memory: 192Mi
+      volumes: null
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: http-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: http-0.1.1
+    app.kubernetes.io/name: http
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.3
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: http
+      app.kubernetes.io/instance: openreplay
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: http
+        app.kubernetes.io/instance: openreplay
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/component: observability
+    spec:
+      serviceAccountName: http-openreplay
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1001
+        runAsUser: 1001
+      shareProcessNamespace: true
+      containers:
+      - name: http
+        securityContext:
+          runAsGroup: 1001
+          runAsUser: 1001
+        image: public.ecr.aws/p1t3u8a3/http:v1.27.3
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8888
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 3
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8888
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+        env:
+        - name: BUCKET_NAME
+          value: uxtesting-records
+        - name: CACHE_ASSETS
+          value: 'true'
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: access-key
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: secret-key
+        - name: AWS_REGION
+          value: us-east-1
+        - name: AWS_ENDPOINT
+          value: https://openreplay.local
+        - name: LICENSE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: license-key
+              optional: true
+        - name: KAFKA_SERVERS
+          value: kafka.db.svc.cluster.local:9092
+        - name: KAFKA_USE_SSL
+          value: 'false'
+        - name: pg_password
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: postgresql-password
+        - name: POSTGRES_STRING
+          value: postgres://postgres:$(pg_password)@postgresql.db.svc.cluster.local:5432/postgres
+        - name: REDIS_STRING
+          value: redis://redis-master.db.svc.cluster.local:6379
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: jwt-secret
+        - name: JWT_SPOT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: jwt-spot-secret
+        - name: TOKEN_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: token-secret
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        - name: metrics
+          containerPort: 8888
+          protocol: TCP
+        volumeMounts: null
+        resources:
+          requests:
+            cpu: 25m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 384Mi
+      volumes: null
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: images-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: images-0.1.1
+    app.kubernetes.io/name: images
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: images
+      app.kubernetes.io/instance: openreplay
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: images
+        app.kubernetes.io/instance: openreplay
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/component: observability
+    spec:
+      serviceAccountName: images-openreplay
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1001
+        runAsUser: 1001
+      shareProcessNamespace: true
+      containers:
+      - name: images
+        securityContext:
+          runAsGroup: 1001
+          runAsUser: 1001
+        image: public.ecr.aws/p1t3u8a3/images:v1.27.0
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8888
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 3
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8888
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: access-key
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: secret-key
+        - name: AWS_ENDPOINT
+          value: https://openreplay.local
+        - name: AWS_REGION
+          value: us-east-1
+        - name: BUCKET_NAME
+          value: mobs
+        - name: LICENSE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: license-key
+              optional: true
+        - name: KAFKA_SERVERS
+          value: kafka.db.svc.cluster.local:9092
+        - name: KAFKA_USE_SSL
+          value: 'false'
+        - name: TOKEN_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: token-secret
+        - name: pg_password
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: postgresql-password
+        - name: POSTGRES_STRING
+          value: postgres://postgres:$(pg_password)@postgresql.db.svc.cluster.local:5432/postgres
+        - name: REDIS_STRING
+          value: redis://redis-master.db.svc.cluster.local:6379
+        - name: FS_CLEAN_HRS
+          value: '24'
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        - name: metrics
+          containerPort: 8888
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 25m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 384Mi
+        volumeMounts:
+        - name: datadir
+          mountPath: /mnt/efs
+      volumes:
+      - name: datadir
+        hostPath:
+          path: /openreplay/storage/nfs
+          type: DirectoryOrCreate
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: integrations-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: integrations-0.1.1
+    app.kubernetes.io/name: integrations
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.2
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: integrations
+      app.kubernetes.io/instance: openreplay
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: integrations
+        app.kubernetes.io/instance: openreplay
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/component: observability
+    spec:
+      serviceAccountName: integrations-openreplay
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1001
+        runAsUser: 1001
+      shareProcessNamespace: true
+      containers:
+      - name: integrations
+        securityContext:
+          runAsGroup: 1001
+          runAsUser: 1001
+        image: public.ecr.aws/p1t3u8a3/integrations:v1.27.2
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8888
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 3
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8888
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: access-key
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: secret-key
+        - name: AWS_ENDPOINT
+          value: https://openreplay.local
+        - name: AWS_REGION
+          value: us-east-1
+        - name: BUCKET_NAME
+          value: mobs
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: jwt-secret
+        - name: LICENSE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: license-key
+              optional: true
+        - name: KAFKA_SERVERS
+          value: kafka.db.svc.cluster.local:9092
+        - name: KAFKA_USE_SSL
+          value: 'false'
+        - name: pg_password
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: postgresql-password
+        - name: POSTGRES_STRING
+          value: postgres://postgres:$(pg_password)@postgresql.db.svc.cluster.local:5432/postgres
+        - name: REDIS_STRING
+          value: redis://redis-master.db.svc.cluster.local:6379
+        - name: TOKEN_SECRET
+          value: secret_token_string
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        - name: metrics
+          containerPort: 8888
+          protocol: TCP
+        volumeMounts: null
+        resources:
+          requests:
+            cpu: 25m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 384Mi
+      volumes: null
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sink-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: sink-0.1.1
+    app.kubernetes.io/name: sink
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.2
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sink
+      app.kubernetes.io/instance: openreplay
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sink
+        app.kubernetes.io/instance: openreplay
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/component: observability
+    spec:
+      serviceAccountName: sink-openreplay
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1001
+        runAsUser: 1001
+      shareProcessNamespace: true
+      containers:
+      - name: sink
+        securityContext:
+          runAsGroup: 1001
+          runAsUser: 1001
+        image: public.ecr.aws/p1t3u8a3/sink:v1.27.2
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8888
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 3
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8888
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+        env:
+        - name: LICENSE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: license-key
+              optional: true
+        - name: KAFKA_SERVERS
+          value: kafka.db.svc.cluster.local:9092
+        - name: KAFKA_USE_SSL
+          value: 'false'
+        - name: ASSETS_ORIGIN
+          value: https://openreplay.local/sessions-assets
+        - name: pg_password
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: postgresql-password
+        - name: POSTGRES_STRING
+          value: postgres://postgres:$(pg_password)@postgresql.db.svc.cluster.local:5432/postgres
+        - name: REDIS_STRING
+          value: redis://redis-master.db.svc.cluster.local:6379
+        ports:
+        - name: http
+          containerPort: 9000
+          protocol: TCP
+        - name: metrics
+          containerPort: 8888
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 25m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 384Mi
+        volumeMounts:
+        - name: datadir
+          mountPath: /mnt/efs
+      volumes:
+      - name: datadir
+        hostPath:
+          path: /openreplay/storage/nfs
+          type: DirectoryOrCreate
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sourcemapreader-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: sourcemapreader-0.1.1
+    app.kubernetes.io/name: sourcemapreader
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sourcemapreader
+      app.kubernetes.io/instance: openreplay
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sourcemapreader
+        app.kubernetes.io/instance: openreplay
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/component: observability
+    spec:
+      serviceAccountName: sourcemapreader-openreplay
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1001
+        runAsUser: 1001
+      shareProcessNamespace: true
+      containers:
+      - name: sourcemapreader
+        securityContext:
+          runAsGroup: 1001
+          runAsUser: 1001
+        image: public.ecr.aws/p1t3u8a3/sourcemapreader:v1.27.0
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: SMR_HOST
+          value: 0.0.0.0
+        - name: S3_HOST
+          value: http://minio-headless.local.svc.cluster.local:9000
+        - name: S3_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: access-key
+        - name: S3_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: secret-key
+        - name: AWS_REGION
+          value: us-east-1
+        - name: LICENSE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: license-key
+              optional: true
+        - name: ASSETS_ORIGIN
+          value: https://openreplay.local/sessions-assets
+        ports:
+        - name: metrics
+          containerPort: 8888
+          protocol: TCP
+        - name: sourcemapreader
+          containerPort: 9000
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 20m
+            memory: 64Mi
+          limits:
+            cpu: 300m
+            memory: 192Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spot-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: spot-0.1.1
+    app.kubernetes.io/name: spot
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: spot
+      app.kubernetes.io/instance: openreplay
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: spot
+        app.kubernetes.io/instance: openreplay
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/component: observability
+    spec:
+      serviceAccountName: spot-openreplay
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1001
+        runAsUser: 1001
+      shareProcessNamespace: true
+      containers:
+      - name: spot
+        securityContext:
+          runAsGroup: 1001
+          runAsUser: 1001
+        image: public.ecr.aws/p1t3u8a3/spot:v1.27.0
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8888
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 3
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8888
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+        env:
+        - name: CACHE_ASSETS
+          value: 'true'
+        - name: FS_CLEAN_HRS
+          value: '24'
+        - name: TOKEN_SECRET
+          value: secret_token_string
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: access-key
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: secret-key
+        - name: BUCKET_NAME
+          value: spots
+        - name: AWS_REGION
+          value: us-east-1
+        - name: AWS_ENDPOINT
+          value: https://openreplay.local
+        - name: LICENSE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: license-key
+              optional: true
+        - name: KAFKA_SERVERS
+          value: kafka.db.svc.cluster.local:9092
+        - name: KAFKA_USE_SSL
+          value: 'false'
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: jwt-secret
+        - name: JWT_SPOT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: jwt-spot-secret
+        - name: pg_password
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: postgresql-password
+        - name: POSTGRES_STRING
+          value: postgres://postgres:$(pg_password)@postgresql.db.svc.cluster.local:5432/postgres
+        - name: REDIS_STRING
+          value: redis://redis-master.db.svc.cluster.local:6379
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        - name: metrics
+          containerPort: 8888
+          protocol: TCP
+        volumeMounts:
+        - name: datadir
+          mountPath: /mnt/efs
+        resources:
+          requests:
+            cpu: 50m
+            memory: 256Mi
+          limits:
+            cpu: '1'
+            memory: 768Mi
+      volumes:
+      - name: datadir
+        hostPath:
+          path: /openreplay/storage/nfs
+          type: DirectoryOrCreate
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: storage-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: storage-0.1.1
+    app.kubernetes.io/name: storage
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.1
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: storage
+      app.kubernetes.io/instance: openreplay
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: storage
+        app.kubernetes.io/instance: openreplay
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/component: observability
+    spec:
+      serviceAccountName: storage-openreplay
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1001
+        runAsUser: 1001
+      shareProcessNamespace: true
+      containers:
+      - name: storage
+        securityContext:
+          runAsGroup: 1001
+          runAsUser: 1001
+        image: public.ecr.aws/p1t3u8a3/storage:v1.27.1
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8888
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 3
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8888
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: access-key
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: secret-key
+        - name: AWS_ENDPOINT
+          value: https://openreplay.local
+        - name: AWS_REGION
+          value: us-east-1
+        - name: BUCKET_NAME
+          value: mobs
+        - name: LICENSE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: license-key
+              optional: true
+        - name: KAFKA_SERVERS
+          value: kafka.db.svc.cluster.local:9092
+        - name: KAFKA_USE_SSL
+          value: 'false'
+        - name: REDIS_STRING
+          value: redis://redis-master.db.svc.cluster.local:6379
+        - name: FS_CLEAN_HRS
+          value: '24'
+        ports:
+        - name: http
+          containerPort: 9000
+          protocol: TCP
+        - name: metrics
+          containerPort: 8888
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 25m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 384Mi
+        volumeMounts:
+        - name: datadir
+          mountPath: /mnt/efs
+      volumes:
+      - name: datadir
+        hostPath:
+          path: /openreplay/storage/nfs
+          type: DirectoryOrCreate
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: efs-cleaner
+  namespace: local
+  labels:
+    helm.sh/chart: utilities-0.1.0
+    app.kubernetes.io/name: utilities
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  schedule: 5 3 * * *
+  failedJobsHistoryLimit: 1
+  successfulJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          annotations:
+            linkerd.io/inject: disabled
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: efs-cleaner
+            image: debian:stable-slim
+            command:
+            - /bin/sh
+            - -c
+            args:
+            - "# Cleanup storage older than configured retention\n# Strategy: scan\
+              \ top-level session dirs only (maxdepth 1),\n# derive and delete correlated\
+              \ canvas/screenshots/devtools.\n# Avoids expensive recursive find across\
+              \ 100k+ files.\nset -u\nexport LC_ALL=C\nexport LANG=C\n\nROOT_DIR=\"\
+              /mnt/efs\"\nMINUTES_OLD=1440\nTHROTTLE_INTERVAL=0.1\n\necho \"=== EFS\
+              \ Cleanup ===\"\necho \"Retention: files older than ${MINUTES_OLD} minutes\"\
+              \necho \"Throttle: ${THROTTLE_INTERVAL}s between each rm -rf\"\necho\
+              \ \"Storage before:\"\ndf -h \"$ROOT_DIR\"\n\nCOUNTFILE=$(mktemp)\n\
+              echo 0 > \"$COUNTFILE\"\n\n# Phase 1: Scan top-level entries (maxdepth\
+              \ 1), skip canvas/screenshots dirs.\n# For each old session dir, also\
+              \ delete correlated canvas/screenshots/devtools.\necho \"--- Phase 1:\
+              \ Session cleanup ---\"\nfind \"$ROOT_DIR\" -mindepth 1 -maxdepth 1\
+              \ \\\n  ! -name \"canvas\" \\\n  ! -name \"screenshots\" \\\n  -mmin\
+              \ +\"$MINUTES_OLD\" \\\n  -print 2>/dev/null | while IFS= read -r filepath;\
+              \ do\n  basename=$(basename \"$filepath\")\n\n  # Delete main session\
+              \ dir/file\n  ionice -c 2 -n 7 nice -n 19 rm -rf \"$filepath\" 2>/dev/null\
+              \ || true\n\n  # Delete correlated devtools (sibling file: <session_id>devtools)\n\
+              \  ionice -c 2 -n 7 nice -n 19 rm -rf \"${filepath}devtools\" 2>/dev/null\
+              \ || true\n\n  # Delete correlated canvas dir\n  if [ -d \"${ROOT_DIR}/canvas/${basename}\"\
+              \ ]; then\n    ionice -c 2 -n 7 nice -n 19 rm -rf \"${ROOT_DIR}/canvas/${basename}\"\
+              \ 2>/dev/null || true\n  fi\n\n  # Delete correlated screenshots dir\n\
+              \  if [ -d \"${ROOT_DIR}/screenshots/${basename}\" ]; then\n    ionice\
+              \ -c 2 -n 7 nice -n 19 rm -rf \"${ROOT_DIR}/screenshots/${basename}\"\
+              \ 2>/dev/null || true\n  fi\n\n  # Count via file (while loop runs in\
+              \ subshell due to pipe)\n  c=$(cat \"$COUNTFILE\")\n  c=$((c + 1))\n\
+              \  echo \"$c\" > \"$COUNTFILE\"\n  if [ $((c % 1000)) -eq 0 ]; then\n\
+              \    echo \"Progress: ${c} sessions cleaned\"\n  fi\n\n  # Throttle\
+              \ to avoid saturating EBS IOPS\n  sleep \"$THROTTLE_INTERVAL\"\ndone\n\
+              echo \"Phase 1 complete: $(cat \"$COUNTFILE\") sessions cleaned\"\n\n\
+              # Phase 2: Cleanup orphaned canvas/screenshots dirs\n# (sessions already\
+              \ deleted by other means, but canvas/screenshots left behind)\necho\
+              \ \"--- Phase 2: Orphan cleanup ---\"\necho 0 > \"$COUNTFILE\"\nfor\
+              \ subdir in canvas screenshots; do\n  if [ -d \"${ROOT_DIR}/${subdir}\"\
+              \ ]; then\n    find \"${ROOT_DIR}/${subdir}\" -mindepth 1 -maxdepth\
+              \ 1 -type d \\\n      -mmin +\"$MINUTES_OLD\" \\\n      -print 2>/dev/null\
+              \ | while IFS= read -r orphan; do\n      ionice -c 2 -n 7 nice -n 19\
+              \ rm -rf \"$orphan\" 2>/dev/null || true\n      c=$(cat \"$COUNTFILE\"\
+              )\n      echo $((c + 1)) > \"$COUNTFILE\"\n      sleep \"$THROTTLE_INTERVAL\"\
+              \n    done\n  fi\ndone\necho \"Phase 2 complete: $(cat \"$COUNTFILE\"\
+              ) orphans cleaned\"\nrm -f \"$COUNTFILE\"\n\necho \"=== Cleanup done\
+              \ ===\"\necho \"Storage after:\"\ndf -h \"$ROOT_DIR\"\n"
+            volumeMounts:
+            - mountPath: /mnt/efs
+              name: datadir
+            resources:
+              requests:
+                cpu: 25m
+                memory: 128Mi
+              limits:
+                cpu: 500m
+                memory: 384Mi
+          volumes:
+          - name: datadir
+            hostPath:
+              path: /openreplay/storage/nfs
+              type: DirectoryOrCreate
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: api-0.1.1
+    app.kubernetes.io/name: api
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.10
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+  annotations:
+    nginx.org/mergeable-ingress-type: minion
+    nginx.org/lb-method: hash $http_x_forwarded_for consistent
+    nginx.org/location-snippets: "rewrite ^/v2/api/(.*)$ /$1 break;\n\n# CORS configuration\n\
+      add_header 'Access-Control-Allow-Origin' '$http_origin' always;\nadd_header\
+      \ 'Access-Control-Allow-Methods' 'POST, GET, PATCH, DELETE, OPTIONS, PUT' always;\n\
+      add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization, Content-Encoding,\
+      \ X-Openreplay-Batch' always;\nadd_header 'Access-Control-Expose-Headers' 'Content-Length'\
+      \ always;\nadd_header 'Access-Control-Max-Age' '3600' always;\nadd_header 'Access-Control-Allow-Credentials'\
+      \ 'true' always;\n\n# Handle preflight\nif ($request_method = 'OPTIONS') {\n\
+      \  add_header 'Access-Control-Allow-Origin' '$http_origin' always;\n  add_header\
+      \ 'Access-Control-Allow-Methods' 'POST, GET, PATCH, DELETE, OPTIONS, PUT' always;\n\
+      \  add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization, Content-Encoding,\
+      \ X-Openreplay-Batch' always;\n  add_header 'Access-Control-Max-Age' '3600'\
+      \ always;\n  add_header 'Content-Length' '0';\n  add_header 'Content-Type' 'text/plain';\n\
+      \  return 204;\n}\n"
+    nginx.org/proxy-connect-timeout: 120s
+    nginx.org/proxy-read-timeout: 300s
+    nginx.org/proxy-send-timeout: 300s
+spec:
+  ingressClassName: openreplay
+  rules:
+  - host: openreplay.local
+    http:
+      paths:
+      - pathType: Prefix
+        backend:
+          service:
+            name: api-openreplay
+            port:
+              number: 8080
+        path: /v2/api
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: assist-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: assist-0.1.1
+    app.kubernetes.io/name: assist
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.4
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+  annotations:
+    nginx.org/mergeable-ingress-type: minion
+    nginx.org/lb-method: hash $sessionid consistent
+    nginx.org/websocket-services: assist-openreplay
+    nginx.org/location-snippets: '# CORS configuration for WebSocket
+
+      add_header ''Access-Control-Allow-Origin'' ''$http_origin'' always;
+
+      add_header ''Access-Control-Allow-Methods'' ''GET, OPTIONS'' always;
+
+      add_header ''Access-Control-Allow-Headers'' ''sessionid, Content-Type, Authorization''
+      always;
+
+      add_header ''Access-Control-Max-Age'' ''1728000'' always;
+
+
+      # Debug headers
+
+      add_header ''X-Debug-Session-ID'' $sessionid always;
+
+
+      # Strip /ws-assist prefix
+
+      rewrite ^/ws-assist/(.*)$ /$1 break;
+
+      '
+    nginx.org/proxy-connect-timeout: 120s
+    nginx.org/proxy-read-timeout: 3600s
+    nginx.org/proxy-send-timeout: 3600s
+spec:
+  ingressClassName: openreplay
+  rules:
+  - host: openreplay.local
+    http:
+      paths:
+      - pathType: Prefix
+        backend:
+          service:
+            name: assist-openreplay
+            port:
+              number: 9001
+        path: /ws-assist
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: canvases-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: canvases-0.1.1
+    app.kubernetes.io/name: canvases
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+  annotations:
+    nginx.org/location-snippets: "# CORS configuration\nadd_header 'Access-Control-Allow-Origin'\
+      \ '*' always;\nadd_header 'Access-Control-Allow-Methods' 'POST, OPTIONS' always;\n\
+      add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization, Content-Encoding,\
+      \ X-Openreplay-Batch' always;\nadd_header 'Access-Control-Expose-Headers' 'Content-Length'\
+      \ always;\n\n# Handle preflight\nif ($request_method = 'OPTIONS') {\n  add_header\
+      \ 'Access-Control-Allow-Origin' '*' always;\n  add_header 'Access-Control-Allow-Methods'\
+      \ 'POST, OPTIONS' always;\n  add_header 'Access-Control-Allow-Headers' 'Content-Type,\
+      \ Authorization, Content-Encoding, X-Openreplay-Batch' always;\n  add_header\
+      \ 'Access-Control-Max-Age' '1728000';\n  add_header 'Content-Type' 'text/plain\
+      \ charset=UTF-8';\n  add_header 'Content-Length' 0;\n  return 204;\n}\n\n# Strip\
+      \ /ingest prefix\nrewrite ^/ingest/(.*)$ /$1 break;\n"
+    nginx.org/mergeable-ingress-type: minion
+    nginx.org/proxy-connect-timeout: 120s
+    nginx.org/proxy-read-timeout: 300s
+    nginx.org/proxy-send-timeout: 300s
+spec:
+  ingressClassName: openreplay
+  rules:
+  - host: openreplay.local
+    http:
+      paths:
+      - pathType: Prefix
+        backend:
+          service:
+            name: canvases-openreplay
+            port:
+              number: 8080
+        path: /ingest/v1/web/images
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: chalice-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: chalice-0.1.7
+    app.kubernetes.io/name: chalice
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.22
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+  annotations:
+    nginx.org/mergeable-ingress-type: minion
+    nginx.org/location-snippets: 'add_header Cache-Control "no-store,no-cache";
+
+      add_header Pragma "no-cache";
+
+      rewrite ^/api/(.*)$ /$1 break;
+
+      '
+spec:
+  ingressClassName: openreplay
+  rules:
+  - host: openreplay.local
+    http:
+      paths:
+      - pathType: Prefix
+        backend:
+          service:
+            name: chalice-openreplay
+            port:
+              number: 8000
+        path: /api
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: frontend-openreplay-master
+  namespace: local
+  labels:
+    helm.sh/chart: frontend-0.1.10
+    app.kubernetes.io/name: frontend
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.27
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+  annotations:
+    nginx.org/mergeable-ingress-type: master
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.org/proxy-set-headers: X-Forwarded-Proto, X-Forwarded-Port
+spec:
+  ingressClassName: openreplay
+  tls:
+  - hosts:
+    - openreplay.local
+    secretName: openreplay-ssl
+  rules:
+  - host: openreplay.local
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: frontend-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: frontend-0.1.10
+    app.kubernetes.io/name: frontend
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.27
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+  annotations:
+    nginx.org/mergeable-ingress-type: minion
+    nginx.org/location-snippets: 'index /index.html;
+
+      rewrite ^((?!.(js|css|png|svg|jpg|woff|woff2)).)*$ /index.html break;
+
+      proxy_intercept_errors on;
+
+      error_page 404 =200 /index.html;
+
+      # Custom CSP snippet here.
+
+      '
+    nginx.org/proxy-connect-timeout: 120s
+    nginx.org/proxy-read-timeout: 300s
+    nginx.org/proxy-send-timeout: 300s
+spec:
+  ingressClassName: openreplay
+  rules:
+  - host: openreplay.local
+    http:
+      paths:
+      - pathType: Prefix
+        backend:
+          service:
+            name: frontend-openreplay
+            port:
+              number: 8080
+        path: /
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: openreplay-tracker-ingress
+  labels:
+    helm.sh/chart: frontend-0.1.10
+    app.kubernetes.io/name: frontend
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.27
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+  annotations:
+    nginx.org/mergeable-ingress-type: minion
+    nginx.org/ssl-services: openreplay-tracker
+    nginx.org/client-max-body-size: 8m
+    nginx.org/proxy-buffering: 'true'
+    nginx.org/location-snippets: 'rewrite ^/script/(.*)/openreplay(.*).js$ /$1/openreplay$2.js
+      break;
+
+      proxy_ssl_name static.openreplay.com;
+
+      proxy_ssl_server_name on;
+
+      proxy_set_header Host static.openreplay.com;
+
+      '
+    nginx.org/proxy-connect-timeout: 120s
+    nginx.org/proxy-read-timeout: 300s
+    nginx.org/proxy-send-timeout: 300s
+spec:
+  ingressClassName: openreplay
+  rules:
+  - host: openreplay.local
+    http:
+      paths:
+      - pathType: Prefix
+        backend:
+          service:
+            name: openreplay-tracker
+            port:
+              number: 443
+        path: /script/
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: http-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: http-0.1.1
+    app.kubernetes.io/name: http
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.3
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+  annotations:
+    nginx.org/mergeable-ingress-type: minion
+    nginx.org/lb-method: hash $http_x_forwarded_for consistent
+    nginx.org/location-snippets: "# CORS configuration\nadd_header 'Access-Control-Allow-Origin'\
+      \ '*' always;\nadd_header 'Access-Control-Allow-Methods' 'POST, OPTIONS' always;\n\
+      add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization, Content-Encoding,\
+      \ X-Openreplay-Batch, datatype' always;\nadd_header 'Access-Control-Expose-Headers'\
+      \ 'Content-Length' always;\n\n# Handle preflight\nif ($request_method = 'OPTIONS')\
+      \ {\n  add_header 'Access-Control-Allow-Origin' '*' always;\n  add_header 'Access-Control-Allow-Methods'\
+      \ 'POST, OPTIONS' always;\n  add_header 'Access-Control-Allow-Headers' 'Content-Type,\
+      \ Authorization, Content-Encoding, X-Openreplay-Batch, datatype' always;\n \
+      \ add_header 'Access-Control-Max-Age' '1728000';\n  add_header 'Content-Type'\
+      \ 'text/plain charset=UTF-8';\n  add_header 'Content-Length' 0;\n  return 204;\n\
+      }\n\n# Strip /ingest prefix\nrewrite ^/ingest/(.*)$ /$1 break;\n"
+    nginx.org/proxy-connect-timeout: 120s
+    nginx.org/proxy-read-timeout: 300s
+    nginx.org/proxy-send-timeout: 300s
+spec:
+  ingressClassName: openreplay
+  rules:
+  - host: openreplay.local
+    http:
+      paths:
+      - pathType: Prefix
+        backend:
+          service:
+            name: http-openreplay
+            port:
+              number: 8080
+        path: /ingest
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: minio
+  namespace: local
+  annotations:
+    nginx.org/mergeable-ingress-type: minion
+  labels:
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+spec:
+  ingressClassName: openreplay
+  rules:
+  - host: openreplay.local
+    http:
+      paths:
+      - pathType: Prefix
+        backend:
+          service:
+            name: minio
+            port:
+              number: 9000
+        path: /mobs
+      - pathType: Prefix
+        backend:
+          service:
+            name: minio
+            port:
+              number: 9000
+        path: /sessions-assets
+      - pathType: Prefix
+        backend:
+          service:
+            name: minio
+            port:
+              number: 9000
+        path: /static
+      - pathType: Prefix
+        backend:
+          service:
+            name: minio
+            port:
+              number: 9000
+        path: /sourcemaps
+      - pathType: Prefix
+        backend:
+          service:
+            name: minio
+            port:
+              number: 9000
+        path: /records
+      - pathType: Prefix
+        backend:
+          service:
+            name: minio
+            port:
+              number: 9000
+        path: /spots
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: images-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: images-0.1.1
+    app.kubernetes.io/name: images
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+  annotations:
+    nginx.org/location-snippets: '# Strip /ingest prefix
+
+      rewrite ^/ingest/(.*)$ /$1 break;
+
+      '
+    nginx.org/mergeable-ingress-type: minion
+    nginx.org/proxy-connect-timeout: 120s
+    nginx.org/proxy-read-timeout: 300s
+    nginx.org/proxy-send-timeout: 300s
+spec:
+  ingressClassName: openreplay
+  rules:
+  - host: openreplay.local
+    http:
+      paths:
+      - pathType: Prefix
+        backend:
+          service:
+            name: images-openreplay
+            port:
+              number: 8080
+        path: /ingest/v1/mobile/images
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: integrations-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: integrations-0.1.1
+    app.kubernetes.io/name: integrations
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.2
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+  annotations:
+    nginx.org/mergeable-ingress-type: minion
+    nginx.org/lb-method: hash $http_x_forwarded_for consistent
+    nginx.org/location-snippets: "# CORS configuration\nadd_header 'Access-Control-Allow-Origin'\
+      \ '*' always;\nadd_header 'Access-Control-Allow-Methods' 'POST, PATCH, DELETE,\
+      \ OPTIONS' always;\nadd_header 'Access-Control-Allow-Headers' 'Content-Type,\
+      \ Authorization, Content-Encoding, X-Openreplay-Batch' always;\nadd_header 'Access-Control-Expose-Headers'\
+      \ 'Content-Length' always;\n\n# Handle preflight\nif ($request_method = 'OPTIONS')\
+      \ {\n  add_header 'Access-Control-Allow-Origin' '*' always;\n  add_header 'Access-Control-Allow-Methods'\
+      \ 'POST, PATCH, DELETE, OPTIONS' always;\n  add_header 'Access-Control-Allow-Headers'\
+      \ 'Content-Type, Authorization, Content-Encoding, X-Openreplay-Batch' always;\n\
+      \  add_header 'Access-Control-Max-Age' '3600';\n  add_header 'Content-Type'\
+      \ 'text/plain charset=UTF-8';\n  add_header 'Content-Length' 0;\n  return 204;\n\
+      }\n\n# Strip /integrations prefix\nrewrite ^/integrations/(.*)$ /$1 break;\n"
+    nginx.org/proxy-connect-timeout: 120s
+    nginx.org/proxy-read-timeout: 300s
+    nginx.org/proxy-send-timeout: 300s
+spec:
+  ingressClassName: openreplay
+  rules:
+  - host: openreplay.local
+    http:
+      paths:
+      - pathType: Prefix
+        backend:
+          service:
+            name: integrations-openreplay
+            port:
+              number: 8080
+        path: /integrations
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: spot-openreplay
+  namespace: local
+  labels:
+    helm.sh/chart: spot-0.1.1
+    app.kubernetes.io/name: spot
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+  annotations:
+    nginx.org/mergeable-ingress-type: minion
+    nginx.org/lb-method: hash $http_x_forwarded_for consistent
+    nginx.org/location-snippets: "# CORS configuration\nadd_header 'Access-Control-Allow-Origin'\
+      \ '*' always;\nadd_header 'Access-Control-Allow-Methods' 'POST, PATCH, DELETE,\
+      \ OPTIONS' always;\nadd_header 'Access-Control-Allow-Headers' 'Content-Type,\
+      \ Authorization, Content-Encoding, X-Openreplay-Batch' always;\nadd_header 'Access-Control-Expose-Headers'\
+      \ 'Content-Length' always;\n\n# Handle preflight\nif ($request_method = 'OPTIONS')\
+      \ {\n  add_header 'Access-Control-Allow-Origin' '*' always;\n  add_header 'Access-Control-Allow-Methods'\
+      \ 'POST, PATCH, DELETE, OPTIONS' always;\n  add_header 'Access-Control-Allow-Headers'\
+      \ 'Content-Type, Authorization, Content-Encoding, X-Openreplay-Batch' always;\n\
+      \  add_header 'Access-Control-Max-Age' '3600';\n  add_header 'Content-Type'\
+      \ 'text/plain charset=UTF-8';\n  add_header 'Content-Length' 0;\n  return 204;\n\
+      }\n\n# Strip /spot prefix\nrewrite ^/spot/(.*)$ /$1 break;\n"
+    nginx.org/proxy-connect-timeout: 120s
+    nginx.org/proxy-read-timeout: 300s
+    nginx.org/proxy-send-timeout: 300s
+spec:
+  ingressClassName: openreplay
+  rules:
+  - host: openreplay.local
+    http:
+      paths:
+      - pathType: Prefix
+        backend:
+          service:
+            name: spot-openreplay
+            port:
+              number: 8080
+        path: /spot
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: openreplay-secrets
+  namespace: local
+  annotations:
+    helm.sh/hook: pre-install, pre-upgrade
+    helm.sh/hook-weight: '-6'
+    helm.sh/hook-delete-policy: before-hook-creation
+  labels:
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+data:
+  PGHOST: cG9zdGdyZXNxbC5kYi5zdmMuY2x1c3Rlci5sb2NhbA==
+  PGPORT: NTQzMg==
+  PGDATABASE: cG9zdGdyZXM=
+  PGUSER: cG9zdGdyZXM=
+  PGPASSWORD: e3sgcmFuZEFscGhhTnVtIDIwfX0=
+  CLICKHOUSE_USER: ZGVmYXVsdA==
+  CLICKHOUSE_PASSWORD: ''
+  MINIO_HOST: aHR0cDovL21pbmlvLWhlYWRsZXNzLmxvY2FsLnN2Yy5jbHVzdGVyLmxvY2FsOjkwMDA=
+  MINIO_ACCESS_KEY: e3sgcmFuZEFscGhhTnVtIDIwIH19
+  MINIO_SECRET_KEY: e3sgcmFuZEFscGhhTnVtIDIwIH19
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  annotations:
+    helm.sh/hook: pre-install, pre-upgrade
+    helm.sh/hook-weight: '-6'
+  name: or-secrets
+  namespace: local
+  labels:
+    helm.sh/chart: openreplay-0.1.0
+    app.kubernetes.io/name: openreplay
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+type: Opaque
+data:
+  access-key: e3sgcmFuZEFscGhhTnVtIDIwIH19
+  assist-jwt-secret: e3sgcmFuZEFscGhhTnVtIDIwfX0=
+  assist-key: e3sgcmFuZEFscGhhTnVtIDIwfX0=
+  clickhouse-password: ''
+  jwt-refresh-secret: e3tyYW5kQWxwaGFOdW0gMjB9fQ==
+  jwt-secret: e3sgcmFuZEFscGhhTnVtIDIwfX0=
+  jwt-spot-refresh-secret: e3tyYW5kQWxwaGFOdW0gMjB9fQ==
+  jwt-spot-secret: e3sgcmFuZEFscGhhTnVtIDIwfX0=
+  license-key: ''
+  postgresql-password: e3sgcmFuZEFscGhhTnVtIDIwfX0=
+  secret-key: e3sgcmFuZEFscGhhTnVtIDIwIH19
+  token-secret: e3tyYW5kQWxwaGFOdW0gMjB9fQ==
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openreplay-version
+  namespace: local
+  annotations:
+    helm.sh/hook: post-install, post-upgrade
+    helm.sh/hook-weight: '-6'
+  labels:
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+data:
+  version: v1.27.0
+  chartAppVersion: v1.27.0
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: db-migration-script
+  namespace: local
+  labels:
+    helm.sh/chart: openreplay-0.1.0
+    app.kubernetes.io/name: openreplay
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+  annotations:
+    helm.sh/hook: pre-install, pre-upgrade
+    helm.sh/hook-weight: '-6'
+data:
+  clickhouse.sh: "#!/bin/bash\n\nset -ex\n\nclickhousedir=/opt/openreplay/openreplay/scripts/schema/db/init_dbs/clickhouse\n\
+    \n[[ \"${CH_PASSWORD}\" == \"\" ]] || {\n  CH_PASSWORD=\"--password $CH_PASSWORD\"\
+    \n}\n\n[[ \"${CH_USE_TLS}\" == \"true\" ]] && CH_TLS_FLAGS=\"--secure --accept-invalid-certificate\"\
+    \ || CH_TLS_FLAGS=\"\"\n\nch_client=\"clickhouse-client -h ${CH_HOST} --port ${CH_PORT}\
+    \ --user ${CH_USERNAME} ${CH_PASSWORD} ${CH_TLS_FLAGS}\"\n\nfunction run_numbered_migration()\
+    \ {\n    local version=$1\n    local version_dir=\"${clickhousedir}/${version}\"\
+    \n\n    # Safe-init state + version functions (no-op if they already exist)\n\
+    \    $ch_client -q \"CREATE FUNCTION IF NOT EXISTS openreplay_migration_state\
+    \ AS() -> -1;\"\n    $ch_client -q \"CREATE FUNCTION IF NOT EXISTS openreplay_version\
+    \ AS() -> 'v0.0.0';\"\n\n    # Read current state and version\n    local state\
+    \ current_version\n    state=$($ch_client -q \"SELECT openreplay_migration_state()\"\
+    \ | tr -d '[:space:]')\n    current_version=$($ch_client -q \"SELECT openreplay_version()\"\
+    \ | tr -d '[:space:]')\n\n    # Skip if this version is already fully applied\
+    \ (version matches and no migration in progress)\n    if [[ \"$current_version\"\
+    \ == \"v$version\" && \"$state\" == \"-1\" ]]; then\n        echo \"Version $version\
+    \ already applied (current=$current_version, state=-1). Skipping.\"\n        return\
+    \ 0\n    fi\n\n    # Skip if existing DB version is newer than target (downgrade\
+    \ attempt). Don't error, continue to next.\n    if [[ \"$current_version\" !=\
+    \ \"v0.0.0\" && \"$state\" == \"-1\" ]]; then\n        local cur_stripped=\"${current_version#v}\"\
+    \n        local newest\n        newest=$(printf '%s\\n%s\\n' \"$cur_stripped\"\
+    \ \"$version\" | sort -V | tail -n1)\n        if [[ \"$cur_stripped\" != \"$version\"\
+    \ && \"$newest\" == \"$cur_stripped\" ]]; then\n            echo \"Existing version\
+    \ $current_version > target v$version. Skipping (no downgrade).\"\n          \
+    \  return 0\n        fi\n    fi\n\n    local start_from=$((state + 1))\n    echo\
+    \ \"Migration state for version $version: state=$state, current_version=$current_version,\
+    \ starting from step $start_from\"\n\n    # Execute numbered files in version-sorted\
+    \ order (sort -V handles 10 > 2 correctly)\n    for file in $(ls \"${version_dir}\"\
+    /*.sql | sort -V); do\n        local file_num\n        file_num=$(basename \"\
+    $file\" .sql)\n        if [[ $file_num -lt $start_from ]]; then\n            echo\
+    \ \"Skipping $file (step $file_num already done)\"\n            continue\n   \
+    \     fi\n        echo \"Executing $file (step $file_num)\"\n        $ch_client\
+    \ --multiquery < \"$file\" || { echo \"FAILED at $file (step $file_num)\"; exit\
+    \ 1; }\n    done\n\n    # Verify migration completed (state should be -1)\n  \
+    \  local final_state\n    final_state=$($ch_client -q \"SELECT openreplay_migration_state()\"\
+    \ | tr -d '[:space:]')\n    if [[ $final_state -ne -1 ]]; then\n        echo \"\
+    ERROR: Migration for version $version did not complete. Final state: $final_state\"\
+    \n        exit 1\n    fi\n    echo \"Migration for version $version completed\
+    \ successfully\"\n}\n\nfunction migrate() {\n    echo \"Starting clickhouse migration\"\
+    \n    IFS=',' read -r -a migration_versions <<< \"$1\"\n    for version in ${migration_versions[*]};\
+    \ do\n        echo \"Migrating clickhouse version $version\"\n        if [[ -f\
+    \ \"${clickhousedir}/${version}/${version}.sql\" ]]; then\n            # Old-style:\
+    \ single file migration (pre-1.23.0)\n            # Keep || true — these files\
+    \ have no throwIf guards and contain non-idempotent DDL\n            $ch_client\
+    \ --multiquery < \"${clickhousedir}/${version}/${version}.sql\" || true\n    \
+    \    else\n            # New-style: numbered files with resume support (1.23.0+)\n\
+    \            run_numbered_migration \"$version\"\n        fi\n    done\n}\n\n\
+    function init() {\n    echo \"Initializing clickhouse\"\n    for file in $(ls\
+    \ \"${clickhousedir}\"/create/*.sql); do\n        echo \"Injecting $file\"\n \
+    \       $ch_client --multiquery < \"$file\" || true\n    done\n}\n\n# /bin/bash\
+    \ clickhouse.sh migrate $migration_versions\ncase \"$1\" in\n    migrate)\n  \
+    \      migrate $2\n        ;;\n    init)\n        init\n        ;;\n    *)\n \
+    \       echo \"Unknown operation for clickhouse migration; exiting.\"\n      \
+    \  exit 1\n        ;;\nesac\n"
+  dbops.sh: "#!/bin/bash\n\nset -x\ncd $(dirname $0)\n\nis_migrate=$1\n\n# Check if\
+    \ the openreplay version is set.\n# This will take precedence over the .Values.fromVersion\
+    \ variable\n# Because its created by installation programatically.\nif [[ -n $OPENREPLAY_VERSION\
+    \ ]]; then\n    is_migrate=true\n    PREVIOUS_APP_VERSION=$OPENREPLAY_VERSION\n\
+    \    echo \"$OPENREPLAY_VERSION set\"\nfi\n\nif [[ $FORCE_MIGRATION == \"true\"\
+    \ ]]; then\n    is_migrate=true\nfi\n\n# Passed from env\n# PREVIOUS_APP_VERSION\n\
+    # CHART_APP_VERSION\n# Converting alphaneumeric to number.\nPREVIOUS_APP_VERSION=$(echo\
+    \ $PREVIOUS_APP_VERSION | cut -d \"v\" -f2)\nCHART_APP_VERSION=$(echo $CHART_APP_VERSION\
+    \ | cut -d \"v\" -f2)\n\nfunction migration() {\n    ls -la /opt/openreplay/openreplay\n\
+    \    db=$1\n\n    # Checking if previous app version is set.\n    if [[ $PREVIOUS_APP_VERSION\
+    \ == \"\" ]]; then\n        echo \"Previous app version to be migrated is not\
+    \ set. Rerun using --set fromVersion=v1.3.5\"\n        exit 100\n    fi\n\n  \
+    \  if [[ $FORCE_MIGRATION == \"true\" ]]; then\n        echo \"Forcing db migration\
+    \ from $PREVIOUS_APP_VERSION to $CHART_APP_VERSION\"\n    # This is a special\
+    \ case where we force upgrade frontend\n    elif [[ $UPGRADE_FRONTENT == \"true\"\
+    \ ]]; then\n        echo \"[WARN] Skipping regular upgrdades. Forcing frontend\
+    \ upgrade.\"\n        /bin/bash minio.sh migrate\n        exit 0\n    elif [[\
+    \ $PREVIOUS_APP_VERSION == $CHART_APP_VERSION ]]; then\n        echo \"No application\
+    \ version change. Not upgrading.\"\n        exit 0\n    fi\n\n    # Checking migration\
+    \ versions\n    cd /opt/openreplay/openreplay/scripts/schema\n\n    # We need\
+    \ to remove version dots\n    function normalise_version {\n        version=$1\n\
+    \        version=${version#v} # Remove leading 'v' if it exists\n        echo\
+    \ ${version} | tr -d '.'\n    }\n    all_versions=($(ls -l db/init_dbs/$db | grep\
+    \ -E ^d | grep -v create | awk '{print $NF}'))\n    migration_versions=($(for\
+    \ ver in ${all_versions[*]}; do\n        if [[ $(normalise_version $ver) -gt $(normalise_version\
+    \ \"${PREVIOUS_APP_VERSION}\") ]]; then\n            echo $ver\n        fi\n \
+    \   done | sort -V))\n    echo \"Migration version: ${migration_versions[*]}\"\
+    \n    # Can't pass the space seperated array to ansible for migration. So joining\
+    \ them with ,\n    joined_migration_versions=$(\n        IFS=,\n        echo \"\
+    ${migration_versions[*]}\"\n    )\n\n    cd -\n\n    case \"$1\" in\n    postgresql)\n\
+    \        /bin/bash postgresql.sh migrate $joined_migration_versions\n        ;;\n\
+    \    minio)\n        /bin/bash minio.sh migrate $joined_migration_versions\n \
+    \       ;;\n    clickhouse)\n        /bin/bash clickhouse.sh migrate $joined_migration_versions\n\
+    \        ;;\n    kafka)\n        /bin/bash kafka.sh migrate $joined_migration_versions\n\
+    \        ;;\n    *)\n        echo \"Unknown operation for db migration; exiting.\"\
+    \n        exit 1\n        ;;\n    esac\n}\n\nfunction init() {\n    case $1 in\n\
+    \    postgresql)\n        /bin/bash postgresql.sh init\n        ;;\n    minio)\n\
+    \        /bin/bash minio.sh migrate $migration_versions\n        ;;\n    clickhouse)\n\
+    \        /bin/bash clickhouse.sh init\n        ;;\n    kafka)\n        /bin/bash\
+    \ kafka.sh init\n        ;;\n    *)\n        echo \"Unknown operation for db init;\
+    \ exiting.\"\n        exit 1\n        ;;\n\n    esac\n}\n\n# Check if the openreplay\
+    \ version is set.\n# This will take precedence over the .Values.fromVersion variable\n\
+    # Because its created by installation programatically.\nif [[ -n $OPENREPLAY_VERSION\
+    \ ]]; then\n    is_migrate=true\n    PREVIOUS_APP_VERSION=$OPENREPLAY_VERSION\n\
+    \    echo \"$OPENREPLAY_VERSION set\"\nfi\n\nif [[ $FORCE_MIGRATION == \"true\"\
+    \ ]]; then\n    is_migrate=true\nfi\n\n# dbops.sh true(upgrade) clickhouse\ncase\
+    \ \"$is_migrate\" in\n\"false\")\n    init $2\n    ;;\n\"true\")\n    migration\
+    \ $2\n    ;;\n*)\n    echo \"Unknown operation for db migration; exiting.\"\n\
+    \    exit 1\n    ;;\nesac\n"
+  kafka.sh: "#!/bin/bash\n\nset -e\n\n# Default to 4 days.\nRETENTION_TIME=${RETENTION_TIME:-345600000}\n\
+    REPLICATION_FACTOR=${REPLICATION_FACTOR:-2}\n\ntopics=(\n    \"raw\"\n    \"raw-ios\"\
+    \n    \"raw-images\"\n    \"canvas-images\"\n    \"trigger\"\n    \"canvas-trigger\"\
+    \n    \"mobile-trigger\"\n    \"cache\"\n    \"raw-assets\"\n    \"analytics\"\
+    \n    \"raw-analytics\"\n    \"quickwit\"\n    \"video-replays\"\n)\n\ntouch /tmp/config.txt\n\
+    \nif [[ $KAFKA_SSL == \"true\" ]]; then\n    echo 'security.protocol=SSL' >/tmp/config.txt\n\
+    fi\n\nfunction init() {\n    echo \"Initializing kafka\"\n    for topic in \"\
+    ${topics[@]}\"; do\n        echo \"Creating topic: $topic\"\n        # TODO: Have\
+    \ to check an idempotent way of creating topics.\n        kafka-topics.sh --create\
+    \ --bootstrap-server ${KAFKA_HOST}:${KAFKA_PORT} --replication-factor ${REPLICATION_FACTOR}\
+    \ --partitions 16 --topic ${topic} --command-config /tmp/config.txt || true\n\
+    \        kafka-configs.sh --bootstrap-server ${KAFKA_HOST}:${KAFKA_PORT} --entity-type\
+    \ topics --alter --add-config retention.ms=${RETENTION_TIME} --entity-name=${topic}\
+    \ --command-config /tmp/config.txt || true\n    done\n}\n\n# /bin/bash kafka.sh\
+    \ migrate $migration_versions\ncase \"$1\" in\nmigrate)\n    init\n    ;;\ninit)\n\
+    \    init\n    ;;\n*)\n    echo \"Unknown operation for kafka migration; exiting.\"\
+    \n    exit 1\n    ;;\nesac\n"
+  minio.sh: "#!/bin/bash\n\nset -e\n\ncd /tmp\n\nbuckets=(\"mobs\" \"sessions-assets\"\
+    \ \"static\" \"sourcemaps\" \"sessions-mobile-assets\" \"quickwit\" \"vault-data\"\
+    \ \"records\" \"spots\")\n\nmc alias set minio $MINIO_HOST $MINIO_ACCESS_KEY $MINIO_SECRET_KEY\n\
+    \nfunction init() {\n    echo \"Initializing minio\"\n\n    cat <<EOF >/tmp/lifecycle.json\n\
+    {\n  \"Rules\": [\n    {\n      \"Expiration\": {\n        \"Days\": 180\n   \
+    \   },\n      \"ID\": \"Delete old mob files\",\n      \"Status\": \"Enabled\"\
+    \n    },\n    {\n      \"Expiration\": {\n        \"Days\": 30\n      },\n   \
+    \   \"ID\": \"Delete flagged mob files after 30 days\",\n      \"Filter\": {\n\
+    \        \"Tag\": {\n          \"Key\": \"to_delete_in_days\",\n          \"Value\"\
+    : \"30\"\n        }\n      },\n      \"Status\": \"Enabled\"\n    }\n  ]\n}\n\
+    EOF\n\n    for bucket in ${buckets[*]}; do\n        mc mb minio/${bucket} || true\n\
+    \    done\n    # eg: How to setup the lifecycle policy\n    # mc ilm import minio/mobs\
+    \ </tmp/lifecycle.json || true\n\n    #####################################################\n\
+    \    # Creating public bucket; Do not change this block!\n    # !! PUBLIC BUCKETS\
+    \ !!\n    #####################################################\n    mc policy\
+    \ set download minio/sessions-assets || true\n    mc anonymous set download minio/sessions-assets\
+    \ || true\n\n}\n\n# /bin/bash kafka.sh migrate $migration_versions\ncase \"$1\"\
+    \ in\nmigrate)\n    init\n    ;;\ninit)\n    init\n    ;;\n*)\n    echo \"Unknown\
+    \ operation for minio migration; exiting.\"\n    exit 1\n    ;;\nesac\n"
+  postgresql.sh: "#!/bin/bash\n\nset -ex\n\npgdir=/opt/openreplay/openreplay/scripts/schema/db/init_dbs/postgresql\n\
+    \n# ENV variables\n# Ref: https://www.postgresql.org/docs/current/libpq-envars.html\n\
+    # $PGHOST\n# $PGPORT\n# $PGDATABASE\n# $PGUSER\n# $PGPASSWORD\n\nfunction migrate()\
+    \ {\n    echo \"Starting postgresql migration\"\n    IFS=',' read -r -a migration_versions\
+    \ <<<\"$1\"\n    for version in ${migration_versions[*]}; do\n        echo \"\
+    Migrating postgresql version $version\"\n        psql -v ON_ERROR_STOP=1 -f ${pgdir}/${version}/${version}.sql\
+    \ 2>&1\n    done\n}\n\nfunction init() {\n    echo \"Initializing postgresql\"\
+    \n    psql -v ON_ERROR_STOP=1 -f ${pgdir}/init_schema.sql 2>&1\n}\n\n# /bin/bash\
+    \ postgresql.sh migrate $migration_versions\ncase \"$1\" in\nmigrate)\n    migrate\
+    \ $2\n    ;;\ninit)\n    init\n    ;;\n*)\n    echo \"Unknown operation for postgresql\
+    \ migration; exiting.\"\n    exit 1\n    ;;\nesac\n"
+  site.crt: '-----BEGIN CERTIFICATE-----
+
+    MIIFITCCAwmgAwIBAgIUQ8hQoDbW3Z4DxRVjIYlIlbEHp/8wDQYJKoZIhvcNAQEL
+
+    BQAwIDEeMBwGA1UEAwwVb3BlbnJlcGxheS5sb2NhbC5ob3N0MB4XDTIxMTIyMjA3
+
+    NDIxOVoXDTIyMTIyMjA3NDIxOVowIDEeMBwGA1UEAwwVb3BlbnJlcGxheS5sb2Nh
+
+    bC5ob3N0MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAyXTX6RwqNVM+
+
+    LSvc5TkuBnxlw1sHxtkkojwpbwavr6ccSdtoYB7KYwcufh0zz3LaSDgPNqStOf6w
+
+    hAWV830bxvOvU6yJ7MgP8/htfY1KWIoNS6ducoct4VhgshWXWwQtrtWZJku+cyds
+
+    QTkr2BziSX+Y7/1rALKbOU4CIRCKtJ2jeaI+c4kcXXB+ARauDlqB7+CS4B+wjlfX
+
+    sOoC2bWgZOxyZnHolb3hKMLfBswLwYq0DRjjNMDqX8xS6V1AgoTrCxl1DqPLw47o
+
+    immbSKZ4voot60cSBYVK4qOX5Nqw5RmqwELb9Ib4QPVCt9HjbYQp77EcOonkgE4l
+
+    fYabvvOeM/U6vdtZhI2CJg0tkytuJ4+Hb7i7nRK2SRMppmtP7yDDXpMGoAXK2bVZ
+
+    ipZBRct0onxLifH5vdrUNbOlXItjWLQMfiHlDeG48kbXbKaJPv3tRvU0Gix2X8SJ
+
+    OlRNezNNz8pce0Bbgx3YoQhrRTad4CC6cIpRjgTt/pww3BoF7jDLl6RNI1cXfy4u
+
+    tkSlMqAQV6x0aig9Ldg1VFM2oCaEyvzx0BWDm/jmbZcyVizlb+uQQ/huNSJXT++p
+
+    CmPNG7rP6eYNTh7+7DDWvKBQQFWOPaVfwvrhzvb7q2B2Bmc33bDXeRuF4MJE6syA
+
+    YUCV2Ztw65uI864PRDIKO4ru1UQgx5sCAwEAAaNTMFEwHQYDVR0OBBYEFIdNQGn2
+
+    z3xmJfExKAUeohFnLjzsMB8GA1UdIwQYMBaAFIdNQGn2z3xmJfExKAUeohFnLjzs
+
+    MA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggIBAJvkSX+RoYGOcU0z
+
+    qEWlAN6Jy0CzLsTp/VoSZY9gd+hLFd/lK7SjXhAnNyEELpeanGs04ytJpXnSH1bA
+
+    dGs0UeWYalOxrHSN4ln5SNzWVE8kODM1zcyNePllI/PVcXLmujQz5wNbNoC5Qt8p
+
+    0RoZ2wInmyh2wTQcflIPUtncsw84ozVVuebmc6jiuPxnxdTAXeYOwKUF25t8rSp6
+
+    5n23F0GP8Ypu7vjT7N2RpUe0zkutaij+uISBHZw50ohrelPlV4V9qhp6MV+h9xuh
+
+    0z8OEyq2vK4KNn96A97mSRuqqt6Ajb2MHdErTr6fgj5/CtSD337oIK3froRmID8s
+
+    /JXADsNnBEqQBfcM6gSaw1M/fHDPNZzwVv6yAN+bKrI+KEmKJD31Tm2G55oPvLTP
+
+    XZdmVIAqxIu89v/GOJ2J29vC+h9pTjTze31DFg0niwLcr1aNawiC2d4n2wdDwKwc
+
+    HnCnflELyYcn4KgvpLNz5wEKEHTAQ3JF5VIel1/uqYN9cosw1vjRskPK/g3nIEPG
+
+    T247naj+JbW244P0jxb57VWiD/7IJ4ZErA1KrvqR/y1NnGxrgXoRjwmhCv/4YIYi
+
+    qgnvF7IkwGozdoLPiBMmvjNq/AmVLrfZNPxZjHL3nIW+PBEeBD/lkH36mcakg/1S
+
+    w7yMPvE+TIh6+HwDZc2jNLkv/8tY
+
+    -----END CERTIFICATE-----
+
+    '
+  site.key: '-----BEGIN PRIVATE KEY-----
+
+    MIIJQwIBADANBgkqhkiG9w0BAQEFAASCCS0wggkpAgEAAoICAQDJdNfpHCo1Uz4t
+
+    K9zlOS4GfGXDWwfG2SSiPClvBq+vpxxJ22hgHspjBy5+HTPPctpIOA82pK05/rCE
+
+    BZXzfRvG869TrInsyA/z+G19jUpYig1Lp25yhy3hWGCyFZdbBC2u1ZkmS75zJ2xB
+
+    OSvYHOJJf5jv/WsAsps5TgIhEIq0naN5oj5ziRxdcH4BFq4OWoHv4JLgH7COV9ew
+
+    6gLZtaBk7HJmceiVveEowt8GzAvBirQNGOM0wOpfzFLpXUCChOsLGXUOo8vDjuiK
+
+    aZtIpni+ii3rRxIFhUrio5fk2rDlGarAQtv0hvhA9UK30eNthCnvsRw6ieSATiV9
+
+    hpu+854z9Tq921mEjYImDS2TK24nj4dvuLudErZJEymma0/vIMNekwagBcrZtVmK
+
+    lkFFy3SifEuJ8fm92tQ1s6Vci2NYtAx+IeUN4bjyRtdspok+/e1G9TQaLHZfxIk6
+
+    VE17M03Pylx7QFuDHdihCGtFNp3gILpwilGOBO3+nDDcGgXuMMuXpE0jVxd/Li62
+
+    RKUyoBBXrHRqKD0t2DVUUzagJoTK/PHQFYOb+OZtlzJWLOVv65BD+G41IldP76kK
+
+    Y80bus/p5g1OHv7sMNa8oFBAVY49pV/C+uHO9vurYHYGZzfdsNd5G4XgwkTqzIBh
+
+    QJXZm3Drm4jzrg9EMgo7iu7VRCDHmwIDAQABAoICAQCebjlupiu7jB+Vvq0VyAYe
+
+    K66MGAbhpttcixu6qPN5nF5u5xIKpaxcfMVfgO/B8X0g1pWAT7m7pkSDTzFCL92s
+
+    dPApScOeZyfEolbZKkiRoOAb4yzE/PJkCfDhnIFPntWebXTn3SGFxjcohCGq7+w2
+
+    CRbphc6k2dGhG2wpPK0YpfBuM94RVn7sLQ+rI3724s7VKzPW9pUPHJ4QD7j2JhRh
+
+    ymGdl29mc9GjEL38xnNoXgCDXFMypZSsii+aPzAAdS+zpu2b+czBmp3eXHc2h1Tl
+
+    5B2Arn/Jv63I1wcZf7MmOS1DzlDU2WBbFYbGsVW+RvYD/rFIiDEfhlWNhlLttQFw
+
+    TJ9xk+EePK9VQuWzN5tG1lEjGcNWtPLUp3IxZTqaei5lWu6zyA6HVsxjyArzmfNk
+
+    x0fRpZU+VZYzbkgj0ROq3wg7QEEMQ8SPo9vvLF1ZNnndzs/ziPA1CodUuSwa6B2c
+
+    Zeref4s0B//q3U1SDQE08OD9iuZODwtkO4wQtW2DP33gC6VIts94jg87z8SRDp2g
+
+    DcT3D8ZhV5B2VPelluQZ/scWKGWKAvPVRjq51EiMeZtFBVyM6+o0xW2+MxxZdjbj
+
+    OWexc+dw8QfwIlFRm0v8Tfvljk1prqYEMLV4s9JD8up5X1h3Yg5uAsQpdZ+1JkGm
+
+    5UvvQQVQgxkC1NFXxqYyQQKCAQEA95r3oYm+bnQXHXX4dBQO98+XwOOfnhMk815p
+
+    /CAuxCzbPNafjqyAxRgmp5D/IkdLzbitDL3uo73ot1RwB4CEN/Ovp3a/+CklBnnA
+
+    0bKAtsGE2XWaqFeguVIy25WEWKaTxKGX0g6KHkOvGt0DNo4wUJUk+2sAqIvXU1Q6
+
+    tUbd+8YRYxO7i6+92K7kxoZega6qiA/L3akZ2uTzFf+IskfqmDUoF2ZaEOFluG8E
+
+    ASX3KoVFfraV3DBEN0ionvfpaRIidr2IsuC848zHFBtAXA0mL55BCuf++HmAZnpy
+
+    HFN7owVVgqbEw+GGbNdRLt5zV00DmX/sHsIZU/gCLRPsfPUAqQKCAQEA0ElWWiS4
+
+    IA91lWbzCwswFrHvjpcogh67fNd9kJCcFCUHabev7SSrIEcjqDP2m6HPvp/FwxYA
+
+    PEo1/vDZ884v9roft2J13OvpvXoqtRZLGo1E76sECBrcto4nhCiTeRQg9uRpHG+Q
+
+    p77QC/4eRBLGykFRJET6913x7JzpjAO0QLLLzilj1yBkbF5U01Up5KbIuNeXNvEO
+
+    GVGpbryIXxwR6Qhyv7C54xpjRdu9EOT1frRqdIs0qOGafnLXWAXKfvWUzz1wSiiw
+
+    1p7xqYZrawXAr7XEkGA2aeqt/iqo2X2G9oYA0apJVwfR4WhuS2hPkSy405bsrGzZ
+
+    cjMs9bnJSYP8owKCAQEAxCTSvfisDjuQhBoL84hgQxcEFB09OK/ZuaC1PLER2v3d
+
+    vtgWFaO5bmivVlaahcEM367IByv+e1/ZlkEhbg/0rY4xO+vqLuAJIJQalwNcy2mJ
+
+    n+p11Z11CNmAyEotSTzMGhwYdKJn74mWkSU7gmApDezYGwKsxtfgf3Zd+3RkLSq+
+
+    Y0oia4mQTrJdMJcJDpobJSW+TZ3DiY+MsYR3+SLXSDPzynWeK3kiZ3QqK+6zWc+x
+
+    OavSE1d48oJwcV3aXQ2sl3uVan51o894dQkRdtpDwb0PsWAOry8w8/1Tn/TSIFX9
+
+    Yz5Q6Qsivd3jxckafbHYhCS+G6+O+OGid6ssz+AV4QKCAQAqK78ND0QsUZT4A9kP
+
+    kltRLQOYtiggeEJzm1mz7GN9fKXMlMFM3VC8f0rL4oF6rz9VlBnBTvILQuc9z9wB
+
+    De0OIk8LnSbJ7QXtNA/zjCj2nkWn1NNDJNUtLQj5LBH3wMiP1F0nwbrjC7Ipy3Cr
+
+    TbXr+1+HXWQGs4Go63gpvhI/yzOScTTiuI88lbjM9QA/aDlZm2TlXdcB71PDtO5T
+
+    e2Zw7SH2h7yLK6uP2FamVgUSe0rWf9zQmKTkFzJcgwelvuk7MHBMw4JSYeoB7dJP
+
+    3+FMchvzM1exCC/kNxTqvAyYWzdNPBIPSekHn1I9eEgr14cwZ+1RV9SK16uxsMT9
+
+    WnjLAoIBADKutRKB8nH+wD3sa4cP782QNbkDqJCcb3rPntnCWI/jA2TeY/wAvrXa
+
+    8yFtSSeYSwN9Wr+UosSkQ+OQSO0WmT2NrxdkH8jK8kYnzYkJ9+EFE2YpMN2UosSb
+
+    esQ9oEMnivBMNv8DnB4IuO8LjTj1rhqcBmWJH1zvDi1Ur+/uAb+6XLm0Dp/59/Rn
+
+    PSlLQmFraq6mrUkKTU40zyT6eK8AvIn/+sXAF1Xb9Vnm8Ndl+gZ4imzjcCubbq+6
+
+    PqvLjFJNGyya6b3MX4RSxVGfkIf5f6bcSSZ0zzSB3qLbCKS+JawwR1WF2rJp6Hj5
+
+    7qINKoGovqXB1oAdopIl1z64e7MWVE4=
+
+    -----END PRIVATE KEY-----
+
+    '
+  vault.sh: "#!/bin/sh\n\n# This script will initialize vault\n\n# VERBOSE=1 for verbose\
+    \ logging\nif [ \"x$VERBOSE\" == \"x1\" ]; then\n  set -x\nfi\n\nexport VAULT_ADDR=${VAULT_ADDR}\n\
+    \n\n# Check vault is already initialized, if so return \n\n# initialize vault\n\
+    vault_output=$(vault operator init) 2> /opt/openreplay/err.txt || {\n  err_code=$?\n\
+    \  (cat /opt/openreplay/err.txt | grep -i \"vault is already initialized\") &&\
+    \ {\n    echo \"Vault already initialized.\"\n    err_code=0\n  }\n  exit $err_code\n\
+    }\n\n# Writting output to a file\necho $vault_output > /opt/openreplay/vault_creds.txt\n\
+    \n# Unsealing vault\nfor i in 1 2 3; do\n  vault operator unseal `echo $vault_output\
+    \ | grep -Eio \"unseal key $i: \\S+\" | awk '{print $4}'`\ndone\n\n# Logging in\
+    \ to vault\nvault login  `echo $vault_output | grep -Eio \"initial root token:\
+    \ \\S+\" | awk '{print $4}'`\n\n# Confguration\n\nvault secrets enable database\n\
+    \nvault write database/roles/db-app \\\n  db_name=postgres \\\n  creation_statements=\"\
+    CREATE ROLE \\\"{{name}}\\\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';\
+    \ \\\n      GRANT SELECT ON ALL TABLES IN SCHEMA public TO \\\"{{name}}\\\";\"\
+    \ \\\n  revocation_statements=\"ALTER ROLE \\\"{{name}}\\\" NOLOGIN;\"\\\n  default_ttl=\"\
+    1h\" \\\n  max_ttl=\"1d\"\n\nvault write database/config/postgres \\\n    plugin_name=postgresql-database-plugin\
+    \ \\\n    allowed_roles=\"*\" \\\n    connection_url=\"postgresql://{{username}}:{{password}}@$PGHOST:$PGPORT/$PGDATABASE\"\
+    \ \\\n    username=\"${PGUSER}\" \\\n    password=\"${PGPASSWORD}\"\n\nvault auth\
+    \ enable kubernetes\n\nvault write auth/kubernetes/config \\\n       kubernetes_host=https://${KUBERNETES_PORT_443_TCP_ADDR}:443\
+    \ \\\n       kubernetes_ca_cert=@/var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n\
+    \n\n# Allow apps to create credentials for the policy db-app\ncat <<EOF >/opt/openreplay/pgaccess-policy.hcl\n\
+    path \"database/creds/db-app\" {\n  capabilities = [\"read\"]\n}\nEOF\n\nvault\
+    \ policy write pgaccess /opt/openreplay/pgaccess-policy.hcl\n\nvault write auth/kubernetes/role/pgaccess\
+    \ \\\n    bound_service_account_names=\"*-openreplay\" \\\n    bound_service_account_namespaces=app\
+    \ \\\n    policies=pgaccess \\\n    ttl=1h\n"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: databases-migrate
+  namespace: local
+  labels:
+    app: databases
+    or.workload/type: db-migrate
+    helm.sh/chart: openreplay-0.1.0
+    app.kubernetes.io/name: openreplay
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/version: v1.27.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+  annotations:
+    helm.sh/hook: pre-install, pre-upgrade
+    helm.sh/hook-weight: '-5'
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 3600
+  template:
+    metadata:
+      name: postgresqlMigrate
+      annotations:
+        linkerd.io/inject: disabled
+      labels:
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/component: observability
+    spec:
+      initContainers:
+      - name: git
+        image: alpine/git:2.52.0
+        env:
+        - name: SKIP_PERMISSION_CHANGE
+          value: 'false'
+        - name: ENTERPRISE_EDITION_LICENSE
+          value: ''
+        command:
+        - /bin/sh
+        - -c
+        args:
+        - "set -x\nmkdir -p /opt/openreplay/openreplay && cd /opt/openreplay/openreplay\n\
+          \n# Check if offline migration scripts are already available (from migration\
+          \ image or mounted)\n# ## Usage:\n# Option 1: Enable offlineMigration.enabled=true\
+          \ to use pre-built migration image\n# Option 2: Mount your scripts directory\
+          \ to `/mnt/efs` with the following structure:\n# ```\n# /mnt/efs/\n# ├──\
+          \ scripts/\n# │   ├── schema/\n# │   └── helmcharts/\n# └── ee/        \
+          \   # Optional: for enterprise edition\n#     └── scripts/\n# ```\n#\n#\
+          \ The job will automatically detect and use these pre-mounted scripts instead\
+          \ of cloning from GitHub.\n\n# Check if migration init container already\
+          \ provided files\nif [ -d \"/opt/openreplay/openreplay/scripts/schema\"\
+          \ ]; then\n  echo \"[info] Offline migration detected. Schema files already\
+          \ available (from migration image)\"\nelif [ -d \"/mnt/efs/scripts/schema\"\
+          \ ] && [ -d \"/mnt/efs/scripts/helmcharts\" ]; then\n  echo \"[info] Offline\
+          \ migration detected. Using pre-mounted scripts from /mnt/efs\"\n  cp -rf\
+          \ /mnt/efs/scripts /opt/openreplay/openreplay/\n  if [ \"x$ENTERPRISE_EDITION_LICENSE\"\
+          \ != \"x\" ] && [ -d \"/mnt/efs/ee/scripts\" ]; then\n    echo \"[info]\
+          \ Copying enterprise scripts from /mnt/efs\"\n    mkdir -p /opt/openreplay/openreplay/ee\n\
+          \    cp -rf /mnt/efs/ee /opt/openreplay/openreplay/\n  fi\n  echo \"[info]\
+          \ Offline migration scripts copied successfully\"\n  # Else for an upgrade,\
+          \ it won't pull the latest change. \n  # If you want offline, you can copy\
+          \ it prior, and do the update.\n  rm -rf /mnt/efs/scripts\n  echo \"[info]\
+          \ Offline migration scripts deleted from shared successfully\"\nelse\n \
+          \ echo \"[info] No offline scripts found. Proceeding with online migration\
+          \ from GitHub\"\n  \n  # Function to check if GitHub is available\n  check_github()\
+          \ {\n    for i in {1..10}; do\n      if ping -c 1 github.com &> /dev/null\
+          \ || wget -q --spider https://github.com; then\n        echo \"GitHub is\
+          \ available.\"\n        break\n      else\n        echo \"GitHub is not\
+          \ available. Retrying in 3 seconds...\"\n        sleep 3\n      fi\n   \
+          \ done\n  }\n\n  check_github\n\n  # Modern sparse checkout using Git 2.25+\
+          \ features with cone mode\n  # Only fetch required directories: scripts/schema,\
+          \ scripts/helmcharts, ee/scripts\n  git clone --depth 1 --filter=blob:none\
+          \ --sparse \\\n    https://github.com/openreplay/openreplay \\\n    -b v1.27.0\
+          \ . || exit 10\n  git sparse-checkout set scripts/schema scripts/helmcharts\
+          \ ee/scripts || exit 10\n  \n  ls /opt/openreplay/openreplay\n  git log\
+          \ -1\nfi\n\n\n\nexit_count=0\n\nexit_count=0\nerror_connection=1\n\nwhile\
+          \ [ $exit_count -le 20 ];do\n  nc -zv postgresql.db.svc.cluster.local 5432\
+          \ -w 1\n  if [ $? -ne 0 ]; then\n    echo \"[info] postgresql is not up;\
+          \ retrying in 5 seconds\"\n    sleep 4\n    exit_count=$(($exit_count+1))\n\
+          \    echo $exit_count\n  else\n    error_connection=0\n    break\n  fi\n\
+          done\n\nif [ $error_connection -eq 1 ]; then\n  echo \"[error] postgres\
+          \ is not running. Check kubectl get po -n db; exiting\"\n  exit 100\nfi\n\
+          \n# Checking variable is empty. Shell independant method.\nexit_count=0\n\
+          error_connection=1\n\nwhile [ $exit_count -le 20 ];do\n  nc -zv clickhouse-openreplay-clickhouse.db.svc.cluster.local\
+          \ 9000 -w 1\n  if [ $? -ne 0 ]; then\n    echo \"[info] clickhouse is not\
+          \ up; retrying in 5 seconds\"\n    sleep 4\n    exit_count=$(($exit_count+1))\n\
+          \    echo $exit_count\n  else\n    error_connection=0\n    break\n  fi\n\
+          done\n\nif [ $error_connection -eq 1 ]; then\n  echo \"[error] clickhouse\
+          \ is not running. Check kubectl get po -n db; exiting\"\n  exit 100\nfi\n\
+          \nif [ \"x$ENTERPRISE_EDITION_LICENSE\" != \"x\" ]; then\n  echo \"Copying\
+          \ enterprise code\"\n  cp -rf ee/scripts/* scripts/\nfi\necho \"Changing\
+          \ RWX to proper permission\"\nif [ \"$SKIP_PERMISSION_CHANGE\" != \"true\"\
+          \ ]; then\n  chown 1001:1001 /mnt/efs\nfi\n"
+        volumeMounts:
+        - name: shared
+          mountPath: /opt/openreplay
+        - name: datadir
+          mountPath: /mnt/efs
+        resources:
+          requests:
+            cpu: 25m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 384Mi
+      - name: postgres-check
+        image: ghcr.io/openreplay/postgres:17
+        env:
+        - name: PGHOST
+          value: postgresql.db.svc.cluster.local
+        - name: PGPORT
+          value: '5432'
+        - name: PGDATABASE
+          value: postgres
+        - name: PGUSER
+          value: postgres
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: postgresql-password
+        command:
+        - /bin/bash
+        - -c
+        args:
+        - "lowVersion=16.4\nhighVersion=17\npg_version=`psql -c \"SHOW server_version;\"\
+          \ -t | tr -d ' '`\necho $pg_version |\\\n  awk -v pg_version=$pg_version\
+          \ -v low=\"$lowVersion\" -v high=\"$highVersion\" -F. '{\n    split(low,\
+          \ lowArr, \".\");\n    split(high, highArr, \".\");\n    if ($1 < lowArr[1]\
+          \ ) {\n      print \"Need version \" low \" or higher. Current version:\
+          \ \" pg_version;\n      exit 100\n    } else if ($1 > highArr[1]) {\n  \
+          \    print \"Version \" pg_version \" is higher than the allowed maximum\
+          \ version \" high \".\";\n      exit 100\n    } else if ($1 == lowArr[1]\
+          \ && $2 < lowArr[2]) {\n      exit 100\n    }\n  }' || {\n  echo \"[error]\
+          \ postgresql version is $pg_version which is not within the allowed range\
+          \ ${lowVersion} - ${highVersion}. Exiting.\"\n  echo For upgrade steps,\
+          \ refer: https://docs.openreplay.com/en/deployment/openreplay-admin/#upgrade-postgresql\n\
+          \  exit 101\n}\n"
+        resources:
+          requests:
+            cpu: 25m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 384Mi
+      - name: clickhouse-check
+        image: docker.io/clickhouse/clickhouse-server:25.9-alpine
+        env:
+        - name: SKIP_PERMISSION_CHANGE
+          value: 'false'
+        - name: CH_HOST
+          value: clickhouse-openreplay-clickhouse.db.svc.cluster.local
+        - name: CH_PORT
+          value: '9000'
+        - name: CH_PORT_HTTP
+          value: '8123'
+        - name: CH_USERNAME
+          value: default
+        - name: CH_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: clickhouse-password
+        - name: CH_USE_TLS
+          value: 'false'
+        command:
+        - /bin/bash
+        - -c
+        args:
+        - "lowVersion=25.1\nhighVersion=26\n[[ \"${CH_PASSWORD}\" != \"\" ]] && {\n\
+          \  CH_PASSWORD=\"--password $CH_PASSWORD\"\n}\n[[ \"${CH_USE_TLS}\" == \"\
+          true\" ]] && CH_TLS_FLAGS=\"--secure --accept-invalid-certificate\" || CH_TLS_FLAGS=\"\
+          \"\nch_client=`echo clickhouse-client -h ${CH_HOST} --user ${CH_USERNAME}\
+          \ ${CH_PASSWORD} --port ${CH_PORT} ${CH_TLS_FLAGS}`\necho $ch_client\nch_version=`$ch_client\
+          \ -q \"SELECT version()\"`\necho $ch_version |\\\nawk -v low=\"$lowVersion\"\
+          \ -v high=\"$highVersion\" '{split($1, ver, \".\");\n  split(low, lowArr,\
+          \ \".\");\n  split(high, highArr, \".\");\n  if (ver[1] < lowArr[1]) {\n\
+          \    # print \"Need version \" low \" or higher. Current version: \" ver[1]\
+          \ \".\" ver[2];\n    exit 100\n  } else if (ver[1] > highArr[1]) {\n   \
+          \ # print \"Version \" ver[1] \".\" ver[2] \" is higher than the allowed\
+          \ maximum version \" high \".\";\n    exit 100\n  } else if (ver[1] == lowArr[1]\
+          \ && ver[2] < lowArr[2]) {\n    exit 100\n  }\n}' || {\n  echo \"[error]\
+          \ Clickhouse server version $ch_version which is not within the allowed\
+          \ range >${lowVersion} - ${highVersion}.x Exiting.\"\n  echo For upgrade\
+          \ steps, refer: https://docs.openreplay.com/en/deployment/openreplay-admin/#upgrade-clickhouse\n\
+          \  exit 101\n}\n"
+        volumeMounts:
+        - name: shared
+          mountPath: /opt/openreplay
+        - name: datadir
+          mountPath: /mnt/efs
+        resources:
+          requests:
+            cpu: 25m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 384Mi
+      containers:
+      - name: postgres
+        env:
+        - name: OPENREPLAY_VERSION
+          valueFrom:
+            configMapKeyRef:
+              name: openreplay-version
+              key: version
+              optional: true
+        - name: FORCE_MIGRATION
+          value: 'false'
+        - name: PREVIOUS_APP_VERSION
+          value: v1.27.0
+        - name: CHART_APP_VERSION
+          value: v1.27.0
+        - name: PGHOST
+          value: postgresql.db.svc.cluster.local
+        - name: PGPORT
+          value: '5432'
+        - name: PGDATABASE
+          value: postgres
+        - name: PGUSER
+          value: postgres
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: postgresql-password
+        - name: SKIP_PERMISSION_CHANGE
+          value: 'false'
+        image: ghcr.io/openreplay/postgres:17
+        command:
+        - /bin/bash
+        - /opt/migrations/dbops.sh
+        - 'false'
+        - postgresql
+        volumeMounts:
+        - name: shared
+          mountPath: /opt/openreplay
+        - name: dbmigrationscript
+          mountPath: /opt/migrations/
+        resources:
+          requests:
+            cpu: 25m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 384Mi
+      - name: minio
+        image: ghcr.io/openreplay/minio:2025
+        env:
+        - name: OPENREPLAY_VERSION
+          valueFrom:
+            configMapKeyRef:
+              name: openreplay-version
+              key: version
+              optional: true
+        - name: SKIP_PERMISSION_CHANGE
+          value: 'false'
+        - name: FORCE_MIGRATION
+          value: 'false'
+        - name: UPGRADE_FRONTENT
+          value: ''
+        - name: PREVIOUS_APP_VERSION
+          value: v1.27.0
+        - name: CHART_APP_VERSION
+          value: v1.27.0
+        - name: MINIO_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: access-key
+        - name: MINIO_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: secret-key
+        - name: MINIO_HOST
+          value: http://minio-headless.local.svc.cluster.local:9000
+        command:
+        - /bin/bash
+        - /opt/migrations/dbops.sh
+        - 'false'
+        - minio
+        volumeMounts:
+        - name: shared
+          mountPath: /opt/openreplay
+        - name: dbmigrationscript
+          mountPath: /opt/migrations/
+        resources:
+          requests:
+            cpu: 25m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 384Mi
+      - name: clickhouse
+        image: docker.io/clickhouse/clickhouse-server:25.9-alpine
+        env:
+        - name: OPENREPLAY_VERSION
+          valueFrom:
+            configMapKeyRef:
+              name: openreplay-version
+              key: version
+              optional: true
+        - name: SKIP_PERMISSION_CHANGE
+          value: 'false'
+        - name: FORCE_MIGRATION
+          value: 'false'
+        - name: PREVIOUS_APP_VERSION
+          value: v1.27.0
+        - name: CHART_APP_VERSION
+          value: v1.27.0
+        - name: CH_HOST
+          value: clickhouse-openreplay-clickhouse.db.svc.cluster.local
+        - name: CH_PORT
+          value: '9000'
+        - name: CH_PORT_HTTP
+          value: '8123'
+        - name: CH_USERNAME
+          value: default
+        - name: CH_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: clickhouse-password
+        - name: CH_USE_TLS
+          value: 'false'
+        command:
+        - /bin/bash
+        - /opt/migrations/dbops.sh
+        - 'false'
+        - clickhouse
+        volumeMounts:
+        - name: shared
+          mountPath: /opt/openreplay
+        - name: dbmigrationscript
+          mountPath: /opt/migrations/
+        resources:
+          requests:
+            cpu: 25m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 384Mi
+      volumes:
+      - name: dbmigrationscript
+        configMap:
+          name: db-migration-script
+      - name: shared
+        emptyDir: {}
+      - name: datadir
+        hostPath:
+          path: /openreplay/storage/nfs
+          type: DirectoryOrCreate
+      restartPolicy: Never

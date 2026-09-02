@@ -1,0 +1,30 @@
+# ─────────────────────────────────────────────────────────────────────────
+# OpenReplay — **local 오버레이 전용**(ADR-069)
+#
+# base 에 두지 않는 이유는 lakehouse-local 과 같다 — 매니페스트가 환경에
+# 묶인 값을 갖는다: domainName(openreplay.local) · 단일 노드 · 우리 저장소
+# 엔드포인트가 하드코딩된다. dev/prod 는 도메인·TLS 가 달라진다.
+#
+# openreplay.yaml 은 **생성 파일**이다. 직접 고치지 말 것 —
+#   bash local/render-openreplay.sh
+# 가 `helm template` 으로 만든다(ADR-003 은 유지된다. Tetragon 과 같은 방식으로
+# Helm 을 배포가 아니라 **생성 도구**로만 쓴다).
+#
+# ★ 지금 이 스택은 브라우저 데이터를 받지 못한다. 전제 2건이 미해결이다:
+#     ① 외부 HTTPS 진입점 없음(배포 블로커 #6) — Ingress 12개가 컨트롤러
+#        없이 렌더돼 비활성이다
+#     ② 프런트엔드 계측 경로 없음(G9) — 트래커를 심을 수 없다
+#   그래서 세션 리플레이는 **아직 동작하지 않는다.** ADR-069 순서 참조.
+#
+# 의도된 예외 — 차트가 securityContext 를 선언하지 않아 컨테이너가 이미지
+# 기본 사용자로 돈다. 로컬은 Kyverno 가 Audit 이라 기동하지만 prod 는
+# Enforce 다. base 승격 시 반드시 해소해야 한다.
+# ─────────────────────────────────────────────────────────────────────────
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - openreplay.yaml
+
+commonAnnotations:
+  argocd.argoproj.io/sync-wave: "7"

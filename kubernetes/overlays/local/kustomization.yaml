@@ -14,6 +14,9 @@ resources:
   #   박혀 있어 base 에 두면 dev/prod 가 그대로 상속한다. 승격 조건은
   #   lakehouse-local/kustomization.yaml 머리말 참조.
   - lakehouse-local
+  # OpenReplay - 세션 리플레이(ADR-069). 생성 파일이며 전제 2건이 미해결이라
+  #   브라우저 데이터는 아직 들어오지 않는다.
+  - openreplay
 
 patches:
   # 로컬 레플리카 1
