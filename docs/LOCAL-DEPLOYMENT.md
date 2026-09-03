@@ -2316,6 +2316,81 @@ OpenReplay 가 만든 Ingress 12개도 컨트롤러가 없어 무용이다.
 "WAF 가 이 클러스터에서 뜬다"이지 "체인이 선다"가 아니다. 체인을 세우려면
 ingress-nginx 가 선행해야 한다(ADR-069 순서 1-2, G9 — 보류 중).
 
+### 8-27. requests 실측 정정 — 예약 80% 대 실사용 46% (2026-09-03)
+
+L0 랩(§9)을 세울 메모리를 만들려다 시작했는데, 정정 자체가 더 큰 문제를 드러냈다.
+
+```
+노드 allocatable        52.9 GiB
+memory requests         43536Mi (80%)
+실제 컨테이너 RSS 합    24.3 GiB (46%)
+                        ─────────────
+                        18 GiB 이 예약만 되고 놀았다
+```
+
+이 상태에서는 새 워크로드를 넣을 자리가 없는데, 그 원인이 **실제 부족이 아니라
+과대 예약**이었다.
+
+#### 순수 삭감이 아니었다 — 5건은 오히려 부족했다
+
+| 워크로드 | 예약 | 실사용 | 차이 |
+|---|--:|--:|--:|
+| safeline | 1216Mi | 2020Mi | **−804** |
+| logstash | 1024Mi | 1357Mi | **−333** |
+| loki | 384Mi | 672Mi | **−288** |
+| spark-history | 512Mi | 707Mi | **−195** |
+| gitlab | 2048Mi | 2077Mi | −29 |
+
+**이쪽이 과대 예약보다 위험하다.** requests 미만으로 쓰는 파드는 축출 순위에서
+보호받지만 **초과하는 파드는 가장 먼저 축출된다.** 노드가 압박을 받으면
+safeline·logstash·loki 가 먼저 죽는 상태였고, 공교롭게 **loki 는 로그 파이프라인
+자체**다 — 압박이 시작되면 그 원인을 볼 수단부터 사라진다.
+
+safeline 의 원인은 §8-26 의 그것이다. tengine 이 nginx 워커를 **호스트 코어
+수(24)만큼** 띄우고 각각 탐지 룰셋을 올린다. limit 은 OOM 을 겪고 3Gi 로
+올렸으면서 **requests 는 384Mi 그대로 두었다** — limit 만 보고 requests 를 잊었다.
+
+#### 결과
+
+```
+                 이전        이후
+memory requests  43536Mi     36688Mi     −6.7 GiB
+                 (80%)       (67%)
+파드             113         113          손실 없음
+sts/deploy       37/40       37/40        전부 충족
+```
+
+#### istiod 가 단일 최대 낭비였다
+
+```
+istiod    예약 2048Mi · 실사용   69Mi   → 256Mi
+ztunnel   예약  512Mi · 실사용    6Mi   → 128Mi
+```
+
+둘이서 노드 allocatable 의 **4.8%** 를 잡고 있었다. `istioctl install` 의 기본값이
+다중 노드 프로덕션 기준이라 그렇다. **kustomize 오버레이가 닿지 않는다** —
+오퍼레이터 계층은 `local/install-operators.sh` 가 설치하므로 거기에
+`--set values.pilot.resources.requests.*` 를 넣었다. 라이브 객체도 함께 패치했다.
+
+오퍼레이터 계층은 오버레이의 사각지대다. 지금까지 이 계층의 자원을 한 번도
+보지 않았는데, 노드 예약의 5% 가 거기 있었다.
+
+#### 규칙
+
+- **Burstable** — 실사용의 1.3~2배. JVM 은 기동 피크가 유휴보다 높으므로 넉넉히
+- **Guaranteed 8종** — `qos-guaranteed.yaml` 에서 requests·limits 를 **함께**
+  바꾼다. 한쪽만 바꾸면 zram 배제 성질이 깨진다. Guaranteed 는 스왑을 0 받으므로
+  **과대 예약의 대가가 Burstable 보다 크다** — 실 RAM 을 그대로 점유한다
+- **limit 을 넘는 request 를 쓰지 않는다** — limits-local 이 기록한 그 함정이
+  requests 방향으로도 성립한다. 파드가 CrashLoop 도 Pending 도 아니고 그냥 사라진다
+
+#### 왜 지금까지 몰랐나
+
+`limits-local.yaml` 이 3단계에서 limits 를 정리하며 명시적으로 적어 뒀다 —
+"**requests 는 손대지 않는다. 스케줄 여유(57%)는 문제가 아니었다.**"
+그때는 맞는 판단이었다. 파드가 103 → 113 으로 늘고 7단계가 들어오면서
+57% 가 80% 가 되었는데, **limits 만 보는 습관이 남아 requests 를 다시 보지 않았다.**
+
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용

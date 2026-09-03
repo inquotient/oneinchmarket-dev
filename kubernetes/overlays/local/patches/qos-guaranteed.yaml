@@ -15,9 +15,12 @@ spec:
     spec:
       containers:
         - name: kafka
+          # 2Gi -> 1536Mi (2026-09-03). 실사용 638Mi.
+          # Guaranteed 는 스왑을 0 받으므로 실 RAM 을 그대로 점유한다 —
+          # 과대 예약의 대가가 Burstable 보다 크다.
           resources:
-            requests: { cpu: "1", memory: 2Gi }
-            limits:   { cpu: "1", memory: 2Gi }
+            requests: { cpu: "1", memory: 1536Mi }
+            limits:   { cpu: "1", memory: 1536Mi }
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -93,9 +96,14 @@ spec:
     spec:
       containers:
         - name: minio
+          # 1Gi -> 640Mi (2026-09-03). 실사용 107Mi.
+          # ★ 이 워크로드에는 전례가 있다 — limits-local 에서 limit 을
+          #   requests 아래로 내렸다가 파드가 97분간 조용히 사라졌다.
+          #   Guaranteed 는 두 값을 **함께** 바꿔야 한다.
+          #   107Mi 대비 크게 남기는 이유: 큰 오브젝트 업로드 시 버퍼가 튄다.
           resources:
-            requests: { cpu: "1", memory: 1Gi }
-            limits:   { cpu: "1", memory: 1Gi }
+            requests: { cpu: "1", memory: 640Mi }
+            limits:   { cpu: "1", memory: 640Mi }
 ---
 apiVersion: apps/v1
 kind: StatefulSet

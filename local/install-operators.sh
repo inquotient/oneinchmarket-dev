@@ -32,7 +32,11 @@ istioctl version --remote=false
 
 if ! kubectl get ns istio-system >/dev/null 2>&1; then
   log "Istio ambient 프로파일 설치 (istiod · ztunnel · istio-cni)"
-  istioctl install --set profile=ambient -y
+  # ★ 기본 requests 가 단일 노드에 과하다 — istiod 2Gi · ztunnel 512Mi 를
+  #   예약하는데 실측은 69Mi · 6Mi 다(2026-09-03). 이 둘만으로 노드
+  #   allocatable 의 4.8% 를 잡고 있었다.
+  #   istioctl 설치라 kustomize 오버레이가 닿지 않으므로 여기서 넣는다.
+  istioctl install --set profile=ambient -y     --set values.pilot.resources.requests.memory=256Mi     --set values.pilot.resources.requests.cpu=100m     --set values.ztunnel.resources.requests.memory=128Mi     --set values.ztunnel.resources.requests.cpu=50m
 else
   log "istio-system 이미 존재 — 건너뜀"
 fi

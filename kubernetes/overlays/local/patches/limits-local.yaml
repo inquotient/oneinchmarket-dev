@@ -85,7 +85,10 @@ spec:
             # ★ 768Mi 였다가 OpenReplay 도입 후 OOMKilled 11회.
             #   파드가 80 -> 103 으로 늘며 수집량이 뛰었다. 로그 파이프라인은
             #   **파드 수에 비례**하므로 워크로드를 대량 추가할 때 함께 봐야 한다.
-            requests: {memory: 384Mi}
+            # ★ 384Mi -> 768Mi (2026-09-03). 실사용 672Mi 로 **예약을
+            #   넘어섰다** — 노드 압박 시 축출 1순위였다. 파드 103 -> 113
+            #   에서 다시 늘었다.
+            requests: {memory: 768Mi}
             limits:   {memory: 1280Mi}
 ---
 apiVersion: apps/v1

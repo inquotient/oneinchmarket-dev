@@ -1,0 +1,375 @@
+# ★ 메모리 requests 실측 정정 (2026-09-03)
+#
+# 7단계 종료 시점에 노드의 memory requests 가 allocatable 의 **80%**(42.5/52.9 GiB)
+# 인데 실제 컨테이너 RSS 합은 **24.3 GiB** 였다. 18 GiB 가 예약만 되고 놀았다.
+# 이 상태에서는 새 워크로드를 넣을 자리가 없고, 그 원인이 실제 부족이 아니라
+# 과대 예약이다.
+#
+# ★★ 순수 삭감이 아니다 — 5건은 예약이 실사용보다 **적었다**.
+#   requests 미만으로 쓰는 파드는 축출 순위에서 보호받지만, 초과하는 파드는
+#   **가장 먼저 축출된다.** 노드가 압박을 받으면 safeline(-804Mi) ·
+#   logstash(-333Mi) · loki(-288Mi) · spark-history(-195Mi) 가 먼저 죽는다.
+#   과대 예약보다 이쪽이 위험하다.
+#
+# 기준
+#   - Burstable: 실사용의 약 1.3~2배. 기동 피크가 유휴보다 높은 JVM 은 넉넉히
+#   - Guaranteed 8종은 여기서 다루지 않는다 — requests==limits 불변식이
+#     qos-guaranteed.yaml 에 있고, 한쪽만 바꾸면 그 성질이 깨진다
+#   - istiod·ztunnel 은 istioctl 이 설치하므로 kustomize 밖이다
+#     (local/install-operators.sh 에서 조정)
+#
+# ★ 함정 — limits-local.yaml 이 기록한 것과 같은 것이 requests 에도 있다.
+#   **request 를 limit 위로 올리면 파드가 조용히 사라진다.** CrashLoop 도
+#   Pending 도 아니고 `get pods` 에 아무것도 안 나온다. 아래 값은 전부
+#   해당 워크로드의 현재 limit 이하임을 확인했다.
+#
+# ★ 함정 — kubectl top 은 '지금'이지 기동 피크가 아니다. JVM 을 유휴
+#   사용량 기준으로 잡으면 기동 중 exit 137 로 죽는다. 그래서 삭감폭을
+#   실사용의 2배 언저리에서 멈췄다.
+
+# ── 부족했던 것들: 올린다 ─────────────────────────────────────────
+
+# tengine 이 nginx 워커를 **호스트 코어 수(24)만큼** 띄우고 각각 탐지 룰셋을
+# 올린다. 실사용 1783Mi 인데 예약이 384Mi 였다. detector 는 반대로 과다(132Mi).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: safeline
+spec:
+  template:
+    spec:
+      containers:
+        - name: tengine
+          resources:
+            requests: {memory: 1792Mi}
+        - name: detector
+          resources:
+            requests: {memory: 256Mi}
+---
+# 실사용 1357Mi / 예약 1024Mi. 파드 수에 비례해 수집량이 늘어난다.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: logstash
+spec:
+  template:
+    spec:
+      containers:
+        - name: logstash
+          resources:
+            requests: {memory: 1536Mi}
+---
+# 실사용 707Mi / 예약 512Mi.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: spark-history
+spec:
+  template:
+    spec:
+      containers:
+        - name: spark-history
+          resources:
+            requests: {memory: 768Mi}
+---
+# 실사용 2077Mi / 예약 2048Mi — 이미 넘었다.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: gitlab
+spec:
+  template:
+    spec:
+      containers:
+        - name: gitlab
+          resources:
+            requests: {memory: 2304Mi}
+---
+
+# ── 과대 예약: 낮춘다 ────────────────────────────────────────────
+
+# 527Mi
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hive-metastore
+spec:
+  template:
+    spec:
+      containers:
+        - name: hive-metastore
+          resources:
+            requests: {memory: 768Mi}
+---
+# 315Mi
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: clickhouse
+spec:
+  template:
+    spec:
+      containers:
+        - name: clickhouse
+          resources:
+            requests: {memory: 512Mi}
+---
+# 323Mi
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: prometheus
+spec:
+  template:
+    spec:
+      containers:
+        - name: prometheus
+          resources:
+            requests: {memory: 512Mi}
+---
+# 344Mi — JVM 이라 여유를 크게 둔다
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: keycloak
+spec:
+  template:
+    spec:
+      containers:
+        - name: keycloak
+          resources:
+            requests: {memory: 640Mi}
+---
+# 347Mi — JVM. limits-local 이 기동 중 OOM 을 겪은 워크로드다
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: spark-connect
+spec:
+  template:
+    spec:
+      containers:
+        - name: spark-connect
+          resources:
+            requests: {memory: 640Mi}
+---
+# 247Mi
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hbase-regionserver
+spec:
+  template:
+    spec:
+      containers:
+        - name: hbase-regionserver
+          resources:
+            requests: {memory: 512Mi}
+---
+# 195Mi
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hbase-master
+spec:
+  template:
+    spec:
+      containers:
+        - name: hbase-master
+          resources:
+            requests: {memory: 448Mi}
+---
+# 341Mi
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hadoop-namenode
+spec:
+  template:
+    spec:
+      containers:
+        - name: hadoop-namenode
+          resources:
+            requests: {memory: 512Mi}
+---
+# 457Mi
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hadoop-datanode
+spec:
+  template:
+    spec:
+      containers:
+        - name: hadoop-datanode
+          resources:
+            requests: {memory: 640Mi}
+---
+# 452Mi
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hive-server
+spec:
+  template:
+    spec:
+      containers:
+        - name: hive-server
+          resources:
+            requests: {memory: 640Mi}
+---
+# 113Mi
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: zookeeper
+spec:
+  template:
+    spec:
+      containers:
+        - name: zookeeper
+          resources:
+            requests: {memory: 256Mi}
+---
+# 244Mi — JVM
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: jenkins
+spec:
+  template:
+    spec:
+      containers:
+        - name: jenkins
+          resources:
+            requests: {memory: 448Mi}
+---
+# 487Mi — JVM
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ranger-admin
+spec:
+  template:
+    spec:
+      containers:
+        - name: ranger-admin
+          resources:
+            requests: {memory: 640Mi}
+---
+# 216Mi
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: wazuh-manager
+spec:
+  template:
+    spec:
+      containers:
+        - name: wazuh-manager
+          resources:
+            requests: {memory: 320Mi}
+---
+# 56Mi — 프로파일 수집이 늘면 다시 봐야 한다
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: pyroscope
+spec:
+  template:
+    spec:
+      containers:
+        - name: pyroscope
+          resources:
+            requests: {memory: 192Mi}
+---
+# 462Mi — NVD 미러가 끝나면 더 쓸 수 있다. limit 2Gi 는 그대로 둔다
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dependency-track-apiserver
+spec:
+  template:
+    spec:
+      containers:
+        - name: apiserver
+          resources:
+            requests: {memory: 640Mi}
+---
+# 163Mi — 스캔 리포트 파싱이 몰리면 튄다. limit 1280Mi 유지
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: defectdojo-celery-worker
+spec:
+  template:
+    spec:
+      containers:
+        - name: celery-worker
+          resources:
+            requests: {memory: 320Mi}
+---
+# 73Mi — 훈련 실행 전에는 유휴다
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: caldera
+spec:
+  template:
+    spec:
+      containers:
+        - name: caldera
+          resources:
+            requests: {memory: 192Mi}
+---
+# 177Mi
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: knox
+spec:
+  template:
+    spec:
+      containers:
+        - name: knox
+          resources:
+            requests: {memory: 320Mi}
+---
+# 116Mi
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: glitchtip-worker
+spec:
+  template:
+    spec:
+      containers:
+        - name: glitchtip
+          resources:
+            requests: {memory: 256Mi}
+---
+# 130Mi
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: glitchtip-web
+spec:
+  template:
+    spec:
+      containers:
+        - name: glitchtip
+          resources:
+            requests: {memory: 256Mi}
+---
+# 148Mi
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ranger-usersync
+spec:
+  template:
+    spec:
+      containers:
+        - name: ranger-usersync
+          resources:
+            requests: {memory: 256Mi}
