@@ -67,3 +67,52 @@ OPNsense 설치 프로그램은 콘솔 대화형이라 자동화하지 않는다
 
 클라우드 dev 로 옮길 때의 배치 판단은 ADR-028 참조 — Vultr 는 VPC 라우트
 테이블이 없어 **VPC-only 인스턴스**(공인 IP 부재)로 강제한다.
+
+## H5 검증 — 이설 전에 먼저 할 것
+
+`verify-h5.sh` 를 **L0-Target(Hyper-V Ubuntu 게스트) 안에서** 실행한다.
+
+```bash
+sudo ./verify-h5.sh
+```
+
+### 왜 순서가 이런가
+
+ADR-051(A안) 전면 실행 = k3s 를 Hyper-V 다중 노드로 이설이다. 실측 기준으로
+**메모리는 들어간다**:
+
+```
+                     오버헤드   워크로드    VM 합    Windows 몫
+2노드 (master+worker)   9.5      35.16      44.7      18.7 GiB
+3노드 (master+2worker) 13.5      35.16      48.7      14.7 GiB
+```
+
+`DEPLOYMENT.md §4-3` 의 "64 GB 로는 불가" 판정은 **실제 소요 77.9 GB** 를
+전제하는데, 그 산정 방식은 7단계에서 4배 과대로 판명된 것과 같다(§8-26).
+실측 requests 는 35.16 GiB 다.
+
+그런데 대가가 메모리가 아닌 곳에 있다.
+
+- **정적 분할** — H1 이 동적 메모리를 금지하므로 VM 간 슬랙이 넘어가지 않는다.
+  지금은 43 GiB 한 풀이 어디서 터지든 흡수한다
+- **PVC 27개 재생성** — 전부 `WaitForFirstConsumer` + `rancher.io/local-path`
+  로 노드 로컬이다. PostgreSQL·GitLab·ES·MinIO·Kafka 데이터가 새로 만들어진다
+- **H5 `[UNVERIFIED]`** — Hyper-V 합성 NIC 에서 Cilium eBPF 가 도는지 확인된 바 없다
+
+**앞의 둘은 되돌릴 수 없고, 셋째는 랩 VM 한 대로 미리 확인할 수 있다.**
+그래서 H5 를 먼저 본다.
+
+### 무엇을 보는가
+
+| # | 항목 | 실패의 의미 |
+|:-:|---|---|
+| 0 | `hv_netvsc` · BTF · `xt_TPROXY` | BTF 없으면 Cilium·Tetragon CO-RE 불가 — 그 자체로 중단 사유 |
+| 1 | k3s (동일 플래그) | `--flannel-backend=none` 이라 CNI 전까지 NotReady 가 정상 |
+| 2 | Cilium (M1·M2 동일) | **H5 의 핵심 질문** |
+| 3 | Service 경유 통신 | socketLB 가 `connect()` 훅에서 동작하는가 |
+| 4 | NetworkPolicy 강제 | 통과하지 못하면 **조용한 보안 우회**(ADR-043 M1 의 실패 모드) |
+| 5 | XDP 상태 | 참고. H5 는 "기능은 정상이나 성능 기준선으로 쓰지 말 것" 이다 |
+
+**4번이 가장 중요하다.** ADR-043 이 지적한 M1 의 실패 모드가 "설정이 틀려도
+에러 없이 통신은 정상 동작하고 정책만 적용되지 않는다" 이기 때문이다.
+통신이 되는 것만 보고 통과로 판정하면 안 된다.

@@ -60,6 +60,8 @@ metadata:
     app.kubernetes.io/part-of: oneinchmarket
 spec:
   accessModes: ["ReadWriteOnce"]
+  # 기본 StorageClass 에 기대지 않는다 — 로컬에 default 표시가 둘이다.
+  storageClassName: standard
   resources:
     requests:
       # 업로드한 스캔 리포트 원본이 들어간다.

@@ -5,8 +5,14 @@ apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: standard
-  annotations:
-    storageclass.kubernetes.io/is-default-class: "true"
+  # ★ is-default-class 를 붙이지 않는다 (2026-09-03 제거).
+  #   붙여 두면 k3s 내장 local-path 와 **기본값이 둘**이 된다. 그 상태에서
+  #   storageClassName 을 생략한 PVC 는 어느 쪽이 잡힐지 정해져 있지 않고,
+  #   쿠버네티스 버전에 따라 거부되기도 한다. 실제로 8개 워크로드가
+  #   생략하고 있었다(clickhouse·gitlab·jenkins·keycloak·pyroscope·
+  #   defectdojo·dependency-track·safeline) — 지금은 전부 명시로 바꿨다.
+  #   local-path 쪽 표시를 떼는 방법은 쓰지 않는다. k3s 가 매니페스트를
+  #   재적용하며 되돌린다.
   labels:
     app.kubernetes.io/component: storage
     app.kubernetes.io/part-of: oneinchmarket

@@ -97,6 +97,8 @@ spec:
       spec:
         accessModes:
           - ReadWriteOnce
+        # 기본 StorageClass 에 기대지 않는다 — 로컬에 default 표시가 둘이다.
+        storageClassName: standard
         resources:
           requests:
             storage: 20Gi

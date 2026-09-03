@@ -64,6 +64,8 @@ metadata:
     app.kubernetes.io/part-of: oneinchmarket
 spec:
   accessModes: ["ReadWriteOnce"]
+  # 기본 StorageClass 에 기대지 않는다 — 로컬에 default 표시가 둘이다.
+  storageClassName: standard
   resources:
     requests:
       # 취약점 피드 미러와 Lucene 인덱스가 들어간다. DB 는 여기가 아니라 공용 PG 다.

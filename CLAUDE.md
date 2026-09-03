@@ -194,7 +194,7 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 2. **오퍼레이터 설치 경로가 없다.** ECK·Kyverno·Gateway API CRD·Argo Events가 설치되지 않아 wave 0·7이 sync되지 않는다
 3. **DB·롤·버킷·토픽 부트스트랩이 없다.** `postgresql-configmap.yaml`은 `oneinchmarket` DB만 만든다. Keycloak/GitLab/Apicurio/Hive Metastore가 존재하지 않는 DB에 접속한다
 4. **ServiceAccount 12개가 없다.** 15개 워크로드가 존재하지 않는 SA를 지정한다
-5. **storageClass `standard`가 없다.** k3s 기본은 `local-path`라 모든 PVC가 Pending에 머문다
+5. **storageClass `standard`가 없다.** k3s 기본은 `local-path`라 모든 PVC가 Pending에 머문다 — **로컬은 `local/storageclass-standard.yaml` 로 해소됨**(local-path 별칭). 그 SC 에 `is-default-class` 를 붙이지 않는다: k3s 내장 `local-path` 와 기본값이 둘이 되면 `storageClassName` 을 생략한 PVC 의 동작이 정의되지 않는다. 전 PVC 가 명시하도록 고쳐 두었다
 6. **외부 진입점이 없다.** Ingress/Gateway/NodePort/LoadBalancer 객체 0개, traefik·servicelb 비활성
 
 ### 매니페스트 작업 시
