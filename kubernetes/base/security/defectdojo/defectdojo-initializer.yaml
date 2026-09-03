@@ -1,0 +1,84 @@
+# 마이그레이션과 관리자 계정 생성. 앱 파드는 DD_INITIALIZE=false 로 돌아
+# 이 Job 하나만 스키마를 건드린다.
+#
+# ★ ADR-071 의 교훈 — 부트스트랩 SQL 을 슈퍼유저로 넣으면 적용은 조용히
+#   성공하고 첫 질의에서 권한 오류로 터진다. 여기서는 Django 가 애플리케이션
+#   롤(defectdojo)로 접속해 마이그레이션하므로 소유권이 처음부터 맞는다.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: defectdojo-initializer
+  labels:
+    app.kubernetes.io/name: defectdojo
+    app.kubernetes.io/instance: initializer
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: defectdojo
+        app.kubernetes.io/instance: initializer
+        app.kubernetes.io/component: security
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: defectdojo
+      priorityClassName: batch-low
+      securityContext:
+        # 이미지 실측: uid/gid 1001
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: initializer
+          image: defectdojo/defectdojo-django:latest
+          command: ["/entrypoint-initializer.sh"]
+          env:
+            - name: DD_DATABASE_PASSWORD
+              valueFrom: { secretKeyRef: { name: defectdojo-secret, key: db-password } }
+            - name: DD_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: defectdojo-secret, key: secret-key } }
+            - name: DD_CREDENTIAL_AES_256_KEY
+              valueFrom: { secretKeyRef: { name: defectdojo-secret, key: credential-aes-256-key } }
+            - name: DD_ADMIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: defectdojo-secret, key: admin-password } }
+            - name: DD_CELERY_BROKER_PASSWORD
+              valueFrom: { secretKeyRef: { name: redis-secret, key: redis-password } }
+            - name: DD_ADMIN_USER
+              value: admin
+            - name: DD_ADMIN_MAIL
+              value: admin@oneinchmarket.local
+            - name: DD_ADMIN_FIRST_NAME
+              value: Admin
+            - name: DD_ADMIN_LAST_NAME
+              value: User
+            # 이 Job 만 초기화한다.
+            - name: DD_INITIALIZE
+              value: "true"
+          envFrom:
+            - configMapRef:
+                name: defectdojo-config
+          volumeMounts:
+            - name: media
+              mountPath: /app/media
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: { cpu: 200m, memory: 512Mi }
+            limits:   { cpu: "2",  memory: 1536Mi }
+      volumes:
+        - name: media
+          persistentVolumeClaim:
+            claimName: defectdojo-media
+        - name: tmp
+          emptyDir: { sizeLimit: 512Mi }

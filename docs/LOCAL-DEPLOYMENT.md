@@ -441,7 +441,7 @@ prod 핀: `postgres:18.6` · `mariadb:12.3.3` · `redis:8.10.1` · 그 외 20종
 | **4** | **security-min — Tetragon · Trivy Operator · Policy Reporter · Vault · Wazuh 2종** | 11 + 오퍼레이터 3 | ✅ **완료** |
 | **5** | **lakehouse-v1 — ZooKeeper · HDFS · HBase 2종 · HiveServer2** | 20 | ✅ **완료** — HDFS·S3A 동시 처리 실증(§8-16). 단 `overlays/local/` 전용(§8-18) |
 | **6** | **GlitchTip · Jenkins · Kafka Bridge** | 16 | ✅ **완료** — 브리지 HTTP 왕복 실증(§8-20). Apicurio Studio 4종은 폐기라 제외 |
-| 7 | security-full — SafeLine · Kubescape · DT · DefectDojo · Caldera | ~25 | **zram 실측 지점** |
+| **7** | **security-full — SafeLine · Kubescape · DT · DefectDojo · Caldera** | 17 | ✅ **완료** — 5종 전부 기동(§8-26). **zram 압축률 2.98배 실측** · 소요 3.49 GiB(산정 13.7 GB 의 1/4) |
 
 #### 1단계 결과
 
@@ -2114,6 +2114,207 @@ ERROR Failed to acquire cache or database lock
 컨테이너 5개짜리 파드를 스캔하며 **컨테이너별 스캔 컨테이너가 같은 trivy DB
 캐시를 동시에 잡는다.** 단일 노드 동시 스캔의 알려진 한계다. 대상이 일회성 Job
 이라 정리했다.
+
+### 8-26. 7단계 security-full — 그리고 zram 실측 (2026-09-03)
+
+`[목표]` 마지막 단계다. **여기가 zram 실측 지점**이었다.
+
+```
+Kubescape          CronJob — AllControls 61.56 · NSA 68.82 · MITRE 62.07
+Dependency-Track   apiserver 1/1 · frontend 1/1 — NVD 미러 동기화 동작
+DefectDojo         django · nginx · celery worker · beat 4/4 + 초기화 Job
+Caldera            1/1 — egress 격리 검증 완료
+SafeLine           core 4/4 (mgt·detector·tengine·chaos) + fvm + luigi
+클러스터           파드 114 · 미준비 0
+```
+
+#### 용량 산정이 크게 빗나갔다
+
+문서는 `security-full` 을 **+13.7 GB** 로 잡고 "**128 GB 이상에서만 검증
+가능**"이라고 판정했다([DEPLOYMENT.md §295-297](./DEPLOYMENT.md)). 실측은 다르다.
+
+| | 산정 | 실측 |
+|---|--:|--:|
+| security-full 소요 | 13.7 GB | **3.49 GiB** |
+| 판정 | ❌ 64 GB 초과 10.6 | ✅ **여유 23.5 GiB** |
+
+**4배 과대 산정이었다.** 원인은 벤더 권장값을 그대로 더한 것이다 — 예컨대
+Dependency-Track 은 힙 4 GB 를 권장하지만 SBOM 이 0건인 상태에서 실사용은
+459Mi 다. 산정은 "가득 찬 시스템"을, 실측은 "방금 올린 시스템"을 말한다.
+**둘 다 맞고, 지금 필요한 판단은 후자다.**
+
+#### zram 실측
+
+7단계 투입 전후:
+
+```
+투입 전   Mem 29.8/54.9 · Swap 1.00 GiB · 파드 103
+투입 후   Mem 31.4/54.9 · Swap 6.13 GiB · 파드 114
+
+zram      원본 5.47 GiB → 압축 1.84 GiB (2.98x) · 실점유 1.88 GiB
+```
+
+**압축률 2.98배.** §2 의 설계 가정(3배)이 실측과 일치한다. 스왑 5.13 GiB 증가분이
+실제로는 **1.7 GiB 남짓의 RAM**만 먹었다. B안이 성립한다.
+
+스래싱은 없었다 — 7단계 워크로드가 대부분 유휴라 스왑에 적합하다는 §2-1 의
+분류(Burstable/zram 허용)가 맞았다.
+
+#### Kubescape — 오퍼레이터가 아니라 CronJob
+
+node-agent 는 노드당 1.6 GB 라 로컬 제외 대상이고(§220), ADR-052 가 Kubescape 를
+`batch-low` 로 둔다. 단일 노드에서 하루 1회면 충분하므로 오퍼레이터 스택
+(storage APIServer·synchronizer·gateway)을 들이지 않았다.
+
+**이미지를 잘못 골랐다** — `kubescape:latest` 는 distroless 이고 PATH 에
+`kubescape` 바이너리가 없다. 전용 CLI 는 `kubescape-cli` 다.
+
+```
+exec: "/bin/sh": stat /bin/sh: no such file or directory
+exec: "kubescape": executable file not found in $PATH
+```
+
+둘 다 셸이 없으므로 `command` 를 덮지 말고 `args` 만 줘야 한다. 프레임워크
+반복을 셸 루프로 짜려던 계획이 그래서 무산됐고, `framework all` 한 번으로 바꿨다.
+
+첫 스캔 결과:
+
+```
+Critical 0 · High 566
+  Resources memory limit and request     13/115 실패
+  Resource limits                        17/115 실패
+  List Kubernetes secrets                21/122 실패
+  Writable hostPath mount                15/115 실패
+```
+
+#### 같은 실수를 세 번 했다 — emptyDir 이 이미지 파일을 가린다
+
+```
+DefectDojo nginx : /var/run 에 emptyDir → 이미지의 /var/run/defectdojo 가 가려짐
+                   "can't create /run/defectdojo/uwsgi_pass: nonexistent directory"
+Caldera          : /usr/src/app/conf 에 emptyDir → agents.yml 이 가려짐
+                   "FileNotFoundError: conf/agents.yml"
+SafeLine tengine : /etc/nginx 에 얹으려다 앞의 둘을 떠올려 중단
+```
+
+**규칙 — 컨테이너가 쓰기를 요구하는 경로가 이미지에 이미 파일을 갖고 있으면
+디렉터리째 덮지 말 것.** 해법은 둘이다: 중첩 마운트로 하위 디렉터리를 되살리거나
+(`/var/run` + `/var/run/defectdojo`), `subPath` 로 파일 하나만 얹는다
+(Caldera 의 `local.yml`). 이 실패는 **기동 시점에만** 드러나므로 렌더 검증이나
+kubeconform 으로는 잡히지 않는다.
+
+#### NetworkPolicy 를 세 번 빠뜨렸다 — 증상이 전부 타임아웃이었다
+
+```
+DefectDojo  nginx → django 정책 없음 → /login 이 499  (인증 오류가 아니다)
+SafeLine    mgt → fvm 정책 없음      → "context deadline exceeded" panic
+SafeLine    mgt → 공용 PG 정책 없음  → luigi "failed to connect database"
+```
+
+셋 다 **상류 애플리케이션이 고장 난 것처럼 보인다.** `default-deny-ingress`
+아래에서는 새 워크로드를 넣을 때마다 정책을 함께 넣어야 하는데, 빠뜨려도
+매니페스트는 정상 렌더되고 파드도 뜬다.
+
+#### 오버레이 라벨 변환기가 NetworkPolicy 를 조용히 무력화한다
+
+Caldera 의 DNS 허용 규칙이 아무것도 매칭하지 않았다.
+
+```yaml
+# 작성한 것                        # 렌더된 것
+podSelector:                       podSelector:
+  matchLabels:                       matchLabels:
+    k8s-app: kube-dns                  k8s-app: kube-dns
+                                       environment: local    ← 주입됨
+```
+
+CoreDNS 는 `kube-system` 에 있어 `environment: local` 이 없다. **오버레이의 라벨
+변환기가 상대편 selector 에까지 라벨을 넣는다.** 이 레포의 기존 정책은 전부 같은
+네임스페이스를 가리켜 지금까지 드러나지 않았다 — **네임스페이스를 넘는 peer
+selector 를 쓰는 순간 조용히 깨진다.**
+
+해법은 `to:` 를 비우고 포트로만 한정하는 것이다. 범위는 포트 53 이라 여전히 최소다.
+
+#### Caldera 격리 검증 (ADR-030)
+
+ADR-030 의 "위험 요소가 아니라 검증 도구" 라는 전제는 격리가 실제로 서야 성립한다.
+그래서 재봤다:
+
+```
+DNS                    동작       10.0.0.232
+Caldera → PostgreSQL   차단       TimeoutError
+Caldera → DefectDojo   차단       TimeoutError
+DefectDojo → Caldera   차단       TimeoutError
+```
+
+이 레포에서 **egress 까지 막는 유일한 정책**이다(`default-deny` 는 ingress 전용).
+C2 서버이므로 나가는 경로가 곧 위험이다. 훈련을 실행하려면 이 정책을 의도적으로
+완화해야 하고, **그 완화가 곧 "훈련 창"의 기술적 표현**이 된다.
+
+#### SafeLine — compose 전용 제품을 k8s 로 옮기며 만난 것들
+
+상류는 docker-compose 만 지원하고 서비스끼리 **고정 IP**(`SUBNET_PREFIX.4`=mgt ·
+`.5`=detector · `.10`=chaos)로 참조한다. 한 파드에 넣으면 전부 `127.0.0.1` 이 되어
+그 가정이 성립한다 — 다만 그 대가로 여섯 가지가 새로 생겼다.
+
+**① 포트 충돌** — fvm 과 tengine 이 둘 다 `:80` 을 잡는다.
+
+```
+listen tcp :80: bind: address already in use
+```
+
+compose 는 서비스마다 네트워크 네임스페이스가 따로라 없던 문제다. 볼륨을 공유하는
+4종만 한 파드에 두고 fvm·luigi 를 분리했다.
+
+**② 준비성 순환 의존** — mgt 는 기동 중에 `http://safeline-chaos:8080` 을 부르는데,
+그때 파드는 아직 Ready 가 아니다. 준비되지 않은 파드는 Service 엔드포인트에서
+빠지므로 `connection refused` 가 되고, 그래서 **영원히 Ready 가 되지 못한다.**
+compose 에는 준비 개념이 없어 없던 문제다. `publishNotReadyAddresses: true` 로 끊었다.
+
+**③ container_name 이 곧 호스트명 계약** — 같은 파드 안에 있어도 mgt 는 chaos 를
+DNS 이름으로 부른다. compose 의 `container_name` 과 같은 이름의 Service 가 필요하다.
+
+**④ 포트 목록이 문서에 없다** — mgt 가 chaos 의 8080 → 8088 을, fvm 의 80 → 9004(gRPC)를
+차례로 부른다. 하나씩 열면 panic 을 한 번씩 더 만난다. `/proc/net/tcp` **와
+`/proc/net/tcp6`** 를 함께 읽어 8001·8080·8088·9000 을 한 번에 확보했다.
+
+> **자기 정정** — IPv4 테이블만 보고 "8080 은 없다"고 판단해 Service 를 9000 으로
+> 돌렸다가 404 를 받았다. chaos 의 auth 는 **IPv6 와일드카드**(`[::]:8080`)에 붙어
+> 있었다. 포트는 처음부터 맞았고 진짜 원인은 ②였다.
+
+**⑤ root 가 필요하다 (의도된 예외 8번째)** — detector 와 tengine 의 엔트리포인트가
+작업 디렉터리를 chown 한다.
+
+```
+detector: chown: changing ownership of '/resources/detector': Operation not permitted
+tengine : nginx: [emerg] chown("/usr/local/nginx/client_body_temp", 203) failed
+```
+
+`CHOWN·SETUID·SETGID·DAC_OVERRIDE`(+tengine `NET_BIND_SERVICE`)를 준다.
+**prod 제약** — Kyverno `disallow-root` 가 prod 에서 Enforce 다. 기존 root 예외
+7건도 같은 상태라 SafeLine 만의 문제는 아니지만, **prod 승격 전에 정책 예외
+목록이 필요하다.**
+
+**⑥ nginx 워커 수는 cgroup 을 보지 않는다** — tengine 이 768Mi 와 1536Mi 에서
+연달아 `exit 137`(OOMKilled) 이었다.
+
+```
+노드 코어 24 → nginx worker_processes auto 가 24 워커를 띄운다
+cpu limit "2" 를 걸어도 워커 수는 줄지 않는다
+tengine 실사용 1783Mi → limit 3Gi
+```
+
+`worker_processes auto` 는 **cgroup CPU 한도가 아니라 호스트의 온라인 코어 수**를
+읽는다. compose 는 메모리 상한이 없어 드러나지 않는 차이다.
+
+#### SafeLine 이 지금 지키는 것은 없다
+
+ADR-029 의 체인은 `OPNsense → SafeLine → ingress-nginx → oauth2-proxy → 서비스` 다.
+그런데 이 클러스터에는 **IngressClass 가 0개**이고 LoadBalancer·NodePort 도 없다.
+OpenReplay 가 만든 Ingress 12개도 컨트롤러가 없어 무용이다.
+
+즉 **SafeLine 은 배포되어 동작하지만 앞단에 트래픽이 없다.** 여기서 실증된 것은
+"WAF 가 이 클러스터에서 뜬다"이지 "체인이 선다"가 아니다. 체인을 세우려면
+ingress-nginx 가 선행해야 한다(ADR-069 순서 1-2, G9 — 보류 중).
 
 ## 관련 문서
 

@@ -1,0 +1,123 @@
+# fvm — 규칙 버전 관리.
+#
+# ★ tengine 과 같은 파드에 둘 수 없다. 둘 다 :80 을 잡는다
+#   (실측: "listen tcp :80: bind: address already in use").
+#   compose 는 서비스마다 네트워크 네임스페이스가 따로라 드러나지 않는다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: safeline-fvm
+  labels:
+    app.kubernetes.io/name: safeline
+    app.kubernetes.io/instance: fvm
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: safeline
+      app.kubernetes.io/instance: fvm
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: safeline
+        app.kubernetes.io/instance: fvm
+        app.kubernetes.io/component: security
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: safeline
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: fvm
+          image: chaitin/safeline-fvm:latest
+          ports:
+            - containerPort: 80
+              name: http
+              protocol: TCP
+            - containerPort: 9004
+              name: grpc
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "SETUID", "SETGID", "DAC_OVERRIDE", "NET_BIND_SERVICE"]
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits:   { cpu: 500m, memory: 256Mi }
+          startupProbe:
+            tcpSocket: { port: http }
+            failureThreshold: 30
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 30
+          readinessProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 20
+---
+# luigi — 로그 처리. compose 는 MGT_IP 에 고정 IP 를 넣지만 파드가 나뉘었으므로
+# Service 이름을 쓴다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: safeline-luigi
+  labels:
+    app.kubernetes.io/name: safeline
+    app.kubernetes.io/instance: luigi
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: safeline
+      app.kubernetes.io/instance: luigi
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: safeline
+        app.kubernetes.io/instance: luigi
+        app.kubernetes.io/component: security
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: safeline
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: luigi
+          image: chaitin/safeline-luigi:latest
+          env:
+            - name: SAFELINE_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: safeline-secret, key: db-password } }
+            - name: MGT_IP
+              value: safeline-mgt
+            - name: LUIGI_PG
+              value: postgres://safeline:$(SAFELINE_DB_PASSWORD)@postgresql-headless/safeline?sslmode=disable
+          volumeMounts:
+            # compose: resources/luigi:/app/data
+            - name: data
+              mountPath: /app/data
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "SETUID", "SETGID", "DAC_OVERRIDE"]
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits:   { cpu: 500m, memory: 384Mi }
+      volumes:
+        - name: data
+          emptyDir: { sizeLimit: 512Mi }

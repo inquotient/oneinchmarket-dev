@@ -1,0 +1,193 @@
+# 핵심 4종. 볼륨(unix 소켓·규칙 디렉터리)을 공유하므로 한 파드다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: safeline
+  labels:
+    app.kubernetes.io/name: safeline
+    app.kubernetes.io/instance: core
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: safeline
+      app.kubernetes.io/instance: core
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: safeline
+        app.kubernetes.io/instance: core
+        app.kubernetes.io/component: security
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: safeline
+      # 의도된 root 예외 (8번째). 사유:
+      #   detector 와 tengine 의 엔트리포인트가 작업 디렉터리를 chown 한다.
+      #   실측 오류:
+      #     detector: chown: changing ownership of /resources/detector:
+      #               Operation not permitted
+      #     tengine : nginx: [emerg] chown(/usr/local/nginx/client_body_temp,
+      #               203) failed (1: Operation not permitted)
+      #   비루트로 돌리려면 이미지를 다시 빌드해야 한다. 상류가 도커 전용
+      #   배포만 지원하므로 그 유지 비용이 이득보다 크다.
+      #   ★ prod 제약 — Kyverno disallow-root 가 prod 에서 Enforce 다.
+      #     이 레포의 기존 root 예외 7건도 같은 상태라 SafeLine 만의 문제는
+      #     아니지만, prod 승격 전에 정책 예외 목록이 필요하다.
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mgt
+          image: chaitin/safeline-mgt:latest
+          ports:
+            - containerPort: 1443
+              name: mgt
+              protocol: TCP
+          env:
+            - name: SAFELINE_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: safeline-secret, key: db-password } }
+            # 공용 PostgreSQL 을 쓴다(ADR-071 과 같은 판단 — 전용 인스턴스는
+            # 세 환경에 하나씩 늘어난다). 상류는 자체 postgres:15.2 를 번들한다.
+            - name: MGT_PG
+              value: postgres://safeline:$(SAFELINE_DB_PASSWORD)@postgresql-headless/safeline?sslmode=disable
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+            - name: sock
+              mountPath: /app/sock
+            - name: nginx-logs
+              mountPath: /app/log/nginx
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "SETUID", "SETGID", "DAC_OVERRIDE"]
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits:   { cpu: "1",  memory: 768Mi }
+          startupProbe:
+            exec:
+              command: ["/bin/sh", "-c", "curl -k -f https://localhost:1443/api/open/health"]
+            failureThreshold: 60
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "curl -k -f https://localhost:1443/api/open/health"]
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          readinessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "curl -k -f https://localhost:1443/api/open/health"]
+            periodSeconds: 20
+            timeoutSeconds: 10
+        - name: detector
+          image: chaitin/safeline-detector:latest
+          env:
+            - name: LOG_DIR
+              value: /logs/detector
+          volumeMounts:
+            - name: detector
+              mountPath: /resources/detector
+            - name: detector-logs
+              mountPath: /logs/detector
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "SETUID", "SETGID", "DAC_OVERRIDE"]
+          resources:
+            requests: { cpu: 150m, memory: 512Mi }
+            limits:   { cpu: "2",  memory: 1536Mi }
+        - name: tengine
+          image: chaitin/safeline-tengine:latest
+          ports:
+            - containerPort: 80
+              name: proxy
+              protocol: TCP
+          env:
+            # compose 의 SUBNET_PREFIX.N 이 같은 파드에서는 전부 루프백이다.
+            - name: TCD_MGT_API
+              value: https://127.0.0.1:1443/api/open/publish/server
+            - name: TCD_SNSERVER
+              value: 127.0.0.1:8000
+            - name: SNSERVER_ADDR
+              value: 127.0.0.1:8000
+            - name: CHAOS_ADDR
+              value: 127.0.0.1
+          volumeMounts:
+            # ★ /etc/nginx 는 마운트하지 않는다. compose 는 설치 스크립트가
+            #   미리 채워 둔 호스트 디렉터리를 얹지만, 빈 emptyDir 을 얹으면
+            #   이미지 설정이 통째로 가려진다 — DefectDojo nginx 의 /var/run,
+            #   Caldera 의 conf 에서 같은 실수를 두 번 했다.
+            - name: detector
+              mountPath: /resources/detector
+            - name: chaos
+              mountPath: /resources/chaos
+            - name: sock
+              mountPath: /app/sock
+            - name: nginx-logs
+              mountPath: /var/log/nginx
+            - name: cache
+              mountPath: /usr/local/nginx/cache
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "SETUID", "SETGID", "DAC_OVERRIDE", "NET_BIND_SERVICE"]
+          resources:
+            # ★ 768Mi → 1536Mi 에서도 exit 137(OOMKilled) 이었다.
+            #   원인: nginx 의 worker_processes auto 는 **cgroup CPU 한도가
+            #   아니라 호스트의 온라인 코어 수**를 읽는다. cpu limit 을 2 로
+            #   묶어도 워커는 코어 수만큼 뜨고, 각 워커가 탐지 룰셋을 올린다.
+            #   compose 는 메모리 상한이 없어 이 차이가 드러나지 않는다.
+            requests: { cpu: 100m, memory: 384Mi }
+            limits:   { cpu: "2",  memory: 3Gi }
+        - name: chaos
+          image: chaitin/safeline-chaos:latest
+          env:
+            - name: SAFELINE_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: safeline-secret, key: db-password } }
+            - name: DB_ADDR
+              value: postgres://safeline:$(SAFELINE_DB_PASSWORD)@postgresql-headless/safeline?sslmode=disable
+          volumeMounts:
+            - name: sock
+              mountPath: /app/sock
+            # ★ tengine 과 **같은 볼륨**을 서로 다른 경로로 본다 —
+            #   chaos 는 /app/chaos, tengine 은 /resources/chaos 다.
+            #   따로 만들면 규칙이 전달되지 않는데, 그 실패는 조용하다.
+            - name: chaos
+              mountPath: /app/chaos
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "SETUID", "SETGID", "DAC_OVERRIDE"]
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits:   { cpu: 500m, memory: 256Mi }
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: safeline-data
+        - name: sock
+          emptyDir: { sizeLimit: 64Mi }
+        - name: detector
+          emptyDir: { sizeLimit: 512Mi }
+        - name: detector-logs
+          emptyDir: { sizeLimit: 512Mi }
+        - name: chaos
+          emptyDir: { sizeLimit: 128Mi }
+        - name: nginx-logs
+          emptyDir: { sizeLimit: 512Mi }
+        - name: cache
+          emptyDir: { sizeLimit: 512Mi }

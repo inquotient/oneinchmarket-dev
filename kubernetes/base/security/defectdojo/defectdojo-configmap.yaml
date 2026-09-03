@@ -1,0 +1,39 @@
+# DefectDojo — 취약점 트리아지 단일 조회 지점 (ADR-048)
+#
+# CI 의 Trivy·Gitleaks·Checkov 결과와 Trivy Operator 의 CR, Kubescape 스캔
+# 결과가 지금은 로그·ES·CR 로 흩어져 있다. DefectDojo 가 이를 한 곳에서
+# 중복 제거·트리아지·SLA 관리한다.
+#
+# 공용 PostgreSQL(ADR-071) + 공용 Redis(DB 인덱스 5)를 쓴다. 전용 인스턴스를
+# 두지 않는 근거는 ADR-038 과 같다.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: defectdojo-config
+  labels:
+    app.kubernetes.io/name: defectdojo
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+data:
+  DD_DATABASE_ENGINE: "django.db.backends.postgresql"
+  DD_DATABASE_HOST: "postgresql-headless"
+  DD_DATABASE_PORT: "5432"
+  DD_DATABASE_NAME: "defectdojo"
+  DD_DATABASE_USER: "defectdojo"
+  DD_CELERY_BROKER_SCHEME: "redis"
+  DD_CELERY_BROKER_HOST: "redis-headless"
+  DD_CELERY_BROKER_PORT: "6379"
+  # ★ 인덱스 5 — 0 기본 · 3 GlitchTip · 4 OpenReplay 가 이미 쓴다.
+  DD_CELERY_BROKER_PATH: "/5"
+  DD_ALLOWED_HOSTS: "*"
+  DD_DEBUG: "False"
+  # 초기화 Job 이 마이그레이션과 관리자 계정 생성을 담당한다.
+  # 앱 파드가 각자 마이그레이션을 돌면 동시 실행으로 깨진다.
+  DD_INITIALIZE: "false"
+  DD_UWSGI_HOST: "defectdojo-django"
+  DD_UWSGI_PORT: "3031"
+  DD_TRACK_MIGRATIONS: "True"
+  # 텔레메트리를 보내지 않는다.
+  DD_SESSION_COOKIE_SECURE: "False"
+  DD_CSRF_COOKIE_SECURE: "False"

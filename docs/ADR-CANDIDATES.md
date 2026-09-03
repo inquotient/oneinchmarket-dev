@@ -368,7 +368,9 @@ Microcks 는 6단계로 미룬다(§8-13).
 - **실현성 `[UNVERIFIED]`**: Vultr의 커스텀 ISO 지원 여부, VPC 커스텀 라우트 노출 여부. 불가 시 대안 — OPNsense를 bastion 대체(VPN 종단 + 남-북 방화벽)로만 쓰고 동-서는 Cilium에 위임.
 
 ### ADR-029 — SafeLine WAF 도입 및 진입점 체인
-**상태: `Proposed`**
+**상태: `Proposed`** — 2026-09-03 로컬 배포됨(§8-26). **단 체인은 서지 않았다** —
+IngressClass 가 0개라 SafeLine 앞단에 트래픽이 없다. 실증된 것은 "WAF 가 이
+클러스터에서 뜬다"이지 "체인이 선다"가 아니다. 이식 규약은 ADR-072.
 
 - **체인**: OPNsense → SafeLine WAF → ingress-nginx(TLS 종단) → oauth2-proxy(OIDC) → 서비스.
 - **필수 이유**: **Kafka Bridge에 자체 인증이 없어** 인증을 앞단이 강제해야 한다(SEC-206). 외부 노출 경로에 레이트리밋·페이로드 상한도 필요하다 — v1 ingress는 `proxy-body-size: 1024m`으로 과도했다.
@@ -462,6 +464,10 @@ CNCF Sandbox 로 계속 유지된다(3.3.2, 2026-08-27). **Registry 는 대체 �
 - **제약**: **dev/local 전용, prod 배포 금지** — Sandcat 에이전트는 기능상 원격 제어 에이전트다. 전용 네임스페이스 + CiliumNetworkPolicy 격리, 기본 상태 에이전트 미배포.
 - **훈련 창**: 실행 시간대를 Wazuh/Tetragon 알림 규칙에 등록해 훈련/실사고를 구분한다. 실행 승인 절차와 결과 리포트를 `scripts/security-verification/`에 편입한다.
 - **효과**: Caldera가 위험 요소가 아니라 **탐지 스택의 유효성을 실증하는 검증 도구**로 기능한다.
+- **2026-09-03 배포·검증** — `overlays/local/caldera/`(base 에 두면 prod 가 상속한다).
+  격리를 실측했다: DNS 만 동작, Caldera→PostgreSQL·DefectDojo 차단,
+  DefectDojo→Caldera 차단. 이 레포에서 **egress 까지 막는 유일한 정책**이다.
+  훈련 창은 이 정책을 의도적으로 완화하는 행위로 표현된다.
 
 ### ADR-046 — Aqua Platform 기능의 OSS 구성
 **상태: `Proposed`**
@@ -798,6 +804,60 @@ ADR-069 의 전제가 그대로 이 결정의 전제다.
 - ClickHouse 의 실제 소요를 이 워크로드에서 측정한 적이 없다. OpenReplay 공식
   최소 사양 **2 vCPU / 8 GB / 50 GB** 는 스택 전체 기준이며 그중 ClickHouse 몫은 미상
 
+### ADR-072 — compose 전용 제품을 k8s 로 옮길 때의 규약 (SafeLine 사례)
+**상태: `Accepted`** (2026-09-03)
+
+**결정** — docker-compose 만 지원하는 제품은 **볼륨을 공유하는 것끼리만 한 파드**에
+묶고 나머지는 분리한다. 그리고 아래 6가지를 배포 전에 확인한다. SafeLine 배포에서
+전부 실제로 만난 것들이다(§8-26).
+
+| 확인 | compose 에서 안 보이는 이유 | 실측 증상 |
+|---|---|---|
+| **포트 충돌** | 서비스마다 네트워크 네임스페이스가 따로다 | `bind: address already in use` |
+| **준비성 순환 의존** | compose 에 준비 개념이 없다 | 영원히 Ready 가 안 됨 |
+| **container_name = 호스트명** | 컴포즈가 이름 DNS 를 준다 | `lookup X: no such host` |
+| **포트 목록 미문서화** | 한 네트워크라 전부 열려 있다 | panic 을 하나씩 만남 |
+| **root·capability** | 도커 기본이 root 다 | `chown: Operation not permitted` |
+| **워커 수 = 호스트 코어** | 메모리 상한이 없다 | `exit 137` OOMKilled |
+
+#### 파드를 나누는 기준
+
+**볼륨 공유가 기준이다.** unix 소켓과 규칙 디렉터리를 주고받는 것끼리만 묶는다.
+고정 IP 참조는 같은 파드에서 `127.0.0.1` 로 자연히 해소되지만, **포트가 충돌하면
+그 이점이 무너진다.** SafeLine 은 mgt·detector·tengine·chaos 를 묶고 fvm·luigi 를
+뺐다 — fvm 과 tengine 이 둘 다 `:80` 을 잡기 때문이다.
+
+#### 나눈 뒤에 반드시 따라오는 것
+
+1. **Service 이름을 `container_name` 과 같게** 짓는다. 같은 파드 안이어도 제품이
+   DNS 이름으로 부르는 경우가 있다(SafeLine mgt → chaos).
+2. **`publishNotReadyAddresses: true`** — 기동 중 서로를 부르는 관계가 있으면
+   필수다. 없으면 준비되지 않은 파드가 엔드포인트에서 빠져 순환 교착이 된다.
+3. **NetworkPolicy** — 한 네트워크였던 것이 나뉘면 정책이 필요해진다.
+   `default-deny-ingress` 아래에서 이 실패는 **타임아웃**으로 나타나 상류
+   애플리케이션 고장으로 오인된다.
+
+#### 포트는 실측으로 확보한다
+
+문서를 믿지 말고 파드 안에서 읽는다. **`/proc/net/tcp` 만 보면 안 된다** —
+IPv6 와일드카드(`[::]:8080`)에 붙는 프로세스를 놓친다.
+
+```sh
+cat /proc/net/tcp /proc/net/tcp6 | awk '$4=="0A"{split($2,a,":"); print a[2]}' | sort -u
+```
+
+#### 메모리 상한은 실사용으로 정한다
+
+`worker_processes auto` 류는 **cgroup CPU 한도가 아니라 호스트 온라인 코어 수**를
+읽는다. `cpu: "2"` 를 걸어도 24코어 노드에서는 24 워커가 뜬다. compose 에는 메모리
+상한이 없어 이 문제가 존재하지 않는다.
+
+#### 대가
+
+이식은 **상류 문서에 없는 지식에 의존한다.** 포트 목록·기동 순서·소유권 요구가
+전부 실측 산물이라, 상류가 토폴로지를 바꾸면 조용히 깨진다. 이미지 태그를
+핀닝하고, 업그레이드 시 §8-26 의 체크리스트를 다시 돌려야 한다.
+
 ### ADR-071 — OpenReplay 를 공용 PostgreSQL 18.6 에서 돌린다 (지원 범위 밖)
 **상태: `Accepted (근거 기반 일탈)`** (2026-09-03)
 
@@ -932,6 +992,7 @@ Current version:            ← 빈 값
 | Accepted | 12 |
 | Accepted (범위 한정) | 1 |
 | Accepted (근거 기반 일탈) | 1 |
+| Accepted (이식 규약) | 1 |
 | Accepted (조건부) | 1 |
 | Proposed | 27 |
 | Proposed (조건부) | 1 |
@@ -939,7 +1000,7 @@ Current version:            ← 빈 값
 | Superseded | 2 |
 | Rejected (전제 소멸) | 1 |
 | Partially Reverted | 1 |
-| **합계** | **59** |
+| **합계** | **60** |
 
 > 번호는 001~066 범위에서 부여했으나 일부 번호는 통합·병합되어 실제 항목 수는 54건이다.
 

@@ -99,6 +99,32 @@ mk wazuh-secret   "api-username=wazuh-wui" \
                   "indexer-admin-password=$WZ_IDX" \
                   "indexer-filebeat-password=$WZ_FB"
 
+
+# ── 7단계 security-full ───────────────────────────────────────────
+# Dependency-Track — 공용 PG 롤 비밀번호. 관리자 초기 비밀번호는 제품이
+# admin/admin 으로 강제 생성하고 첫 로그인에서 변경을 요구한다.
+mk dependency-track-secret "db-password=$(gen)"
+
+# SafeLine WAF — 공용 PG 롤 비밀번호. 관리자 계정은 mgt 가 첫 기동에
+# 생성하고 로그에 1회만 출력한다.
+mk safeline-secret "db-password=$(gen)"
+
+# DefectDojo — Django SECRET_KEY 와 자격 3종.
+#   credential-aes-256-key 는 DB 에 저장하는 연동 자격을 암호화하는 키다.
+#   분실하면 저장된 연동 자격을 복호화할 수 없다.
+DD_ADMIN=$(gen)
+mk defectdojo-secret "db-password=$(gen)" \
+                     "secret-key=$(gen 50)" \
+                     "credential-aes-256-key=$(gen 50)" \
+                     "admin-password=$DD_ADMIN"
+
+# Caldera — 운영자/공격자 API 키와 로그인 2종.
+#   ADR-030: dev/local 전용, prod 배포 금지. 에이전트는 기본 미배포다.
+CAL_RED=$(gen); CAL_BLUE=$(gen)
+mk caldera-secret "api-key-red=$(gen 32)" \
+                  "api-key-blue=$(gen 32)" \
+                  "red-password=$CAL_RED" \
+                  "blue-password=$CAL_BLUE"
 echo
 echo "[secrets] 접속 정보 (이 값들은 커밋되지 않는다)"
 printf "  MinIO      oimadmin / %s\n" "$MINIO_PW"
@@ -110,6 +136,8 @@ printf "  DS389      cn=Directory Manager / %s\n" "$DS_DM"
 printf "  Wazuh API  wazuh-wui / %s\n"       "$WZ_PW"
 printf "  Wazuh idx  admin / %s\n"           "$WZ_IDX"
 printf "  Jenkins    admin / %s\n"           "$JK_ADMIN"
+printf "  DefectDojo admin / %s\n"        "$DD_ADMIN"
+printf "  Caldera    red / %s   blue / %s\n" "$CAL_RED" "$CAL_BLUE"
 echo
 echo "[secrets] 생성 결과"
 kubectl -n "$NS" get secret -l app.kubernetes.io/part-of=oneinchmarket

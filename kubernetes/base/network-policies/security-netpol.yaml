@@ -1,0 +1,94 @@
+# 7단계 security-full 의 내부 통신 허용.
+#
+# ★ default-deny-ingress 아래에서 이 정책이 없으면 인증 오류가 아니라
+#   **타임아웃**으로 나타난다. DefectDojo nginx 가 /login 에 499 를 남기는
+#   증상이 그것이었다(실측). 원인이 상류 애플리케이션처럼 보여서 잘못된
+#   곳을 파기 쉽다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-defectdojo-django-access
+  labels:
+    app.kubernetes.io/name: allow-defectdojo-django-access
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: defectdojo
+      app.kubernetes.io/instance: django
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # django 는 uwsgi 프로토콜로만 듣는다. HTTP 종단은 nginx 다.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: defectdojo
+              app.kubernetes.io/instance: nginx
+      ports:
+        - protocol: TCP
+          port: 3031
+---
+# Dependency-Track — API 서버는 프런트엔드(브라우저)와 CI 가 부른다.
+# 클러스터 안에서는 스캔 결과를 밀어 넣는 워크로드가 대상이다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dependency-track-access
+  labels:
+    app.kubernetes.io/name: allow-dependency-track-access
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: dependency-track
+      app.kubernetes.io/instance: apiserver
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: dependency-track
+        # SBOM 을 올리는 쪽 — Jenkins 파이프라인(ADR-050).
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: jenkins
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+# SafeLine 내부 통신.
+#
+# ★ 파드를 나누는 순간 필요해진다. compose 에서는 한 네트워크에 다 있어
+#   보이지 않던 의존이다. 실측 실패:
+#     mgt panic: Get "http://safeline-fvm/skynetinfo": context deadline exceeded
+#   fvm 이 응답하지 않아서가 아니라 **정책이 없어 도달하지 못한** 것이다.
+#   이 유형은 인증 오류가 아니라 타임아웃으로 나타나 원인을 상류 쪽으로
+#   오인하게 만든다 — 오늘 DefectDojo 의 499 와 같은 실패다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-safeline-internal
+  labels:
+    app.kubernetes.io/name: allow-safeline-internal
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: safeline
+  policyTypes:
+    - Ingress
+  ingress:
+    # SafeLine 구성요소끼리만 서로를 부른다. 외부에서 오는 경로는 없다 —
+    # 진입점은 port-forward 뿐이고 그것은 노드에서 온다.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: safeline

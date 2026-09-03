@@ -1,0 +1,66 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: defectdojo
+  labels:
+    app.kubernetes.io/name: defectdojo
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+automountServiceAccountToken: false
+---
+# django 는 uwsgi 프로토콜로만 듣는다. HTTP 는 nginx 가 종단한다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: defectdojo-django
+  labels:
+    app.kubernetes.io/name: defectdojo
+    app.kubernetes.io/instance: django
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3031
+      targetPort: uwsgi
+      protocol: TCP
+      name: uwsgi
+  selector:
+    app.kubernetes.io/name: defectdojo
+    app.kubernetes.io/instance: django
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: defectdojo
+  labels:
+    app.kubernetes.io/name: defectdojo
+    app.kubernetes.io/instance: nginx
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: defectdojo
+    app.kubernetes.io/instance: nginx
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: defectdojo-media
+  labels:
+    app.kubernetes.io/name: defectdojo
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      # 업로드한 스캔 리포트 원본이 들어간다.
+      storage: 4Gi

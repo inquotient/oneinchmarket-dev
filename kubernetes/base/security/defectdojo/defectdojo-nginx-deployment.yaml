@@ -1,0 +1,96 @@
+# nginx — 정적 파일과 uwsgi 프록시. django 는 HTTP 를 직접 말하지 않는다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: defectdojo-nginx
+  labels:
+    app.kubernetes.io/name: defectdojo
+    app.kubernetes.io/instance: nginx
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: defectdojo
+      app.kubernetes.io/instance: nginx
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: defectdojo
+        app.kubernetes.io/instance: nginx
+        app.kubernetes.io/component: security
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: defectdojo
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nginx
+          image: defectdojo/defectdojo-nginx:latest
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+          env:
+            - name: DD_UWSGI_HOST
+              value: defectdojo-django
+            - name: DD_UWSGI_PORT
+              value: "3031"
+          volumeMounts:
+            # Dependency-Track frontend 와 같은 함정이다 — 엔트리포인트가
+            # 설정을 런타임에 렌더한다. 쓰기 가능한 경로를 열어 준다.
+            - name: conf
+              mountPath: /etc/nginx/conf.d
+            - name: cache
+              mountPath: /var/cache/nginx
+            - name: run
+              mountPath: /var/run
+            # ★ /var/run 에 빈 emptyDir 을 얹으면 이미지가 만들어 둔
+            #   /var/run/defectdojo 가 가려진다. 엔트리포인트가 여기에
+            #   uwsgi_pass 를 쓰므로 중첩 마운트로 디렉터리를 되살린다.
+            #   실측 오류: "can't create /run/defectdojo/uwsgi_pass: nonexistent directory"
+            - name: rundd
+              mountPath: /var/run/defectdojo
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits:   { cpu: 500m, memory: 192Mi }
+          startupProbe:
+            httpGet: { path: /login, port: http }
+            failureThreshold: 60
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /login, port: http }
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet: { path: /login, port: http }
+            periodSeconds: 20
+            timeoutSeconds: 5
+      volumes:
+        - name: conf
+          emptyDir: { sizeLimit: 16Mi }
+        - name: cache
+          emptyDir: { sizeLimit: 128Mi }
+        - name: run
+          emptyDir: { sizeLimit: 32Mi }
+        - name: rundd
+          emptyDir: { sizeLimit: 16Mi }
+        - name: tmp
+          emptyDir: { sizeLimit: 64Mi }

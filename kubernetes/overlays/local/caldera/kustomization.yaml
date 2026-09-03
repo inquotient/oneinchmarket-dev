@@ -1,0 +1,24 @@
+# MITRE Caldera — 적대적 행위 에뮬레이션 (ADR-030)
+#
+# ★ 왜 base 가 아니라 오버레이인가
+#   ADR-030 이 **prod 배포 금지**를 명시한다. Sandcat 에이전트는 기능상
+#   원격 제어 에이전트다. base 에 두면 prod 오버레이가 그대로 상속하므로
+#   "금지"가 문서에만 남는다. ZooKeeper·HDFS 를 lakehouse-local 로 뺀 것과
+#   같은 이유다(ADR-068).
+#
+# 승격 조건 — 없다. 이것은 dev/local 에 머물러야 하는 구성요소다.
+#   dev 에 올릴 때는 overlays/dev 에 같은 디렉터리를 참조로 추가한다.
+#
+# 운영 제약 (ADR-030)
+#   - 기본 상태로 에이전트를 배포하지 않는다. 서버만 뜬다
+#   - 훈련 창을 Wazuh/Tetragon 알림 규칙에 등록해 훈련과 실사고를 구분한다
+#   - 실행 승인 절차와 결과 리포트는 scripts/security-verification/ 에 편입한다
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - caldera-deployment.yaml
+  - caldera-netpol.yaml
+
+commonAnnotations:
+  argocd.argoproj.io/sync-wave: "8"

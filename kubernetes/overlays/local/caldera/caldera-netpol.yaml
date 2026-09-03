@@ -1,0 +1,45 @@
+# Caldera 격리 (ADR-030)
+#
+# 두 방향을 모두 막는다.
+#   Ingress — 클러스터 안 어떤 워크로드도 Caldera 를 부를 수 없다. 운영자는
+#             port-forward 로만 접근한다.
+#   Egress  — ★ 이것이 핵심이다. Caldera 는 에이전트에게 명령을 내리는
+#             C2 서버다. 나가는 경로를 열어 두면 훈련 대상이 아닌 워크로드로
+#             도달할 수 있다. DNS 만 남기고 전부 막는다.
+#
+# 이 레포의 다른 정책은 ingress 만 다룬다(default-deny 가 ingress 전용).
+# Caldera 는 egress 까지 막는 유일한 대상이다 — 도구의 성격이 다르기 때문이다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: isolate-caldera
+  labels:
+    app.kubernetes.io/name: isolate-caldera
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: caldera
+  policyTypes:
+    - Ingress
+    - Egress
+  # ingress 규칙을 비워 둔다 = 클러스터 내부에서 아무도 못 부른다.
+  # (kubectl port-forward 는 노드에서 오므로 이 정책의 대상이 아니다.)
+  ingress: []
+  egress:
+    # DNS 만 허용한다. 훈련을 실행하려면 이 정책을 의도적으로 완화해야 하고,
+    # 그 완화가 곧 "훈련 창"의 기술적 표현이 된다.
+    #
+    # ★ `to:` 를 비워 목적지를 한정하지 않는다. CoreDNS 를 podSelector 로
+    #   집으면 **조용히 아무것도 매칭하지 않는다** — 오버레이의 라벨 변환기가
+    #   상대편 selector 에도 `environment: local` 을 주입하는데 CoreDNS 는
+    #   kube-system 에 있어 그 라벨이 없다(실측: DNS 가 통째로 막혔다).
+    #   이 레포의 다른 정책은 전부 같은 네임스페이스를 가리켜 드러나지 않았다.
+    #   포트 53 만 여는 것이라 범위는 여전히 최소다.
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

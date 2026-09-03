@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - dependency-track-service.yaml
+  - dependency-track-apiserver-deployment.yaml
+  - dependency-track-frontend-deployment.yaml
+
+commonAnnotations:
+  # 공용 PostgreSQL(wave 1)과 부트스트랩 Job 이 끝난 뒤에 올라온다.
+  argocd.argoproj.io/sync-wave: "7"

@@ -1,0 +1,83 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: kubescape-scan
+  labels:
+    app.kubernetes.io/name: kubescape
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  # 매일 03:20. 로테이션 CronJob 7종과 시각을 겹치지 않게 둔다.
+  schedule: "20 3 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  startingDeadlineSeconds: 3600
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      # 스캔이 밀려도 다음 날 다시 돈다. 무한 재시도로 자원을 잡지 않는다.
+      activeDeadlineSeconds: 2400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: kubescape
+            app.kubernetes.io/component: security
+            app.kubernetes.io/part-of: oneinchmarket
+        spec:
+          restartPolicy: Never
+          serviceAccountName: kubescape
+          # ★ ADR-052 — 야간 배치다. 상시 워크로드보다 먼저 밀려난다.
+          priorityClassName: batch-low
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            fsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            # ★ `kubescape` 가 아니라 `kubescape-cli` 다. 전자는 distroless 이고
+            #   PATH 에 바이너리가 없어 exec 자체가 실패한다(실측).
+            #   두 이미지 모두 셸이 없으므로 command 를 덮지 않고 args 만 준다.
+            - name: kubescape
+              image: quay.io/kubescape/kubescape-cli:latest
+              args:
+                - scan
+                - framework
+                # nsa · mitre · cis 를 모두 포함한다. CLI 사용법에 명시된 값이다.
+                - all
+                - --format
+                - pretty-printer
+                # ★ --keep-local — 결과를 Kubescape SaaS 로 보내지 않는다.
+                #   빼면 --submit 설정에 따라 외부 전송이 일어날 수 있다.
+                - --keep-local
+                # --verbose 는 쓰지 않는다. 실패 리소스만 출력한다.
+                # 파드 103개 × 전 프레임워크를 상세 출력하면 로그량이 커지는데,
+                # loki 는 파드 80→103 구간에서 이미 12회 OOMKilled 된 적이 있다.
+              env:
+                # 캐시·설정 경로. 루트 파일시스템은 읽기 전용이다.
+                - name: HOME
+                  value: /tmp
+                - name: KUBESCAPE_SKIP_UPDATE_CHECK
+                  value: "true"
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 384Mi
+                limits:
+                  cpu: "2"
+                  memory: 1Gi
+          volumes:
+            - name: tmp
+              emptyDir:
+                sizeLimit: 1Gi

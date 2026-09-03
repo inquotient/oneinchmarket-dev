@@ -294,7 +294,12 @@ StatefulSet을 제거해도 **PVC는 자동 삭제되지 않는다.** 프로파�
 | `local-security-min` | core 19.9 + observability(최소) 12.2 + security-min 5.0 | 37.1 | ✅ 여유 3.6 |
 | ~~`local-security-full`~~ | core + observability + security-full | 51.3 | ❌ **초과 10.6** |
 
-**`security-full`(SafeLine·Kubescape·Dependency-Track·DefectDojo·Caldera)은 128 GB 이상에서만 검증 가능하다.**
+~~**`security-full`은 128 GB 이상에서만 검증 가능하다.**~~
+
+> **2026-09-03 실측으로 무효화.** 54.9 GiB + zram 에서 5종 전부 기동했다.
+> 실사용 **3.49 GiB**(산정 13.7 GB), 여유 23.5 GiB. 산정이 벤더 권장값을
+> 그대로 더해 4배 과대였다 — 예: Dependency-Track 권장 힙 4 GB vs 실사용 459Mi.
+> 근거는 [LOCAL-DEPLOYMENT.md §8-26](./LOCAL-DEPLOYMENT.md).
 
 ---
 

@@ -4,5 +4,9 @@ kind: Kustomization
 resources:
   - keycloak/
   - kyverno/
+  - kubescape/
+  - dependency-track/
+  - defectdojo/
+  - safeline/
   - vault/
   - wazuh/

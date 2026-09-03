@@ -84,6 +84,12 @@ spec:
               ensure glitchtip      glitchtip      "$GLITCHTIP_DB_PASSWORD"
               # openreplay — 세션 리플레이(ADR-069). 차트의 postgresqlUser/Database.
               ensure openreplay     openreplay     "$OPENREPLAY_DB_PASSWORD"
+              # 7단계 — Dependency-Track. ALPINE_DATABASE_URL 의 롤·DB 이름.
+              ensure dependencytrack dependencytrack "$DTRACK_DB_PASSWORD"
+              # 7단계 — DefectDojo. DD_DATABASE_NAME/USER 의 값이다.
+              ensure defectdojo     defectdojo     "$DEFECTDOJO_DB_PASSWORD"
+              # 7단계 — SafeLine WAF. 상류는 자체 postgres 를 번들하나 공용을 쓴다.
+              ensure safeline       safeline       "$SAFELINE_DB_PASSWORD"
 
               echo "[postgres-bootstrap] 완료"
               $PSQL -d postgres -c "\l"
@@ -104,6 +110,12 @@ spec:
               valueFrom: { secretKeyRef: { name: glitchtip-secret, key: db-password } }
             - name: OPENREPLAY_DB_PASSWORD
               valueFrom: { secretKeyRef: { name: openreplay-secret, key: db-password } }
+            - name: DTRACK_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: dependency-track-secret, key: db-password } }
+            - name: DEFECTDOJO_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: defectdojo-secret, key: db-password } }
+            - name: SAFELINE_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: safeline-secret, key: db-password } }
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

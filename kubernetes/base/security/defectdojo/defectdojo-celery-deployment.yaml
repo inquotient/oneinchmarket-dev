@@ -1,0 +1,170 @@
+# Celery 워커 — 스캔 리포트 파싱과 중복 제거가 여기서 돈다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: defectdojo-celery-worker
+  labels:
+    app.kubernetes.io/name: defectdojo
+    app.kubernetes.io/instance: celery-worker
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: defectdojo
+      app.kubernetes.io/instance: celery-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: defectdojo
+        app.kubernetes.io/instance: celery-worker
+        app.kubernetes.io/component: security
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: defectdojo
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: celery-worker
+          image: defectdojo/defectdojo-django:latest
+          command: ["/entrypoint-celery-worker.sh"]
+          env:
+            - name: DD_DATABASE_PASSWORD
+              valueFrom: { secretKeyRef: { name: defectdojo-secret, key: db-password } }
+            - name: DD_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: defectdojo-secret, key: secret-key } }
+            - name: DD_CREDENTIAL_AES_256_KEY
+              valueFrom: { secretKeyRef: { name: defectdojo-secret, key: credential-aes-256-key } }
+            - name: DD_CELERY_BROKER_PASSWORD
+              valueFrom: { secretKeyRef: { name: redis-secret, key: redis-password } }
+          envFrom:
+            - configMapRef:
+                name: defectdojo-config
+          volumeMounts:
+            - name: media
+              mountPath: /app/media
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: { cpu: 150m, memory: 512Mi }
+            limits:   { cpu: "2",  memory: 1280Mi }
+          # 워커는 포트를 열지 않는다. celery 자체 진단으로 본다.
+          livenessProbe:
+            exec:
+              command: ["/bin/bash", "-c", "celery -A dojo inspect ping -d celery@$HOSTNAME | grep -q pong"]
+            initialDelaySeconds: 120
+            periodSeconds: 60
+            timeoutSeconds: 30
+            failureThreshold: 5
+          readinessProbe:
+            exec:
+              command: ["/bin/bash", "-c", "celery -A dojo inspect ping -d celery@$HOSTNAME | grep -q pong"]
+            initialDelaySeconds: 90
+            periodSeconds: 60
+            timeoutSeconds: 30
+            failureThreshold: 10
+      volumes:
+        - name: media
+          persistentVolumeClaim:
+            claimName: defectdojo-media
+        - name: tmp
+          emptyDir: { sizeLimit: 512Mi }
+---
+# Beat — 주기 작업 스케줄러. 상태를 DB 에 둔다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: defectdojo-celery-beat
+  labels:
+    app.kubernetes.io/name: defectdojo
+    app.kubernetes.io/instance: celery-beat
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: defectdojo
+      app.kubernetes.io/instance: celery-beat
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: defectdojo
+        app.kubernetes.io/instance: celery-beat
+        app.kubernetes.io/component: security
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: defectdojo
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: celery-beat
+          image: defectdojo/defectdojo-django:latest
+          command: ["/entrypoint-celery-beat.sh"]
+          env:
+            - name: DD_DATABASE_PASSWORD
+              valueFrom: { secretKeyRef: { name: defectdojo-secret, key: db-password } }
+            - name: DD_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: defectdojo-secret, key: secret-key } }
+            - name: DD_CREDENTIAL_AES_256_KEY
+              valueFrom: { secretKeyRef: { name: defectdojo-secret, key: credential-aes-256-key } }
+            - name: DD_CELERY_BROKER_PASSWORD
+              valueFrom: { secretKeyRef: { name: redis-secret, key: redis-password } }
+          envFrom:
+            - configMapRef:
+                name: defectdojo-config
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: { cpu: 50m, memory: 192Mi }
+            limits:   { cpu: 500m, memory: 512Mi }
+          # beat 도 포트를 열지 않는다. pid 파일 + 프로세스 생존을 본다.
+          # ★ 이미지에 pgrep 이 없다(실측). kill -0 은 셸 내장이라 항상 있고,
+          #   pid 파일만 보면 죽은 프로세스의 잔여 파일에 속는다.
+          livenessProbe:
+            exec:
+              command: ["/bin/bash", "-c", "test -f /var/run/defectdojo/celery-beat.pid && kill -0 \"$(cat /var/run/defectdojo/celery-beat.pid)\""]
+            initialDelaySeconds: 90
+            periodSeconds: 60
+            timeoutSeconds: 15
+            failureThreshold: 5
+          readinessProbe:
+            exec:
+              command: ["/bin/bash", "-c", "test -f /var/run/defectdojo/celery-beat.pid && kill -0 \"$(cat /var/run/defectdojo/celery-beat.pid)\""]
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            timeoutSeconds: 15
+            failureThreshold: 10
+      volumes:
+        - name: tmp
+          emptyDir: { sizeLimit: 256Mi }

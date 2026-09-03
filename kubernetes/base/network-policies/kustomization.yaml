@@ -13,6 +13,7 @@ resources:
   - observability-prom-netpol.yaml
   - observability-otel-netpol.yaml
   - governance-netpol.yaml
+  - security-netpol.yaml
 
 commonAnnotations:
   argocd.argoproj.io/sync-wave: "0"

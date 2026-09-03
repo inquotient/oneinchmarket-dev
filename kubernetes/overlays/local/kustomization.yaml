@@ -17,6 +17,8 @@ resources:
   # OpenReplay - 세션 리플레이(ADR-069). 생성 파일이며 전제 2건이 미해결이라
   #   브라우저 데이터는 아직 들어오지 않는다.
   - openreplay
+  # Caldera — ADR-030 이 prod 배포를 금지한다. base 에 두면 prod 가 상속한다.
+  - caldera
 
 patches:
   # 로컬 레플리카 1

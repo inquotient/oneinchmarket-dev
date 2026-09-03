@@ -1,0 +1,203 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: caldera
+  labels:
+    app.kubernetes.io/name: caldera
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+# 에이전트를 클러스터에 배포하는 기능은 쓰지 않는다. API 토큰이 필요 없다.
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: caldera
+  labels:
+    app.kubernetes.io/name: caldera
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8888
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: caldera
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: caldera-config
+  labels:
+    app.kubernetes.io/name: caldera
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+data:
+  # 서버 설정. 비밀번호·API 키는 여기 두지 않고 initContainer 가
+  # Secret 에서 읽어 주입한다.
+  local.yml.tmpl: |
+    app.contact.http: http://0.0.0.0:8888
+    app.contact.tcp: 0.0.0.0:7010
+    app.contact.udp: 0.0.0.0:7011
+    app.contact.websocket: 0.0.0.0:7012
+    # ★ 에이전트 접속 경로를 열어 두되, NetworkPolicy 가 실제 도달을 막는다.
+    #   설정에서 지우면 UI 가 오작동하므로 정책 계층에서 차단한다.
+    plugins:
+      - access
+      - atomic
+      - compass
+      - debrief
+      - fieldmanual
+      - manx
+      - response
+      - sandcat
+      - stockpile
+      - training
+    crypt_salt: REPLACE_SALT
+    api_key_red: REPLACE_RED_KEY
+    api_key_blue: REPLACE_BLUE_KEY
+    encryption_key: REPLACE_ENC_KEY
+    exfil_dir: /tmp/caldera-exfil
+    host: 0.0.0.0
+    port: 8888
+    reachable_hosts: []
+    requirements:
+      go:
+        command: go version
+        type: installed_program
+        version: 1.19
+      python:
+        attr: version
+        module: sys
+        type: python_module
+        version: 3.8.0
+    users:
+      red:
+        red: REPLACE_RED_PW
+      blue:
+        blue: REPLACE_BLUE_PW
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: caldera
+  labels:
+    app.kubernetes.io/name: caldera
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: caldera
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: caldera
+        app.kubernetes.io/component: security
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: caldera
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # 설정 템플릿에 Secret 값을 넣는다. ConfigMap 에 자격을 평문으로
+        # 두지 않기 위해서다.
+        - name: render-config
+          image: busybox:stable
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              sed -e "s|REPLACE_RED_KEY|${API_KEY_RED}|" \
+                  -e "s|REPLACE_BLUE_KEY|${API_KEY_BLUE}|" \
+                  -e "s|REPLACE_RED_PW|${RED_PASSWORD}|" \
+                  -e "s|REPLACE_BLUE_PW|${BLUE_PASSWORD}|" \
+                  -e "s|REPLACE_SALT|${API_KEY_RED}|" \
+                  -e "s|REPLACE_ENC_KEY|${API_KEY_BLUE}|" \
+                  /tmpl/local.yml.tmpl > /conf/local.yml
+              echo "[caldera] local.yml 렌더 완료"
+          env:
+            - name: API_KEY_RED
+              valueFrom: { secretKeyRef: { name: caldera-secret, key: api-key-red } }
+            - name: API_KEY_BLUE
+              valueFrom: { secretKeyRef: { name: caldera-secret, key: api-key-blue } }
+            - name: RED_PASSWORD
+              valueFrom: { secretKeyRef: { name: caldera-secret, key: red-password } }
+            - name: BLUE_PASSWORD
+              valueFrom: { secretKeyRef: { name: caldera-secret, key: blue-password } }
+          volumeMounts:
+            - name: tmpl
+              mountPath: /tmpl
+            - name: conf
+              mountPath: /conf
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: { cpu: 50m, memory: 32Mi }
+            limits:   { cpu: 200m, memory: 64Mi }
+      containers:
+        - name: caldera
+          image: ghcr.io/mitre/caldera:latest
+          ports:
+            - containerPort: 8888
+              name: http
+              protocol: TCP
+          args: ["--log", "INFO"]
+          volumeMounts:
+            # ★ conf/ 디렉터리 전체를 덮으면 이미지가 들고 있는 agents.yml
+            #   payloads.yml 등이 함께 가려져 기동이 실패한다(실측:
+            #   FileNotFoundError: conf/agents.yml). subPath 로 파일 하나만
+            #   얹어 형제 파일을 남긴다.
+            #   DefectDojo nginx 의 /var/run 가림과 같은 실수다.
+            - name: conf
+              mountPath: /usr/src/app/conf/local.yml
+              subPath: local.yml
+            # data/ 는 마운트하지 않는다 — 여기에도 이미지가 실어 둔 파일이
+            #   있고, 이 컨테이너는 루트가 읽기 전용이 아니라 그대로 쓴다.
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: { cpu: 150m, memory: 512Mi }
+            limits:   { cpu: "2",  memory: 1536Mi }
+          startupProbe:
+            httpGet: { path: /, port: http }
+            failureThreshold: 90
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 20
+            timeoutSeconds: 5
+      volumes:
+        - name: tmpl
+          configMap:
+            name: caldera-config
+        - name: conf
+          emptyDir: { sizeLimit: 16Mi }
+        - name: tmp
+          emptyDir: { sizeLimit: 1Gi }

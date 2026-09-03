@@ -1,0 +1,58 @@
+# Kubescape — 포스처 스캔 (CIS · NSA-CISA · MITRE ATT&CK)
+#
+# 오퍼레이터가 아니라 CronJob 이다. 근거:
+#   - node-agent 는 노드당 1.6 GB 로 로컬에서 제외 대상이다(DEPLOYMENT.md §220)
+#   - ADR-052 가 Kubescape 를 batch-low 로 두어 상시 용량 산정에서 뺀다
+#   - 오퍼레이터 스택(storage APIServer·synchronizer·gateway)은 지속 스캔을
+#     위한 것인데, 단일 노드에서 하루 1회 스캔이면 충분하다
+#
+# 권한은 읽기 전용이다. 스캔은 클러스터 상태를 관찰만 한다.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubescape
+  labels:
+    app.kubernetes.io/name: kubescape
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubescape-reader
+  labels:
+    app.kubernetes.io/name: kubescape
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+rules:
+  # 프레임워크 컨트롤이 요구하는 리소스 전체를 읽는다. 쓰기 동사는 없다.
+  - apiGroups: [""]
+    resources: ["*"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps", "batch", "networking.k8s.io", "rbac.authorization.k8s.io",
+                "policy", "storage.k8s.io", "apiextensions.k8s.io",
+                "admissionregistration.k8s.io", "autoscaling", "discovery.k8s.io"]
+    resources: ["*"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubescape-reader
+  labels:
+    app.kubernetes.io/name: kubescape
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kubescape-reader
+subjects:
+  - kind: ServiceAccount
+    name: kubescape
+    # ★ 네임스페이스는 오버레이가 채운다. ClusterRoleBinding 의 subject 는
+    #   kustomize 의 `namespace:` 가 자동으로 덮어쓴다.
+    namespace: local

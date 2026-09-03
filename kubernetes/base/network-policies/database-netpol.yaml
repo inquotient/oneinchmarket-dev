@@ -42,6 +42,16 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/instance: openreplay
+        # 7단계 — Dependency-Track(apiserver) · DefectDojo(django·celery).
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: dependency-track
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: defectdojo
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: safeline
       ports:
         - protocol: TCP
           port: 5432
@@ -132,6 +142,10 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/instance: openreplay
+        # 7단계 — DefectDojo 의 Celery 브로커·결과 백엔드(DB 인덱스 5).
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: defectdojo
       ports:
         - protocol: TCP
           port: 6379

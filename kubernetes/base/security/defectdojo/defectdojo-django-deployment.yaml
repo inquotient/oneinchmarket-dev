@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: defectdojo-django
+  labels:
+    app.kubernetes.io/name: defectdojo
+    app.kubernetes.io/instance: django
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  # media PVC 가 RWO 다. 두 파드가 동시에 붙지 않게 한다.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: defectdojo
+      app.kubernetes.io/instance: django
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: defectdojo
+        app.kubernetes.io/instance: django
+        app.kubernetes.io/component: security
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: defectdojo
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: uwsgi
+          image: defectdojo/defectdojo-django:latest
+          command: ["/entrypoint-uwsgi.sh"]
+          ports:
+            - containerPort: 3031
+              name: uwsgi
+              protocol: TCP
+          env:
+            - name: DD_DATABASE_PASSWORD
+              valueFrom: { secretKeyRef: { name: defectdojo-secret, key: db-password } }
+            - name: DD_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: defectdojo-secret, key: secret-key } }
+            - name: DD_CREDENTIAL_AES_256_KEY
+              valueFrom: { secretKeyRef: { name: defectdojo-secret, key: credential-aes-256-key } }
+            - name: DD_CELERY_BROKER_PASSWORD
+              valueFrom: { secretKeyRef: { name: redis-secret, key: redis-password } }
+          envFrom:
+            - configMapRef:
+                name: defectdojo-config
+          volumeMounts:
+            - name: media
+              mountPath: /app/media
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: { cpu: 200m, memory: 640Mi }
+            limits:   { cpu: "2",  memory: 1536Mi }
+          # uwsgi 포트는 HTTP 가 아니다. tcpSocket 으로 본다.
+          startupProbe:
+            tcpSocket: { port: uwsgi }
+            failureThreshold: 60
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: uwsgi }
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            tcpSocket: { port: uwsgi }
+            periodSeconds: 20
+            timeoutSeconds: 5
+      volumes:
+        - name: media
+          persistentVolumeClaim:
+            claimName: defectdojo-media
+        - name: tmp
+          emptyDir: { sizeLimit: 512Mi }

@@ -1,0 +1,70 @@
+# Dependency-Track — SBOM 취약점 관리 (ADR-050)
+#
+# 핵심 가치는 스캔이 아니라 **소급 알림**이다(SEC-505). 신규 CVE 가 공개되면
+# 이미 배포된 이미지의 SBOM 을 다시 대조해 영향을 알린다. Trivy 는 스캔 시점에만
+# 답하므로 이 축을 대체하지 못한다.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: dependency-track
+  labels:
+    app.kubernetes.io/name: dependency-track
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dependency-track-api
+  labels:
+    app.kubernetes.io/name: dependency-track
+    app.kubernetes.io/instance: apiserver
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: dependency-track
+    app.kubernetes.io/instance: apiserver
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dependency-track
+  labels:
+    app.kubernetes.io/name: dependency-track
+    app.kubernetes.io/instance: frontend
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: dependency-track
+    app.kubernetes.io/instance: frontend
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dependency-track-data
+  labels:
+    app.kubernetes.io/name: dependency-track
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      # 취약점 피드 미러와 Lucene 인덱스가 들어간다. DB 는 여기가 아니라 공용 PG 다.
+      storage: 8Gi

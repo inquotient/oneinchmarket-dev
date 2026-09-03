@@ -16,7 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | INFRA-xxx 56건, 배포 절차, 배포 블로커, 용량·비용 |
 | [docs/LOCAL-DEPLOYMENT.md](docs/LOCAL-DEPLOYMENT.md) | **브랜치 `local`.** WSL2 단일 노드 k3s + zram (B안). **§8 에 실배포 기록** — WSL2 고유 블로커 3건, 결함 32건 해소 |
 | [docs/APP-INTEGRATION.md](docs/APP-INTEGRATION.md) | **애플리케이션 연동 가이드.** 앱을 이 플랫폼에 붙이는 법 — OTel·GlitchTip·Pyroscope·Kafka·계약, 새 워크로드 규약, 지금 안 되는 것 |
-| [docs/ADR-CANDIDATES.md](docs/ADR-CANDIDATES.md) | 아키텍처 결정 기록 후보 59건 |
+| [docs/ADR-CANDIDATES.md](docs/ADR-CANDIDATES.md) | 아키텍처 결정 기록 후보 60건 |
 | `v2-architecture-plan.md` | **2026-02 작성 계획서.** 목표를 기술하며 현재 상태와 다른 부분이 있다 |
 | `README.md` | **v1 내용 그대로다.** v2를 반영하지 않는다 |
 
@@ -55,6 +55,7 @@ cd scripts/security-verification && ./run-all.sh [namespace]
 
 - `kubernetes/base/` — 카테고리별 Kustomize base 매니페스트
 - `kubernetes/overlays/dev/`, `overlays/prod/` — 환경별 패치
+- `kubernetes/overlays/local/caldera/` — **local 전용.** ADR-030 이 Caldera 의 **prod 배포를 금지**한다(Sandcat 은 기능상 원격 제어 에이전트다). base 에 두면 prod 오버레이가 그대로 상속하므로 금지가 문서에만 남는다. egress 까지 막는 이 레포 유일의 정책이 함께 있다
 - `kubernetes/overlays/local/lakehouse-local/` — **local 전용 리소스.** ZooKeeper·HDFS·HBase·HiveServer2 는 매니페스트가 단일 노드를 전제(`dfs.replication=1`·비-HA·`tez.local.mode=true`)해 base 에 두지 않는다. ConfigMap 안의 XML 값은 오버레이가 부분적으로 덮을 수 없기 때문이다. 승격 조건은 그 디렉터리의 `kustomization.yaml` 머리말에 있다
 - `infra/` — OpenTofu IaC. `modules/`는 Hetzner/Vultr 이중 구조이나 **Hetzner는 미완성**
 - `argocd/` — AppProject, Application, Argo Events
@@ -76,8 +77,8 @@ cd scripts/security-verification && ./run-all.sh [namespace]
 | **4** | **security/keycloak · security/vault · security/wazuh** | **Keycloak, Vault, Wazuh(manager·indexer)** |
 | 5 | devops · **governance** | GitLab EE · **DS389, LAM, Solr, Ranger(admin·usersync), Knox** |
 | 6 | application | admin, cmmn-api, nginx |
-| 7 | observability | Elasticsearch(ECK 3노드), Kibana, Logstash, Filebeat, **Prometheus, Grafana, Loki, Tempo, OTel Collector(agent·gateway)**, Falco, Falcosidekick, Trivy CronJob |
-| 8 | rotation | 로테이션 CronJob 7종 + git-sync |
+| 7 | observability · **security-full** | **Dependency-Track(apiserver·frontend) · DefectDojo(django·nginx·celery worker·beat)** · Elasticsearch(ECK 3노드), Kibana, Logstash, Filebeat, **Prometheus, Grafana, Loki, Tempo, OTel Collector(agent·gateway)**, Falco, Falcosidekick, Trivy CronJob |
+| 8 | rotation · **security-full 일부** | 로테이션 CronJob 7종 + git-sync · **Kubescape CronJob · SafeLine(mgt·detector·tengine·chaos + fvm·luigi) · Caldera**(local 전용) |
 
 `kubernetes/base/security/namespaces/`는 **어느 kustomization에도 포함되지 않는 고아 디렉터리**다. 네임스페이스는 오버레이가 각자 정의하며 두 정의가 서로 다르다.
 
@@ -145,7 +146,7 @@ containers:
         drop: ["ALL"]
 ```
 
-**의도된 예외 7건** — GitLab(root + capability 8종), Falco(privileged + hostNetwork), Filebeat(root + `DAC_READ_SEARCH`), otel-agent(root + `DAC_READ_SEARCH`), DS389(root + `CHOWN·DAC_OVERRIDE·FOWNER·SETGID·SETUID·NET_BIND_SERVICE`), LAM(root + 앞의 5종), wazuh-manager(root + 5종 + `KILL·SYS_CHROOT`). 각각 매니페스트에 사유가 기록되어 있다.
+**의도된 예외 8건** — GitLab(root + capability 8종), Falco(privileged + hostNetwork), Filebeat(root + `DAC_READ_SEARCH`), otel-agent(root + `DAC_READ_SEARCH`), DS389(root + `CHOWN·DAC_OVERRIDE·FOWNER·SETGID·SETUID·NET_BIND_SERVICE`), LAM(root + 앞의 5종), wazuh-manager(root + 5종 + `KILL·SYS_CHROOT`). SafeLine(root + `CHOWN·SETUID·SETGID·DAC_OVERRIDE`, tengine 은 `NET_BIND_SERVICE` 추가 — detector·tengine 엔트리포인트가 작업 디렉터리를 chown 한다). 각각 매니페스트에 사유가 기록되어 있다. **단 prod 는 Kyverno `disallow-root` 가 Enforce 라 8건 전부 거부된다 — 정책 예외 목록이 없다.**
 
 ### Annotations
 

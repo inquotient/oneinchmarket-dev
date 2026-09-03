@@ -1,0 +1,206 @@
+# SafeLine WAF (ADR-029)
+#
+# ★ compose → k8s 번역에서 드러난 것
+#   상류는 docker-compose 전용이고 서비스끼리 **고정 IP**로 참조한다
+#   (SUBNET_PREFIX.4 = mgt · .5 = detector · .10 = chaos). 소켓 IPC 도 있다.
+#   전부 한 파드에 넣으면 고정 IP 가 127.0.0.1 이 되어 그 가정이 성립하지만,
+#   **fvm 과 tengine 이 둘 다 :80 을 잡아 충돌한다**(실측:
+#   "listen tcp :80: bind: address already in use"). compose 는 서비스마다
+#   네트워크 네임스페이스가 따로라 드러나지 않던 문제다.
+#
+#   그래서 볼륨을 공유하는 4종(mgt·detector·tengine·chaos)만 한 파드에 두고
+#   fvm·luigi 는 별도 Deployment 로 뺀다. 두 그룹은 서비스 이름으로 만난다 —
+#   compose 의 container_name 과 같은 이름을 Service 에 붙여 DNS 를 맞춘다.
+#
+# ★ 옮기지 않은 것 2가지
+#   1. tengine 의 `network_mode: host` — 이 클러스터의 Cilium 설정에서
+#      hostPort/hostNetwork 가 기대대로 동작하지 않음을 otel-agent 에서
+#      확인했다(§8-23). ClusterIP + port-forward 로 쓴다.
+#   2. mgt 의 `/var/run:/app/run` — 호스트 도커 소켓이다. k8s 에 없고 있어도
+#      마운트해서는 안 된다. mgt UI 의 컨테이너 상태 표시가 동작하지 않는다.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: safeline
+  labels:
+    app.kubernetes.io/name: safeline
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: safeline
+  labels:
+    app.kubernetes.io/name: safeline
+    app.kubernetes.io/instance: core
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  type: ClusterIP
+  # 순환 의존을 끊는다. mgt 는 기동 중에 chaos·fvm 을 부르는데 그때
+  # 파드는 아직 Ready 가 아니다. 기본값이면 준비되지 않은 파드가
+  # 엔드포인트에서 빠져 connection refused 가 되고, 그래서 영원히
+  # Ready 가 되지 못한다. compose 에는 준비 개념이 없어 없던 문제다.
+  publishNotReadyAddresses: true
+  ports:
+    - port: 1443
+      targetPort: mgt
+      protocol: TCP
+      name: mgt
+    - port: 80
+      targetPort: proxy
+      protocol: TCP
+      name: proxy
+  selector:
+    app.kubernetes.io/name: safeline
+    app.kubernetes.io/instance: core
+---
+# ★ 이름이 곧 계약이다 — compose 의 container_name 이 `safeline-mgt` 다.
+#   luigi 가 이 이름으로 mgt 를 찾는다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: safeline-mgt
+  labels:
+    app.kubernetes.io/name: safeline
+    app.kubernetes.io/instance: core
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  type: ClusterIP
+  # 순환 의존을 끊는다. mgt 는 기동 중에 chaos·fvm 을 부르는데 그때
+  # 파드는 아직 Ready 가 아니다. 기본값이면 준비되지 않은 파드가
+  # 엔드포인트에서 빠져 connection refused 가 되고, 그래서 영원히
+  # Ready 가 되지 못한다. compose 에는 준비 개념이 없어 없던 문제다.
+  publishNotReadyAddresses: true
+  ports:
+    - port: 1443
+      targetPort: mgt
+      protocol: TCP
+      name: mgt
+  selector:
+    app.kubernetes.io/name: safeline
+    app.kubernetes.io/instance: core
+---
+# mgt 가 이 이름으로 fvm 을 찾는다(compose container_name: safeline-fvm).
+apiVersion: v1
+kind: Service
+metadata:
+  name: safeline-fvm
+  labels:
+    app.kubernetes.io/name: safeline
+    app.kubernetes.io/instance: fvm
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  type: ClusterIP
+  # 순환 의존을 끊는다. mgt 는 기동 중에 chaos·fvm 을 부르는데 그때
+  # 파드는 아직 Ready 가 아니다. 기본값이면 준비되지 않은 파드가
+  # 엔드포인트에서 빠져 connection refused 가 되고, 그래서 영원히
+  # Ready 가 되지 못한다. compose 에는 준비 개념이 없어 없던 문제다.
+  publishNotReadyAddresses: true
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+    # mgt 가 규칙을 gRPC 로 밀어 넣는다(실측: fvm 이 9004 를 듣는다).
+    # 없으면 "FVM AppendFSL Client Error: rpc error: code = Unavailable".
+    - port: 9004
+      targetPort: 9004
+      protocol: TCP
+      name: grpc
+  selector:
+    app.kubernetes.io/name: safeline
+    app.kubernetes.io/instance: fvm
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: safeline-data
+  labels:
+    app.kubernetes.io/name: safeline
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 4Gi
+---
+# ★ mgt 가 chaos 를 **DNS 이름으로** 부른다 — 같은 파드에 있어도 그렇다.
+#   실측: panic: Get "http://safeline-chaos:8080/challenge/v2/api/auth/keys":
+#          lookup safeline-chaos: no such host
+#   compose 의 container_name 이 그대로 호스트명 계약이 되어 있다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: safeline-chaos
+  labels:
+    app.kubernetes.io/name: safeline
+    app.kubernetes.io/instance: core
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  type: ClusterIP
+  # 순환 의존을 끊는다. mgt 는 기동 중에 chaos·fvm 을 부르는데 그때
+  # 파드는 아직 Ready 가 아니다. 기본값이면 준비되지 않은 파드가
+  # 엔드포인트에서 빠져 connection refused 가 되고, 그래서 영원히
+  # Ready 가 되지 못한다. compose 에는 준비 개념이 없어 없던 문제다.
+  publishNotReadyAddresses: true
+  ports:
+    # ★ chaos 의 auth 프로세스가 **IPv6 와일드카드**([::]:8080)에 붙는다.
+    #   /proc/net/tcp(IPv4)만 보고 "8080 은 없다"고 판단해 9000 으로 돌렸다가
+    #   404 를 받았다 — 포트는 처음부터 맞았고 원인은 아래 순환 의존이었다.
+    # 파드가 실제로 듣는 포트 전부를 노출한다(/proc/net/tcp + tcp6 실측:
+    # 8080 · 8088 · 9000). mgt 가 이들을 차례로 부르는데 상류 문서에
+    # 목록이 없어, 하나씩 열면 panic 을 한 번씩 더 만나게 된다.
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: auth
+    - port: 8088
+      targetPort: 8088
+      protocol: TCP
+      name: api
+    - port: 9000
+      targetPort: 9000
+      protocol: TCP
+      name: serve
+  selector:
+    app.kubernetes.io/name: safeline
+    app.kubernetes.io/instance: core
+---
+# 같은 이유로 detector 도 이름을 갖는다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: safeline-detector
+  labels:
+    app.kubernetes.io/name: safeline
+    app.kubernetes.io/instance: core
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  type: ClusterIP
+  # 순환 의존을 끊는다. mgt 는 기동 중에 chaos·fvm 을 부르는데 그때
+  # 파드는 아직 Ready 가 아니다. 기본값이면 준비되지 않은 파드가
+  # 엔드포인트에서 빠져 connection refused 가 되고, 그래서 영원히
+  # Ready 가 되지 못한다. compose 에는 준비 개념이 없어 없던 문제다.
+  publishNotReadyAddresses: true
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: snserver
+    # luigi 가 stat 을 8001 로 가져간다(실측: 파드가 8001 을 듣는다).
+    - port: 8001
+      targetPort: 8001
+      protocol: TCP
+      name: stat
+  selector:
+    app.kubernetes.io/name: safeline
+    app.kubernetes.io/instance: core

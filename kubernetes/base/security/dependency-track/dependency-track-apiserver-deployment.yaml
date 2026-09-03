@@ -1,0 +1,108 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dependency-track-apiserver
+  labels:
+    app.kubernetes.io/name: dependency-track
+    app.kubernetes.io/instance: apiserver
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  # PVC 가 RWO 다. 롤링 업데이트로 두 파드가 동시에 붙으면 새 파드가 Pending 에
+  # 걸린다. Recreate 로 교체 순서를 강제한다.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dependency-track
+      app.kubernetes.io/instance: apiserver
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dependency-track
+        app.kubernetes.io/instance: apiserver
+        app.kubernetes.io/component: security
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: dependency-track
+      securityContext:
+        # 이미지 실측: uid/gid 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: apiserver
+          image: dependencytrack/apiserver:latest
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+          env:
+            - name: DTRACK_DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: dependency-track-secret, key: db-password }
+            # 공용 PostgreSQL 18.6 을 쓴다. 전용 인스턴스를 두지 않는 이유는
+            # ADR-071 과 같다 — 세 환경에 인스턴스를 하나씩 더 늘리게 된다.
+            - name: ALPINE_DATABASE_MODE
+              value: external
+            - name: ALPINE_DATABASE_DRIVER
+              value: org.postgresql.Driver
+            - name: ALPINE_DATABASE_URL
+              value: jdbc:postgresql://postgresql-headless:5432/dependencytrack
+            - name: ALPINE_DATABASE_USERNAME
+              value: dependencytrack
+            - name: ALPINE_DATABASE_PASSWORD
+              value: $(DTRACK_DB_PASSWORD)
+            # ★ 힙을 컨테이너 limit 아래로 명시한다. hive-metastore 가 limit
+            #   512Mi 에 힙 1G 로 39회 재시작한 전례가 있다(§8 기록).
+            - name: EXTRA_JAVA_OPTIONS
+              value: "-Xmx1600m -XX:MaxMetaspaceSize=256m"
+            # 취약점 분석기. OSS Index 와 NVD 만 켠다 — 나머지는 외부 계정이 필요하다.
+            - name: ALPINE_DATA_DIRECTORY
+              value: /data
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 250m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          # ★ 첫 기동에서 NVD 피드를 내려받아 인덱싱한다. 수십 분이 걸린다.
+          #   startupProbe 예산을 크게 잡지 않으면 준비 전에 죽는다.
+          startupProbe:
+            httpGet: { path: /api/version, port: http }
+            failureThreshold: 120
+            periodSeconds: 15
+          livenessProbe:
+            httpGet: { path: /api/version, port: http }
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet: { path: /api/version, port: http }
+            periodSeconds: 20
+            timeoutSeconds: 5
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: dependency-track-data
+        - name: tmp
+          emptyDir:
+            sizeLimit: 1Gi
