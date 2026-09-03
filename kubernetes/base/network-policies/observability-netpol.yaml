@@ -49,6 +49,24 @@ spec:
       ports:
         - protocol: TCP
           port: 5044
+    # ADR-031 — L0(OPNsense)의 Suricata EVE JSON 수신
+    #
+    # ★ 출발지가 클러스터 밖이다. L0 는 별도 호스트(클라우드에서는 VPC-only
+    #   인스턴스)이므로 podSelector 로 표현할 수 없고 ipBlock 이어야 한다.
+    #
+    # ★ 아래 대역은 **환경마다 좁혀야 한다.** 여기 적힌 것은 로컬 랩의
+    #   L0-LAN(10.77.0.0/24)이다. dev/prod 오버레이는 실제 L0 인스턴스 주소로
+    #   대체할 것.
+    #
+    #   로컬에서는 kubectl port-forward 로 들어와 출발지가 노드가 되므로
+    #   이 규칙이 없어도 통한다. 그래서 **로컬 검증만으로는 이 규칙의 부재가
+    #   드러나지 않는다** — 클라우드로 옮길 때 조용히 막힌다.
+    - from:
+        - ipBlock:
+            cidr: 10.77.0.0/24
+      ports:
+        - protocol: TCP
+          port: 5140
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

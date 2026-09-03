@@ -32,11 +32,101 @@ data:
         decorate_events => "basic"
         add_field => { "[@metadata][pipeline]" => "kafka" }
       }
+
+      # ADR-031 — L0(OPNsense) 의 Suricata EVE JSON
+      #
+      # ★ 왜 beats(5044) 가 아니라 별도 tcp 인가
+      #   OPNsense 에 filebeat 패키지가 없다(실측: pkg 저장소에 beats·filebeat
+      #   둘 다 없음). 대신 syslog-ng 가 기본으로 돌고 원격 타깃을 지원하므로
+      #   그쪽으로 받는다. beats 프로토콜이 아니라 평문 스트림이다.
+      #
+      # ★ codec 을 json_lines 로 두지 않는다. syslog-ng 가 EVE JSON 앞에
+      #   RFC5424 헤더를 붙여 줄 전체가 JSON 이 아니다. 헤더 제거는 filter 가
+      #   한다 — 여기서 json 코덱을 쓰면 전부 _jsonparsefailure 가 되고
+      #   그 실패는 태그로만 남아 조용히 유실된다.
+      tcp {
+        port => 5140
+        codec => plain { charset => "UTF-8" }
+        add_field => { "[@metadata][pipeline]" => "suricata" }
+      }
     }
 
     filter {
+      # ADR-031 — Suricata EVE JSON 정규화
+      if [@metadata][pipeline] == "suricata" {
+        # ★ syslog-ng 가 앞에 붙인 것을 떼고 JSON 만 남긴다. RFC5424 든
+        #   RFC3164 든 EVE JSON 은 '{' 부터 시작하므로 첫 '{' 이후를 취한다.
+        #   grok 으로 헤더 형식을 맞추려 들면 syslog-ng 설정이 바뀔 때마다
+        #   깨진다 — 여기서 필요한 것은 헤더가 아니라 페이로드다.
+        grok {
+          match => { "message" => "(?<eve_json>\{.*\})" }
+          tag_on_failure => ["_suricata_no_json"]
+        }
+        mutate {
+          add_field => { "event.module" => "suricata" }
+          add_field => { "observer.type" => "ids" }
+        }
+
+        if "_suricata_no_json" in [tags] {
+          # ★ 엔진 자체 로그다. program("suricata") 필터는 EVE JSON 뿐 아니라
+          #   suricata 의 기동·룰적재 메시지까지 함께 보낸다.
+          #
+          #   버리지 않는다. §8-33 에서 조용히 실패한 것이 정확히 이 신호였다 —
+          #   "1 rule files specified, but no rules were loaded!" 가 여기로 온다.
+          #   보안 이벤트와 섞으면 탐지 지표가 오염되므로 인덱스만 분리한다.
+          mutate {
+            add_field => { "[@metadata][target_index]" => "suricata-engine" }
+            add_field => { "event.kind" => "event" }
+            add_field => { "event.dataset" => "suricata.engine" }
+          }
+        } else {
+          json {
+            source => "eve_json"
+            skip_on_invalid_json => true
+          }
+          # 파싱에 성공했으면 원본 줄은 중복이다. EVE 한 줄은 payload_printable
+          # 때문에 커질 수 있어 그대로 두면 인덱스가 두 배가 된다.
+          mutate {
+            remove_field => ["eve_json", "message"]
+            add_field => { "[@metadata][target_index]" => "suricata" }
+            add_field => { "event.dataset" => "suricata.eve" }
+          }
+
+          # ★ alert 와 drop 을 구분한다. 이 차이가 IPS 검증의 전부다 —
+          #   탐지만 한 것과 실제로 떨어뜨린 것은 다른 사건이다.
+          #
+          #   ★★ 그런데 **syslog 경로에는 drop 이벤트가 오지 않는다.**
+          #   OPNsense 의 suricata.yaml 템플릿에서 파일 출력의 types 는
+          #   alert·anomaly·drop·ssh 인데 syslog 출력은 alert 하나뿐이다(실측).
+          #   차단 여부는 `alert.action == "blocked"` 로 판정해야 한다.
+          #   drop 이벤트(drop.reason 포함)가 필요하면 파일을 직접 수집하는
+          #   수집기가 있어야 한다 — OPNsense 에는 filebeat 패키지가 없다.
+          if [event_type] == "drop" {
+            mutate {
+              add_field => { "event.kind" => "event" }
+              add_field => { "event.action" => "blocked" }
+            }
+          } else if [event_type] == "alert" {
+            mutate {
+              add_field => { "event.kind" => "alert" }
+              add_field => { "event.action" => "%{[alert][action]}" }
+            }
+          } else {
+            mutate { add_field => { "event.kind" => "event" } }
+          }
+
+          # EVE 의 timestamp 를 쓴다. 수신 시각이 아니라 관측 시각이어야
+          # 상관분석에서 순서가 맞는다.
+          date {
+            match => ["timestamp", "ISO8601"]
+            target => "@timestamp"
+            tag_on_failure => ["_suricata_dateparsefailure"]
+          }
+        }
+      }
+
       # Falco 알림 처리
-      if [@metadata][pipeline] == "kafka" and [kafka][topic] == "falco-alerts" {
+      else if [@metadata][pipeline] == "kafka" and [kafka][topic] == "falco-alerts" {
         mutate {
           add_field => { "[@metadata][target_index]" => "falco-alerts" }
           add_field => { "event.kind" => "alert" }

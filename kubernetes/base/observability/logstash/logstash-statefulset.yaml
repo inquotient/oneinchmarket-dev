@@ -36,6 +36,10 @@ spec:
             - containerPort: 5044
               name: beats
               protocol: TCP
+            # ADR-031 — L0 의 Suricata EVE JSON (syslog-ng 경유 평문 스트림)
+            - containerPort: 5140
+              name: suricata
+              protocol: TCP
             - containerPort: 9600
               name: api
               protocol: TCP

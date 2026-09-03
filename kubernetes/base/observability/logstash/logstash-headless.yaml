@@ -14,6 +14,11 @@ spec:
       targetPort: beats
       protocol: TCP
       name: beats
+    # ADR-031 — L0 의 Suricata EVE JSON
+    - port: 5140
+      targetPort: suricata
+      protocol: TCP
+      name: suricata
     - port: 9600
       targetPort: api
       protocol: TCP

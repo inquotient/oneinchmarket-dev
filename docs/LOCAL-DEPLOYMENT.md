@@ -2961,6 +2961,104 @@ suricata -D --netmap ...     ← 인라인
 - **ADR-031 로그 파이프라인 미연결.** `eve.json` 은 생성되고 있으나 Logstash 로
   보내지 않았다. WSL2 의 k3s 는 Hyper-V VM 에서 직접 보이지 않아 Windows 를
   경유해야 한다(`setup-l0-lab.ps1` 말미의 portproxy 절차)
+
+### 8-34. ADR-031 로그 파이프라인 — Suricata EVE 가 Elasticsearch 까지 간다 (2026-09-04)
+
+§8-33 에서 차단을 확인한 뒤, 그 이벤트가 SIEM 까지 가는지가 다음 항목이었다.
+ADR-031 은 `Suricata EVE JSON · Zeek → Logstash → Wazuh Indexer` 를 말하는데
+**Logstash 에 Suricata 입력도 EVE 파싱도 없었다.** 문서에만 있던 상태다.
+
+#### 경로
+
+```
+suricata --(syslog_eve, facility local5)--> syslog-ng --(tcp4)--> 10.77.0.190:5140
+  --netsh portproxy--> 127.0.0.1:5140 --WSL localhostForwarding-->
+  kubectl port-forward --> logstash-0:5140 --> Elasticsearch
+```
+
+**검증용 경로다.** WSL2 의 k3s 가 Hyper-V VM 에서 직접 보이지 않아 Windows 를
+두 번 경유한다. 클라우드 dev 에서는 OPNsense 가 Logstash 로 곧장 보낸다.
+
+호스트 방화벽 프로파일이 `Public` 이라 인바운드가 막혀 있었다. 포트와 출발지
+대역을 좁힌 규칙 하나를 추가했다(`L0-Lab Logstash 5140`, 10.77.0.0/24 한정).
+
+#### 결과
+
+| 인덱스 | 내용 |
+|---|---|
+| `suricata` | EVE 이벤트. alert·ssh 등 |
+| `suricata-engine` | suricata 자체 로그 |
+
+정규화된 alert 문서:
+
+```json
+{"alert":{"signature":"L0LAB TEST ICMP DROP","action":"blocked"},
+ "event.dataset":"suricata.eve","event.kind":"alert","event.action":"blocked",
+ "src_ip":"10.77.0.191","dest_ip":"8.8.8.8","proto":"ICMP",
+ "observer.type":"ids","event.module":"suricata"}
+```
+
+#### ★ syslog 로 보내면 drop 이벤트가 유실된다
+
+가장 중요한 발견이다. OPNsense 의 `suricata.yaml` 템플릿에서 **파일 출력과
+syslog 출력의 `types` 목록이 다르다.**
+
+```yaml
+# 파일 출력
+types: [alert, anomaly, drop, ssh]
+# syslog 출력
+types: [alert]
+```
+
+즉 `event_type: drop`(그리고 `drop.reason`)은 **syslog 경로로 오지 않는다.**
+§8-33 에서 인라인 차단의 최종 근거로 삼았던 바로 그 이벤트다.
+
+차단 여부는 `alert.action == "blocked"` 로 판정해야 한다 — 실측으로 alert
+이벤트에 그 필드가 실려 온다. 전용 drop 이벤트가 필요하면 **파일을 직접
+읽는 수집기**가 있어야 하는데 OPNsense 에는 filebeat 패키지가 없다.
+
+#### 엔진 로그를 버리지 않고 분리했다
+
+`program("suricata")` 필터는 EVE JSON 뿐 아니라 suricata 자체 로그까지 보낸다.
+처음에 14건 중 9건이 `_suricata_no_json` 으로 잡혔다.
+
+버리지 않고 `suricata-engine` 인덱스로 분리했다. **§8-33 에서 조용히 실패한
+것이 정확히 이 신호였기 때문이다** — `1 rule files specified, but no rules
+were loaded!` 가 여기로 온다. 보안 이벤트와 섞으면 탐지 지표가 오염되고,
+버리면 "엔진이 실제로 룰을 들고 떴는가" 를 잃는다.
+
+```json
+{"event.dataset":"suricata.engine","event.kind":"event",
+ "message":"... Threads created -> W: 2 FM: 1 FR: 1   Engine started."}
+```
+
+#### 진단에서 한 번 틀렸다
+
+파드 안 설정에 새 필터가 없다고 판단해 "kubelet 의 ConfigMap 캐시" 로
+결론지었다. **틀렸다.** 마운트가 `subPath: pipeline.conf` → `pipeline/logstash.conf`
+라서 내가 grep 한 `pipeline/pipeline.conf` 는 존재하지 않는 경로였다.
+`grep ... || echo 0` 이 그 실패를 "0건" 으로 바꿔 놓아 없는 것처럼 보였다.
+
+#### NetworkPolicy — 로컬에서는 부재가 드러나지 않는다
+
+`allow-logstash-access` 는 filebeat→5044 만 허용한다. 5140 규칙을 추가했다.
+
+그런데 **로컬 검증만으로는 이 규칙이 없어도 통한다.** port-forward 로 들어오면
+출발지가 노드가 되기 때문이다. 클라우드에서 L0 가 직접 보낼 때 조용히 막힌다.
+대역(`10.77.0.0/24`)은 환경마다 실제 L0 주소로 좁혀야 한다.
+
+#### 곁가지 — Kafka 입력이 죽어 있다
+
+Logstash 로그에 `Bootstrap broker kafka-headless:9092 disconnected` 가 반복된다.
+이 변경과 무관한 **기존 문제**이며, `falco-alerts`·`keycloak-events` 토픽이
+Logstash 에 들어오지 않고 있다는 뜻이다. 별도로 다뤄야 한다.
+
+#### 남은 것
+
+- **출력이 Elasticsearch 다.** ADR-031 은 Wazuh Indexer 를 말한다. 현재 구현은
+  ES 로 보내며, 이 차이는 이 항목의 범위 밖이다
+- **Zeek 없음.** 패키지가 없어 별도 경로가 필요하다
+- **룰셋 미설치.** 검증용 룰 1개뿐이다(디스크 여유 530 MB)
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용
