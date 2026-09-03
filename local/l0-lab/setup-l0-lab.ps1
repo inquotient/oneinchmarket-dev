@@ -96,7 +96,7 @@ if (Get-VM -Name $opnName -ErrorAction SilentlyContinue) {
 } else {
   Log "$opnName 생성 (Gen$Generation · ${OpnMemoryGB}GiB · 디스크 32GB)"
   $vhd = Join-Path $VmRoot "$opnName.vhdx"
-  New-VM -Name $opnName -Generation $Generation -MemoryStartupBytes (${OpnMemoryGB}GB) `
+  New-VM -Name $opnName -Generation $Generation -MemoryStartupBytes ($OpnMemoryGB * 1GB) `
          -NewVHDPath $vhd -NewVHDSizeBytes 32GB -SwitchName 'L0-WAN' | Out-Null
   # ★ 동적 메모리 비활성 — FreeBSD 벌루닝 지원 부실
   Set-VMMemory -VMName $opnName -DynamicMemoryEnabled $false
@@ -128,10 +128,10 @@ if (Get-VM -Name $tgtName -ErrorAction SilentlyContinue) {
 } else {
   Log "$tgtName 생성 (Gen2 · ${TargetMemoryGB}GiB · 디스크 16GB · L0-LAN 전용)"
   $vhd2 = Join-Path $VmRoot "$tgtName.vhdx"
-  New-VM -Name $tgtName -Generation 2 -MemoryStartupBytes (${TargetMemoryGB}GB) `
+  New-VM -Name $tgtName -Generation 2 -MemoryStartupBytes ($TargetMemoryGB * 1GB) `
          -NewVHDPath $vhd2 -NewVHDSizeBytes 16GB -SwitchName 'L0-LAN' | Out-Null
   Set-VMMemory -VMName $tgtName -DynamicMemoryEnabled $true `
-               -MinimumBytes 512MB -MaximumBytes (${TargetMemoryGB}GB)
+               -MinimumBytes 512MB -MaximumBytes ($TargetMemoryGB * 1GB)
   Set-VMProcessor -VMName $tgtName -Count 2
   if ($TargetIsoPath -and (Test-Path $TargetIsoPath)) {
     Add-VMDvdDrive -VMName $tgtName -Path $TargetIsoPath
