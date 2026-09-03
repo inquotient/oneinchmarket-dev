@@ -2751,6 +2751,124 @@ H5 가 해소되었으므로 ADR-051(A안)의 기술적 중단 사유는 없다.
 > 물리 LAN 에 그대로 노출되고 이 VM 에는 랩 전용 약한 자격이 들어 있다.
 > 검증 후 `L0-LAN` 으로 되돌렸다. 되돌리지 않으면 "target 의 유일한 출구가
 > OPNsense" 라는 랩의 전제가 깨진다.
+
+### 8-32. OPNsense 무인 구성 — 시리얼 콘솔로 사람 손 없이 (2026-09-04)
+
+`local/l0-lab/README.md` 는 "OPNsense 설치 프로그램은 콘솔 대화형이라
+자동화하지 않는다" 고 적고 있었다. **그 판단은 이미지 선택의 결과였지
+OPNsense 의 성질이 아니었다.**
+
+#### 잘못 짚었던 것
+
+| 내가 적었던 것 | 실제 |
+|---|---|
+| "콘솔 대화형이라 자동화 불가" | DVD **설치 프로그램**만 그렇다. `nano` 는 설치 과정이 없다 |
+| "다운로드에 몇 시간" | 미러를 재보지 않았다. leaseweb 381 KB/s — 468 MB 에 20~70분 |
+| "관리자 권한이 필요" | 권한과 무관하다. DVD 가 **VGA 프레임버퍼**에 그려 텍스트 스트림이 아닌 것이 원인이다 |
+
+미러 실측(2026-09-04): `pkg.opnsense.org` 63 KB/s · `dotsrc` 101 · `c0urier` 168 ·
+`leaseweb` **381**. 하루 전 다른 미러의 20 KB/s 를 재보지 않고 옮겨 쓴 것이
+"몇 시간" 의 근거였다.
+
+#### 자동화 경로
+
+`nano` 이미지는 **이미 설치된 시스템**이고 임베디드용이라 시리얼 콘솔이 기본이다.
+Hyper-V 는 Gen2 를 포함해 VM 의 COM 포트를 named pipe 에 붙일 수 있다.
+
+```
+Set-VMComPort -VMName L0-OPNsense -Number 1 -Path \.\pipe\opnsense-com1
+```
+
+그 파이프가 곧 읽고 쓸 수 있는 텍스트 스트림이다. `serial-console.ps1`(데몬) +
+`serial-expect.ps1`(패턴 대기) 로 콘솔 메뉴 전체를 몰 수 있다. 실측 결과
+**사람 개입 0회**로 부팅 → 로그인 → 인터페이스 주소 변경 → SSH 활성화까지 갔다.
+
+#### Gen1 이어야 한다 — 붙이기 전에 확인했다
+
+```
+Disklabel type: dos          ← MBR, EFI System Partition 없음
+```
+
+Gen2(UEFI)로는 부팅하지 못한다. **부팅시켜 보고 검은 화면을 해석하는 대신
+이미지의 파티션 표를 먼저 읽었다.** 실제로는 파티션 표조차 없다 —
+디스크 전체가 UFS 인 "dangerously dedicated" 레이아웃이다(`glabel` 이
+`ufs/OPNsense_Nano` 를 `da0` 자체에 붙인다).
+
+#### 사고 — NIC 순서 때문에 물리망에서 공유기 IP 를 주장했다
+
+OPNsense 기본 설정은 **첫 NIC 을 LAN 에** 배정하고 192.168.1.1/24 + DHCP 서버를
+올린다. 랩 스크립트는 첫 NIC 을 `L0-WAN`(External, 물리 NIC 공유)에 붙이고
+있었다. 결과:
+
+```
+LAN (hn0) -> v4: 192.168.1.1/24     ← 물리망에 붙은 인터페이스
+호스트 주소            192.168.1.222
+호스트 기본 게이트웨이  192.168.1.1   ← 같은 주소
+```
+
+부팅 직후 약 1분간 **공유기의 IP 를 물리망에서 주장하며 DHCP 서버를 돌리고
+있었다.** 게이트웨이 ARP 가 실제 공유기 MAC(`74-24-9F-…`)을 유지했고 호스트
+연결도 끊기지 않았지만, 우연에 기댄 결과다.
+
+조치 두 가지.
+
+1. `setup-l0-lab.ps1` 이 **첫 NIC 을 `L0-LAN`(Internal)에** 붙인다. 배정이
+   틀려도 격리된 스위치라 물리망에 닿지 않는다
+2. LAN 대역을 `10.77.0.1/24` 로 옮겼다. 기본값 192.168.1.0/24 는 이 호스트의
+   실제 대역과 같아, Internal 스위치에 두더라도 호스트에 같은 대역 인터페이스가
+   둘 생겨 라우팅이 깨진다
+
+Hyper-V 어댑터 이름도 실제와 맞췄다. **'LAN' 이라 이름 붙은 어댑터가 실제로는
+WAN 인 상태**가 이 사고를 키웠다.
+
+#### authorized_keys 는 파일에 넣으면 안 된다
+
+`/root/.ssh/authorized_keys` 에 직접 넣은 키가 **재부팅 후 사라졌다.** 파일 자체가
+없어졌다. OPNsense 는 `config.xml` 을 원천으로 삼아 그 파일을 재생성한다.
+
+```xml
+<name>root</name><authorizedkeys>BASE64</authorizedkeys>
+```
+
+주의: 사용자 블록에 **빈 `<authorizedkeys/>` 가 이미 있다.** 새로 추가하면
+중복이 되어 뒤엣것이 이긴다 — 빈 쪽을 지워야 한다.
+
+증상이 오해를 부른다. SSH 핸드셰이크는 성공하고 호스트 키까지 등록된 뒤
+**keyboard-interactive 로 넘어가 멈춘다.** `ssh -v` 없이는 "SSH 가 먹통"으로만
+보이고, 원인이 인증이라는 것이 드러나지 않는다.
+
+#### nano 의 대가 — /var 가 램디스크다
+
+```
+use_mfs_tmp / use_mfs_var
+tmpfs on /var/log (tmpfs, local)
+```
+
+이 랩의 목적이 하필 *"Suricata EVE JSON · Zeek 로그 → Logstash"* 라서,
+그대로 두면 **검증하려는 로그가 재부팅마다 사라진다.** `config.xml` 에서
+두 항목을 지우고 재부팅해 해소했다. 루트는 읽기·쓰기로 붙어 있어
+(`ufs, local, noatime, soft-updates`) 그대로 써도 된다.
+
+**디스크 확장은 실패했다.** VHDX 를 16 GB 로 늘려 게스트도 16 G 로 인식하지만
+(`diskinfo` 확인), 마운트 상태의 `growfs` 가 커밋되지 않고 `/etc/rc.d/growfs` 도
+파티션 기반 레이아웃을 전제해 동작하지 않는다. **여유 530 MB 로 남아 있다.**
+Suricata 에는 충분하나 Zeek 은 어렵다. 단일 사용자 모드에서 언마운트 상태로
+`growfs` 를 돌리는 것이 남은 방법이다.
+
+#### 현재 상태
+
+```
+OPNsense 26.7 (FreeBSD 15.1-RELEASE-p1) · Gen1 · 6 GiB · 2 vCPU
+LAN  hn0 10.77.0.1/24   (L0-LAN, Internal, DHCP 10.77.0.100-199)
+WAN  hn1 192.168.1.23   (L0-WAN, External, 인터넷 확인됨)
+SSH  키 인증 (config.xml 영속)
+Suricata 8.0.6 — **기본 탑재다.** os-suricata 플러그인은 없다.
+  NETMAP 지원 포함 — 인라인 IPS 모드의 전제
+Zeek — 이 저장소에 패키지가 없다. 별도 경로가 필요하다
+```
+
+남은 것은 Suricata 를 **LAN 인터페이스에 IPS 모드로** 거는 것과 ADR-031
+로그 파이프라인이다.
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용

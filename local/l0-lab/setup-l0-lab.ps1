@@ -37,9 +37,12 @@ param(
   [string]$VmRoot        = "$env:USERPROFILE\HyperV\L0Lab",
   [int]   $OpnMemoryGB   = 6,
   [int]   $TargetMemoryGB = 2,
-  # OPNsense 가 Gen2(UEFI)에서 부팅하지 않으면 1 로 다시 만든다.
-  # FreeBSD 14 는 UEFI 를 지원하지만 Hyper-V 조합에서 실패 보고가 있다.
-  [ValidateSet(1,2)][int]$Generation = 2,
+  # ★ OPNsense 는 Gen1 이다. 추측이 아니라 이미지를 열어 확인한 것이다:
+  #     Disklabel type: dos       ← MBR
+  #     /dev/...4 * 0 49999  a5 FreeBSD
+  #   EFI System Partition 이 없다. Gen2(UEFI)로는 부팅하지 못한다.
+  #   Gen1 은 IDE 컨트롤러에서 부팅한다 — SCSI 에 붙이면 부팅 장치로 잡히지 않는다.
+  [ValidateSet(1,2)][int]$Generation = 1,
   # WAN 으로 쓸 물리 NIC 이름. 미지정 시 활성 NIC 을 자동 선택한다.
   [string]$WanAdapter,
   # prepare-target-vm.sh 가 만든 부팅 디스크. 있으면 이것을 붙이고,
@@ -110,15 +113,42 @@ $opnName = 'L0-OPNsense'
 if (Get-VM -Name $opnName -ErrorAction SilentlyContinue) {
   Warn "$opnName 이미 존재 — 건너뜀"
 } else {
-  Log "$opnName 생성 (Gen$Generation · ${OpnMemoryGB}GiB · 디스크 32GB)"
+  # ★★ NIC 순서가 중요하다 — 첫 NIC 이 LAN 이다.
+  #
+  #   OPNsense 의 기본 설정은 **첫 번째 NIC 을 LAN 에, 두 번째를 WAN 에** 배정하고
+  #   LAN 에 192.168.1.1/24 + DHCP 서버를 올린다. 처음에 첫 NIC 을 L0-WAN
+  #   (External, 물리 NIC 공유)에 붙였더니 이런 일이 벌어졌다(2026-09-04 실측):
+  #
+  #     LAN (hn0) -> v4: 192.168.1.1/24     ← 물리망에 붙은 쪽
+  #     호스트 실제 주소   192.168.1.222
+  #     호스트 기본 게이트웨이 192.168.1.1   ← **같은 주소다**
+  #
+  #   즉 부팅 직후 약 1분간 **공유기의 IP 를 물리망에서 주장하고 DHCP 서버까지
+  #   띄운 상태**였다. 다행히 게이트웨이 ARP 는 실제 공유기 MAC 을 유지했고
+  #   호스트 연결도 끊기지 않았지만, 우연에 기댄 결과다.
+  #
+  #   그래서 첫 NIC 을 L0-LAN(Internal)에 붙인다. 잘못 배정되더라도 격리된
+  #   스위치라 물리망에 영향이 없다. 이름도 실제와 맞춰 둔다 — Hyper-V 에서
+  #   'LAN' 이라 붙여 놓고 실제로는 WAN 인 상태가 이 사고를 키웠다.
+  Log "$opnName 생성 (Gen$Generation · ${OpnMemoryGB}GiB · 첫 NIC=LAN(격리))"
   $vhd = Join-Path $VmRoot "$opnName.vhdx"
-  New-VM -Name $opnName -Generation $Generation -MemoryStartupBytes ($OpnMemoryGB * 1GB) `
-         -NewVHDPath $vhd -NewVHDSizeBytes 32GB -SwitchName 'L0-WAN' | Out-Null
+  $opnArgs = @{
+    Name = $opnName; Generation = $Generation
+    MemoryStartupBytes = ($OpnMemoryGB * 1GB)
+    SwitchName = 'L0-LAN'
+  }
+  if (Test-Path $vhd) { $opnArgs.VHDPath = $vhd }        # prepare-opnsense-vm.sh 산출물
+  else { $opnArgs.NewVHDPath = $vhd; $opnArgs.NewVHDSizeBytes = 32GB }
+  New-VM @opnArgs | Out-Null
+  Rename-VMNetworkAdapter -VMName $opnName -Name 'Network Adapter' -NewName 'LAN'
   # ★ 동적 메모리 비활성 — FreeBSD 벌루닝 지원 부실
   Set-VMMemory -VMName $opnName -DynamicMemoryEnabled $false
   Set-VMProcessor -VMName $opnName -Count 2
-  # LAN 쪽 두 번째 NIC
-  Add-VMNetworkAdapter -VMName $opnName -SwitchName 'L0-LAN' -Name 'LAN'
+  # WAN 쪽 두 번째 NIC
+  Add-VMNetworkAdapter -VMName $opnName -SwitchName 'L0-WAN' -Name 'WAN'
+  # ★ 시리얼 콘솔. 이것이 무인 구성의 전제다 — serial-console.ps1 참조.
+  #   nano 이미지는 시리얼로 나오므로 이 파이프가 곧 조작 경로가 된다.
+  Set-VMComPort -VMName $opnName -Number 1 -Path '\\.\pipe\opnsense-com1'
   if ($Generation -eq 2) {
     # FreeBSD 는 MS UEFI CA 로 서명되어 있지 않다
     Set-VMFirmware -VMName $opnName -EnableSecureBoot Off

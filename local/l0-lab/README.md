@@ -54,18 +54,56 @@ Caldera 격리(§8-26)와 같은 발상이다 — 우회 가능한 경로를 아
 `instance-id` 는 `user-data` 의 해시다. cloud-init 은 per-instance 모듈을 instance-id 가
 바뀔 때만 다시 도므로, 고정값이면 시드를 고쳐 붙여도 조용히 무시된다.
 
-OPNsense ISO 는 `https://pkg.opnsense.org/releases/<버전>/` 에서 받아 `bunzip2` 로 푼다.
-**국내 미러가 없다** — kakao·naver·harukasan 모두 미보유를 확인했다(2026-09-03).
-해외 미러는 20~25 KB/s 대라 471 MB 에 수 시간이 걸린다. `curl -C -` 로 이어받을 것.
+### 2. OPNsense 디스크 준비 (WSL, 관리자 불필요)
 
-### 2. VM 생성 (관리자 PowerShell)
-
-```powershell
-.\setup-l0-lab.ps1 -IsoPath C:\Users\<user>\iso\OPNsense-26.7-dvd-amd64.iso
+```bash
+./prepare-opnsense-vm.sh        # nano 이미지 → VHDX
 ```
 
-OPNsense 설치 프로그램은 콘솔 대화형이라 자동화하지 않는다. 스크립트는 VM·스위치까지
-만들고 이후 절차를 출력한다.
+**`nano` 를 쓴다. DVD 가 아니다.** DVD 는 설치 프로그램이고 **VGA 프레임버퍼**에
+그려서 자동화 대상이 되지 못한다 — 관리자 권한과 무관하다. nano 는 이미 설치된
+시스템이라 설치 대화가 없고, 임베디드용이라 **시리얼 콘솔이 기본**이다.
+
+미러 속도를 재고 고를 것. 실측(2026-09-04):
+
+| 미러 | 속도 |
+|---|--:|
+| `pkg.opnsense.org` | 63 KB/s |
+| `mirrors.dotsrc.org` | 101 KB/s |
+| `opnsense.c0urier.net` | 168 KB/s |
+| **`mirror.ams1.nl.leaseweb.net`** | **381 KB/s** |
+
+468 MB 에 20~70분이다. 국내 미러는 없다(kakao·naver·harukasan 모두 미보유).
+
+### 3. VM 생성 (관리자 PowerShell)
+
+```powershell
+.\setup-l0-lab.ps1
+```
+
+`prepare-*.sh` 산출물이 있으면 그 디스크를 붙인다. OPNsense 는 **Gen1** 로 만든다 —
+nano 이미지는 MBR 이고 EFI 파티션이 없어 Gen2(UEFI)로는 부팅하지 못한다.
+
+### 4. OPNsense 구성 (시리얼 콘솔, 무인)
+
+```powershell
+# 데몬을 띄운다. ★ VM 이 실행 중이어야 한다 — named pipe 는 VM 이 돌 때만 존재한다
+.\serial-console.ps1 -Pipe opnsense-com1 `
+  -LogPath $env:TEMP\opnsense-console.log -InputPath $env:TEMP\opnsense-console.in
+
+# 패턴을 기다렸다 보낸다
+.\serial-expect.ps1 -Expect 'login:' -Send 'root' -Lookback 4096
+.\serial-expect.ps1 -Expect '[Pp]assword:' -Send 'opnsense' -Secret
+```
+
+콘솔 메뉴 전체를 이렇게 몬다. 실측으로 **사람 개입 없이** 부팅 → 로그인 →
+주소 변경 → SSH 활성화까지 갔다. 자세한 것은 `docs/LOCAL-DEPLOYMENT.md §8-32`.
+
+> ★ **LAN 대역을 기본값 192.168.1.0/24 로 두지 말 것.** OPNsense 는 첫 NIC 을
+> LAN 에 배정하고 거기에 192.168.1.1 + DHCP 서버를 올린다. 이 호스트의 실제
+> 대역·게이트웨이와 같아서, 첫 NIC 이 External 스위치에 붙어 있으면
+> **물리망에서 공유기의 IP 를 주장하게 된다.** 실제로 그런 일이 있었다(§8-32).
+> 그래서 스크립트는 첫 NIC 을 `L0-LAN`(Internal)에 붙이고 대역은 10.77.0.0/24 를 쓴다.
 
 **Hyper-V 는 관리자 권한이 필요하다.** 사용자가 `Hyper-V Administrators` 그룹에
 없으면 일반 세션에서 `Get-VMSwitch` 조차 거부된다.
