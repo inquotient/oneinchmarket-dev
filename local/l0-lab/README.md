@@ -39,16 +39,29 @@ Caldera 격리(§8-26)와 같은 발상이다 — 우회 가능한 경로를 아
 
 ## 실행
 
-```powershell
-# 관리자 PowerShell
-Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All -All
-# 재부팅 (이때 .wslconfig 도 함께 적용된다)
+### 1. 이미지 준비 (WSL, 관리자 불필요)
 
-.\setup-l0-lab.ps1 -IsoPath C:\iso\OPNsense-dvd.iso -TargetIsoPath C:\iso\ubuntu-server.iso
+```bash
+./prepare-target-vm.sh          # Ubuntu 클라우드 이미지 → VHDX + cloud-init 시드
+```
+
+`verify-h5.sh` 가 게스트의 `/usr/local/bin/` 에 심어진다. 콘솔에서 바로 돌릴 수 있다.
+
+OPNsense ISO 는 `https://pkg.opnsense.org/releases/<버전>/` 에서 받아 `bunzip2` 로 푼다.
+**국내 미러가 없다** — kakao·naver·harukasan 모두 미보유를 확인했다(2026-09-03).
+해외 미러는 20~25 KB/s 대라 471 MB 에 수 시간이 걸린다. `curl -C -` 로 이어받을 것.
+
+### 2. VM 생성 (관리자 PowerShell)
+
+```powershell
+.\setup-l0-lab.ps1 -IsoPath C:\Users\<user>\iso\OPNsense-26.7-dvd-amd64.iso
 ```
 
 OPNsense 설치 프로그램은 콘솔 대화형이라 자동화하지 않는다. 스크립트는 VM·스위치까지
 만들고 이후 절차를 출력한다.
+
+**Hyper-V 는 관리자 권한이 필요하다.** 사용자가 `Hyper-V Administrators` 그룹에
+없으면 일반 세션에서 `Get-VMSwitch` 조차 거부된다.
 
 ## 검증 항목
 
