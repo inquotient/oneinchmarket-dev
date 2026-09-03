@@ -139,7 +139,7 @@ limits    56.1 / 54 GiB (105%)  ← 오버커밋. 게이트는 아니지만 100%
 | 트레이스·메트릭·로그 | ✅ OTel → Tempo·Prometheus·Loki. **앱 수신 지점은 `otel-agent:4318`** (§8-23 에서 도달 경로 복구) |
 | 오류 추적 | ✅ GlitchTip. Sentry SDK 그대로 쓴다 |
 | 프로파일링 | △ Pyroscope 는 섰으나 **앱 계측 수단 미결**(TODO-51) |
-| 세션 리플레이 | ✗ OpenReplay 로 결정(ADR-069). ClickHouse 를 **OpenReplay 전용으로** 함께 들인다(ADR-070 — 범용 분석 저장소로 확대하지 않는다). **전제 2건 미해결** |
+| 세션 리플레이 | △ **스택은 배포됨**(§8-24) — OpenReplay 17/17 · ClickHouse · 전용 PostgreSQL 17. 그러나 **데이터는 들어오지 않는다**: 외부 HTTPS 진입점 없음(블로커 #6)·프런트엔드 계측 불가(G9). ADR-069 순서 1·2 가 남았다 |
 
 **Sentry 는 기각했다** — ADR-036 에 A안/B안 비교와 재검토 조건 3가지를 명문화했다.
 요약: 이 호스트(물리 63.4 GiB)에 +22 GiB 가 들어가지 않고, 이미 채택한 OTel 경로와
@@ -223,6 +223,18 @@ oneinch/hbase            docker/hbase             # apache/hbase 가 Docker Hub 
 oneinch/jenkins          docker/jenkins           # 공식 이미지에 플러그인이 없다 (JCasC)
 ```
 
+## OpenReplay 매니페스트 재생성
+
+```bash
+# 차트를 받고(최초 1회)
+D=/tmp/or-tar; mkdir -p $D && cd $D
+curl -fsSL -o or.tar.gz https://codeload.github.com/openreplay/openreplay/tar.gz/refs/heads/main
+tar -xzf or.tar.gz --wildcards openreplay-main/scripts/helmcharts/*
+
+# 렌더 (자원·라벨·자격증명 배선을 주입한다)
+bash local/render-openreplay.sh
+```
+
 `local/build-images.sh` 가 podman 으로 빌드해 k3s containerd 로 반입한다.
 **클러스터를 다시 만들면 이 스크립트를 먼저 돌려야 한다** — 레지스트리에 없어 `ImagePullBackOff` 가 난다.
 
@@ -276,6 +288,20 @@ oneinch/jenkins          docker/jenkins           # 공식 이미지에 플러�
 - **`:latest` 는 메이저 스키마 변경을 그대로 가져온다**(Tempo 3.0 이 `ingester`·`compactor` 를 없앴다)
 - **podman 은 short-name 을 해석하지 않는다.** `docker.io/` 를 명시할 것
 - **kustomize 의 원격 git fetch 는 27초 하드 타임아웃이 있다.** 큰 저장소는 얕은 클론 후 로컬에서 읽을 것
+- **★ 워크로드를 대량 추가할 때 Loki·otel-agent 한계를 먼저 올릴 것.**
+  로그 파이프라인 용량은 **파드 수에 비례**한다. OpenReplay 17종을 올리자
+  파드가 80 → 103 이 되며 loki(OOM 12회)·otel-agent(OOM 7회)가 먼저 죽었다.
+  노드 압박이 아니라 각자의 컨테이너 한계에서 죽는다 — 그리고 그 시점에
+  **진단 수단을 잃는다**
+- **CrashLoop 중인 StatefulSet 은 롤링이 진행되지 않는다.** limits 를 올려도
+  파드에 반영되지 않으므로 파드를 직접 지울 것
+- **저장소를 재사용하려면 버전 호환성을 먼저 볼 것.** OpenReplay 는 PostgreSQL
+  16.4~17 만 지원하는데 공용은 18.6 이라 쓸 수 없었다(initContainer 가 검사하고
+  exit 101). 공용을 낮출 수 없으면 전용 인스턴스가 유일한 길이다
+- **Helm 차트의 `global:` 아래를 덮을 것.** vars.yaml 이 YAML 앵커로 최상위를
+  정의하고 global 이 별칭으로 참조하면, 최상위만 덮어도 **서브차트는 그대로**다.
+  특히 initContainer 는 호스트명을 셸 스크립트에 갖고 있어 파드 env 후처리로
+  고쳐지지 않는다
 - **ConfigMap 안의 XML·JSON·properties 는 `kustomize build` 도 `kubeconform` 도 검사하지
   않는다.** 스키마상 그냥 문자열이라 `</property>` 하나가 남아도 apply 까지 통과하고
   워크로드가 기동할 때 파싱에서 터진다. 렌더 결과를 실제 파서에 넣어 확인할 것

@@ -1952,6 +1952,104 @@ POST http://otel-agent:4318/v1/logs   -> 200
 `docs/APP-INTEGRATION.md` 를 신설했다. 애플리케이션 개발자가 이 플랫폼에 붙일 때 보는
 문서이며 **실제로 호출해 확인한 것만** 적는다. 확인하지 못한 것(앱 프로파일링 경로 등)은
 "미검증"으로 표시한다 — 개발자가 그 문서를 보고 코드를 쓰기 때문이다.
+
+### 8-24. OpenReplay + ClickHouse 도입 (2026-09-03)
+
+ADR-069·070 의 실행이다. **다만 전제 2건은 여전히 미해결이라 세션 리플레이는
+동작하지 않는다** — 아래 "지금 못 하는 것" 참조.
+
+```
+clickhouse-0             1/1   OpenReplay 전용(ADR-070)
+openreplay-postgresql-0  1/1   PostgreSQL 17.11 — 전용
+OpenReplay               17/17
+PostgreSQL 스키마        public 41 테이블
+ClickHouse 스키마        experimental 7 테이블
+클러스터                 103 파드 · 미준비 0
+```
+
+#### 규모가 예상과 달랐다
+
+검토 단계에서 "8 GB / 10~12종"으로 잡았는데 실제로는 **Deployment 17 · Service 19
+· Ingress 12 · ServiceAccount 18 · CronJob 1** 이다. 그리고 차트가 **워크로드
+20종의 requests·limits 를 하나도 선언하지 않는다.**
+
+`local/render-openreplay.sh` 를 생성기로 두었다. `helm template` 을 배포가 아니라
+**생성 도구**로만 쓴다(Tetragon 과 같은 방식, ADR-003 유지). 스크립트가 자원·
+레포 규약 라벨·자격증명 배선을 주입한다.
+
+#### 배선이 다섯 겹으로 막혔다
+
+| # | 증상 | 원인 |
+|:-:|---|---|
+| 1 | 오버라이드가 통째로 무시됨 | `vars.yaml` 이 YAML 앵커(`&postgres`)로 최상위를 정의하고 `global` 이 별칭(`*postgres`)으로 참조한다. **최상위만 덮으면 서브차트가 읽는 `global.*` 는 그대로다.** 특히 initContainer 는 호스트명을 셸 스크립트에 갖고 있어 파드 env 후처리로는 못 고친다 |
+| 2 | DSN 파싱 실패 | 차트가 `pg_password` 를 자기 Secret 에서 주는데 값이 미치환 `{{ randAlphaNum 20}}` 였다 |
+| 3 | `unknown port` | `CLICKHOUSE_STRING` 에 DB 이름을 붙이면 Go 클라이언트가 포트를 `9000/openreplay` 로 자른다 |
+| 4 | DB 연결 타임아웃 | 마이그레이션 Job 파드에 `instance` 라벨이 없어 NetworkPolicy 가 막았다. **DNS 는 풀리는데 연결만 안 되므로** 인증 실패처럼 보이지 않는다 |
+| 5 | `exit 101` | **PostgreSQL 버전** — 아래 |
+
+#### ★ 공용 PostgreSQL 을 쓸 수 없다
+
+```
+공용        postgres:latest = 18.6
+OpenReplay  16.4 ~ 17 만 지원 (initContainer 가 검사하고 범위 밖이면 exit 101)
+```
+
+공용 인스턴스는 keycloak·gitlab·apicurio·hive·ranger·glitchtip **6종**이 쓰므로
+낮출 수 없다. → **전용 PostgreSQL 17** 을 세웠다(`postgres:17` 고정 — `latest` 면
+18 로 올라가 다시 거부된다).
+
+> ADR-038(전용 인스턴스 분리)의 논리가 **부하 격리가 아니라 버전 제약** 형태로
+> 되살아났다. "기존 저장소를 재사용한다"는 계획은 버전 호환성 앞에서 깨질 수 있다.
+
+#### ★ 로그 파이프라인이 먼저 죽었다
+
+OpenReplay 를 올린 직후 **`loki-0` OOMKilled 12회 · `otel-agent` OOMKilled 7회.**
+노드 압박이 아니라(MemoryPressure=False) 각자의 컨테이너 한계에서 죽었다.
+파드가 80 → 103 이 되며 수집량이 뛴 것이다.
+
+```
+loki        768Mi -> 1280Mi (requests 384Mi)
+otel-agent  384Mi ->  640Mi (requests 192Mi)
+```
+
+> **로그 파이프라인 용량은 파드 수에 비례한다.** 워크로드를 대량 추가할 때 함께
+> 조정하지 않으면 **관측성이 가장 먼저 죽는다** — 그리고 그 시점에 진단 수단을
+> 잃는다. 다음에 대량 추가를 할 때는 Loki·otel-agent 한계를 먼저 올릴 것.
+>
+> CrashLoop 중인 StatefulSet 은 롤링이 진행되지 않아 한계를 올려도 반영되지
+> 않는다. 파드를 직접 지워야 한다.
+
+#### 스키마 — Complete 로 끝난 Job 이 아무것도 하지 않았다
+
+차트의 `databases-migrate` 가 `Complete` 인데 테이블이 0개였다.
+`PREVIOUS_APP_VERSION == CHART_APP_VERSION` 이라 적용할 버전 델타가 없어
+`migrate` 경로로 돌았고 신규 설치용 `init` 을 타지 않았다.
+
+초기 스키마를 직접 적용했다.
+
+```
+scripts/schema/db/init_dbs/postgresql/init_schema.sql      -> public 41 테이블
+scripts/schema/db/init_dbs/clickhouse/create/init_schema.sql -> experimental 7 테이블
+```
+
+이 레포에서 반복된 부류다(§8-4 부트스트랩 Job, §8-20 GlitchTip 마이그레이션).
+
+#### 지금 못 하는 것 — 세션 리플레이는 동작하지 않는다
+
+스택은 섰고 배선은 검증됐다. 그러나 **데이터가 들어오지 않는다.**
+
+| 전제 | 상태 |
+|---|---|
+| 외부 HTTPS 진입점 | **없음**(배포 블로커 #6). Ingress 12개가 컨트롤러 없이 렌더돼 비활성이다 |
+| 프런트엔드 계측 | **불가**(G9). `admin` 재빌드 경로가 없어 브라우저 트래커를 심을 수 없다 |
+
+ADR-069 의 순서 1·2 가 그대로 남아 있다.
+
+#### 의도된 예외
+
+차트가 `securityContext` 를 선언하지 않아 컨테이너가 이미지 기본 사용자로 돈다.
+로컬은 Kyverno 가 Audit 이라 기동하지만 **prod 는 Enforce 다.** base 승격 시 반드시
+해소해야 한다. 프로브도 없어 `require-health-probes` 도 위반한다.
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용
