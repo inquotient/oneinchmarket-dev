@@ -16,7 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | INFRA-xxx 56건, 배포 절차, 배포 블로커, 용량·비용 |
 | [docs/LOCAL-DEPLOYMENT.md](docs/LOCAL-DEPLOYMENT.md) | **브랜치 `local`.** WSL2 단일 노드 k3s + zram (B안). **§8 에 실배포 기록** — WSL2 고유 블로커 3건, 결함 32건 해소 |
 | [docs/APP-INTEGRATION.md](docs/APP-INTEGRATION.md) | **애플리케이션 연동 가이드.** 앱을 이 플랫폼에 붙이는 법 — OTel·GlitchTip·Pyroscope·Kafka·계약, 새 워크로드 규약, 지금 안 되는 것 |
-| [docs/ADR-CANDIDATES.md](docs/ADR-CANDIDATES.md) | 아키텍처 결정 기록 후보 58건 |
+| [docs/ADR-CANDIDATES.md](docs/ADR-CANDIDATES.md) | 아키텍처 결정 기록 후보 59건 |
 | `v2-architecture-plan.md` | **2026-02 작성 계획서.** 목표를 기술하며 현재 상태와 다른 부분이 있다 |
 | `README.md` | **v1 내용 그대로다.** v2를 반영하지 않는다 |
 

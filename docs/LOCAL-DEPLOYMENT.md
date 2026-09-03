@@ -1960,7 +1960,7 @@ ADR-069·070 의 실행이다. **다만 전제 2건은 여전히 미해결이라
 
 ```
 clickhouse-0             1/1   OpenReplay 전용(ADR-070)
-openreplay-postgresql-0  1/1   PostgreSQL 17.11 — 전용
+openreplay-postgresql-0  1/1   PostgreSQL 17.11 — 전용 (§8-25 에서 제거)
 OpenReplay               17/17
 PostgreSQL 스키마        public 41 테이블
 ClickHouse 스키마        experimental 7 테이블
@@ -2050,6 +2050,71 @@ ADR-069 의 순서 1·2 가 그대로 남아 있다.
 차트가 `securityContext` 를 선언하지 않아 컨테이너가 이미지 기본 사용자로 돈다.
 로컬은 Kyverno 가 Audit 이라 기동하지만 **prod 는 Enforce 다.** base 승격 시 반드시
 해소해야 한다. 프로브도 없어 `require-health-probes` 도 위반한다.
+### 8-25. 전용 PostgreSQL 을 걷어내고 공용 18.6 으로 (2026-09-03)
+
+§8-24 에서 전용 인스턴스를 세운 이유는 하나였다 — OpenReplay 마이그레이션 Job 이
+**PostgreSQL 16.4~17 만 허용**하고 공용 인스턴스가 18.6 이라서다. 상류에서 근거를
+찾은 뒤 **상한을 18 로 올려 공용을 쓰기로 했다.** 판단 근거는 ADR-071 에 있다.
+
+렌더 스크립트가 자동으로 패치한다 — 사람이 기억할 필요가 없다:
+
+```python
+# local/render-openreplay.py
+def patch_version_gate(spec):   # highVersion=17 → 18
+```
+
+#### 결과
+
+```
+공용 PostgreSQL     18.6 (Debian 18.6-1.pgdg13+2)
+마이그레이션 Job    Complete — 14초        ← 버전 게이트 통과
+OpenReplay          17/17 Running · 재시작 0회
+chalice             GET:/signup 200        ← 런타임 질의가 실제로 돈다
+제거                StatefulSet · Service · PVC · NetworkPolicy
+```
+
+**DDL 만이 아니라 런타임 질의까지 18.6 에서 돈다.** 이것이 상한을 올린 판단의
+실증이다. 사전에는 스키마 정적 분석(생성 컬럼 19건이 전부 아이덴티티,
+`GENERATED ALWAYS AS (...)` 0건)까지만 확인했었다.
+
+#### 정작 걸린 것은 버전이 아니었다
+
+전환 직후 `chalice` 만 CrashLoop 했다. 로그는 버전과 무관했다:
+
+```
+psycopg2.errors.InsufficientPrivilege: permission denied for table tenants
+→ public 41 테이블 소유자가 전부 postgres
+```
+
+§8-24 에서 `init_schema.sql` 을 **슈퍼유저로 수동 적용**해서 생긴 것이다.
+애플리케이션 롤 `openreplay` 에 권한이 없었다. 62개 객체를 넘겨 해소했다.
+
+**연결된 시퀀스는 소유자를 직접 못 바꾼다:**
+
+```
+ERROR: cannot change owner of sequence "users_user_id_seq"
+DETAIL: Sequence "users_user_id_seq" is linked to table "users".
+```
+
+identity·serial 시퀀스는 테이블 소유자를 자동으로 따라가므로 `pg_depend` 의
+`deptype IN ('a','i')` 로 걸러야 한다. 걸러내지 않으면 DO 블록 전체가 롤백된다.
+
+**교훈 — 부트스트랩 SQL 은 애플리케이션 롤로 적용하라.** 슈퍼유저로 넣으면
+적용은 조용히 성공하고 **첫 질의에서 터진다.** 게다가 그 증상은 버전 비호환과
+구분되지 않아 보여서, 하마터면 멀쩡한 결정을 되돌릴 뻔했다.
+
+#### 곁가지 — trivy 스캔 잡의 캐시 락 경합
+
+전환 중 `scan-vulnerabilityreport` 파드 2건이 Error 였다. PG 와 무관했다:
+
+```
+ERROR Failed to acquire cache or database lock
+```
+
+컨테이너 5개짜리 파드를 스캔하며 **컨테이너별 스캔 컨테이너가 같은 trivy DB
+캐시를 동시에 잡는다.** 단일 노드 동시 스캔의 알려진 한계다. 대상이 일회성 Job
+이라 정리했다.
+
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용

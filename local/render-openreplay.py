@@ -17,7 +17,7 @@ def secret_env(name, sec, key):
 # 이 클러스터의 실제 엔드포인트. 자격증명은 값이 아니라 $(VAR) 로 넣고
 # 그 VAR 는 Secret 에서 온다 — 렌더 산출물에 평문이 남지 않는다.
 REWRITE = {
-    "POSTGRES_STRING":   f"postgres://openreplay:$(pg_password)@openreplay-postgresql.{NS}:5432/openreplay",
+    "POSTGRES_STRING":   f"postgres://openreplay:$(pg_password)@postgresql-headless.{NS}:5432/openreplay",
     "REDIS_STRING":      f"redis://:$(redis_password)@redis-headless.{NS}:6379/4",
     # ★ DB 이름을 붙이면 안 된다. Go 클라이언트가 net.SplitHostPort 로 자르면서
     #   포트가 "9000/openreplay" 가 되어 `unknown port` 로 죽는다.
@@ -34,6 +34,32 @@ INJECT = {
     "AWS_ENDPOINT":      [("AWS_ACCESS_KEY_ID",     "minio-secret", "root-user"),
                           ("AWS_SECRET_ACCESS_KEY", "minio-secret", "root-password")],
 }
+
+# ★ 마이그레이션 Job 의 버전 검사 상한을 18 로 올린다.
+#
+#   차트는 lowVersion=16.4 / highVersion=17 을 **템플릿에 하드코딩**해서
+#   Helm 값으로 못 바꾼다. 우리는 렌더 산출물을 만들므로 여기서 바꾼다.
+#
+#   근거 — "18 이 안 된다"는 근거를 상류에서 찾지 못했다:
+#     · 차트·문서·커밋 이력·이슈 어디에도 사유가 없다
+#     · 상한이 자기들이 패키징·시험하는 버전을 따라간다
+#       (PG 18 은 2025-09 출시, 그들은 2025-10 에 번들을 17.2.0 으로 올렸다)
+#     · 스키마에 PG 18 에서 의미가 바뀐 구문이 없다 —
+#       GENERATED 19건이 전부 BY DEFAULT AS IDENTITY 이고
+#       GENERATED ALWAYS AS (...) (가상 생성 컬럼 변경 대상)는 0건이다
+#     · 확장 pg_trgm·pgcrypto 가 18.6 에 정상 설치된다
+#     · init_schema.sql 적용 결과가 두 버전에서 동일하다
+#       (테이블 41 · 인덱스 148 · 시퀀스 21)
+#   즉 지원 매트릭스 지연이지 알려진 비호환이 아니다.
+#
+#   ★ 이건 로컬만의 일탈이 아니다. dev/prod 의 공용 PostgreSQL 도 18.6 이라
+#     거기서도 같은 선택이 필요하다 — ADR-071 참조.
+def patch_version_gate(spec):
+    for c in spec.get("containers", []) + spec.get("initContainers", []):
+        args = c.get("args")
+        if not args: continue
+        c["args"] = [a.replace("highVersion=17", "highVersion=18") if isinstance(a, str) else a
+                     for a in args]
 
 def fix_container(c):
     if not c.get("resources"):
@@ -86,7 +112,7 @@ def fix_container(c):
     PLAIN = {
         "ch_db": "openreplay", "CH_USERNAME": "openreplay",
         "CLICKHOUSE_DATABASE": "openreplay",
-        "pg_host": f"openreplay-postgresql.{NS}", "pg_port": "5432",
+        "pg_host": f"postgresql-headless.{NS}", "pg_port": "5432",
         "pg_dbname": "openreplay", "pg_user": "openreplay",
         "ch_host": f"clickhouse-headless.{NS}", "ch_port": "9000",
         "ch_port_http": "8123", "ch_user": "openreplay",
@@ -124,8 +150,9 @@ for d in yaml.safe_load_all(open('/tmp/or-raw.yaml', encoding='utf-8')):
     elif k == 'CronJob':
         spec = d['spec']['jobTemplate']['spec']['template']['spec']
     if spec:
-        for c in spec.get('containers', []) + spec.get('initContainers', []):
+        for c in spec.get("containers", []) + spec.get("initContainers", []):
             fix_container(c)
+        patch_version_gate(spec)
     docs.append(d)
 with open(out, 'w', encoding='utf-8') as f:
     f.write("# 생성 파일 — 직접 고치지 말 것. local/render-openreplay.sh 가 만든다.\n")
