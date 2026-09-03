@@ -2869,6 +2869,98 @@ Zeek — 이 저장소에 패키지가 없다. 별도 경로가 필요하다
 
 남은 것은 Suricata 를 **LAN 인터페이스에 IPS 모드로** 거는 것과 ADR-031
 로그 파이프라인이다.
+
+### 8-33. Suricata 인라인 IPS 검증 — 설정 필드 하나가 조용히 무시됐다 (2026-09-04)
+
+§8-32 에서 세운 OPNsense 위에 Suricata 를 **LAN 인라인 IPS** 로 걸고,
+룰이 실제로 차단하는지 확인했다. `local/l0-lab/suricata/` 에 룰과 절차를 남겼다.
+
+#### 먼저 — 플러그인이 필요 없다
+
+```
+/usr/local/bin/suricata → This is Suricata version 8.0.6 RELEASE
+Features: ... NETMAP ... HAVE_JA3 HAVE_JA4 ...
+```
+
+**OPNsense 기본 탑재다.** `os-suricata` 플러그인은 존재하지 않는다.
+`NETMAP` 이 컴파일되어 있어 인라인 모드의 전제가 이미 충족되어 있다.
+
+#### 설정 필드를 잘못 짚었다 — 그리고 조용히 무시됐다
+
+처음에 `config.xml` 에 `<ips>1</ips>` 을 넣었다. **모델에 그런 필드가 없다.**
+
+```
+IDS.xml:  <mode type="OptionField"> <Default>pcap</Default>
+            pcap   PCAP live mode (IDS)     ← 관측만
+            netmap Netmap (IPS)
+            divert Divert (IPS)
+```
+
+템플릿이 실제로 보는 것은 `mode` 다.
+
+```jinja
+{% if OPNsense.IDS.general.mode|default("") == "netmap" %}
+```
+
+그래서 생성된 `/etc/rc.conf.d/suricata` 가 `# IDS mode, pcap live mode` 였다.
+
+**이 실패가 위험한 이유는 아무 증상이 없다는 것이다.** suricata 는 정상
+기동하고 `configctl ids status` 는 running 이며 `eve.json` 에 alert 도 쌓인다.
+그런데 **아무것도 차단되지 않는다.** ADR-043 이 M1 에서 지적한 실패 모드와
+같은 형태다 — "설정이 틀려도 통신은 정상이고 정책만 적용되지 않는다".
+
+구분하는 방법은 프로세스 인자를 보는 것뿐이다.
+
+```
+suricata -D --pcap=hn0 ...   ← 관측
+suricata -D --netmap ...     ← 인라인
+```
+
+#### 검증 — 세 단계를 다 밟았다
+
+`mode=netmap` 으로 고친 뒤, target(10.77.0.191) 의 ICMP 만 떨어뜨리는 룰
+하나로 확인했다.
+
+| 단계 | ICMP | DNS(UDP) | HTTP(TCP) |
+|---|---|---|---|
+| 기준선(룰 없음) | 0% 손실 | — | — |
+| **룰 적용** | **100% 손실** | 정상 | 301 |
+| 룰 제거 | 0% 손실 | — | — |
+
+**DNS·TCP 를 함께 본 것이 핵심이다.** 실제로 첫 확인에서 HTTP 도 000 이 나와
+"전부 막힌 것 아닌가" 를 의심했다. 확인해 보니 그 사이트(neverssl.com)의
+문제였고, IP 로 직접 친 `http://1.1.1.1` 은 301 이었으며 DNS 도 정상이었다.
+**ICMP 만 봤다면 "룰이 막았다" 와 "데이터패스가 깨졌다" 를 구분하지 못한다.**
+
+`eve.json` 이 최종 근거다. alert 만이 아니라 **drop 이벤트**가 나온다.
+
+```json
+{"event_type":"drop","in_iface":"hn0","proto":"ICMP",
+ "drop":{"reason":"rules"},
+ "alert":{"action":"blocked","signature":"L0LAB TEST ICMP DROP"}}
+```
+
+#### 부수적으로 확인된 것
+
+- **Hyper-V 합성 NIC(`hn0`)에서 netmap 인라인이 동작한다.** H5(Cilium eBPF)와
+  같은 부류의 미검증 항목이었고, 이제 둘 다 실측되었다
+- **관리 경로가 유지된다.** netmap 은 인터페이스를 가져가므로 LAN 으로 들어오는
+  SSH 가 끊길 수 있다. 실측에서는 유지됐으나, 전환 전에 **시리얼 콘솔을
+  복구 경로로 먼저 확보**하고 진행했다(§8-32)
+- `configctl ids reload` 는 손으로 넣은 룰 파일을 **지운다** —
+  `installRules.py` 가 config 에 등록되지 않은 파일을 정리한다.
+  `rc.d/suricata restart` 를 쓸 것
+- suricata 가 include 하는 YAML 은 `%YAML 1.1` + `---` 로 시작해야 한다.
+  없으면 `Invalid configuration file` 로 **기동 자체가 실패**한다
+
+#### 남은 것
+
+- **룰셋 미설치.** 검증용 룰 1개만 있다. ET Open 등은 디스크 여유(530 MB)와
+  함께 판단해야 한다 — §8-32 의 디스크 확장 실패 참조
+- **Zeek 없음.** 이 저장소에 패키지가 없다
+- **ADR-031 로그 파이프라인 미연결.** `eve.json` 은 생성되고 있으나 Logstash 로
+  보내지 않았다. WSL2 의 k3s 는 Hyper-V VM 에서 직접 보이지 않아 Windows 를
+  경유해야 한다(`setup-l0-lab.ps1` 말미의 portproxy 절차)
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용
