@@ -81,6 +81,16 @@ spec:
       targetPort: mgt
       protocol: TCP
       name: mgt
+    # ★ detector 가 기동 설정을 여기서 받아 간다 — `http://safeline-mgt/inner/detector`,
+    #   즉 **평문 80** 이다. 이 포트가 없으면 detector 가 8분마다 죽는다:
+    #     init config failed: Get "http://safeline-mgt/inner/detector":
+    #     dial tcp ...:80: i/o timeout
+    #   1443 만 열어 두었더니 재기동이 69회까지 쌓였다. 그런데도 컨테이너는
+    #   대부분의 시간 ready 로 보여서(죽고 바로 살아난다) 눈에 잘 띄지 않는다.
+    - port: 80
+      targetPort: 80
+      protocol: TCP
+      name: inner
   selector:
     app.kubernetes.io/name: safeline
     app.kubernetes.io/instance: core

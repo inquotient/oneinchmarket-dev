@@ -84,7 +84,7 @@ v1 매니페스트를 v2로 복원할 때 **모든 ConfigMap 평문 자격증명
 
 | 통제 | 동작 | 파일 | 모드 |
 |---|---|---|---|
-| `disallow-root-user` | `runAsNonRoot: true` 요구 | `kyverno-disallow-root.yaml:18` | Audit → prod **Enforce** |
+| `disallow-root-user` | `runAsNonRoot: true` 요구 | `kyverno-disallow-root.yaml` | Audit → prod **Enforce**. 예외: 이름 8종(gitlab·falco·filebeat·otel-agent·ds389·lam·wazuh-manager·safeline) + 시스템 NS 8개. **OpenReplay 18건은 미해결**(LOCAL-DEPLOYMENT §8-29) |
 | `disallow-privilege-escalation` | `allowPrivilegeEscalation: false` 요구 | `kyverno-disallow-privilege-escalation.yaml:19` | Audit → prod **Enforce** |
 | `require-resource-limits` | requests+limits 요구 | `kyverno-require-resources.yaml:18` | Audit → prod **Enforce** |
 | `disallow-latest-tag` | `:latest` 차단 | `kyverno-disallow-latest.yaml:21` | Audit → prod **Enforce** |

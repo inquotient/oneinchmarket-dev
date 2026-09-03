@@ -2515,6 +2515,80 @@ StatefulSet.apps "gitlab" is invalid: spec: Forbidden:
 전부 `standard` 라 실동작에 차이가 없으므로** 재구축 시점에 반영되게 두었다.
 clickhouse 만 작업 중 삭제돼 개별 복구했다.
 
+### 8-29. Kyverno root 예외 목록 — prod 배포 블로커였다 (2026-09-04)
+
+§8-26 에서 SafeLine 을 8번째 root 예외로 추가하며 남겨 둔 항목이다.
+`disallow-root-user` 는 **prod 에서 Enforce** 인데 예외 목록이 없었다.
+
+#### 두 부류가 걸려 있었다
+
+정책을 그대로 Enforce 로 올리면 39건이 거부된다.
+
+| 부류 | 건수 | 성격 |
+|---|--:|---|
+| 의도된 예외(매니페스트에 사유 기록) | 9 | gitlab·falco·filebeat·otel-agent·ds389·lam·wazuh-manager·safeline(fvm·luigi 포함) |
+| **오퍼레이터·시스템 계층** | 11 | cilium(3)·coredns·local-path-provisioner·istio-cni·ztunnel·tetragon·trivy(2) |
+| OpenReplay | 18 | 전 워크로드 + 마이그레이션 Job |
+
+**둘째 부류가 더 위험하다.** ClusterPolicy 는 전 네임스페이스를 대상으로 하므로,
+Enforce 상태에서 **cilium 이나 coredns 가 재시작하려는 순간 admission 이
+거부한다.** 클러스터가 스스로 복구하지 못하는 상태가 된다. 이건 정책이 워크로드가
+아니라 **플랫폼 자신을 막는** 경우다.
+
+#### 왜 이름으로 한정했나
+
+어노테이션 opt-out(예: `allow-root: "true"`)이면 워크로드 쪽에서 스스로 예외를
+선언할 수 있어 정책의 의미가 없어진다. **정책 파일에 이름을 넣는 행위 자체가
+리뷰 지점이어야 한다.**
+
+#### 실측
+
+```
+예외 추가 전   39건 실패
+라벨 예외 8종   → 28건
+네임스페이스 8개 → 18건 (전부 local/OpenReplay)
+```
+
+#### ★ PolicyReport 는 정책 변경으로 갱신되지 않는다
+
+여기서 한참 헤맸다. 예외를 넣고 정책을 적용해도 보고서가 계속 `fail` 이었다.
+라벨도 정책도 정확한데 결과가 안 바뀌니 문법을 의심하게 된다.
+
+```
+정책 갱신     01:11:03
+보고서 시각   01:12:12   ← 정책보다 나중인데도 fail
+```
+
+**타임스탬프가 갱신되어도 재평가된 것이 아니다.** reports-controller 를
+재시작해도 마찬가지였다. 해당 PolicyReport(파드 UID 이름)를 **삭제해야**
+재생성되면서 예외가 반영된다.
+
+```bash
+kubectl -n <ns> delete polr "$(kubectl -n <ns> get pod <pod> -o jsonpath='{.metadata.uid}')"
+```
+
+이 성질 때문에 **정책 변경의 효과를 보고서로 확인하려면 반드시 보고서를
+지워야 한다.** 안 그러면 "고쳤는데 안 된다"로 오판한다.
+
+> 참고로 `exclude.any[].resources` 에 `selector` 만 두면 매칭되지 않았다.
+> `kinds: [Pod]` 를 함께 줘야 한다. 다만 이 수정과 보고서 캐시가 겹쳐 있어
+> 어느 쪽이 결정적이었는지는 분리해 확인하지 않았다 — 둘 다 넣은 상태가
+> 동작하는 것만 확인했다.
+
+#### 남은 것 — OpenReplay 18건
+
+`overlays/local` 전용이라 지금 prod 에 영향은 없다. 그러나 **ADR-069 의 승격
+조건에 이 항목이 추가되어야 한다** — 17개 워크로드 전부가 root 로 뜨고,
+상류 차트가 그렇게 만든다.
+
+선택지는 둘이다.
+
+- **예외 목록에 추가** — 3자 앱 17종을 보안 정책에서 빼는 것이라 정책의
+  실효 범위가 크게 줄어든다
+- **승격하지 않는다** — 로컬 검증 도구로만 쓴다
+
+**결정하지 않고 남긴다.** 어느 쪽이든 ADR-069 를 다시 열어야 하는 사안이다.
+
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용
