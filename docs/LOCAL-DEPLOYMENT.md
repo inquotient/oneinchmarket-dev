@@ -2391,6 +2391,130 @@ ztunnel   예약  512Mi · 실사용    6Mi   → 128Mi
 그때는 맞는 판단이었다. 파드가 103 → 113 으로 늘고 7단계가 들어오면서
 57% 가 80% 가 되었는데, **limits 만 보는 습관이 남아 requests 를 다시 보지 않았다.**
 
+### 8-28. 재부팅 후 — 클러스터가 10분마다 죽었다 (2026-09-03)
+
+L-1 준비(Hyper-V 활성화 + WSL 캡 44GB)를 위해 재부팅했더니 클러스터가
+**약 10~12분마다 전멸**했다. 원인을 찾는 데 오래 걸렸고, 중간에 잘못된 결론을
+두 번 냈다.
+
+#### 증상과 오진
+
+```
+k3s PID 가 계속 바뀜 → "k3s 크래시"
+  level=error msg="scheduler exited: finished without leader elect"
+  systemd[1]: k3s.service: Main process exited, code=exited, status=1/FAILURE
+```
+
+**오진 ①: 메모리 부족.** 캡을 56→44 GB 로 줄인 직후라 그렇게 보였다.
+실측은 반대였다 — Mem 3.8/43.1 GiB, 스왑 0, OOM 0건, 스래싱 없음.
+`memory.max`·`MemoryMax` 도 전부 `infinity` 였다.
+
+**오진 ②: VM 유휴 종료.** `Reached target poweroff.target` 을 보고 그렇다고
+했다가, `uptime` 이 연속이고 `boot_id` 가 같아서 **아니라고 정정**했다.
+그 정정도 틀렸다 — 마침 살아 있는 구간을 본 것이었다.
+
+`scheduler exited` 는 원인이 아니라 **종료 경로의 마지막 로그**다. k3s 의
+스케줄러는 `--leader-elect=false` 라 컨텍스트가 취소되면 그 문구로 끝난다.
+이 줄을 원인으로 읽으면 계속 엉뚱한 곳을 판다.
+
+#### 실제 원인
+
+시스템 전체 저널을 k3s 유닛 밖까지 넓히자 나왔다.
+
+```
+WSL (2 - init-systemd(Ubuntu)) ERROR: InitTerminateInstanceInternal:2763:
+systemctl poweroff did not terminate...
+```
+
+**WSL 이 배포판 인스턴스를 종료시키고 있었다.** 붙은 프로세스가 없으면
+WSL 이 `systemctl poweroff` 를 넣는다. systemd 가 k3s 를 정지시키고,
+다음 `wsl.exe` 명령에서 배포판이 새로 뜨며 파드가 전부 재시작한다.
+
+**왜 지금까지 안 드러났나** — 사람이 WSL 터미널을 열어 두면 그 셸이 상주
+프로세스 역할을 한다. 재부팅으로 터미널이 사라지고 짧은 `wsl.exe -- <명령>`
+만 돌리는 상황이 되자 표면화됐다.
+
+#### `.wslconfig` 의 vmIdleTimeout 은 두 가지가 잘못돼 있었다
+
+**① 섹션이 틀렸다.** `[experimental]` 이 아니라 **`[wsl2]`** 다. WSL 은
+모르는 키를 "unknown key" 로 **조용히 무시**하므로, 24시간으로 설정해 둔
+값이 처음부터 적용된 적이 없었다. 기본값 60초가 내내 걸려 있었다.
+
+**② 그것으로도 부족하다.** `vmIdleTimeout` 은 **VM 유휴 타임아웃**이고
+여기서 일어난 것은 **배포판 종료**다. 별개 메커니즘이라 `-1` 을 넣어도
+이 현상은 남는다. 실측:
+
+```
+vmIdleTimeout=-1 적용 후에도  →  k3s 누적 기동 8회 (부팅 1회 내)
+Windows 쪽 분리 상주 프로세스 →  유휴 6분간 재시작 0회
+```
+
+#### 해법 — `local/keepalive.ps1`
+
+```powershell
+Start-Process wsl.exe -ArgumentList '-d','Ubuntu','--','sleep','infinity' -WindowStyle Hidden
+```
+
+**`Start-Process` 로 분리해야 한다.** 호출한 셸에 매달면 그 셸이 끝날 때
+함께 죽어 재발한다 — 실제로 그렇게 한 번 실패했다.
+
+검증:
+
+```
+기준   uptime 2772s · k3s 누적기동 13   (20:38:31)
+6분간 WSL 무접촉
+결과   uptime 3125s · k3s 누적기동 13   재시작 0회
+```
+
+#### 같이 드러난 결함 3건
+
+**loki `exit 137`** — 정상 운용 실사용은 672Mi 인데 **콜드 스타트에서
+110여 파드가 동시에 뿜는 로그 버스트**가 limit 1280Mi 를 넘겼다. 2Gi 로 올렸다.
+이 워크로드는 유휴 사용량으로 한도를 정하면 안 된다.
+
+**kibana `exit 134`(SIGABRT)** — base 가 limit 1Gi 인데 실사용 797Mi 다.
+Node 힙 + RSS 오버헤드가 그 위에서 abort 한다. 재시작 51회. requests 도
+256Mi 로 실사용의 1/3 이라 축출 1순위였다(§8-27 과 같은 유형).
+로컬 오버레이에서 768Mi/1536Mi 로 조정했다.
+
+**Kyverno 웹훅 fail-closed 교착** — `kyverno-admission-controller` 가
+`Unknown` 으로 멈추자 서비스 엔드포인트가 비었고, `validate.kyverno.svc-fail`
+이 **모든 쓰기를 막았다.** `kubectl delete` 조차 거부된다.
+
+```
+Error from server (InternalError): Internal error occurred:
+  failed calling webhook "validate.kyverno.svc-fail"
+```
+
+파드를 강제 삭제해 엔드포인트를 되살려야 풀린다. **정책 엔진이 자기 복구를
+막는 구조**라, 배포판 종료로 컨트롤러가 죽을 때마다 재현된다.
+
+#### 부수 확인 — 캡 44GB 는 맞았다
+
+```
+allocatable  43101832Ki (41.1 GiB)
+requests     37200Mi (88%)
+Pending      0
+```
+
+§8-27 의 requests 정정(80%→67%)이 선행되지 않았으면 이 캡에서 파드가
+스케줄되지 않았다.
+
+#### StatefulSet 에 남은 제약
+
+§8-27 과 함께 넣은 `storageClassName: standard` 명시가 **기존 StatefulSet 에는
+적용되지 않는다** — `volumeClaimTemplates` 가 불변이다.
+
+```
+StatefulSet.apps "gitlab" is invalid: spec: Forbidden:
+  updates to statefulset spec for fields other than 'replicas', 'ordinals', ...
+```
+
+`--cascade=orphan` 으로 지웠다 다시 만들면 파드·PVC 를 유지한 채 반영되지만,
+그 작업 자체가 대량 롤아웃을 유발해 클러스터를 흔든다. **이미 바인딩된 PVC 는
+전부 `standard` 라 실동작에 차이가 없으므로** 재구축 시점에 반영되게 두었다.
+clickhouse 만 작업 중 삭제돼 개별 복구했다.
+
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용
