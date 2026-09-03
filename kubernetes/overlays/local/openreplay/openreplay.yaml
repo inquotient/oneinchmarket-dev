@@ -765,7 +765,7 @@ spec:
         - name: version_number
           value: v1.27.2
         - name: pg_host
-          value: postgresql-headless.local.svc.cluster.local
+          value: openreplay-postgresql.local.svc.cluster.local
         - name: pg_port
           value: '5432'
         - name: pg_dbname
@@ -964,7 +964,7 @@ spec:
               name: openreplay-secret
               key: db-password
         - name: POSTGRES_STRING
-          value: postgres://openreplay:$(pg_password)@postgresql-headless.local.svc.cluster.local:5432/openreplay
+          value: postgres://openreplay:$(pg_password)@openreplay-postgresql.local.svc.cluster.local:5432/openreplay
         - name: ASSIST_URL
           value: http://assist-openreplay.local.svc.cluster.local:9001/assist/%s
         - name: ASSIST_KEY
@@ -1285,7 +1285,7 @@ spec:
               name: openreplay-secret
               key: db-password
         - name: POSTGRES_STRING
-          value: postgres://openreplay:$(pg_password)@postgresql-headless.local.svc.cluster.local:5432/openreplay
+          value: postgres://openreplay:$(pg_password)@openreplay-postgresql.local.svc.cluster.local:5432/openreplay
         - name: REDIS_STRING
           value: redis://:$(redis_password)@redis-headless.local.svc.cluster.local:6379/4
         - name: FS_CLEAN_HRS
@@ -1427,7 +1427,7 @@ spec:
         - name: version_number
           value: v1.27.22
         - name: pg_host
-          value: postgresql-headless.local.svc.cluster.local
+          value: openreplay-postgresql.local.svc.cluster.local
         - name: pg_port
           value: '5432'
         - name: pg_dbname
@@ -1659,7 +1659,7 @@ spec:
               name: openreplay-secret
               key: db-password
         - name: POSTGRES_STRING
-          value: postgres://openreplay:$(pg_password)@postgresql-headless.local.svc.cluster.local:5432/openreplay
+          value: postgres://openreplay:$(pg_password)@openreplay-postgresql.local.svc.cluster.local:5432/openreplay
         - name: REDIS_STRING
           value: redis://:$(redis_password)@redis-headless.local.svc.cluster.local:6379/4
         - name: ch_db
@@ -1760,7 +1760,7 @@ spec:
               name: openreplay-secret
               key: db-password
         - name: POSTGRES_STRING
-          value: postgres://openreplay:$(pg_password)@postgresql-headless.local.svc.cluster.local:5432/openreplay
+          value: postgres://openreplay:$(pg_password)@openreplay-postgresql.local.svc.cluster.local:5432/openreplay
         - name: REDIS_STRING
           value: redis://:$(redis_password)@redis-headless.local.svc.cluster.local:6379/4
         ports:
@@ -2023,7 +2023,7 @@ spec:
               name: openreplay-secret
               key: db-password
         - name: POSTGRES_STRING
-          value: postgres://openreplay:$(pg_password)@postgresql-headless.local.svc.cluster.local:5432/openreplay
+          value: postgres://openreplay:$(pg_password)@openreplay-postgresql.local.svc.cluster.local:5432/openreplay
         - name: REDIS_STRING
           value: redis://:$(redis_password)@redis-headless.local.svc.cluster.local:6379/4
         - name: JWT_SECRET
@@ -2158,7 +2158,7 @@ spec:
               name: openreplay-secret
               key: db-password
         - name: POSTGRES_STRING
-          value: postgres://openreplay:$(pg_password)@postgresql-headless.local.svc.cluster.local:5432/openreplay
+          value: postgres://openreplay:$(pg_password)@openreplay-postgresql.local.svc.cluster.local:5432/openreplay
         - name: REDIS_STRING
           value: redis://:$(redis_password)@redis-headless.local.svc.cluster.local:6379/4
         - name: FS_CLEAN_HRS
@@ -2286,7 +2286,7 @@ spec:
               name: openreplay-secret
               key: db-password
         - name: POSTGRES_STRING
-          value: postgres://openreplay:$(pg_password)@postgresql-headless.local.svc.cluster.local:5432/openreplay
+          value: postgres://openreplay:$(pg_password)@openreplay-postgresql.local.svc.cluster.local:5432/openreplay
         - name: REDIS_STRING
           value: redis://:$(redis_password)@redis-headless.local.svc.cluster.local:6379/4
         - name: TOKEN_SECRET
@@ -2389,7 +2389,7 @@ spec:
               name: openreplay-secret
               key: db-password
         - name: POSTGRES_STRING
-          value: postgres://openreplay:$(pg_password)@postgresql-headless.local.svc.cluster.local:5432/openreplay
+          value: postgres://openreplay:$(pg_password)@openreplay-postgresql.local.svc.cluster.local:5432/openreplay
         - name: REDIS_STRING
           value: redis://:$(redis_password)@redis-headless.local.svc.cluster.local:6379/4
         ports:
@@ -2607,7 +2607,7 @@ spec:
               name: openreplay-secret
               key: db-password
         - name: POSTGRES_STRING
-          value: postgres://openreplay:$(pg_password)@postgresql-headless.local.svc.cluster.local:5432/openreplay
+          value: postgres://openreplay:$(pg_password)@openreplay-postgresql.local.svc.cluster.local:5432/openreplay
         - name: REDIS_STRING
           value: redis://:$(redis_password)@redis-headless.local.svc.cluster.local:6379/4
         ports:
@@ -3374,7 +3374,7 @@ metadata:
     app.kubernetes.io/part-of: oneinchmarket
     app.kubernetes.io/component: observability
 data:
-  PGHOST: cG9zdGdyZXNxbC1oZWFkbGVzcy5sb2NhbC5zdmMuY2x1c3Rlci5sb2NhbA==
+  PGHOST: b3BlbnJlcGxheS1wb3N0Z3Jlc3FsLmxvY2FsLnN2Yy5jbHVzdGVyLmxvY2Fs
   PGPORT: NTQzMg==
   PGDATABASE: b3BlbnJlcGxheQ==
   PGUSER: b3BlbnJlcGxheQ==
@@ -3868,7 +3868,7 @@ spec:
           \ . || exit 10\n  git sparse-checkout set scripts/schema scripts/helmcharts\
           \ ee/scripts || exit 10\n  \n  ls /opt/openreplay/openreplay\n  git log\
           \ -1\nfi\n\n\n\nexit_count=0\n\nexit_count=0\nerror_connection=1\n\nwhile\
-          \ [ $exit_count -le 20 ];do\n  nc -zv postgresql-headless.local.svc.cluster.local\
+          \ [ $exit_count -le 20 ];do\n  nc -zv openreplay-postgresql.local.svc.cluster.local\
           \ 5432 -w 1\n  if [ $? -ne 0 ]; then\n    echo \"[info] postgresql is not\
           \ up; retrying in 5 seconds\"\n    sleep 4\n    exit_count=$(($exit_count+1))\n\
           \    echo $exit_count\n  else\n    error_connection=0\n    break\n  fi\n\
@@ -3901,7 +3901,7 @@ spec:
         image: ghcr.io/openreplay/postgres:17
         env:
         - name: PGHOST
-          value: postgresql-headless.local.svc.cluster.local
+          value: openreplay-postgresql.local.svc.cluster.local
         - name: PGPORT
           value: '5432'
         - name: PGDATABASE
@@ -3911,8 +3911,8 @@ spec:
         - name: PGPASSWORD
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: postgresql-password
+              name: openreplay-secret
+              key: db-password
         command:
         - /bin/bash
         - -c
@@ -4006,7 +4006,7 @@ spec:
         - name: CHART_APP_VERSION
           value: v1.27.0
         - name: PGHOST
-          value: postgresql-headless.local.svc.cluster.local
+          value: openreplay-postgresql.local.svc.cluster.local
         - name: PGPORT
           value: '5432'
         - name: PGDATABASE
@@ -4016,8 +4016,8 @@ spec:
         - name: PGPASSWORD
           valueFrom:
             secretKeyRef:
-              name: or-secrets
-              key: postgresql-password
+              name: openreplay-secret
+              key: db-password
         - name: SKIP_PERMISSION_CHANGE
           value: 'false'
         image: ghcr.io/openreplay/postgres:17

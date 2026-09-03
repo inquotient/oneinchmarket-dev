@@ -82,7 +82,11 @@ spec:
       containers:
         - name: loki
           resources:
-            limits: {memory: 768Mi}
+            # ★ 768Mi 였다가 OpenReplay 도입 후 OOMKilled 11회.
+            #   파드가 80 -> 103 으로 늘며 수집량이 뛰었다. 로그 파이프라인은
+            #   **파드 수에 비례**하므로 워크로드를 대량 추가할 때 함께 봐야 한다.
+            requests: {memory: 384Mi}
+            limits:   {memory: 1280Mi}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -191,3 +195,18 @@ spec:
         - name: nginx
           resources:
             limits: {memory: 256Mi}
+---
+# ★ OpenReplay 도입 후 OOMKilled 7회. filelog 가 읽어야 할 파드가 80 -> 103 이
+#   되면서 한계를 넘었다. Loki 와 같은 계열의 조정이다.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: otel-agent
+spec:
+  template:
+    spec:
+      containers:
+        - name: otel-agent
+          resources:
+            requests: {memory: 192Mi}
+            limits:   {memory: 640Mi}

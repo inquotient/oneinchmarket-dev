@@ -17,7 +17,7 @@ def secret_env(name, sec, key):
 # 이 클러스터의 실제 엔드포인트. 자격증명은 값이 아니라 $(VAR) 로 넣고
 # 그 VAR 는 Secret 에서 온다 — 렌더 산출물에 평문이 남지 않는다.
 REWRITE = {
-    "POSTGRES_STRING":   f"postgres://openreplay:$(pg_password)@postgresql-headless.{NS}:5432/openreplay",
+    "POSTGRES_STRING":   f"postgres://openreplay:$(pg_password)@openreplay-postgresql.{NS}:5432/openreplay",
     "REDIS_STRING":      f"redis://:$(redis_password)@redis-headless.{NS}:6379/4",
     # ★ DB 이름을 붙이면 안 된다. Go 클라이언트가 net.SplitHostPort 로 자르면서
     #   포트가 "9000/openreplay" 가 되어 `unknown port` 로 죽는다.
@@ -77,12 +77,16 @@ def fix_container(c):
         "ch_password":           ("clickhouse-secret", "password"),
         "S3_KEY":                ("minio-secret",      "root-user"),
         "S3_SECRET":             ("minio-secret",      "root-password"),
+        # 마이그레이션 Job 의 initContainer·컨테이너가 쓰는 이름.
+        # 차트 Secret 의 값은 미치환 "{{ randAlphaNum 20}}" 라 인증이 실패한다.
+        "PGPASSWORD":            ("openreplay-secret", "db-password"),
+        "CLICKHOUSE_PASS":       ("clickhouse-secret", "password"),
     }
     # chalice(psycopg2)는 접속 정보를 개별 변수로 받는다 — *_STRING 이 없다.
     PLAIN = {
         "ch_db": "openreplay", "CH_USERNAME": "openreplay",
         "CLICKHOUSE_DATABASE": "openreplay",
-        "pg_host": f"postgresql-headless.{NS}", "pg_port": "5432",
+        "pg_host": f"openreplay-postgresql.{NS}", "pg_port": "5432",
         "pg_dbname": "openreplay", "pg_user": "openreplay",
         "ch_host": f"clickhouse-headless.{NS}", "ch_port": "9000",
         "ch_port_http": "8123", "ch_user": "openreplay",

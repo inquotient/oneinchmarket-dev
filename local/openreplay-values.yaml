@@ -10,7 +10,7 @@
 global:
   domainName: "openreplay.local"
   postgresql:
-    postgresqlHost: "postgresql-headless.local.svc.cluster.local"
+    postgresqlHost: "openreplay-postgresql.local.svc.cluster.local"
     postgresqlPort: "5432"
     postgresqlUser: "openreplay"
     postgresqlDatabase: "openreplay"
