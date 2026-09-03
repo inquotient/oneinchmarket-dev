@@ -27,6 +27,19 @@ PASS="${PASS:-l0lab}"        # 랩 전용 콘솔 로그인. 운영 자격이 아
 log() { echo "[target] $*"; }
 mkdir -p "$OUT" "$CACHE"
 
+# ── 0. 랩 전용 SSH 키 ───────────────────────────────────────
+# 콘솔 비밀번호만으로는 호스트에서 자동 실행을 할 수 없다 — Windows OpenSSH
+# 클라이언트는 비밀번호를 표준입력으로 받지 않는다. H5 검증을 사람이 콘솔에
+# 타이핑하지 않고 돌리려면 키가 필요하다.
+#
+# ★ 개인키는 $OUT 에 생성된다. **레포 밖이다** — 커밋 경로에 두지 않는다.
+#   운영 자격이 아니라 격리된 랩 VM 전용이며 VM 과 수명을 같이한다.
+KEY="${KEY:-$OUT/L0-Target-key}"
+if [ ! -f "$KEY" ]; then
+  log "랩 전용 SSH 키 생성 ($KEY)"
+  ssh-keygen -t ed25519 -N '' -C 'l0-lab-target' -f "$KEY" >/dev/null
+fi
+
 # ── 1. 클라우드 이미지 ───────────────────────────────────────
 if [ ! -f "$CACHE/$IMG" ]; then
   log "클라우드 이미지 내려받기 ($REL)"
@@ -37,12 +50,23 @@ log "이미지 $(stat -c%s "$CACHE/$IMG" | awk '{printf "%.0f MB",$1/1048576}')"
 # ── 2. VHDX 변환 ────────────────────────────────────────────
 # Gen2(UEFI) 부팅에는 ESP 가 필요하다. Ubuntu 클라우드 이미지는 UEFI 부팅이
 # 가능하므로 그대로 변환하면 된다.
+#
+# ★ 순서가 중요하다 — **qcow2 단계에서 늘린 뒤 변환**한다. 반대로 하면 실패한다:
+#     qemu-img: Image format driver does not support resize
+#   qemu 의 vhdx 드라이버는 읽기·쓰기·변환은 되지만 resize 를 구현하지 않는다.
+#   그런데 그때 vhdx 는 이미 만들어진 뒤라 **크기만 틀린 파일이 남는다** —
+#   아래 존재 검사에 걸려 재실행이 조용히 건너뛴다. 그래서 실패 시 지운다.
+#   게스트 파티션은 cloud-init 의 growpart 가 첫 부팅에 맞춰 늘린다.
 if [ ! -f "$OUT/L0-Target.vhdx" ]; then
+  WORK="$OUT/.work.qcow2"
+  trap 'rm -f "$WORK" ; [ -s "$OUT/L0-Target.vhdx" ] || rm -f "$OUT/L0-Target.vhdx"' EXIT
+  log "작업 사본을 ${DISK_GB}G 로 확장"
+  cp "$CACHE/$IMG" "$WORK"
+  qemu-img resize "$WORK" "${DISK_GB}G"
   log "qcow2 -> vhdx 변환"
   qemu-img convert -f qcow2 -O vhdx -o subformat=dynamic \
-    "$CACHE/$IMG" "$OUT/L0-Target.vhdx"
-  log "디스크 ${DISK_GB}G 로 확장"
-  qemu-img resize "$OUT/L0-Target.vhdx" "${DISK_GB}G"
+    "$WORK" "$OUT/L0-Target.vhdx"
+  rm -f "$WORK"
 fi
 log "VHDX $(stat -c%s "$OUT/L0-Target.vhdx" | awk '{printf "%.0f MB",$1/1048576}')"
 
@@ -51,10 +75,6 @@ log "VHDX $(stat -c%s "$OUT/L0-Target.vhdx" | awk '{printf "%.0f MB",$1/1048576}
 # cloud-init 가 조용히 건너뛰고 로그인할 수 없는 VM 이 남는다.
 SEEDDIR="$OUT/.seed"
 mkdir -p "$SEEDDIR"
-cat > "$SEEDDIR/meta-data" <<EOF
-instance-id: l0-target-1
-local-hostname: l0-target
-EOF
 {
   echo "#cloud-config"
   echo "users:"
@@ -64,6 +84,8 @@ EOF
   echo '    sudo: ["ALL=(ALL) NOPASSWD:ALL"]'
   echo "    lock_passwd: false"
   echo "    plain_text_passwd: ${PASS}"
+  echo "    ssh_authorized_keys:"
+  echo "      - $(cat "$KEY.pub")"
   echo "ssh_pwauth: true"
   echo "chpasswd:"
   echo "  expire: false"
@@ -80,9 +102,24 @@ EOF
   echo '  - [ sh, -c, "echo H5 검증은 sudo verify-h5.sh > /etc/motd" ]'
 } > "$SEEDDIR/user-data"
 
+# ★ instance-id 를 **시드 내용의 해시**로 만든다.
+#   cloud-init 은 per-instance 모듈을 instance-id 가 바뀔 때만 다시 돈다.
+#   고정값이면 시드를 고쳐 붙여도 조용히 무시되어, 키를 추가해 놓고도
+#   로그인이 안 되는 상태를 디버깅하게 된다. 해시로 두면 시드가 바뀐
+#   경우에만 재실행되고 바뀌지 않았으면 그대로 둔다.
+IID="l0-target-$(sha256sum "$SEEDDIR/user-data" | cut -c1-12)"
+cat > "$SEEDDIR/meta-data" <<EOF
+instance-id: $IID
+local-hostname: l0-target
+EOF
+log "instance-id $IID"
+
 log "시드 ISO 생성 (레이블 cidata)"
+# ★ stderr 를 버리지 않는다. 여기 실패의 가장 흔한 원인은 **ISO 가 실행 중인
+#   VM 의 DVD 에 물려 잠긴 것**인데(실측), 메시지를 지우면 "Permission denied"
+#   대신 줄 번호만 남아 원인을 찾을 수 없다.
 genisoimage -output "$OUT/L0-Target-seed.iso" -volid cidata \
-  -joliet -rock "$SEEDDIR/user-data" "$SEEDDIR/meta-data" >/dev/null 2>&1
+  -joliet -rock "$SEEDDIR/user-data" "$SEEDDIR/meta-data" >/dev/null
 log "시드 $(stat -c%s "$OUT/L0-Target-seed.iso" | awk '{printf "%.1f MB",$1/1048576}')"
 
 echo

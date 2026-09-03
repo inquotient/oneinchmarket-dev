@@ -1,4 +1,4 @@
-# WSL2 VM 유지 (Windows PowerShell)
+﻿# WSL2 VM 유지 (Windows PowerShell)
 #
 # ★ 왜 필요한가 —
 #   WSL2 는 VM 에 붙은 프로세스가 없으면 잠시 뒤 VM 을 내린다. systemd 로

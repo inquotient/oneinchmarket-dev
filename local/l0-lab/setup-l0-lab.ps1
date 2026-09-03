@@ -1,4 +1,4 @@
-#Requires -RunAsAdministrator
+﻿#Requires -RunAsAdministrator
 <#
   L0 랩 프로비저닝 — OPNsense + Suricata + Zeek 검증 환경 (L-1)
 
@@ -41,7 +41,10 @@ param(
   # FreeBSD 14 는 UEFI 를 지원하지만 Hyper-V 조합에서 실패 보고가 있다.
   [ValidateSet(1,2)][int]$Generation = 2,
   # WAN 으로 쓸 물리 NIC 이름. 미지정 시 활성 NIC 을 자동 선택한다.
-  [string]$WanAdapter
+  [string]$WanAdapter,
+  # prepare-target-vm.sh 가 만든 부팅 디스크. 있으면 이것을 붙이고,
+  # 없으면 빈 디스크를 만들어 -TargetIsoPath 로 수동 설치한다.
+  [string]$TargetVhdPath = "$env:USERPROFILE\HyperV\L0Lab\L0-Target.vhdx"
 )
 
 $ErrorActionPreference = 'Stop'
@@ -56,6 +59,19 @@ if (-not (Get-Command Get-VM -ErrorAction SilentlyContinue)) {
 }
 if (-not (Get-Service vmms -ErrorAction SilentlyContinue)) {
   throw "vmms 서비스가 없다 — Hyper-V 역할 미설치. 위 명령 후 재부팅할 것."
+}
+
+# ★ 경로 검증을 **아무것도 만들기 전에** 한다.
+#   이 검사가 VM 생성 뒤에 있었더니(2026-09-04) ISO 가 아직 없는 상태에서
+#   -IsoPath 를 주고 돌린 실행이 OPNsense VM 을 만든 직후 throw 했고,
+#   **L0-Target 은 만들어지지 않은 채 랩이 반만 남았다.** 스위치·VM 이
+#   부분 생성되면 재실행이 "이미 존재 — 건너뜀" 으로 흘러 결손을 덮는다.
+foreach ($p in @(
+  @{ n = '-IsoPath';       v = $IsoPath },
+  @{ n = '-TargetIsoPath'; v = $TargetIsoPath })) {
+  if ($p.v -and -not (Test-Path $p.v)) {
+    throw "$($p.n) 의 파일을 찾을 수 없다: $($p.v)"
+  }
 }
 
 $freeGB = [math]::Round((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory/1MB,1)
@@ -126,18 +142,46 @@ $tgtName = 'L0-Target'
 if (Get-VM -Name $tgtName -ErrorAction SilentlyContinue) {
   Warn "$tgtName 이미 존재 — 건너뜀"
 } else {
-  Log "$tgtName 생성 (Gen2 · ${TargetMemoryGB}GiB · 디스크 16GB · L0-LAN 전용)"
-  $vhd2 = Join-Path $VmRoot "$tgtName.vhdx"
-  New-VM -Name $tgtName -Generation 2 -MemoryStartupBytes ($TargetMemoryGB * 1GB) `
-         -NewVHDPath $vhd2 -NewVHDSizeBytes 16GB -SwitchName 'L0-LAN' | Out-Null
+  $prepared = Test-Path $TargetVhdPath
+  if ($prepared) {
+    Log "$tgtName 생성 (Gen2 · ${TargetMemoryGB}GiB · 준비된 디스크 부착 · L0-LAN 전용)"
+    New-VM -Name $tgtName -Generation 2 -MemoryStartupBytes ($TargetMemoryGB * 1GB) `
+           -VHDPath $TargetVhdPath -SwitchName 'L0-LAN' | Out-Null
+  } else {
+    Warn "준비된 디스크가 없다($TargetVhdPath) — 빈 디스크로 만든다."
+    Warn "  먼저 WSL 에서 ./prepare-target-vm.sh 를 돌리는 편이 낫다."
+    Log "$tgtName 생성 (Gen2 · ${TargetMemoryGB}GiB · 빈 디스크 16GB)"
+    New-VM -Name $tgtName -Generation 2 -MemoryStartupBytes ($TargetMemoryGB * 1GB) `
+           -NewVHDPath (Join-Path $VmRoot "$tgtName.vhdx") -NewVHDSizeBytes 16GB `
+           -SwitchName 'L0-LAN' | Out-Null
+  }
   Set-VMMemory -VMName $tgtName -DynamicMemoryEnabled $true `
                -MinimumBytes 512MB -MaximumBytes ($TargetMemoryGB * 1GB)
   Set-VMProcessor -VMName $tgtName -Count 2
-  if ($TargetIsoPath -and (Test-Path $TargetIsoPath)) {
-    Add-VMDvdDrive -VMName $tgtName -Path $TargetIsoPath
-    Set-VMFirmware -VMName $tgtName -FirstBootDevice (Get-VMDvdDrive -VMName $tgtName)
+
+  # ★ Secure Boot 템플릿을 바꾼다. Gen2 의 기본값은 'MicrosoftWindows' 이고
+  #   그 상태로는 shim 서명을 신뢰하지 않아 **Ubuntu 가 부팅하지 않는다.**
+  #   끄지 않고 CA 템플릿으로 바꾼다 — 서명 검증은 유지된다.
+  Set-VMFirmware -VMName $tgtName -EnableSecureBoot On `
+                 -SecureBootTemplate MicrosoftUEFICertificateAuthority
+
+  # cloud-init 시드. NoCloud 데이터소스가 볼륨 레이블 cidata 를 찾는다.
+  # 없으면 로그인 계정이 만들어지지 않아 콘솔에 들어갈 수 없다.
+  $seed = if ($TargetIsoPath) { $TargetIsoPath }
+          else { Join-Path (Split-Path $TargetVhdPath) 'L0-Target-seed.iso' }
+  if (Test-Path $seed) {
+    Log "cloud-init 시드 부착: $seed"
+    Add-VMDvdDrive -VMName $tgtName -Path $seed
   } else {
-    Warn "-TargetIsoPath 미지정 — Ubuntu Server ISO 를 나중에 붙일 것"
+    Warn "시드 ISO 가 없다($seed) — 로그인 계정 없이 부팅한다"
+  }
+
+  if ($prepared) {
+    # 디스크 우선 부팅. 시드는 데이터소스일 뿐 부팅 매체가 아니다.
+    Set-VMFirmware -VMName $tgtName `
+      -FirstBootDevice (Get-VMHardDiskDrive -VMName $tgtName)
+  } elseif (Test-Path $seed) {
+    Set-VMFirmware -VMName $tgtName -FirstBootDevice (Get-VMDvdDrive -VMName $tgtName)
   }
 }
 

@@ -2589,6 +2589,168 @@ kubectl -n <ns> delete polr "$(kubectl -n <ns> get pod <pod> -o jsonpath='{.meta
 
 **결정하지 않고 남긴다.** 어느 쪽이든 ADR-069 를 다시 열어야 하는 사안이다.
 
+
+### 8-30. PowerShell 스크립트가 BOM 없이 저장되면 코드가 조용히 사라진다 (2026-09-04)
+
+L0 랩을 만들다 만난 것이지만 **원인은 랩과 무관하고 이 레포의 `.ps1` 전부에
+해당한다.** 별도 항목으로 둔다.
+
+#### 증상
+
+`setup-l0-lab.ps1` 을 관리자 권한으로 돌렸더니 OPNsense VM 만 만들어지고
+`L0-Target` 은 만들어지지 않았다. **오류도 경고도 없었다.** 스크립트는
+"완료" 를 출력하고 정상 종료했으며, 마지막 상태 표에도 VM 이 하나만 찍혔다.
+
+#### 원인
+
+파일이 UTF-8 인데 **BOM 이 없다.** PowerShell 5.1 은 BOM 이 없는 `.ps1` 을
+시스템 ANSI 코드페이지(여기서는 CP949)로 읽는다. 한글 주석의 UTF-8 바이트가
+CP949 로 잘못 디코딩되면서 따옴표 짝이 어긋났고, target VM 생성 블록 40여 줄이
+**문자열 리터럴 안으로 흡수**됐다.
+
+AST 로 확인한 것이 결정적이다.
+
+| | 줄 수 | 파싱 오류 | 인식된 `New-VM` |
+|---|--:|--:|---|
+| BOM 없음 | 205 | **0** | 115 |
+| BOM 있음 | 211 | 0 | 115 · **148 · 154** |
+
+```powershell
+$t=$null; $e=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($f,[ref]$t,[ref]$e)
+$e.Count   # 0 — 구문 오류가 아니다
+$ast.FindAll({param($n) $n -is [Management.Automation.Language.CommandAst] -and
+              $n.GetCommandName() -eq 'New-VM'}, $true)
+```
+
+**`parseErr` 가 0 인 것이 이 결함의 성질을 말해준다.** 구문 오류라면 즉시
+드러난다. 여기서는 문법적으로 완결된 다른 프로그램이 되어 버리므로 검증
+수단이 없다 — 실행 결과를 세어 보는 것 말고는.
+
+#### 왜 지금까지 드러나지 않았는가
+
+`local/keepalive.ps1` · `local/keep-alive.ps1` 도 BOM 이 없고 같은 조건이다.
+둘은 각각 4줄씩 잃지만 **잃은 것이 전부 주석 줄이라 명령 수가 변하지 않아**
+지금까지 정상 동작했다.
+
+```
+keep-alive.ps1 : lines 30 vs 34 | commands 6 vs 6
+keepalive.ps1  : lines 63 vs 67 | commands 11 vs 11
+```
+
+즉 지금까지는 운이 좋았을 뿐이고, 주석 한 줄만 고쳐도 명령이 사라질 수 있다.
+`keepalive.ps1` 은 클러스터 생존 스크립트다(§8-28, Gotcha 6).
+
+#### 조치
+
+세 파일 전부에 BOM 을 붙였다. 내용은 바이트 단위로 그대로 두고 앞에만 붙인다.
+
+```powershell
+$b=[IO.File]::ReadAllBytes($f)
+[IO.File]::WriteAllBytes($f, (,[byte]0xEF+[byte]0xBB+[byte]0xBF)+$b)
+```
+
+**앞으로 이 레포에 `.ps1` 을 추가할 때는 BOM 을 확인할 것.** 한글 주석을
+쓰는 한 이 문제는 반복된다. 확인은 아래 한 줄이면 된다.
+
+```bash
+head -c3 file.ps1 | od -An -tx1   # efbbbf 여야 한다
+```
+
+#### 곁가지 — 같은 실행에서 드러난 스크립트 결함 3건
+
+1. **경로 검증이 VM 생성 뒤에 있었다.** ISO 가 아직 없는 상태로 `-IsoPath` 를
+   주고 돌린 실행이 OPNsense VM 을 만든 **직후** `throw` 했고, 랩이 반만 남았다.
+   재실행하면 "이미 존재 — 건너뜀" 이 결손을 덮는다. 검증을 §0 으로 옮겼다
+2. **`qemu-img` 의 vhdx 드라이버는 resize 를 구현하지 않는다.**
+   `Image format driver does not support resize` — 변환 **전에** qcow2 단계에서
+   늘려야 한다. 게다가 실패 시점에 vhdx 는 이미 만들어져 있어 크기만 틀린
+   파일이 남고, 존재 검사에 걸려 재실행이 조용히 건너뛴다
+3. **`genisoimage` 의 stderr 를 버리고 있었다.** 실행 중인 VM 의 DVD 에 물린
+   ISO 는 잠겨 있어 재생성이 실패하는데, 메시지를 지우면 줄 번호만 남는다
+
+### 8-31. H5 검증 완료 — Hyper-V 에서 Cilium 이 동작한다 (2026-09-04)
+
+`ADR-051`(A안, k3s 를 Hyper-V 다중 노드로 이설)의 마지막 `[UNVERIFIED]` 항목이다.
+Hyper-V 합성 NIC(`hv_netvsc`)에서 Cilium eBPF 가 도는지 확인된 바가 없었다.
+
+**데이터를 날린 뒤에 알게 되는 것을 피하려고 랩 VM 한 대에서 먼저 확인했다.**
+이설은 PVC 27개(PostgreSQL·GitLab·ES·MinIO·Kafka)를 재생성하며 되돌릴 수 없다.
+
+#### 환경
+
+L0-Target(Hyper-V Gen2 · Ubuntu 24.04 클라우드 이미지 · 4 GiB · 커널 6.8.0-138),
+k3s v1.31.4+k3s1 · Cilium 1.16.5 — **클러스터와 동일한 플래그**로 세웠다.
+
+#### 결과 — PASS 12 · FAIL 0
+
+| 단계 | 확인한 것 | 결과 |
+|:-:|---|---|
+| 0 | `hv_netvsc` · BTF 6.1 MB · `xt_TPROXY`·`xt_socket`·`nf_conntrack` | 5/5 |
+| 1 | k3s API | PASS |
+| 2 | **Cilium 정상 기동** | PASS |
+| 3 | CoreDNS · 파드 IP · Service DNS + socketLB | 3/3 |
+| 4 | **NetworkPolicy 강제 + 제거 후 복귀** | 2/2 |
+| 5 | XDP `Device Mode: veth` | 참고 |
+
+**4번이 핵심이다.** ADR-043 이 지적한 M1 의 실패 모드가 "설정이 틀려도 통신은
+정상이고 정책만 조용히 적용되지 않는다" 이기 때문이다. 세 경로 전부에서 확인했다.
+
+| | DNS | ClusterIP | PodIP |
+|---|---|---|---|
+| 기준선 | 200 | 200 | 200 |
+| default-deny 적용 | 000 | 000 | 000 |
+| 정책 제거 | 200 | — | 200 |
+
+XDP 는 예상대로 미지원이다(`veth`). H5 의 판정은 **"기능은 정상이나 성능
+기준선으로 쓰지 말 것"** 이고, 이 검증은 기능만 답한다.
+
+#### 첫 실행은 FAIL 1 이었고, 그 해석이 틀릴 뻔했다
+
+처음 돌렸을 때 3단계 `Service 경유 통신 실패 — socketLB 또는 DNS` 가 났다.
+그대로면 **H5 미해소**이고 ADR-051 은 중단이다. 그런데 직접 재현해 보니:
+
+```
+호스트 → ClusterIP   200
+파드   → PodIP       200
+파드   → ClusterIP   200      ← socketLB 는 정상이었다
+파드   → DNS 이름    000
+```
+
+몇 분 뒤 같은 검사가 3회 연속 200 이었다. **CoreDNS 가 Cilium 기동 직후
+아직 준비되지 않은 시점에 쏜 것**이다(CNI 가 바뀌면서 IP 를 다시 받는다).
+환경 특성이 아니라 검증 스크립트의 경쟁 조건이었다.
+
+#### 더 나빴던 것 — 4단계가 거짓 통과였다
+
+같은 실행에서 4단계는 **PASS** 로 찍혔다. 판정이 `응답 != 200 이면 차단됨`
+이었기 때문이다. 3단계에서 이미 통신이 죽어 있었으므로 **정책과 무관하게
+무조건 통과**한다. 정책이 걸렸다는 근거가 전혀 아니었다.
+
+FAIL 하나가 눈에 띄어 들여다보지 않았다면, "핵심 항목인 4단계는 통과했다" 는
+잘못된 결론을 그대로 문서에 남겼을 것이다.
+
+`verify-h5.sh` 를 세 곳 고쳤다.
+
+1. 3단계 전에 **CoreDNS rollout 을 기다린다**
+2. 4단계는 **기준선을 먼저 200 으로 확인**하고, 아니면 통과도 실패도 아닌
+   **판정 불가**로 남긴다
+3. 정책 제거 후 **200 으로 복귀하는지까지** 본다 — 차단만 보면 "정책이 걸렸다"
+   와 "그 사이 무언가 고장났다" 를 구분할 수 없다
+
+#### 남는 것은 기술 위험이 아니라 비용이다
+
+H5 가 해소되었으므로 ADR-051(A안)의 기술적 중단 사유는 없다. 남는 판단은
+`local/l0-lab/README.md` 에 적어 둔 셋이다 — **PVC 27개 재생성**(되돌릴 수 없다),
+**정적 메모리 분할**(H1 이 동적 메모리를 금지해 VM 간 슬랙이 넘어가지 않는다),
+클러스터 재구축 시간. 메모리는 실측상 들어간다(2노드 44.7 GiB · 3노드 48.7 GiB).
+
+> 검증 동안 target 의 NIC 을 Hyper-V 내장 `Default Switch`(NAT)로 옮겼다.
+> k3s·Cilium 을 내려받아야 하는데 `L0-LAN` 은 Internal 이고 OPNsense 가 아직
+> 게이트웨이가 아니기 때문이다. **`L0-WAN`(External)을 쓰지 않았다** — 그쪽은
+> 물리 LAN 에 그대로 노출되고 이 VM 에는 랩 전용 약한 자격이 들어 있다.
+> 검증 후 `L0-LAN` 으로 되돌렸다. 되돌리지 않으면 "target 의 유일한 출구가
+> OPNsense" 라는 랩의 전제가 깨진다.
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용

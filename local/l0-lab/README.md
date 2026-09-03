@@ -47,6 +47,13 @@ Caldera 격리(§8-26)와 같은 발상이다 — 우회 가능한 경로를 아
 
 `verify-h5.sh` 가 게스트의 `/usr/local/bin/` 에 심어진다. 콘솔에서 바로 돌릴 수 있다.
 
+랩 전용 SSH 키(`$OUT/L0-Target-key`)를 만들어 시드에 심는다. 콘솔 비밀번호만으로는
+호스트에서 자동 실행을 할 수 없기 때문이다 — Windows OpenSSH 클라이언트는 비밀번호를
+표준입력으로 받지 않는다. **개인키는 `$OUT`(레포 밖)에 남는다. 커밋 대상이 아니다.**
+
+`instance-id` 는 `user-data` 의 해시다. cloud-init 은 per-instance 모듈을 instance-id 가
+바뀔 때만 다시 도므로, 고정값이면 시드를 고쳐 붙여도 조용히 무시된다.
+
 OPNsense ISO 는 `https://pkg.opnsense.org/releases/<버전>/` 에서 받아 `bunzip2` 로 푼다.
 **국내 미러가 없다** — kakao·naver·harukasan 모두 미보유를 확인했다(2026-09-03).
 해외 미러는 20~25 KB/s 대라 471 MB 에 수 시간이 걸린다. `curl -C -` 로 이어받을 것.
@@ -62,6 +69,16 @@ OPNsense 설치 프로그램은 콘솔 대화형이라 자동화하지 않는다
 
 **Hyper-V 는 관리자 권한이 필요하다.** 사용자가 `Hyper-V Administrators` 그룹에
 없으면 일반 세션에서 `Get-VMSwitch` 조차 거부된다.
+
+`prepare-target-vm.sh` 를 먼저 돌렸으면 스크립트가 **그 VHDX 를 붙인다**(빈 디스크를
+만들지 않는다). Secure Boot 는 끄지 않고 템플릿만 `MicrosoftUEFICertificateAuthority`
+로 바꾼다 — Gen2 의 기본값 `MicrosoftWindows` 로는 shim 서명을 신뢰하지 않아
+**Ubuntu 가 부팅하지 않는다.**
+
+> ★ `.ps1` 은 **BOM 이 있어야 한다.** 없으면 PowerShell 5.1 이 CP949 로 읽어
+> 한글 주석이 따옴표 짝을 깨뜨리고, 뒤따르는 코드가 문자열로 흡수된 채
+> **파싱 오류 없이** 실행된다. 실제로 이 스크립트가 target VM 생성부를 통째로
+> 잃은 적이 있다 — `docs/LOCAL-DEPLOYMENT.md §8-30`.
 
 ## 검증 항목
 
@@ -87,6 +104,28 @@ OPNsense 설치 프로그램은 콘솔 대화형이라 자동화하지 않는다
 
 ```bash
 sudo ./verify-h5.sh
+```
+
+### 검증 중에는 NIC 을 옮긴다
+
+H5 검증은 k3s·Cilium 을 내려받으므로 **인터넷이 필요하다.** 그런데 `L0-LAN` 은
+Internal 이고 OPNsense 가 아직 게이트웨이 역할을 하기 전이라 출구가 없다.
+그래서 검증 동안만 NIC 을 Hyper-V 내장 `Default Switch` 로 옮긴다.
+
+```powershell
+Connect-VMNetworkAdapter -VMName L0-Target -SwitchName 'Default Switch'
+```
+
+**`L0-WAN`(External)이 아니라 `Default Switch`(NAT)를 쓴다.** External 은 물리
+LAN 에 그대로 노출되는데, 이 VM 에는 랩 전용 약한 자격(`ubuntu`/`l0lab`,
+비밀번호 인증 허용)이 들어 있다. NAT 스위치는 나가는 통신만 되고 물리망에서
+접근되지 않는다.
+
+검증이 끝나면 `L0-LAN` 으로 되돌린다 — **되돌리지 않으면 "target 의 유일한
+출구가 OPNsense" 라는 랩의 전제가 깨진다.**
+
+```powershell
+Connect-VMNetworkAdapter -VMName L0-Target -SwitchName 'L0-LAN'
 ```
 
 ### 왜 순서가 이런가

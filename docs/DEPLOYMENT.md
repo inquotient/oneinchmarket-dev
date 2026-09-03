@@ -161,7 +161,7 @@
 | **H2** | Generation 2 + Secure Boot | Ubuntu는 `-SecureBootTemplate MicrosoftUEFICertificateAuthority` 또는 Secure Boot 비활성 |
 | **H3** | **Default Switch 사용 금지** | 서브넷이 재부팅마다 바뀐다. **Internal 스위치 + `New-NetNat`** 으로 고정 서브넷 구성 |
 | **H4** | 정적 MAC 주소 | 노드 IP가 바뀌면 k3s 클러스터가 깨진다 |
-| **H5** | Cilium XDP 미지원 | Hyper-V 합성 NIC(`hv_netvsc`)에서 XDP 오프로드 불가. 기능은 정상이나 **성능 기준선으로 쓰지 말 것** `[UNVERIFIED — 커널·드라이버 버전 의존]` |
+| **H5** | Cilium XDP 미지원 | Hyper-V 합성 NIC(`hv_netvsc`)에서 XDP 오프로드 불가. 기능은 정상이나 **성능 기준선으로 쓰지 말 것**. `[VERIFIED 2026-09-04]` — 랩 VM 에서 실측했다(커널 6.8.0-138 · k3s v1.31.4+k3s1 · Cilium 1.16.5, 클러스터와 동일 플래그). Cilium 기동 · socketLB 경유 Service 통신 · **NetworkPolicy 강제와 제거 후 복귀**까지 12/12 통과. XDP 는 예상대로 `Device Mode: veth` 다. 절차와 함정은 `LOCAL-DEPLOYMENT.md §8-31` |
 | **H6** | Docker Desktop 자원 경합 | WSL2와 Hyper-V VM이 호스트 메모리를 두고 경합. Docker Desktop 종료 또는 `.wslconfig` 메모리 상한 설정 |
 
 **H1과 H3이 가장 흔한 실패 원인**이므로 부트스트랩 스크립트에 사전 점검을 넣는다.
