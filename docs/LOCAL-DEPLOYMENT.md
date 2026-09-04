@@ -3845,7 +3845,9 @@ ambient 에서 **워크로드 신원은 ServiceAccount** 다. `default` 를 쓰�
 
 현재 편입 상태로 유지하는 것은 LDAP 경로(`ds389` · `ranger-usersync`)뿐이다.
 
-### 8-43. Ranger 관리자 자격이 관리되지 않는다 — 아무도 로그인할 수 없다 (2026-09-04)
+### 8-43. Ranger 관리자 자격 — 관리되고 있었다 (2026-09-04)
+
+> ★ 이 항목의 처음 결론("아무도 로그인할 수 없다")은 **틀렸다.** 맨 아래 정정을 볼 것.
 
 §8-38 에서 "동기화가 Ranger 까지 닿는지 확인 못 했다" 고 적은 이유가 이것이었다.
 API 가 401 을 돌려준다.
@@ -3904,6 +3906,71 @@ usersync 는 별도 자격(`rangerusersync`)으로 Ranger 에 붙으므로 **동
 
 > `ranger-secret` 에 `admin-password` 키가 있을 것으로 보고 조회했다가 401 을
 > 받은 것이 §8-38 의 "확인 못 함" 이었다. 키 자체가 없었다.
+
+#### ★ 정정 (2026-09-04) — 결함이 아니었다. 자격은 관리되고 있다
+
+위 결론은 **틀렸다.** 엔트리포인트 `/home/ranger/scripts/ranger.sh` 를 읽고
+알았다.
+
+```bash
+echo "rangerAdmin_password=${RANGER_DB_PASSWORD}"
+echo "rangerTagsync_password=${RANGER_DB_PASSWORD}"
+echo "rangerUsersync_password=${RANGER_DB_PASSWORD}"
+echo "keyadmin_password=${RANGER_DB_PASSWORD}"
+```
+
+**관리자 비밀번호는 `RANGER_DB_PASSWORD`**, 즉 `ranger-secret/db-password` 다.
+확인했다.
+
+```
+admin : ranger-secret/db-password  ->  200
+사용자 목록: admin · rangerusersync · rangertagsync · oim-svc · ranger-sync
+```
+
+`oim-svc`·`ranger-sync` 가 API 로도 보인다 — 동기화 확인의 세 번째 증거다.
+
+**로그인 명령**
+
+```bash
+kubectl -n local get secret ranger-secret -o jsonpath='{.data.db-password}' | base64 -d
+# 사용자명은 admin
+```
+
+##### 왜 틀렸는가
+
+`ranger-secret` 에 `admin-password` 라는 키가 있을 것으로 **가정하고** 조회했다.
+없으니 빈 문자열이 되었고 401 이 돌아왔다. 거기서 "자격이 관리되지 않는다" 로
+건너뛰었다. **키가 없다는 것과 자격이 없다는 것은 다른 이야기인데** 확인하지
+않았다. 엔트리포인트를 읽었으면 5분이면 알 일이었다.
+
+##### 그래도 남는 진짜 문제 — 하나의 비밀번호가 다섯 곳에 쓰인다
+
+```
+db_password              (PostgreSQL 접속)
+rangerAdmin_password     (관리자 UI·API)
+rangerTagsync_password
+rangerUsersync_password
+keyadmin_password
+```
+
+전부 같은 값이다. 즉
+
+- **DB 자격이 곧 관리자 자격이다.** PostgreSQL 접속 문자열이 새면 정책 엔진의
+  관리자 권한까지 함께 샌다
+- **회전이 불가능하다.** 하나를 바꾸려면 다섯을 함께 바꿔야 하고, 그중 일부는
+  이미 초기화된 인스턴스라 install.properties 수정만으로는 반영되지 않는다
+- 최소권한 관점에서 `keyadmin`(KMS 키 관리)까지 같은 값인 것이 특히 나쁘다
+
+이것은 이미지 엔트리포인트가 정한 것이라 매니페스트로 고칠 수 없다.
+`ranger-admin-install.properties` 를 우리 것으로 덮어쓰는(ConfigMap 마운트)
+작업이 필요하며, 별도 항목으로 남긴다.
+
+##### `authentication.method=UNIX` 는 별개 사안이다
+
+`ranger-admin-site.xml` 은 `UNIX` 로 되어 있고 unixauth 서비스(5151)는 돌지
+않는다(`ranger-admin -> ranger-usersync:5151` 실패). 그럼에도 내부 DB 인증으로
+로그인이 되므로 실사용에 지장은 없다. 다만 **설정과 실제 동작이 어긋나 있으며**
+LDAP·PAM 으로 옮길 때 이 값이 먼저 정리되어야 한다.
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용
