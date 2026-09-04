@@ -47,6 +47,27 @@ spec:
             - postgres
             - -c
             - max_locks_per_transaction=512
+            # ★ 기본값 100 으로는 부족하다 — 실측으로 고갈됐다(§8-45).
+            #
+            #   소비자가 각자 커넥션 풀을 들고 유휴 연결을 붙든다:
+            #     openreplay 27 · hive 24 · gitlab 24 · dependencytrack 10 · ranger 6
+            #   합이 106/100 이 되어 superuser 예약 슬롯까지 잠식했고, 새로 뜨는
+            #   파드가 이 오류로 CrashLoop 했다:
+            #     FATAL: remaining connection slots are reserved for roles
+            #            with the SUPERUSER attribute (SQLSTATE 53300)
+            #
+            #   106건 중 97건이 idle 이었다. 풀은 유휴 연결을 반납하지 않으므로
+            #   시간이 지나도 저절로 풀리지 않는다 — 실제로 3분을 기다려도
+            #   회복되지 않았고, 유휴 연결 76건을 끊고 나서야 풀렸다.
+            #
+            #   ★ 평상시에는 드러나지 않는다. 파드가 한꺼번에 재기동할 때만
+            #     터진다 — 이번 방아쇠는 ambient 편입/철회였지만 원인은 그것이
+            #     아니다. 노드 재부팅으로도 같은 일이 난다.
+            #
+            #   300 은 현재 소비 합(약 91)의 3배다. 연결마다 메모리를 쓰므로
+            #   무한정 올리지 않는다 — 소비자가 늘면 다시 산정할 것.
+            - -c
+            - max_connections=300
           ports:
             - containerPort: 5432
               name: postgresql

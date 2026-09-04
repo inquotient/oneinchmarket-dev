@@ -4081,6 +4081,84 @@ deployment "ranger-usersync" successfully rolled out     ← 바로 다음 줄
 **교훈: 패치 결과를 롤아웃 상태로 판정하지 말 것.** 바뀌었어야 할 값을 직접
 읽어 확인해야 한다. 이 스크립트도 그렇게 고쳤어야 했다 —
 `kubectl apply` 로 매니페스트를 적용하는 편이 애초에 옳다.
+
+### 8-45. 전체 네임스페이스 ambient 편입 — 실패. 그리고 드러난 PostgreSQL 용량 문제 (2026-09-04)
+
+§8-41 로 프로브·HBONE 차단을 해소했고 §8-42 에서 "공유 서버는 클라이언트와 함께
+편입해야 한다" 를 확인했다. 전체 편입은 그 조건을 만족한다 — 모두가 동시에
+편입되므로. 그래서 시도했다.
+
+#### 판정은 기능으로 했다
+
+§8-42 에서 `Ready 79/79` 인 채로 Kafka 컨슈머가 끊겨 있었다. 그래서 이번에는
+편입 전후로 같은 기능 점검을 돌렸다.
+
+| | 편입 전 | 편입 후 |
+|---|---|---|
+| Kafka 컨슈머 | 접속중 | **끊김** |
+| LDAP | OK | OK |
+| Ranger API | 200 | **무응답** |
+| Elasticsearch | yellow | yellow |
+| PostgreSQL | ok | ok |
+| 파드 Ready | 79/79 | **63/79** |
+
+OpenReplay 10여 개가 CrashLoopBackOff, `cmmn-api`·`filebeat`·`gitlab` 이 NotReady.
+**실패다.** 되돌렸다.
+
+#### 되돌리기 — 이번에는 회복이 깔끔했다
+
+```
++60초   66/79
++120초  67/79
++180초  79/79
+```
+
+§8-39 때(43/79까지 하락)보다 나았다. §8-41 의 정책 두 개가 있어 프로브가 막히지
+않은 덕으로 보인다.
+
+#### 그런데 두 파드가 남았다 — 원인은 ambient 가 아니었다
+
+```
+ender-openreplay / http-openreplay : CrashLoopBackOff
+  pgConn.Ping() error: FATAL: remaining connection slots are reserved
+    for roles with the SUPERUSER attribute (SQLSTATE 53300)
+```
+
+PostgreSQL 연결이 고갈되어 있었다.
+
+```
+106 / 100        ← superuser 예약 슬롯까지 잠식
+idle 97건
+openreplay 27 · hive 24 · gitlab 24 · dependencytrack 10 · ranger 6
+가장 오래된 유휴 연결 31분
+```
+
+**`max_connections` 가 기본값 100 이었다.** 어디에도 설정한 적이 없다. 소비자
+다섯이 각자 커넥션 풀을 들고 유휴 연결을 반납하지 않으므로 합이 한도를 넘는다.
+
+3분을 기다려도 회복되지 않았다 — 풀은 유휴 연결을 스스로 놓지 않는다. 10분 이상
+유휴인 연결 76건을 끊자 42/100 으로 떨어졌고 파드가 곧바로 살아났다(79/79).
+
+##### 이것은 ambient 와 무관한 기존 결함이다
+
+방아쇠가 대량 재기동이었을 뿐이다. **노드 재부팅으로도 같은 일이 난다.**
+평상시에는 드러나지 않아 오늘까지 남아 있었다.
+
+`postgresql-statefulset.yaml` 에 `max_connections=300` 을 넣었다(현재 소비 합
+약 91 의 3배). **지금 적용하지는 않았다** — PostgreSQL 재시작은 방금 회복한
+클러스터를 다시 흔든다. 다음 재기동에 반영된다.
+
+#### 전체 편입에 대한 결론
+
+세 번 시도했고 세 번 다 실패했다(§8-39 · §8-42 · 이번). 매번 다른 이유였고
+매번 하나씩 해소했다 — 프로브 차단, HBONE 차단, 그리고 이번의 미상.
+
+**남은 실패 원인은 규명하지 못했다.** OpenReplay 가 반복해서 무너지는 것으로
+보아 그 워크로드군에 ztunnel 과 맞지 않는 통신 양상이 있다. 다음에 판다면
+OpenReplay 파드 하나만 편입해 ztunnel 로그를 보는 것부터 시작해야 한다.
+
+**현재 편입 상태로 유지하는 것은 LDAP 경로(`ds389` · `ranger-usersync`)뿐이고,
+그 경로는 mTLS 로 흐른다(§8-41).** 전면 적용은 미해결로 남는다.
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용
