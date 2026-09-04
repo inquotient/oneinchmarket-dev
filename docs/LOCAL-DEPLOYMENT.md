@@ -3059,6 +3059,116 @@ Logstash 에 들어오지 않고 있다는 뜻이다. 별도로 다뤄야 한다
   ES 로 보내며, 이 차이는 이 항목의 범위 밖이다
 - **Zeek 없음.** 패키지가 없어 별도 경로가 필요하다
 - **룰셋 미설치.** 검증용 룰 1개뿐이다(디스크 여유 530 MB)
+
+### 8-35. Kafka 입력이 죽어 있었다 — 결함 세 개가 겹쳐 있었다 (2026-09-04)
+
+§8-34 작업 중 Logstash 로그에서 발견한 것이다.
+
+```
+Bootstrap broker kafka-headless:9092 (id: -1) disconnected
+Disconnecting from node -1 due to socket connection setup timeout
+```
+
+브로커 장애처럼 보이지만 **Kafka 는 멀쩡했다.** KRaft 스냅샷을 정상 기록 중이고
+DNS 도 올바른 파드 IP(`kafka-headless/10.0.0.214:9092`)로 풀렸다.
+
+#### ① NetworkPolicy 에 Logstash 가 없었다
+
+`allow-kafka-access` 의 허용 대상은 `component: application`·`akhq`·
+`kafka-bridge`·`openreplay` 넷이었다. **Logstash 가 목록에 없다.**
+
+대조군으로 갈렸다.
+
+| 출발지 | kafka-headless:9092 |
+|---|---|
+| logstash-0 | **timeout (exit 124)** |
+| akhq-0 | **OPEN** |
+
+이 레포에서 NetworkPolicy 누락은 거부가 아니라 **타임아웃**으로 나타난다.
+그래서 로그만 보면 브로커·네트워크 문제로 읽힌다. 셀렉터를 추가하니
+컨슈머 그룹 `logstash-siem` 이 두 토픽에 파티션을 할당받았다.
+
+#### ② 토픽 조건식의 필드 경로가 틀렸다 — 연결돼도 잘못 쌓인다
+
+연결을 고친 뒤 시험 메시지를 넣었더니 **소비는 되는데 엉뚱한 곳으로 갔다.**
+
+```
+인덱스        logstash        ← falco-alerts 가 아니다
+event.kind    없음
+@timestamp    수신 시각       ← Falco 의 time 이 아니다
+```
+
+필터가 `[kafka][topic]` 을 보는데, 입력이 `decorate_events => "basic"` 이면
+토픽·파티션·오프셋은 **`[@metadata][kafka][topic]`** 에 들어간다. 경로가
+틀리면 조건이 항상 거짓이 되어 falco·keycloak 이벤트가 else 분기로 떨어진다.
+
+**오류는 없다.** 인덱스만 다르고 정규화만 빠진 채 조용히 쌓인다. 즉
+①만 고쳤다면 "연결됐다" 를 확인하고 끝냈을 것이고, 데이터는 계속
+잘못된 자리에 들어갔을 것이다.
+
+고친 뒤 재확인:
+
+```json
+{"_index":"falco-alerts","event.kind":"alert","event.module":"falco",
+ "rule":"L0LAB Kafka Route Probe2","priority":"Critical",
+ "@timestamp":"2026-09-04T05:00:00.000Z"}
+```
+
+#### ③ falcosidekick 이 출력을 하나도 켜지 않고 있었다
+
+토픽 오프셋이 0 이라 생산자를 확인하다 나왔다.
+
+```
+[INFO] : Enabled Outputs: []
+```
+
+원인은 설정 파일 경로다. 이미지 엔트리포인트는 `/app` 에서 `./falcosidekick`
+이고 인자가 없으면 **작업 디렉터리의 `./config.yaml`** 을 찾는데, ConfigMap 은
+`/etc/falcosidekick/config.yaml` 에 마운트되어 있었다. **설정이 한 번도 읽히지
+않았다** — Elasticsearch 출력도 Kafka 출력도 파일 안에 멀쩡히 있었는데.
+
+증상이 거의 없다는 점이 이 결함의 성질이다. 파드는 Running·Ready 이고
+`/ping` 도 응답한다. 단서는 기동 로그 한 줄뿐이다.
+
+`args: ["-c", "/etc/falcosidekick/config.yaml"]` 를 주니:
+
+```
+[INFO] : Enabled Outputs: [Elasticsearch Kafka]
+```
+
+Kafka 로 나가려면 `allow-kafka-access` 에 falcosidekick 셀렉터도 필요하다.
+함께 추가했다.
+
+> 중간에 한 번 틀렸다. `kafka` 절이 없는 줄 알고 추가했는데 파일 아래쪽에
+> 이미 있었고, 중복으로 `yaml: unmarshal errors: mapping key "kafka" already
+> defined` 가 났다. **역설적으로 그 오류가 설정이 이제 읽힌다는 증거였다.**
+> 중복을 지우고 기존 절에 주석만 남겼다.
+
+#### 로컬에서 falco-alerts 가 비는 것은 결함이 아니다
+
+세 결함을 다 고쳐도 로컬에서는 이 토픽에 데이터가 흐르지 않는다.
+**Falco 가 의도적으로 스케줄되지 않기 때문이다.**
+
+```
+falco DaemonSet: desired 0
+nodeSelector: oneinchmarket.local/falco-supported=true   (어떤 노드에도 없다)
+```
+
+`overlays/local/patches/falco-local.yaml` 에 사유가 있다 — WSL2 커널에서
+modern_ebpf 프로브가 `scap_init` 에 실패한다. ADR-025 가 Tetragon 전환을
+제안하고 있고 Tetragon 은 실제로 돌고 있다.
+
+따라서 이 항목의 검증은 **Kafka 에 직접 넣은 메시지**로 했다. 파이프라인
+자체(연결·라우팅·정규화)는 증명되었고, dev/prod 처럼 Falco 가 도는 환경에서는
+그대로 동작한다.
+
+#### 남은 것
+
+- **`keycloak-events` 에도 생산자가 없다.** Keycloak 에 Kafka 이벤트 리스너
+  설정이 매니페스트에 없다. Logstash 는 구독만 하고 있다
+- **`trivy-reports` 토픽은 소비자가 없다.** Logstash 가 구독하지 않는다
+- **falcosidekick 의 Kafka 임계값이 ES 와 다르다** — Kafka 는 error 이상,
+  ES 는 warning 이상. 의도된 것인지 확인되지 않았다
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용

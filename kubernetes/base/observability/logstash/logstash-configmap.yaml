@@ -126,7 +126,15 @@ data:
       }
 
       # Falco 알림 처리
-      else if [@metadata][pipeline] == "kafka" and [kafka][topic] == "falco-alerts" {
+      #
+      # ★ 토픽 이름은 [kafka][topic] 이 아니라 **[@metadata][kafka][topic]** 이다.
+      #   입력이 `decorate_events => "basic"` 이면 플러그인이 토픽·파티션·오프셋을
+      #   @metadata 아래에 넣는다. 경로가 틀리면 조건이 **항상 거짓**이 되어
+      #   falco·keycloak 이벤트가 아래 else 분기로 떨어진다 — `logstash` 인덱스에
+      #   정규화 없이, @timestamp 도 관측 시각이 아니라 수신 시각으로 들어간다.
+      #   실측(2026-09-04): 시험 메시지가 falco-alerts 가 아닌 logstash 인덱스에
+      #   event.kind 없이 저장되었다. **오류는 없다 — 조용히 잘못 쌓인다.**
+      else if [@metadata][pipeline] == "kafka" and [@metadata][kafka][topic] == "falco-alerts" {
         mutate {
           add_field => { "[@metadata][target_index]" => "falco-alerts" }
           add_field => { "event.kind" => "alert" }
@@ -139,7 +147,7 @@ data:
       }
 
       # Keycloak 이벤트 처리
-      else if [@metadata][pipeline] == "kafka" and [kafka][topic] == "keycloak-events" {
+      else if [@metadata][pipeline] == "kafka" and [@metadata][kafka][topic] == "keycloak-events" {
         mutate {
           add_field => { "[@metadata][target_index]" => "keycloak-events" }
           add_field => { "event.kind" => "event" }

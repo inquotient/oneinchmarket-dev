@@ -38,6 +38,16 @@ data:
         *Pod*: {{ index .OutputFields "k8s.pod.name" }}
         *Container*: {{ index .OutputFields "container.name" }}
 
+    # ★ Logstash 의 SIEM 파이프라인이 이 토픽을 구독한다.
+    #
+    #   이 절은 처음부터 있었지만 **동작한 적이 없다.** Deployment 가
+    #   `-c /etc/falcosidekick/config.yaml` 을 주지 않아 이 파일 자체가
+    #   읽히지 않았기 때문이다(§8-35). 그래서 falco-alerts 토픽의 오프셋이
+    #   0 이었고 Logstash 는 구독만 한 채 아무것도 받지 못했다.
+    #
+    #   ★ 임계값이 ES 출력과 다르다 — 여기는 error 이상, ES 는 warning 이상.
+    #     의도된 것인지 확인되지 않았다. 상관분석 대상을 넓히려면 warning 으로
+    #     맞춰야 하고, Kafka 를 고심각도 전용 경로로 둘 것이면 그대로 둔다.
     kafka:
       hostport: "kafka-headless:9092"
       topic: "falco-alerts"

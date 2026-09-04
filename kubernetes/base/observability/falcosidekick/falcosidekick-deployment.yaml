@@ -31,6 +31,21 @@ spec:
       containers:
         - name: falcosidekick
           image: falcosecurity/falcosidekick:latest
+          # ★ 설정 경로를 명시해야 한다.
+          #
+          #   이미지 엔트리포인트는 /app 에서 `./falcosidekick` 이고, 인자가
+          #   없으면 **작업 디렉터리의 ./config.yaml** 을 찾는다. 아래
+          #   volumeMounts 는 /etc/falcosidekick/config.yaml 에 붙이므로
+          #   그대로 두면 설정이 **한 번도 읽히지 않는다.**
+          #
+          #   증상이 거의 없다. 파드는 Running·Ready 이고 /ping 도 응답한다.
+          #   유일한 단서는 기동 로그 한 줄이다:
+          #       [INFO] : Enabled Outputs: []
+          #   즉 Falco 가 보낸 런타임 알림을 받아서 **전부 버리고 있었다.**
+          #   (실측 2026-09-04: falco-alerts 인덱스 0건)
+          args:
+            - "-c"
+            - "/etc/falcosidekick/config.yaml"
           ports:
             - containerPort: 2801
               name: http
