@@ -88,8 +88,29 @@ spec:
   policyTypes:
     - Ingress
   ingress:
+    # ★ 네임스페이스를 넘는 것을 허용한다. 같은 네임스페이스로 좁히면
+    #   **메시를 넘나드는 모든 통신이 끊긴다.**
+    #
+    #   ambient 에 편입되면 워크로드 간 통신은 평문 목적지 포트가 아니라
+    #   ztunnel 사이의 HBONE 터널(15008)로 흐른다. 즉 15008 이 막히면
+    #   목적지 포트를 아무리 열어 두어도 **타임아웃**이다(거부가 아니라서
+    #   NetworkPolicy 를 의심하기 어렵다).
+    #
+    #   실측 피해(§8-52): elastic-system 을 편입한 뒤 ECK 오퍼레이터가
+    #   Elasticsearch 를 관리하지 못했다. allow-elasticsearch-access 에
+    #   elastic-system namespaceSelector 가 이미 있었는데도 그랬다 —
+    #   9200 은 열려 있었지만 실제 트래픽은 15008 이었기 때문이다.
+    #   증상은 `context deadline exceeded` 였고 ztunnel 거부 로그는 0 건이다.
+    #   같은 이유로 argo-events -> Kafka 도 막혀 있었을 것이다
+    #   (AuthorizationPolicy 는 허용하고 있다).
+    #
+    #   ★ 15008 을 넓게 여는 것이 안전한 이유 — 이 포트는 메시의 전송
+    #     계층이고 **실제 인가는 ztunnel 이 Istio AuthorizationPolicy 로
+    #     한다.** mTLS 로 상대 신원을 확인한 뒤 정책을 적용하므로,
+    #     여기서 좁히는 것은 보안을 더하지 않고 메시만 망가뜨린다.
     - from:
         - podSelector: {}
+        - namespaceSelector: {}
       ports:
         - protocol: TCP
           port: 15008

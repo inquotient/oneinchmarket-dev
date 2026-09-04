@@ -161,6 +161,9 @@ spec:
               - "*/sa/filebeat"
               - "*/sa/falcosidekick"
               - "*/sa/trivy-scanner"
+              # ★ ILM/템플릿 부트스트랩 Job. 평소에 돌지 않아 §8-47 에서 놓쳤다 —
+              #   편입 후 처음 재실행할 때 비로소 9200 이 막힌다(§8-52).
+              - "*/sa/elasticsearch-ilm-setup"
               # ★ ECK 오퍼레이터. elastic-system 네임스페이스에 있고 ES 의
               #   부트스트랩·헬스·라이선스를 9200 으로 관리한다. 이것이 막히면
               #   Elasticsearch CR 이 관리 불능이 된다.

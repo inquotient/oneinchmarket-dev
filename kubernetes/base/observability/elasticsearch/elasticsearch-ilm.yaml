@@ -22,6 +22,7 @@ spec:
         app.kubernetes.io/part-of: oneinchmarket
     spec:
       restartPolicy: OnFailure
+      serviceAccountName: elasticsearch-ilm-setup
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -127,13 +128,39 @@ spec:
                   \"template\": {
                     \"settings\": {
                       \"number_of_shards\": 1,
-                      \"number_of_replicas\": 1,
+                      \"number_of_replicas\": ${ES_REPLICAS},
                       \"index.lifecycle.name\": \"oneinchmarket-ilm\",
                       \"index.lifecycle.rollover_alias\": \"${IDX}\"
                     }
                   }
                 }"
                 echo " -> ${IDX} template created"
+              done
+
+
+              # ★ L0 랩(ADR-031)의 인덱스 — suricata·suricata-engine·zeek.
+              #   Logstash 가 즉석에서 만들기 때문에 템플릿이 없었고, 그러면
+              #   ES 기본값인 복제본 1 이 붙는다. 단일 노드에서는 배정될 곳이
+              #   없어 클러스터가 yellow 로 남고, **ECK 가 파드를 롤링하지
+              #   못한다**(§8-52).
+              #
+              #   ★ `index_patterns: ["*"]` 로 한 번에 덮으려 했으나 ES 가
+              #     거부한다 — 같은 우선순위의 기존 템플릿과 패턴이 겹치면
+              #     illegal_argument_exception 이다. 실제로 쓰는 이름만
+              #     명시하는 편이 정확하고 부작용도 없다.
+              for IDX in suricata zeek; do
+                curl ${OPTS} -X PUT "${ES_URL}/_index_template/${IDX}-l0-template" \
+                  -u "${AUTH}" -H "Content-Type: application/json" -d "{
+                  \"index_patterns\": [\"${IDX}*\"],
+                  \"priority\": 100,
+                  \"template\": {
+                    \"settings\": {
+                      \"number_of_shards\": 1,
+                      \"number_of_replicas\": ${ES_REPLICAS}
+                    }
+                  }
+                }"
+                echo " -> ${IDX} L0 template created"
               done
 
               echo "[3/3] Creating initial write aliases..."
@@ -148,6 +175,13 @@ spec:
 
               echo "=== ILM setup completed ==="
           env:
+            # ★ 단일 노드에서는 0 이어야 한다.
+            #   복제본 1 이면 배정될 노드가 없어 인덱스가 영구히 yellow 가 되고,
+            #   **ECK 는 green 이 아니면 파드를 롤링하지 않는다**(§8-52).
+            #   증상은 "설정을 바꿨는데 파드가 안 바뀐다" 로 나타난다.
+            #   local 오버레이가 "0" 으로 덮는다. dev/prod 는 3노드라 1 이 맞다.
+            - name: ES_REPLICAS
+              value: "1"
             - name: ES_PASSWORD
               valueFrom:
                 secretKeyRef:

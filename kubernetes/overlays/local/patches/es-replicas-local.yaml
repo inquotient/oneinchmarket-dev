@@ -1,0 +1,23 @@
+# ★ 단일 노드 ES — 인덱스 복제본을 0 으로.
+#
+#   base 는 3노드를 전제해 1 이다. local 은 노드가 하나라 복제본이 배정될
+#   곳이 없어 **모든 인덱스가 영구히 yellow** 가 된다. 그 자체로도 문제지만
+#   진짜 피해는 따로 있다:
+#
+#     ECK 는 클러스터가 green 이 아니면 파드를 롤링하지 않는다.
+#     즉 Elasticsearch CR 을 아무리 고쳐도 반영되지 않는다.
+#     실측(§8-52): podTemplate 에 serviceAccountName 을 넣었는데 파드는
+#     3일 전 것 그대로였고, ECK 는 ApplyingChanges 에서 멈춰 있었다.
+#     오류는 나지 않는다 — 조용히 적용되지 않을 뿐이다.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: elasticsearch-ilm-setup
+spec:
+  template:
+    spec:
+      containers:
+        - name: ilm-setup
+          env:
+            - name: ES_REPLICAS
+              value: "0"

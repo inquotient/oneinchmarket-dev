@@ -4692,6 +4692,110 @@ L0-Target 2 GB -> 4 GB(동적 최대). Zeek + 전송기.
 2안은 포트포워딩을 넣고도 방화벽에서 막혔다. §8-50 의 port-forward 와 같은
 부류이고, 이 랩에서만 세 번째다. **경로는 끝단에서 확인해야 한다.**
 
+
+### 8-52. §8-47 이 ECK 관리를 끊어 놓았다 — 네임스페이스를 넘는 HBONE
+
+`default` SA 로 도는 워크로드를 정리하다 `elasticsearch-es-default-0` 이
+아직 `default` 인 것을 발견했다. §8-47 에서 CR 에 `serviceAccountName` 을
+넣었는데 **파드는 3일 전 것 그대로**였다. 오류는 없었다.
+
+#### 사슬
+
+1. **ECK 가 파드를 롤링하지 않았다.** `phase=ApplyingChanges` 로 멈춰 있었다.
+2. 이유는 클러스터가 **yellow** 였기 때문이다. ECK 는 green 이 아니면
+   롤링하지 않는다.
+3. yellow 인 이유는 **단일 노드인데 인덱스가 복제본 1** 을 요구해서다.
+   배정될 노드가 없으니 영원히 풀리지 않는다(unassigned 12개).
+4. 복제본을 0 으로 내려 green 을 만들었는데도 롤링하지 않았다.
+   CR 조건을 보니 **`ElasticsearchIsReachable=False`** 였다:
+   ```
+   elasticsearch client failed for
+     https://elasticsearch-es-default-0.elasticsearch-es-default.local:9200/...
+     context deadline exceeded
+   ```
+5. **타임아웃이다 — 거부가 아니다.** ztunnel 정책 거부 로그는 0 건이었다.
+   즉 Istio 가 아니라 Kubernetes NetworkPolicy 다.
+6. `allow-elasticsearch-access` 에는 `elastic-system` namespaceSelector 가
+   **이미 있었다.** 9200 은 열려 있었다.
+7. 진짜 원인은 `allow-istio-hbone` 이었다:
+   ```yaml
+   ingress:
+     - from:
+         - podSelector: {}     # ← 같은 네임스페이스만
+       ports: [{ port: 15008 }]
+   ```
+   **ambient 에 편입되면 통신은 목적지 포트가 아니라 ztunnel 사이의 HBONE
+   터널(15008)로 흐른다.** 9200 을 아무리 열어도 15008 이 막히면 못 간다.
+
+#### 내가 만든 결함이다
+
+§8-47 에서 "ECK 오퍼레이터는 메시 밖이라 신원이 없다"는 것을 발견하고
+`elastic-system` 을 ambient 에 편입했다. 그 순간 오퍼레이터의 통신이
+평문 9200 에서 HBONE 15008 로 바뀌었고, 그 포트는 네임스페이스를 넘지
+못하게 되어 있었다. **문제를 고치면서 다른 것을 끊었고, 양쪽 다 조용했다.**
+
+같은 이유로 `argo-events -> Kafka` 도 막혀 있었을 것이다 —
+AuthorizationPolicy 는 허용하고 있으므로 정책만 보면 알 수 없다.
+
+수정: `allow-istio-hbone` 에 `namespaceSelector: {}` 를 더했다.
+15008 을 넓게 여는 것이 안전한 이유는 **그 포트가 메시의 전송 계층이고
+실제 인가는 ztunnel 이 AuthorizationPolicy 로 하기** 때문이다. mTLS 로
+신원을 확인한 뒤 정책을 적용하므로 여기서 좁히는 것은 보안을 더하지 않고
+메시만 망가뜨린다.
+
+고치자 즉시 `ElasticsearchIsReachable=True` 가 되고 ECK 가 파드를 롤링해
+**SA 가 `elasticsearch` 로 바뀌었다** — §8-47 이 그제서야 완결됐다.
+
+#### 복제본은 매니페스트로 고정했다
+
+`elasticsearch-ilm.yaml` 이 `number_of_replicas: 1` 을 박아 두고 있었다.
+`ES_REPLICAS` 환경변수로 빼고 local 오버레이가 `"0"` 으로 덮는다
+(`patches/es-replicas-local.yaml`). dev/prod 는 3노드라 1 이 맞다.
+
+★ `index_patterns: ["*"]` 인 최저 우선순위 catch-all 로 한 번에 덮으려
+했으나 **ES 가 거부한다** — 같은 우선순위의 기존 템플릿과 패턴이 겹치면
+`illegal_argument_exception` 이다. 실제로 쓰는 이름만 명시했다
+(`suricata*`·`zeek*`. L0 랩 인덱스는 Logstash 가 즉석에서 만들어 템플릿이
+없었고, 그래서 ES 기본값인 복제본 1 이 붙고 있었다).
+
+#### 부트스트랩 Job 두 개도 `default` 였다
+
+| Job | 어디로 | 조치 |
+|---|---|---|
+| `elasticsearch-ilm-setup` | ES 9200 | 전용 SA + AuthorizationPolicy 에 추가 |
+| `databases-migrate`(OpenReplay) | PostgreSQL·ClickHouse | `db-migrate-openreplay` SA |
+
+★ **Job 은 평소에 돌지 않아 편입 시점에 드러나지 않는다.** ILM Job 은
+재실행하고 나서야 9200 이 막힌 것이 보였다. `databases-migrate` 는 아직
+Complete 상태라 지금은 멀쩡하고, **클러스터를 다시 세울 때 터진다.**
+이름을 `-openreplay` 로 끝내 기존 접미 규칙 `*-openreplay` 에 그대로
+매칭되게 했다.
+
+★ ILM Job 의 스크립트는 `set -eu` 에 `curl -sf` 다. HTTP 오류 하나면
+스크립트 전체가 죽고, 파드는 backoff 한도를 넘기면 **삭제되어 로그가
+남지 않는다.** 원인을 보려면 같은 SA·이미지로 프로브 파드를 띄워야 했다.
+
+#### 결과
+
+```
+ES health=green · unassigned 0
+ECK phase=Ready · ElasticsearchIsReachable=True
+elasticsearch-es-default-0 SA = elasticsearch     (default 였다)
+템플릿 복제본  logstash 0 · suricata 0 · zeek 0
+L0 파이프라인  suricata·zeek 모두 최신 문서 갱신 중
+Ready 79/79 · ztunnel 정책 거부 2건(재시작 경합, 같은 파드의 정상 연결 160건)
+```
+
+#### 교훈
+
+★ **편입은 통신 경로를 바꾼다.** 목적지 포트를 열어 두었다고 안심할 수
+없다 — ambient 에서는 실제 트래픽이 15008 로 간다. 그리고 그 차단은
+**거부가 아니라 타임아웃**으로 나타나므로 정책을 의심하기 어렵다.
+
+★ **"고쳤다"의 범위를 좁게 잡을 것.** §8-47 은 Istio 쪽만 보고 끝냈고
+Cilium 쪽 전제를 함께 옮기지 않았다. 두 계층이 같은 통신을 각자 통제하는
+구조에서는 한쪽만 고치면 반드시 이런 일이 난다 — 이 문서에서 세 번째다.
+
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용

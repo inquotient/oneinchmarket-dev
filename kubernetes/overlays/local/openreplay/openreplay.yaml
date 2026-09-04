@@ -83,6 +83,21 @@ metadata:
     app.kubernetes.io/part-of: oneinchmarket
     app.kubernetes.io/component: observability
 ---
+# ★ 마이그레이션 Job 전용 SA. 이름이 `-openreplay` 로 끝나므로
+#   AuthorizationPolicy 의 접미 규칙 `*-openreplay` 에 그대로 매칭된다.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: db-migrate-openreplay
+  namespace: local
+  labels:
+    app.kubernetes.io/name: db-migrate
+    app.kubernetes.io/instance: openreplay
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: observability
+automountServiceAccountToken: false
+---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -3944,6 +3959,15 @@ spec:
         app.kubernetes.io/component: observability
         app.kubernetes.io/instance: openreplay
     spec:
+      # ★ 전용 SA. 이 Job 은 `default` 로 돌았다 — ambient 에서는 그것이 곧
+      #   신원이라 PostgreSQL·ClickHouse 의 AuthorizationPolicy 에 걸린다.
+      #   이름을 `-openreplay` 로 끝내면 이미 있는 접미 규칙
+      #   (`*-openreplay`)에 그대로 매칭된다. 규칙을 새로 추가할 필요가 없고
+      #   OpenReplay 의 일부라는 사실도 이름에 드러난다(§8-52).
+      #
+      #   ★ Job 은 이미 Complete 라 지금은 문제가 없다. 재실행하는 순간
+      #     막힌다 — 클러스터를 다시 세울 때가 그때다.
+      serviceAccountName: db-migrate-openreplay
       # ★ 이 Job 은 securityContext 가 통째로 비어 있었다. 이미지 기본 USER 가
       #   root 라 파드가 root 로 떴고, ADR-069 의 "root 18건" 중 실제로
       #   root 였던 것은 이것 하나다(나머지 17개는 uid 1001·65532 로 이미

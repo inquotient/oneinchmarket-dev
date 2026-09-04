@@ -206,6 +206,9 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 
 12. **성공 출력이 성공을 뜻하지 않는 경로가 반복해서 나온다.** `configctl ids update` 는 `OK` 를 출력하고 룰을 하나도 받지 않았다(config.xml 을 직접 고쳐 `configctl template reload OPNsense/IDS` 를 거치지 않으면 `rule-updater.config` 가 비어 있다). Suricata 알림이 Elasticsearch 로 가는 경로는 **파드를 재생성하면 `kubectl port-forward` 가 죽어** 14시간 조용히 끊겨 있었고, 방화벽 쪽에는 아무 오류도 나지 않았다. **파이프라인은 건수가 아니라 최신 문서 시각으로 확인할 것** — §8-50
 
+13. **ambient 편입은 통신 경로를 15008(HBONE)로 바꾼다.** 목적지 포트를 NetworkPolicy 로 열어 두어도 15008 이 막히면 못 간다. 차단은 **거부가 아니라 타임아웃**이라 정책을 의심하기 어렵다. `allow-istio-hbone` 을 같은 네임스페이스로 좁히면 **네임스페이스를 넘는 메시 통신이 전부 끊긴다** — 실측으로 ECK 오퍼레이터가 Elasticsearch 를 관리하지 못했고(9200 은 열려 있었다), argo-events→Kafka 도 같은 상태였다. 15008 은 넓게 열 것: 그 포트는 메시의 전송 계층이고 **실제 인가는 ztunnel 이 AuthorizationPolicy 로 한다** — §8-52
+14. **단일 노드 ES 에서 복제본 1 은 배포를 멈춘다.** 배정될 노드가 없어 클러스터가 영구히 yellow 이고, **ECK 는 green 이 아니면 파드를 롤링하지 않는다.** 증상은 "매니페스트를 고쳤는데 파드가 안 바뀐다" 이고 오류는 나지 않는다. local 오버레이가 `ES_REPLICAS=0` 으로 덮는다. `index_patterns: ["*"]` 인 catch-all 템플릿은 ES 가 거부하므로(패턴 충돌) 쓰는 이름을 명시할 것 — §8-52
+
 ### 매니페스트 작업 시
 
 - `v1/` 매니페스트는 **배포 금지**. 단 CI가 이 경로의 Dockerfile을 참조한다는 모순이 있다

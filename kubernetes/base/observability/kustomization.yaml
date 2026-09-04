@@ -5,6 +5,7 @@ resources:
   # Elasticsearch (ECK Operator)
   - elasticsearch/elasticsearch-sa.yaml
   - elasticsearch/elasticsearch.yaml
+  - elasticsearch/elasticsearch-ilm-sa.yaml
   - elasticsearch/elasticsearch-ilm.yaml
   # Kibana (ECK Operator)
   - kibana/kibana-sa.yaml
