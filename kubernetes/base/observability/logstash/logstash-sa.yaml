@@ -1,0 +1,23 @@
+# ★ logstash 전용 ServiceAccount.
+#
+#   지금까지 logstash 는 `default` SA 로 돌았다. ambient 에서 **워크로드 신원은
+#   ServiceAccount** 이므로, default 를 쓰면 elasticsearch·kibana·falcosidekick
+#   과 신원이 구분되지 않는다.
+#
+#   그 결과 AuthorizationPolicy 의 `cluster.local/ns/*/sa/logstash` 가 한 번도
+#   매칭되지 않았고, ambient 편입 시 Kafka 접근이 401 로 거부됐다(§8-42·§8-46):
+#     src.identity="spiffe://cluster.local/ns/local/sa/default"
+#     error="http status: 401 Unauthorized"
+#
+#   automountServiceAccountToken 은 끈다 — logstash 는 k8s API 를 쓰지 않는다.
+#   토큰이 필요해서 만드는 SA 가 아니라 **신원을 갖기 위해** 만드는 SA 다.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: logstash
+  labels:
+    app.kubernetes.io/name: logstash
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+automountServiceAccountToken: false

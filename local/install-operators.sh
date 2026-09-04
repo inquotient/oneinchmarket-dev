@@ -130,6 +130,14 @@ log "오퍼레이터 Ready 대기"
 kubectl -n istio-system    rollout status deploy/istiod                 --timeout=300s || true
 kubectl -n istio-system    rollout status ds/ztunnel                    --timeout=300s || true
 kubectl -n elastic-system  rollout status statefulset/elastic-operator  --timeout=300s || true
+
+# ★ ECK 오퍼레이터도 ambient 에 편입한다.
+#   elastic-operator 는 Elasticsearch 의 부트스트랩·헬스·라이선스를 9200 으로
+#   관리한다. 메시 밖에 두면 ztunnel 에 **신원 없이** 도착하고,
+#   allow-observability-access 의 principal 규칙은 어느 것도 매칭되지 않아
+#   ES 가 관리 불능이 된다. 이 네임스페이스는 오버레이가 만들지 않으므로
+#   여기서 라벨을 건다(§8-47).
+kubectl label ns elastic-system istio.io/dataplane-mode=ambient --overwrite
 kubectl -n kyverno         rollout status deploy/kyverno-admission-controller --timeout=300s || true
 kubectl -n cert-manager    rollout status deploy/cert-manager-webhook   --timeout=300s || true
 kubectl -n tetragon        rollout status ds/tetragon                    --timeout=300s || true

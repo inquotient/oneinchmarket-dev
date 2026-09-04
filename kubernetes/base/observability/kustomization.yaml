@@ -3,13 +3,16 @@ kind: Kustomization
 
 resources:
   # Elasticsearch (ECK Operator)
+  - elasticsearch/elasticsearch-sa.yaml
   - elasticsearch/elasticsearch.yaml
   - elasticsearch/elasticsearch-ilm.yaml
   # Kibana (ECK Operator)
+  - kibana/kibana-sa.yaml
   - kibana/kibana.yaml
   # Logstash
   - logstash/logstash-statefulset.yaml
   - logstash/logstash-headless.yaml
+  - logstash/logstash-sa.yaml
   - logstash/logstash-configmap.yaml
   # Prometheus - 메트릭 (INFRA-601)
   - prometheus/prometheus-rbac.yaml
@@ -44,6 +47,7 @@ resources:
   - falco/falco-configmap.yaml
   - falco/falco-rbac.yaml
   # Falcosidekick - Alert Routing
+  - falcosidekick/falcosidekick-sa.yaml
   - falcosidekick/falcosidekick-deployment.yaml
   - falcosidekick/falcosidekick-service.yaml
   - falcosidekick/falcosidekick-configmap.yaml

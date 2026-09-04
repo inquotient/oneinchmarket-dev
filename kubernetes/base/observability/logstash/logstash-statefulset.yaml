@@ -22,6 +22,11 @@ spec:
         app.kubernetes.io/component: observability
         app.kubernetes.io/part-of: oneinchmarket
     spec:
+      # ★ 전용 SA. 없으면 `default` 로 도는데, ambient 에서는 그것이 곧 신원이라
+      #   elasticsearch·kibana·falcosidekick 과 구분되지 않는다.
+      #   AuthorizationPolicy 의 sa/logstash 가 매칭되지 않아 Kafka 접근이
+      #   401 로 거부됐다(§8-42·§8-46).
+      serviceAccountName: logstash
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000

@@ -4257,6 +4257,79 @@ src.identity="spiffe://cluster.local/ns/local/sa/default"
 원인 추적 중 별개 결함을 찾아 고쳤다(§8-45). `max_connections` 가 기본값 100
 이었고 실제로 고갈되어 있었다. 300 으로 올려 적용했다(`67/300` 확인).
 ambient 와 무관하며 노드 재부팅으로도 터졌을 문제다.
+
+### 8-47. 네임스페이스 전면 ambient 편입 — 성공. 원인은 principal 의 중간 `*` 였다
+
+§8-46 이 "AuthorizationPolicy 를 실제 통신에 맞춰야 한다"로 끝났다. 그 작업을
+하다 **정책이 처음부터 단 한 줄도 매칭된 적이 없었다**는 것을 발견했다.
+
+#### 결정적 증거
+
+`sa/cmmn-api` 는 Kafka 정책에 분명히 있는 이름인데도 거부됐다:
+
+```
+src.identity="spiffe://cluster.local/ns/local/sa/cmmn-api"
+dst.hbone_addr=10.0.0.238:9092  dst.workload="kafka-0"
+error="connection closed due to policy rejection: allow policies exist, but none allowed"
+```
+
+정책에 있는 신원이 정책에 의해 거부된다 — 이름이 아니라 **매칭 규칙**이 문제였다.
+
+#### 원인
+
+Istio 의 문자열 필드는 **완전 일치 · 접두(`abc*`) · 접미(`*abc`) · 존재(`*`)**
+네 가지만 지원한다. **중간 `*` 는 와일드카드가 아니라 리터럴이다.**
+
+이 파일은 26곳 전부가 `cluster.local/ns/*/sa/<name>` 이었다. 네임스페이스 자리의
+`*` 가 리터럴이므로 실제 신원 `cluster.local/ns/local/sa/cmmn-api` 와 결코 같지
+않다. 즉 **allow-database-access · allow-messaging-access ·
+allow-observability-access · allow-datalakehouse-access 네 정책이 생성된 이래로
+한 번도 아무것도 허용한 적이 없다.**
+
+드러나지 않았던 이유는 하나다 — 네임스페이스가 ambient 에 편입되어 있지 않아
+ztunnel 이 정책을 강제할 기회가 없었다. **편입하는 순간 네 정책이 동시에
+"전면 거부"로 바뀐다.** §8-39·§8-40·§8-45 에서 편입할 때마다 15개 안팎의 파드가
+무너진 것이 전부 이것이었다. 그때마다 OpenReplay·프로브·NetworkPolicy 를
+의심했는데 전부 빗나간 것이었다.
+
+수정: 접미 매칭 `*/sa/<name>` 으로 바꿨다. base 는 네임스페이스를 모르므로
+(오버레이가 각자 정한다) 하드코딩할 수 없다. 대가는 신뢰 도메인·네임스페이스
+제약이 사라지는 것이고, 실질 통제는 ServiceAccount 이름이 된다. 네임스페이스
+경계는 Kubernetes NetworkPolicy 가 계속 잡는다.
+
+#### 함께 고친 것
+
+| 항목 | 내용 |
+|---|---|
+| 소비자 누락 | ztunnel 거부 로그를 집계해 `allow-*` NetworkPolicy 와 대조했다. 5432 에 ranger-admin·glitchtip·dependency-track·defectdojo·safeline, 6379 에 gitlab·glitchtip·defectdojo, 9092 에 kafka-bridge, MinIO 에 hive-server·spark-connect·spark-history 를 추가했다 |
+| `default` SA 4건 | logstash·elasticsearch·kibana·falcosidekick 이 전부 `default` 로 돌았다. ambient 에서 SA 는 곧 신원이라 넷이 구분되지 않는다 — 하나에게 권한을 주면 넷 모두에게 준다. 각자 전용 SA 를 만들어 배선했다 |
+| ECK 오퍼레이터 | `elastic-operator`(elastic-system)가 ES 9200 을 관리하는데 메시 밖이라 **신원이 아예 없었다**. principal 규칙은 어느 것도 매칭되지 않는다. `elastic-system` 도 ambient 에 편입하고 `*/ns/elastic-system/sa/elastic-operator` 를 허용했다 |
+| ClickHouse | OpenReplay 전용 8123·9000 규칙을 추가했다 |
+
+#### 결과
+
+```
+Ready 79/79
+Kafka(logstash SA -> 9092)          OK      # §8-42 의 401 이 사라졌다
+LDAP(ranger-usersync -> ds389:3389) OK
+Ranger admin API(6080)              OK
+PostgreSQL(5432)                    OK
+Elasticsearch(9200)                 OK
+ns local / elastic-system           ambient
+ztunnel 정책 거부 (최근 90초)        0 건
+HBONE 15008 인바운드 (최근 90초)     252 건   # 전 구간 mTLS
+```
+
+#### 교훈
+
+- **강제되지 않는 정책은 검증되지 않는다.** 이 정책은 몇 달 동안 "있었고"
+  렌더링·스키마 검증을 전부 통과했다. ztunnel 이 켜지기 전까지는 틀렸다는 신호가
+  나올 수 없었다. 정책 파일은 존재가 아니라 **거부 로그가 0 인지**로 확인해야 한다.
+- **거부 로그를 집계해서 읽을 것.** 한 건씩 보면 매번 다른 원인처럼 보인다.
+  `src.identity -> dst:port` 로 묶어 세니 20줄로 전부 드러났다.
+- ★ 방향이 반대였다. §8-39~§8-45 는 "편입했더니 무엇이 깨졌나"를 물었다.
+  옳은 질문은 "**편입하면 무엇이 강제되기 시작하나**"였다.
+
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용

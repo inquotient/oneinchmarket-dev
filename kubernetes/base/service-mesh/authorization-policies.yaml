@@ -1,5 +1,29 @@
 # Istio AuthorizationPolicy - 서비스 간 접근 제어
 # 기본 정책: 명시적으로 허용된 통신만 가능
+#
+# ★★ principal 문자열 매칭 규칙 — 이 파일 전체의 전제다.
+#   Istio 의 문자열 필드는 **완전 일치 · 접두(`abc*`) · 접미(`*abc`) · 존재(`*`)**
+#   네 가지만 지원한다. **중간 `*` 는 와일드카드가 아니라 리터럴이다.**
+#
+#   이 파일은 원래 전부 `cluster.local/ns/*/sa/<name>` 형태였다. 네임스페이스
+#   자리의 `*` 가 리터럴로 취급되므로 **어떤 규칙도 한 번도 매칭된 적이 없다.**
+#   ALLOW 정책이 워크로드를 선택하면 매칭되지 않은 모든 것이 거부되므로,
+#   ambient 편입 즉시 PostgreSQL·Kafka·Redis·Elasticsearch 접근이 전부 끊겼다:
+#     "connection closed due to policy rejection: allow policies exist,
+#      but none allowed"
+#   ztunnel 로그가 `src.identity="spiffe://cluster.local/ns/local/sa/cmmn-api"`
+#   를 찍으면서도 거부한 것이 증거다 — 정책에 그 이름이 분명히 있었다(§8-47).
+#
+#   그래서 접미 매칭 `*/sa/<name>` 을 쓴다. base 는 네임스페이스를 모르므로
+#   (local·dev·prod 오버레이가 각자 정한다) 네임스페이스를 하드코딩할 수 없다.
+#   대가는 신뢰 도메인·네임스페이스 제약이 사라지는 것이다 — 실질 통제는
+#   ServiceAccount 이름이 된다. 네임스페이스 경계는 Kubernetes NetworkPolicy
+#   (default-deny-ingress + allow-*)가 계속 잡는다.
+#
+# ★ 소비자 목록의 원천은 `network-policies/database-netpol.yaml` 등의
+#   allow-* NetworkPolicy 다. 두 계층이 어긋나면 Cilium 은 통과시키고 ztunnel
+#   이 끊어 **타임아웃이 아니라 connection reset** 으로 나타난다. 한쪽만
+#   고치지 말 것.
 
 # Database 접근 제어 - DB는 허용된 서비스만 접속
 apiVersion: security.istio.io/v1
@@ -15,62 +39,69 @@ spec:
       app.kubernetes.io/component: database
   action: ALLOW
   rules:
-    # Keycloak → PostgreSQL
-    - from:
-        - source:
-            principals: ["cluster.local/ns/*/sa/keycloak"]
-      to:
-        - operation:
-            ports: ["5432"]
-    # Hive Metastore → PostgreSQL
-    - from:
-        - source:
-            principals: ["cluster.local/ns/*/sa/hive-metastore"]
-      to:
-        - operation:
-            ports: ["5432"]
-    # Apicurio → PostgreSQL
-    - from:
-        - source:
-            principals: ["cluster.local/ns/*/sa/apicurio"]
-      to:
-        - operation:
-            ports: ["5432"]
-    # GitLab → PostgreSQL
-    - from:
-        - source:
-            principals: ["cluster.local/ns/*/sa/gitlab"]
-      to:
-        - operation:
-            ports: ["5432"]
-    # Admin/CMMN-API → MariaDB
+    # → PostgreSQL. allow-postgresql-access(NetworkPolicy)와 같은 집합이다.
+    #   ranger-db·keycloak-db 등 별칭 서비스도 전부 이 파드로 간다.
     - from:
         - source:
             principals:
-              - "cluster.local/ns/*/sa/admin"
-              - "cluster.local/ns/*/sa/cmmn-api"
+              - "*/sa/keycloak"
+              - "*/sa/gitlab"
+              - "*/sa/hive-metastore"
+              - "*/sa/apicurio"
+              - "*/sa/ranger-admin"
+              - "*/sa/glitchtip"
+              - "*/sa/dependency-track"
+              - "*/sa/defectdojo"
+              - "*/sa/safeline"
+              # OpenReplay 는 파드마다 별도 SA 를 쓴다(alerts-openreplay ·
+              # chalice-openreplay · db-openreplay …). 15개를 나열하는 대신
+              # 접미 매칭으로 묶는다. `*/sa/*-openreplay` 는 `*` 가 둘이라
+              # 쓸 수 없다 — 위 머리말 참조.
+              - "*-openreplay"
+      to:
+        - operation:
+            ports: ["5432"]
+    # → MariaDB
+    - from:
+        - source:
+            principals:
+              - "*/sa/admin"
+              - "*/sa/cmmn-api"
       to:
         - operation:
             ports: ["3306"]
-    # Application → MongoDB
+    # → MongoDB
     - from:
         - source:
             principals:
-              - "cluster.local/ns/*/sa/admin"
-              - "cluster.local/ns/*/sa/cmmn-api"
+              - "*/sa/admin"
+              - "*/sa/cmmn-api"
       to:
         - operation:
             ports: ["27017"]
-    # Application → Redis
+    # → Redis. allow-redis-access 와 같은 집합이다.
     - from:
         - source:
             principals:
-              - "cluster.local/ns/*/sa/keycloak"
-              - "cluster.local/ns/*/sa/admin"
-              - "cluster.local/ns/*/sa/cmmn-api"
+              - "*/sa/keycloak"
+              - "*/sa/gitlab"
+              - "*/sa/glitchtip"
+              - "*/sa/defectdojo"
+              - "*/sa/admin"
+              - "*/sa/cmmn-api"
+              - "*-openreplay"
       to:
         - operation:
             ports: ["6379"]
+    # → ClickHouse. OpenReplay 전용이다(allow-clickhouse-access).
+    #   ClickHouse 에 component: database 라벨이 없으면 이 규칙은 그냥
+    #   선택되지 않을 뿐 해가 없다.
+    - from:
+        - source:
+            principals: ["*-openreplay"]
+      to:
+        - operation:
+            ports: ["8123", "9000"]
 ---
 # Messaging 접근 제어 - Kafka
 apiVersion: security.istio.io/v1
@@ -89,12 +120,21 @@ spec:
     - from:
         - source:
             principals:
-              - "cluster.local/ns/*/sa/akhq"
-              - "cluster.local/ns/*/sa/apicurio"
-              - "cluster.local/ns/*/sa/logstash"
-              - "cluster.local/ns/*/sa/admin"
-              - "cluster.local/ns/*/sa/cmmn-api"
-              - "cluster.local/ns/argo-events/sa/argo-events-sa"
+              - "*/sa/akhq"
+              - "*/sa/apicurio"
+              - "*/sa/kafka-bridge"
+              # ★ logstash 는 전용 ServiceAccount 를 쓴다. 예전에는 `default`
+              #   로 돌았고 ambient 에서는 그것이 곧 신원이라
+              #   elasticsearch·kibana·falcosidekick 과 구분되지 않았다.
+              #   `sa/default` 를 허용하면 셋 모두에게 Kafka 접근을 주게 된다 —
+              #   신원 분리가 이 정책의 존재 이유이므로 그러지 않는다.
+              - "*/sa/logstash"
+              # OpenReplay 의 수집 계층이 Kafka 를 쓴다.
+              - "*-openreplay"
+              - "*/sa/admin"
+              - "*/sa/cmmn-api"
+              # 네임스페이스를 넘는 유일한 소비자라 경로를 남겨 둔다.
+              - "*/ns/argo-events/sa/argo-events-sa"
       to:
         - operation:
             ports: ["9092", "9093"]
@@ -116,11 +156,20 @@ spec:
     - from:
         - source:
             principals:
-              - "cluster.local/ns/*/sa/kibana"
-              - "cluster.local/ns/*/sa/logstash"
-              - "cluster.local/ns/*/sa/filebeat"
-              - "cluster.local/ns/*/sa/falcosidekick"
-              - "cluster.local/ns/*/sa/trivy-scanner"
+              - "*/sa/kibana"
+              - "*/sa/logstash"
+              - "*/sa/filebeat"
+              - "*/sa/falcosidekick"
+              - "*/sa/trivy-scanner"
+              # ★ ECK 오퍼레이터. elastic-system 네임스페이스에 있고 ES 의
+              #   부트스트랩·헬스·라이선스를 9200 으로 관리한다. 이것이 막히면
+              #   Elasticsearch CR 이 관리 불능이 된다.
+              #   전제: elastic-system 도 ambient 에 편입되어 있어야 한다.
+              #   편입되지 않으면 평문으로 도착해 **신원 자체가 없고**
+              #   principal 규칙은 어느 것도 매칭되지 않는다(§8-47).
+              - "*/ns/elastic-system/sa/elastic-operator"
+              # ES 노드끼리도 9200 을 쓴다(ECK 의 내부 프로브·조정).
+              - "*/sa/elasticsearch"
       to:
         - operation:
             ports: ["9200"]
@@ -142,8 +191,11 @@ spec:
     - from:
         - source:
             principals:
-              - "cluster.local/ns/*/sa/trino"
-              - "cluster.local/ns/*/sa/hive-metastore"
+              - "*/sa/trino"
+              - "*/sa/hive-metastore"
+              - "*/sa/hive-server"
+              - "*/sa/spark-connect"
+              - "*/sa/spark-history"
       to:
         - operation:
             ports: ["9000", "9001"]

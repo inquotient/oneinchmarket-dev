@@ -199,6 +199,9 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 7. **외부 진입점이 없다.** Ingress/Gateway/NodePort/LoadBalancer 객체 0개, traefik·servicelb 비활성
 8. **`.ps1` 은 BOM 없이 저장하면 코드가 조용히 사라진다.** PowerShell 5.1 은 BOM 이 없는 `.ps1` 을 시스템 ANSI(CP949)로 읽는다. 한글 주석이 잘못 디코딩되면서 따옴표 짝이 어긋나 **뒤따르는 코드가 문자열 리터럴로 흡수**된다. 실측: `setup-l0-lab.ps1` 이 VM 생성 40여 줄을 잃고도 **파싱 오류 0건**으로 "완료"를 출력했다. 문법적으로 완결된 다른 프로그램이 되므로 정적 검증 수단이 없다. 추가·수정 시 `head -c3 f.ps1 | od -An -tx1` 이 `efbbbf` 인지 볼 것 — §8-30
 
+9. **Istio AuthorizationPolicy 의 principal 에 중간 `*` 를 쓰지 말 것.** Istio 문자열 매칭은 완전 일치·접두(`abc*`)·접미(`*abc`)·존재(`*`)만 지원한다. **중간 `*` 는 리터럴이다.** `cluster.local/ns/*/sa/keycloak` 은 아무것도 매칭하지 않는다. ALLOW 정책이 워크로드를 선택하면 매칭되지 않은 전부가 거부되므로, 네임스페이스를 ambient 에 편입하는 순간 해당 정책이 **전면 거부**로 바뀐다. 실측: 26곳 전부가 이 형태였고 편입 때마다 15개 파드가 동시에 무너졌다. base 는 네임스페이스를 모르므로 접미 매칭 `*/sa/<name>` 을 쓴다 — §8-47
+10. **ambient 에서 ServiceAccount 는 곧 신원이다.** `default` SA 로 도는 워크로드는 서로 구분되지 않아 정책을 쓸 수 없다 — 하나에게 권한을 주면 그 SA 를 공유하는 전부에게 준다. 새 워크로드에는 반드시 전용 SA 를 줄 것. 메시 밖 네임스페이스에서 오는 트래픽은 **신원이 아예 없어** principal 규칙이 어느 것도 매칭되지 않는다(ECK 오퍼레이터가 그랬다) — §8-47
+
 ### 매니페스트 작업 시
 
 - `v1/` 매니페스트는 **배포 금지**. 단 CI가 이 경로의 Dockerfile을 참조한다는 모순이 있다
