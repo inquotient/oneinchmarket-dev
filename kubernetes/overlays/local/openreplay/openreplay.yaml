@@ -753,12 +753,19 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
         runAsGroup: 1001
         runAsUser: 1001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       shareProcessNamespace: true
       containers:
       - name: alerts
         securityContext:
           runAsGroup: 1001
           runAsUser: 1001
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
         image: public.ecr.aws/p1t3u8a3/alerts:v1.27.2
         imagePullPolicy: IfNotPresent
         env:
@@ -876,12 +883,19 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
         runAsGroup: 1001
         runAsUser: 1001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       shareProcessNamespace: true
       containers:
       - name: api
         securityContext:
           runAsGroup: 1001
           runAsUser: 1001
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
         image: public.ecr.aws/p1t3u8a3/api:v1.27.10
         imagePullPolicy: IfNotPresent
         livenessProbe:
@@ -1030,12 +1044,19 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
         runAsGroup: 1001
         runAsUser: 1001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       shareProcessNamespace: true
       containers:
       - name: assets
         securityContext:
           runAsGroup: 1001
           runAsUser: 1001
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
         image: public.ecr.aws/p1t3u8a3/assets:v1.27.2
         imagePullPolicy: IfNotPresent
         livenessProbe:
@@ -1140,12 +1161,19 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
         runAsGroup: 1001
         runAsUser: 1001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       shareProcessNamespace: true
       containers:
       - name: assist
         securityContext:
           runAsGroup: 1001
           runAsUser: 1001
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
         image: public.ecr.aws/p1t3u8a3/assist:v1.27.4
         imagePullPolicy: IfNotPresent
         env:
@@ -1218,12 +1246,19 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
         runAsGroup: 1001
         runAsUser: 1001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       shareProcessNamespace: true
       containers:
       - name: canvases
         securityContext:
           runAsGroup: 1001
           runAsUser: 1001
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
         image: public.ecr.aws/p1t3u8a3/canvases:v1.27.0
         imagePullPolicy: IfNotPresent
         livenessProbe:
@@ -1346,12 +1381,19 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
         runAsGroup: 1001
         runAsUser: 1001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       shareProcessNamespace: true
       containers:
       - name: chalice
         securityContext:
           runAsGroup: 1001
           runAsUser: 1001
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
         image: public.ecr.aws/p1t3u8a3/chalice:v1.27.22
         imagePullPolicy: IfNotPresent
         livenessProbe:
@@ -1597,12 +1639,19 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
         runAsGroup: 1001
         runAsUser: 1001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       shareProcessNamespace: true
       containers:
       - name: db
         securityContext:
           runAsGroup: 1001
           runAsUser: 1001
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
         image: public.ecr.aws/p1t3u8a3/db:v1.27.3
         imagePullPolicy: IfNotPresent
         livenessProbe:
@@ -1714,12 +1763,19 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
         runAsGroup: 1001
         runAsUser: 1001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       shareProcessNamespace: true
       containers:
       - name: ender
         securityContext:
           runAsGroup: 1001
           runAsUser: 1001
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
         image: public.ecr.aws/p1t3u8a3/ender:v1.27.4
         imagePullPolicy: IfNotPresent
         livenessProbe:
@@ -1808,11 +1864,22 @@ spec:
         app.kubernetes.io/component: observability
     spec:
       serviceAccountName: frontend-openreplay
-      securityContext: null
+      # frontend 이미지는 distroless 로 USER 65532 이다(crictl 로 확인).
+      # 이미 비-root 였고 선언만 없었다.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       shareProcessNamespace: true
       containers:
       - name: frontend
-        securityContext: null
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
         image: public.ecr.aws/p1t3u8a3/frontend:v1.27.27
         imagePullPolicy: IfNotPresent
         env:
@@ -1867,12 +1934,19 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
         runAsGroup: 1001
         runAsUser: 1001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       shareProcessNamespace: true
       containers:
       - name: heuristics
         securityContext:
           runAsGroup: 1001
           runAsUser: 1001
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
         image: public.ecr.aws/p1t3u8a3/heuristics:v1.27.1
         imagePullPolicy: IfNotPresent
         livenessProbe:
@@ -1959,12 +2033,19 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
         runAsGroup: 1001
         runAsUser: 1001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       shareProcessNamespace: true
       containers:
       - name: http
         securityContext:
           runAsGroup: 1001
           runAsUser: 1001
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
         image: public.ecr.aws/p1t3u8a3/http:v1.27.3
         imagePullPolicy: IfNotPresent
         livenessProbe:
@@ -2091,12 +2172,19 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
         runAsGroup: 1001
         runAsUser: 1001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       shareProcessNamespace: true
       containers:
       - name: images
         securityContext:
           runAsGroup: 1001
           runAsUser: 1001
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
         image: public.ecr.aws/p1t3u8a3/images:v1.27.0
         imagePullPolicy: IfNotPresent
         livenessProbe:
@@ -2219,12 +2307,19 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
         runAsGroup: 1001
         runAsUser: 1001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       shareProcessNamespace: true
       containers:
       - name: integrations
         securityContext:
           runAsGroup: 1001
           runAsUser: 1001
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
         image: public.ecr.aws/p1t3u8a3/integrations:v1.27.2
         imagePullPolicy: IfNotPresent
         livenessProbe:
@@ -2341,12 +2436,19 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
         runAsGroup: 1001
         runAsUser: 1001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       shareProcessNamespace: true
       containers:
       - name: sink
         securityContext:
           runAsGroup: 1001
           runAsUser: 1001
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
         image: public.ecr.aws/p1t3u8a3/sink:v1.27.2
         imagePullPolicy: IfNotPresent
         livenessProbe:
@@ -2448,12 +2550,19 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
         runAsGroup: 1001
         runAsUser: 1001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       shareProcessNamespace: true
       containers:
       - name: sourcemapreader
         securityContext:
           runAsGroup: 1001
           runAsUser: 1001
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
         image: public.ecr.aws/p1t3u8a3/sourcemapreader:v1.27.0
         imagePullPolicy: IfNotPresent
         env:
@@ -2529,12 +2638,19 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
         runAsGroup: 1001
         runAsUser: 1001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       shareProcessNamespace: true
       containers:
       - name: spot
         securityContext:
           runAsGroup: 1001
           runAsUser: 1001
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
         image: public.ecr.aws/p1t3u8a3/spot:v1.27.0
         imagePullPolicy: IfNotPresent
         livenessProbe:
@@ -2666,12 +2782,19 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
         runAsGroup: 1001
         runAsUser: 1001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       shareProcessNamespace: true
       containers:
       - name: storage
         securityContext:
           runAsGroup: 1001
           runAsUser: 1001
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
         image: public.ecr.aws/p1t3u8a3/storage:v1.27.1
         imagePullPolicy: IfNotPresent
         livenessProbe:
@@ -3821,8 +3944,28 @@ spec:
         app.kubernetes.io/component: observability
         app.kubernetes.io/instance: openreplay
     spec:
+      # ★ 이 Job 은 securityContext 가 통째로 비어 있었다. 이미지 기본 USER 가
+      #   root 라 파드가 root 로 떴고, ADR-069 의 "root 18건" 중 실제로
+      #   root 였던 것은 이것 하나다(나머지 17개는 uid 1001·65532 로 이미
+      #   비-root 였고 runAsNonRoot 선언만 없었다) — §8-49
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
       initContainers:
       - name: git
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            # ★ hostPath(/openreplay/storage/nfs)는 kubelet 이 root 소유로
+            #   만들고 fsGroup 이 적용되지 않는다. 이 init 컨테이너가
+            #   chown 1001:1001 을 건다. root 대신 CAP_CHOWN 만 주면
+            #   충분하다 — 일회성 파드로 실측했다(§8-49).
+            drop: ["ALL"]
+            add: ["CHOWN"]
         image: alpine/git:2.52.0
         env:
         - name: SKIP_PERMISSION_CHANGE
@@ -3898,6 +4041,10 @@ spec:
             cpu: 500m
             memory: 384Mi
       - name: postgres-check
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
         image: ghcr.io/openreplay/postgres:17
         env:
         - name: PGHOST
@@ -3938,6 +4085,10 @@ spec:
             cpu: 500m
             memory: 384Mi
       - name: clickhouse-check
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
         image: docker.io/clickhouse/clickhouse-server:25.9-alpine
         env:
         - name: SKIP_PERMISSION_CHANGE
@@ -3992,6 +4143,10 @@ spec:
             memory: 384Mi
       containers:
       - name: postgres
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
         env:
         - name: OPENREPLAY_VERSION
           valueFrom:
@@ -4039,6 +4194,10 @@ spec:
             cpu: 500m
             memory: 384Mi
       - name: clickhouse
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
         image: docker.io/clickhouse/clickhouse-server:25.9-alpine
         env:
         - name: OPENREPLAY_VERSION

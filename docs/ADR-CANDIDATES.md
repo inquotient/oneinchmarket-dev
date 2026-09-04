@@ -748,7 +748,7 @@ B안은 이미 채택한 OTel 경로(ADR-039)와 중복된다.
 **미확인** — 커뮤니티 에디션과 엔터프라이즈의 저장소 구성 차이를 끝까지 확인하지
 못했다. Kafka 는 엔터프라이즈 쪽이라는 정황이 있다. 도입 시 차트를 렌더해 실제
 구성요소를 세는 것이 선행되어야 한다.
-- **승격 조건 추가 (2026-09-04)** — OpenReplay 17개 워크로드 + 마이그레이션 Job 이 **전부 root 로 뜬다.** prod 는 Kyverno `disallow-root` 가 Enforce 라 그대로는 거부된다. 예외 목록에 3자 앱 18건을 넣으면 정책의 실효 범위가 크게 줄어든다 — **승격 전에 이 선택을 명시적으로 결정해야 한다**(LOCAL-DEPLOYMENT §8-29).
+- **승격 조건 추가 (2026-09-04)** — ~~OpenReplay 17개 워크로드 + 마이그레이션 Job 이 **전부 root 로 뜬다.**~~ **이 서술은 틀렸다(2026-09-04 정정).** 실측하니 17개 Deployment 는 **이미 비-root** 였다 — 16개가 uid 1001, frontend 가 distroless 의 uid 65532 다. Kyverno 가 걸었던 것은 실제 root 실행이 아니라 `runAsNonRoot` **미선언**이었다. 선언을 채우고 `allowPrivilegeEscalation: false` · `capabilities.drop: [ALL]` · `seccompProfile: RuntimeDefault` 를 함께 넣었더니 **OpenReplay 의 정책 위반이 0 건이 됐다.** 실제로 root 였던 것은 마이그레이션 Job 하나뿐이고, 그것도 hostPath 를 `chown` 하기 위해서였다 — root 대신 `CAP_CHOWN` 만으로 충분함을 일회성 파드로 확인해 그렇게 바꿨다. **따라서 "예외 18건이냐 정책이냐"의 선택은 존재하지 않는다. 이 승격 조건은 해소됐다**(LOCAL-DEPLOYMENT §8-49).
 
 ### ADR-070 — ClickHouse 는 OpenReplay 전용으로만 도입한다
 **상태: `Accepted (범위 한정)`** (2026-09-03)

@@ -4413,6 +4413,75 @@ Ready 79/79 · ztunnel 정책 거부 0건
   바인드가 평문처럼 보이지만 ztunnel 이 mTLS 로 감싼다.
 - Keycloak 을 IdP 로 세우면 이 자리는 다시 검토 대상이다(ADR 후보).
 
+
+### 8-49. OpenReplay "root 18건" 은 사실이 아니었다 — 위반 0 건으로 해소
+
+ADR-069 의 승격 조건이었다. 기록에는 *"OpenReplay 17개 워크로드 + 마이그레이션
+Job 이 전부 root 로 뜬다. prod 는 Kyverno `disallow-root` 가 Enforce 라 그대로는
+거부된다. 예외 목록에 3자 앱 18건을 넣으면 정책의 실효 범위가 크게 줄어든다"*
+라고 되어 있었다. **결정을 내리기 전에 전제를 확인했더니 전제가 틀렸다.**
+
+#### 실측
+
+| 대상 | 실제 uid | Kyverno 가 걸었던 이유 |
+|---|---|---|
+| Deployment 16개 | **1001** (매니페스트에 `runAsUser: 1001` 32곳) | `runAsNonRoot` **미선언** |
+| `frontend-openreplay` | **65532** (distroless. `crictl inspecti` 로 이미지 USER 확인) | `securityContext: null` |
+| `databases-migrate` Job | **root** | securityContext 자체가 없음 |
+
+즉 **root 로 뜬 것은 18건이 아니라 1건**이다. 나머지 17개는 이미 비-root 로
+돌고 있었고 선언만 없었다. `disallow-root` 는 실행 uid 가 아니라
+`runAsNonRoot=true` 선언을 본다 — 그 차이가 "3자 앱 18건 예외"라는 큰 결정으로
+번역되어 있었다.
+
+#### 조치
+
+17개 Deployment 에 선언을 채우고 나머지 하드닝을 함께 넣었다:
+
+```
+파드:      runAsNonRoot: true · seccompProfile: RuntimeDefault
+컨테이너:  runAsNonRoot: true · allowPrivilegeEscalation: false
+           capabilities: drop: ["ALL"]
+```
+
+마이그레이션 Job 은 init 컨테이너(`git`)가 hostPath
+`/openreplay/storage/nfs` 에 `chown 1001:1001` 을 건다. hostPath 는 kubelet 이
+root 소유로 만들고 **fsGroup 이 적용되지 않으므로** 이것만은 특권이 필요하다.
+root 대신 **`CAP_CHOWN` 만으로 충분한지 일회성 파드로 실측했다:**
+
+```
+runAsUser: 1001 · capabilities: {drop: [ALL], add: [CHOWN]}
+-> CHOWN OK   (디렉터리는 이미 1001:1001 이라 사실상 no-op 이기도 하다)
+```
+
+그래서 Job 도 `runAsNonRoot: true` + `runAsUser: 1001` 로 두고 `git` 에만
+`CHOWN` 을 더했다. **Job 은 재실행하지 않았다** — 34시간 전 `Complete` 이고
+스키마 마이그레이션이라 재실행은 별개의 위험이다. 매니페스트만 고쳤고
+다음 재생성 때 적용된다.
+
+#### 결과
+
+```
+kubectl apply -> Deployment 17개 configured
+Ready 79/79 (60초 내 전원 복귀)
+Kyverno fail (openreplay 리소스)  : 0 건
+disallow-root-user 클러스터 전체  : 2 건  (openreplay 아님)
+```
+
+전에는 `disallow-root-user` 만으로 18건이 잡혔다.
+
+#### 교훈
+
+★ **"결정하기 전에 전제를 재보라."** 이 항목은 몇 주 동안 "정책이냐 예외
+18건이냐"라는 아키텍처 선택으로 남아 있었다. 실제로는 `runAsNonRoot: true`
+한 줄씩을 넣는 작업이었고, 선택지 자체가 존재하지 않았다. 기록된 전제가
+검증된 전제는 아니다 — §8-47 의 "강제되지 않는 정책은 검증되지 않는다" 와
+같은 부류다.
+
+★ Kyverno 의 `disallow-root` 는 **실행 uid 가 아니라 선언**을 본다. 비-root 로
+도는 워크로드도 선언이 없으면 잡힌다. 반대로 선언만 있고 이미지가 root 를
+강제하면 kubelet 이 기동을 거부한다(그쪽이 옳은 동작이다).
+
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용
