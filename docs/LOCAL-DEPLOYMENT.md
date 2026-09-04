@@ -3401,6 +3401,100 @@ ILM 정책 "filebeat" (filebeat 이 스스로 만든 기본값)
 3. **보존 정책 부재** — 그 결과를 무한히 보관
 
 ①만 고치면 증상은 멎지만 ③은 남는다. ③만 고치면 93 GB 가 주기적으로 다시 쌓인다.
+
+### 8-38. LDAP 동기화가 root DN 을 들고 있었다 (2026-09-04)
+
+`keycloak-events` 토픽의 목적을 확인하다 나온 것이다. 원래 의도는 SIEM 이 아니라
+**Keycloak 사용자를 Knox·Ranger 로 동기화**하는 것이었고, "LDAP 이 취약해서
+Kafka 이벤트를 고려했다" 는 판단이 함께 있었다.
+
+#### 그 판단을 검토했다 — 절반은 맞고 절반은 뒤집힌다
+
+**맞는 절반.** 이 레포의 LDAP 설정은 실제로 취약했다.
+
+```
+SYNC_LDAP_URL     = ldap://ds389-headless:3389    평문
+SYNC_LDAP_BIND_DN = cn=Directory Manager          389-DS 의 root DN
+```
+
+읽기만 하는 폴링 클라이언트가 **디렉터리 서버의 최고 권한**을 들고 있었다.
+`ranger-usersync` 파드가 뚫리면 디렉터리를 쓰기 권한까지 통째로 잃는다.
+
+**뒤집히는 절반.** Kafka 는 그 문제의 해답이 아니다.
+
+| | LDAP 경로 | Kafka 경로 |
+|---|---|---|
+| 암호화 **가능** 여부 | **가능** — DS389 가 3636(LDAPS)을 듣고 있다(실측) | **불가** — `PLAINTEXT://:9092` 리스너뿐 |
+| 인증 | bind DN 있음 | **없음** (SASL 미설정) |
+| 데이터 잔존 | 질의 시점만 | **토픽에 보존·재생 가능** |
+| 접근 범위 | bind DN 의 ACI | 토픽 읽기 권한자 전원 |
+
+게다가 v1 설정이 `KC_ADMIN_EVENTS_DETAILS_ENABLED=true` 였다. 사용자 속성이
+이벤트에 실려 토픽에 남고, Logstash 를 타고 Elasticsearch 로 색인된다 —
+신원 정보의 검색 가능한 사본이 하나 더 생긴다.
+
+메시 계층도 보호막이 아니다. `local` 네임스페이스에 `istio.io/dataplane-mode`
+레이블이 없어 **ambient 에 편입되어 있지 않고** PeerAuthentication 은
+`PERMISSIVE` 다. 두 경로 모두 평문으로 흐른다.
+
+**즉 LDAP 이 취약한 것이 아니라 이 LDAP 설정이 취약했다.**
+
+#### 조치 — 읽기 전용 바인드 계정
+
+`ds389-bootstrap` 이 `uid=ranger-sync,ou=people,...` 를 만들고 ACI 로
+`read,search,compare` 만 허용한다. `write`·`delete` 는 주지 않는다.
+
+`ranger-usersync` 의 `LDAP_BIND_PASSWORD` 를 `ds389-secret/dm-password` 에서
+`sync-password` 로 바꿨다. 키 이름이 다르므로 **없으면 파드가 기동하지 않는다** —
+조용히 root 자격으로 되돌아가는 것보다 낫다.
+
+#### 검증한 것
+
+```
+쓰기 시도 : exit 50 (LDAP_INSUFFICIENT_ACCESS)   ← 거부됨
+읽기      : 2건                                   ← 정상
+파드 안 install.properties:
+  SYNC_LDAP_BIND_DN = uid=ranger-sync,ou=people,dc=oneinchmarket,dc=co,dc=kr
+usersync 기동 로그:
+  [I] ranger.usersync.ldap.ldapbindpassword property is verified.
+```
+
+최소권한이 가정이 아니라 **실측으로 확인된다.**
+
+#### 검증하지 못한 것
+
+**사용자가 Ranger DB 까지 도달하는지는 확인하지 못했다.** 두 가지 이유이며
+둘 다 이 변경 이전부터 있던 상태다.
+
+- DS389 에 스모크 픽스처 2건(`oim-svc`, `ranger-sync`)뿐이라 동기화할 실체가 없다
+- Ranger admin API 가 401 을 돌려준다 — `ranger-secret/admin-password` 가 실제
+  admin 비밀번호와 맞지 않는다. **별도 항목이다**
+
+즉 이 변경은 **자격을 낮춘 것이고 기능을 바꾸지 않았다.** 회귀는 없으나
+"동기화가 원래 되고 있었는지" 는 여전히 미확인이다.
+
+#### 남은 것 — LDAPS
+
+전송 암호화는 아직 평문이다. DS389 는 3636 을 듣고 있으나 두 가지가 걸린다.
+
+```
+subject: CN=ds389-0.ds389-headless.local.svc.cluster.local
+issuer : CN=ssca.389ds.example.com    ← dscontainer 자체 서명 CA
+```
+
+- **신뢰**: 자체 서명 CA 라 usersync(Java)의 트러스트스토어에 넣어야 한다
+- **호스트명**: 인증서 CN 이 파드 FQDN 이라 `ds389-headless` 로 접속하면 불일치한다.
+  네임스페이스가 CN 에 박혀 있어 오버레이 이식성도 깨진다
+
+레포에 이미 cert-manager 패턴이 있다(`wazuh-certs.yaml` — selfsigned Issuer →
+CA → 노드 인증서). 같은 방식으로 SAN 을 갖춘 인증서를 발급하는 것이 옳다.
+
+#### keycloak-events 는 지우지 않는다
+
+용도가 갈린다. **상태 동기화는 원천(디렉터리)이 맡고, 감사는 이벤트가 맡는다.**
+Logstash 가 이미 이 토픽을 SIEM 으로 소비하고 있으므로(§8-35) 그대로 둔다.
+`argocd/events/` 의 센서는 스텁이고 Argo Events 자체가 설치되어 있지 않다 —
+정리 대상이지만 감사 경로와 무관하므로 별도로 판단한다.
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용

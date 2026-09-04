@@ -48,7 +48,15 @@ data:
 
     # ── LDAP ────────────────────────────────────────────────────
     SYNC_LDAP_URL = ldap://ds389-headless:3389
-    SYNC_LDAP_BIND_DN = cn=Directory Manager
+    # ★ root DN 으로 바인드하지 않는다.
+    #
+    #   이전에는 `cn=Directory Manager` 였다. 읽기만 하는 폴링 클라이언트가
+    #   디렉터리 서버의 최고 권한을 들고 있었다는 뜻이고, 이 파드가 뚫리면
+    #   디렉터리를 쓰기 권한까지 통째로 잃는다.
+    #
+    #   ds389-bootstrap 이 만드는 uid=ranger-sync 는 ACI 로
+    #   read·search·compare 만 허용된다. write·delete 가 없다.
+    SYNC_LDAP_BIND_DN = uid=ranger-sync,ou=people,dc=oneinchmarket,dc=co,dc=kr
     SYNC_LDAP_BIND_PASSWORD = __LDAP_BIND_PASSWORD__
     SYNC_LDAP_DELTASYNC = false
 

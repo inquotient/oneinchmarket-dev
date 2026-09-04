@@ -109,6 +109,60 @@ spec:
               cn: oim-admins
               member: uid=oim-svc,ou=people,${BASE}"
 
+              # ── 4. 동기화 전용 읽기 계정
+              #
+              #   ★ ranger-usersync 가 `cn=Directory Manager`(root DN)로 바인드하고
+              #     있었다. 읽기만 하면 되는 폴링 클라이언트가 **디렉터리 서버의
+              #     최고 권한**을 들고 있다는 뜻이다 — 그 파드가 뚫리면 디렉터리를
+              #     쓰기 권한까지 통째로 잃는다.
+              #
+              #   ACI 로 read·search·compare 만 준다. write·delete 가 없으므로
+              #   이 자격이 유출되어도 열람에 그친다.
+              echo "[ds389-bootstrap] uid=ranger-sync (동기화 전용 읽기 계정)"
+              add "dn: uid=ranger-sync,ou=people,${BASE}
+              objectClass: top
+              objectClass: person
+              objectClass: organizationalPerson
+              objectClass: inetOrgPerson
+              uid: ranger-sync
+              cn: Ranger Usersync Reader
+              sn: Sync
+              userPassword: ${SYNC_PASSWORD}"
+
+              # 비밀번호는 멱등하게 맞춘다 — 엔트리가 이미 있으면 add 가
+              # "already exists" 로 끝나 값이 갱신되지 않기 때문이다.
+              printf '%s\n' "dn: uid=ranger-sync,ou=people,${BASE}
+              changetype: modify
+              replace: userPassword
+              userPassword: ${SYNC_PASSWORD}" | sed 's/^[[:space:]]*//' \
+                | ldapmodify -x -H "$LDAP" -D "$DM" -w "$DM_PASSWORD" 2>&1 | sed 's/^/  /'
+
+              # ACI 도 멱등하게. 같은 것이 있으면 먼저 지우고 다시 넣는다.
+              echo "[ds389-bootstrap] ACI (읽기 전용)"
+              ACI='(targetattr="*")(version 3.0; acl "ranger-sync read-only"; allow (read,search,compare) userdn="ldap:///uid=ranger-sync,ou=people,'"${BASE}"'";)'
+              printf '%s\n' "dn: ${BASE}
+              changetype: modify
+              delete: aci
+              aci: ${ACI}" | sed 's/^[[:space:]]*//' \
+                | ldapmodify -x -H "$LDAP" -D "$DM" -w "$DM_PASSWORD" >/dev/null 2>&1 || true
+              printf '%s\n' "dn: ${BASE}
+              changetype: modify
+              add: aci
+              aci: ${ACI}" | sed 's/^[[:space:]]*//' \
+                | ldapmodify -x -H "$LDAP" -D "$DM" -w "$DM_PASSWORD" 2>&1 | sed 's/^/  /'
+
+              # 그 계정으로 실제로 읽히는지 확인한다. 여기서 걸러내지 않으면
+              # usersync 가 0명을 동기화하고 원인을 찾기 어려워진다.
+              n=$(ldapsearch -x -LLL -H "$LDAP" \
+                    -D "uid=ranger-sync,ou=people,${BASE}" -w "$SYNC_PASSWORD" \
+                    -b "ou=people,${BASE}" -s sub "(objectClass=inetOrgPerson)" dn 2>/dev/null \
+                    | grep -c '^dn:')
+              echo "  ranger-sync 로 조회한 사용자 $n 건"
+              if [ "$n" -lt 1 ]; then
+                echo "[ds389-bootstrap] 실패 — ranger-sync 계정으로 읽지 못한다"
+                exit 1
+              fi
+
               echo "[ds389-bootstrap] 검증"
               found=$(ldapsearch -x -LLL -H "$LDAP" -D "$DM" -w "$DM_PASSWORD" \
                         -b "$BASE" -s sub "(objectClass=*)" dn 2>/dev/null | grep -c '^dn:')
@@ -123,6 +177,10 @@ spec:
           env:
             - name: DM_PASSWORD
               valueFrom: { secretKeyRef: { name: ds389-secret, key: dm-password } }
+            # 동기화 전용 읽기 계정의 비밀번호. root DN 과 분리해서 보관한다 —
+            # 같은 값을 쓰면 계정을 나눈 의미가 없다.
+            - name: SYNC_PASSWORD
+              valueFrom: { secretKeyRef: { name: ds389-secret, key: sync-password } }
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

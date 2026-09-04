@@ -73,8 +73,13 @@ spec:
           env:
             - name: RANGER_USERSYNC_PASSWORD
               valueFrom: {secretKeyRef: {name: ranger-secret, key: db-password}}
+            # ★ dm-password(root DN)가 아니라 동기화 전용 계정의 비밀번호다.
+            #   ds389-bootstrap 이 uid=ranger-sync 를 만들고 ACI 로 읽기만
+            #   허용한다. 키 이름이 바뀌었으므로 ds389-secret 에 sync-password
+            #   가 없으면 파드가 기동하지 않는다 — 의도된 것이다.
+            #   조용히 root 자격으로 되돌아가는 것보다 낫다.
             - name: LDAP_BIND_PASSWORD
-              valueFrom: {secretKeyRef: {name: ds389-secret, key: dm-password}}
+              valueFrom: {secretKeyRef: {name: ds389-secret, key: sync-password}}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: {drop: ["ALL"]}
