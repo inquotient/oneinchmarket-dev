@@ -1,13 +1,43 @@
-# Falco 는 WSL2 커널에서 기동하지 못한다.
+# Falco 는 이 WSL2 커널에서 기동하지 못한다.
 #   Falco: An error occurred in an event source, forcing termination...
 #          Error: Initialization issues during scap_init
-# debugfs 를 마운트해도(mount-debugfs.service) 해소되지 않았다.
-# modern_ebpf 프로브가 WSL2 커널에서 요구 조건을 만족하지 못하는 것으로 보인다.
+#
+# ★ 2026-09-04 재조사 — 원래 적어 두었던 사유("modern_ebpf 가 WSL2 커널의
+#   요구 조건을 만족하지 못하는 것으로 보인다")는 **추정이었고 틀렸다.**
+#   커널은 조건을 만족한다:
+#
+#     커널       6.18.33.2-microsoft-standard-WSL2  (modern_ebpf 요구 5.8+)
+#     BTF        /sys/kernel/btf/vmlinux  6.6 MB    존재
+#     커널 설정  CONFIG_BPF_SYSCALL / DEBUG_INFO_BTF / BPF_JIT /
+#                BPF_EVENTS / FTRACE_SYSCALLS / HAVE_SYSCALL_TRACEPOINTS = y
+#     반증       **Tetragon 이 같은 커널에서 CO-RE eBPF 로 돈다** —
+#                BTF 로드 성공, generic_kprobe·fentry·lsm·tracepoint 전부 등록
+#
+# ★ 그리고 그 기록은 **다른 실패를 가리고 있었다.** 레이블을 붙여 실제로
+#   띄워 보니 첫 오류는 scap_init 이 아니라 이것이었다:
+#
+#     Error: could not initialize inotify handler
+#
+#   fs.inotify.max_user_instances 가 128 인데 이미 약 145 개가 쓰이고 있었다.
+#   Falco 만의 문제가 아니라 **inotify 를 쓰는 다른 워크로드도 조용히 실패할
+#   수 있는 상태**였다. /etc/sysctl.d/99-inotify.conf 로 1024 로 올려 해소했다.
+#
+# ★ 그 뒤에야 scap_init 실패에 도달한다. 즉 증상 자체는 실재한다.
+#   확인한 것과 확인하지 못한 것을 구분해 둔다.
+#     - 메모리가 아니다: 한도를 1Gi 로 올려도 동일하고, 종료 사유는
+#       OOMKilled 가 아니라 Error 다
+#     - dmesg 에 BPF 관련 메시지가 남지 않는다(WSL2 에서는 비어 있다)
+#     - tracefs·debugfs 가 마운트되어 있지 않다. 다만 앞선 시도에서
+#       마운트해도 해소되지 않았다는 기록이 있다
+#     - **정확한 원인은 규명하지 못했다.** 남은 후보는 WSL2 커널이 modern
+#       프로브가 요구하는 특정 BPF 기능을 빠뜨린 경우다
 #
 # 스케줄되지 않는 nodeSelector 로 로컬에서만 비활성한다. 매니페스트를 지우지
 # 않으므로 dev/prod 에는 영향이 없고, 조건이 갖춰지면 레이블만 붙이면 된다.
 #
-# ADR-025 가 Falco → Tetragon 전환을 제안하고 있어 이 제약의 수명은 짧다.
+# ★ 실무적으로 막다른 길은 아니다. ADR-025 가 Falco → Tetragon 전환을
+#   제안하고 있고 Tetragon 은 **이 커널에서 실제로 동작한다.** 로컬에 런타임
+#   탐지가 없는 것이 아니라 구현체가 다른 것이다.
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:

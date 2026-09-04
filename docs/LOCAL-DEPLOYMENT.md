@@ -3169,6 +3169,80 @@ modern_ebpf 프로브가 `scap_init` 에 실패한다. ADR-025 가 Tetragon 전�
 - **`trivy-reports` 토픽은 소비자가 없다.** Logstash 가 구독하지 않는다
 - **falcosidekick 의 Kafka 임계값이 ES 와 다르다** — Kafka 는 error 이상,
   ES 는 warning 이상. 의도된 것인지 확인되지 않았다
+
+### 8-36. Falco 가 WSL2 에서 안 되는 이유 — 기록이 틀렸고, 다른 실패를 가리고 있었다 (2026-09-04)
+
+`overlays/local/patches/falco-local.yaml` 에 이렇게 적혀 있었다.
+
+> modern_ebpf 프로브가 WSL2 커널에서 요구 조건을 만족하지 못하는 **것으로 보인다**
+
+추정형으로 쓰여 있었고, 검증해 보니 **틀렸다.**
+
+#### 커널은 조건을 만족한다
+
+| 항목 | 값 |
+|---|---|
+| 커널 | `6.18.33.2-microsoft-standard-WSL2` (요구 5.8+) |
+| BTF | `/sys/kernel/btf/vmlinux` 6.6 MB 존재 |
+| 설정 | `CONFIG_BPF_SYSCALL`·`DEBUG_INFO_BTF`·`BPF_JIT`·`BPF_EVENTS`·`FTRACE_SYSCALLS`·`HAVE_SYSCALL_TRACEPOINTS` 전부 `y` |
+
+**결정적 반증은 Tetragon 이다.** 같은 커널에서 CO-RE eBPF 로 돌며 BTF 를 읽고
+`generic_kprobe`·`fentry`·`lsm`·`tracepoint` 를 전부 등록한다. 즉 "WSL2 라서
+eBPF 가 안 된다" 는 성립하지 않는다.
+
+#### 기록이 가리고 있던 첫 실패는 inotify 였다
+
+노드에 레이블을 붙여 실제로 띄워 보니 **첫 오류가 달랐다.**
+
+```
+Error: could not initialize inotify handler
+```
+
+```
+fs.inotify.max_user_instances = 128
+현재 사용 중                  ≈ 145
+```
+
+한도를 이미 넘긴 상태였다. **Falco 만의 문제가 아니다** — inotify 를 쓰는 다른
+워크로드도 조용히 실패할 수 있었다. `/etc/sysctl.d/99-inotify.conf` 로 1024 로
+올려 해소했고, 이 조치는 되돌리지 않았다.
+
+#### 그 뒤에야 scap_init 에 도달한다 — 증상 자체는 실재한다
+
+inotify 를 넘기니 여기까지 간다.
+
+```
+Opening 'syscall' source with modern BPF probe.
+One ring buffer every '2' CPUs.
+An error occurred in an event source, forcing termination...
+Error: Initialization issues during scap_init
+```
+
+확인한 것과 못 한 것을 나눠 둔다.
+
+- **메모리가 아니다.** 한도를 256Mi → 1Gi 로 올려도 동일했고, 종료 사유는
+  `OOMKilled` 이 아니라 `Error` 다
+- `modern_bpf.cpus_for_each_syscall_buffer` 를 줘도 falco 0.39.2 가 무시한다
+  (로그가 계속 `every '2' CPUs`)
+- dmesg 에 BPF 관련 메시지가 남지 않는다(WSL2 는 비어 있다)
+- tracefs·debugfs 가 마운트되어 있지 않다. 다만 이전 기록에 마운트해도
+  해소되지 않았다고 되어 있다
+- **정확한 원인은 규명하지 못했다.**
+
+#### 결론 — 못 쓰는 것은 맞지만 막다른 길은 아니다
+
+로컬에서 Falco 는 여전히 뜨지 않는다. 그러나 이유는 "WSL2 의 eBPF 한계" 가
+아니고, 그리고 **런타임 탐지가 없는 것도 아니다.** ADR-025 가 제안한 Tetragon 이
+이 커널에서 실제로 동작한다. 구현체가 다를 뿐이다.
+
+실측 후 클러스터는 원상 복구했다 — 노드 레이블 제거(`desired 0`), 임시로 넣은
+DaemonSet 인자 제거. **inotify 상향만 남겼다**(그것은 Falco 와 무관하게 옳다).
+
+#### 교훈
+
+추정을 단정처럼 남기면 다음 사람이 그 지점을 다시 파지 않는다. 이 항목은
+**두 개의 실패가 겹쳐 있었고 기록은 두 번째만 언급**하고 있었다. 첫 번째는
+훨씬 사소하고 훨씬 넓게 영향을 주는 것이었다.
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용
