@@ -4037,6 +4037,50 @@ RANGER_KEYADMIN_PASSWORD  <- ranger-secret/keyadmin-password
 낫다). 근본 해법은 `ranger-admin-install.properties` 를 우리 ConfigMap 으로
 덮어쓰는 것이며, 그때 `authentication_method` 도 함께 정리하면 된다
 (§8-43 의 UNIX/unixauth 불일치).
+
+#### 실행 결과 (2026-09-04)
+
+회전을 실행했다. `changepasswordutil.py` 가 네 계정 모두 `Password updated
+successfully` 를 반환했고, 분리가 확인된다.
+
+```
+admin + admin-password  ->  200
+admin + db-password     ->  401        ← 더 이상 통하지 않는다
+
+DB 해시 (앞 8자)
+  admin          ca9baf3f
+  keyadmin       7ddda9e1
+  rangertagsync  3ec42795
+  rangerusersync a11009c6              ← 넷이 전부 다르다
+```
+
+`ranger-secret` 의 키: `db-password` · `admin-password` · `keyadmin-password` ·
+`tagsync-password` · `usersync-password`.
+
+##### ★ 중간에 usersync 를 잠깐 깨뜨렸다 — 거짓 성공 신호
+
+회전 스크립트가 usersync 의 env 를 `kubectl patch --type=merge` 로 바꾸려 했는데
+실패했다.
+
+```
+The Deployment "ranger-usersync" is invalid:
+  spec.template.spec.containers[0].image: Required value
+deployment "ranger-usersync" successfully rolled out     ← 바로 다음 줄
+```
+
+**전략적 병합 패치로 컨테이너를 이름으로 지목하려면 `image` 를 함께 줘야 한다.**
+없으면 컨테이너 정의를 통째로 대체하는 것으로 해석되어 거부된다.
+
+문제는 그 다음 줄이다. `rollout status` 가 **바뀌지 않은** Deployment 를 보고
+"successfully rolled out" 을 출력했다. 패치 실패와 롤아웃 성공이 나란히 찍혀
+**성공한 것처럼 읽힌다.**
+
+그 사이 `rangerusersync` 의 비밀번호는 이미 바뀌었는데 usersync 는 옛 키를
+쓰고 있었다 — 인증이 끊긴 상태였다. 레포 매니페스트로 다시 적용해 해소했다.
+
+**교훈: 패치 결과를 롤아웃 상태로 판정하지 말 것.** 바뀌었어야 할 값을 직접
+읽어 확인해야 한다. 이 스크립트도 그렇게 고쳤어야 했다 —
+`kubectl apply` 로 매니페스트를 적용하는 편이 애초에 옳다.
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용
