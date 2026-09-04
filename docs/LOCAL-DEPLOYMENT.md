@@ -3844,6 +3844,66 @@ ambient 에서 **워크로드 신원은 ServiceAccount** 다. `default` 를 쓰�
 데서 오는 위험은 남아 있다.**
 
 현재 편입 상태로 유지하는 것은 LDAP 경로(`ds389` · `ranger-usersync`)뿐이다.
+
+### 8-43. Ranger 관리자 자격이 관리되지 않는다 — 아무도 로그인할 수 없다 (2026-09-04)
+
+§8-38 에서 "동기화가 Ranger 까지 닿는지 확인 못 했다" 고 적은 이유가 이것이었다.
+API 가 401 을 돌려준다.
+
+#### 먼저 — 동기화는 되고 있었다
+
+Ranger DB 를 직접 조회해 확인했다.
+
+```
+x_portal_user
+  1 | admin           | 1
+  2 | rangerusersync  | 1
+  3 | keyadmin        | 1
+  4 | rangertagsync   | 1
+  5 | oim-svc         | 1     ← DS389 픽스처
+  6 | ranger-sync     | 1     ← DS389 픽스처
+```
+
+**`oim-svc` 와 `ranger-sync` 가 들어와 있다.** DS389 → usersync → Ranger 경로가
+실제로 동작한다. §8-41 의 ztunnel 로그(usersync → ranger-admin:6080, 7424 바이트)
+에 이은 두 번째 증거이고, 이번 것은 결과물 자체다.
+
+#### 401 의 원인 — 자격이 어디에도 없다
+
+```
+ranger-secret 의 키           : db-password 하나뿐
+ranger-admin 의 env           : POSTGRES_PASSWORD · RANGER_DB_PASSWORD 뿐
+install.properties            : rangerAdmin_password=   (빈 값)
+기동 로그                     : "Ranger all admins default password has already been changed!!"
+기본 자격 시도                : admin:admin → 401,  admin:rangerR0cks! → 401
+```
+
+Ranger 는 첫 설치 때 관리자 비밀번호를 기본값에서 바꿨다고 말하는데, **무엇으로
+바꿨는지는 레포 어디에도 없다.** 매니페스트가 그 값을 주지 않으므로 설치
+스크립트가 만든 값이고, 기록되지 않았다.
+
+#### 이것이 뜻하는 것
+
+- **Ranger UI·API 에 로그인할 수 없다.** 정책을 만들 수도, 조회할 수도 없다
+- 동기화된 사용자·그룹을 확인하려면 **DB 를 직접 봐야 한다**(이 항목이 그렇게 했다)
+- 자동화(정책 as code, CI 검증)를 붙일 접점이 없다
+
+usersync 는 별도 자격(`rangerusersync`)으로 Ranger 에 붙으므로 **동기화 자체는
+영향을 받지 않는다.** 막힌 것은 사람과 도구의 접근이다.
+
+#### 고치려면
+
+`rangerAdmin_password` 를 Secret 에서 주입하고 Ranger 설치를 다시 태워야 한다.
+이미 초기화된 인스턴스라 값만 바꿔서는 반영되지 않는다 — `setup.sh` 재실행
+또는 `x_portal_user.password` 직접 갱신이 필요하고, 후자는 Ranger 버전별
+해시 방식에 의존해 깨지기 쉽다.
+
+**이 항목에서는 고치지 않았다.** Ranger 재구성이 따르는 별건이며, 동기화가
+멈추지 않는다는 점에서 급하지 않다. 다만 **정책을 쓸 수 없는 정책 엔진**은
+장기적으로 의미가 없으므로 남겨 둔다.
+
+> `ranger-secret` 에 `admin-password` 키가 있을 것으로 보고 조회했다가 401 을
+> 받은 것이 §8-38 의 "확인 못 함" 이었다. 키 자체가 없었다.
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용
