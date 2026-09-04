@@ -45,6 +45,10 @@ spec:
             - containerPort: 5140
               name: suricata
               protocol: TCP
+            # ADR-031 — L0-Target 의 Zeek JSON
+            - containerPort: 5141
+              name: zeek
+              protocol: TCP
             - containerPort: 9600
               name: api
               protocol: TCP

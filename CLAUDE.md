@@ -96,7 +96,7 @@ cd scripts/security-verification && ./run-all.sh [namespace]
 0. **오퍼레이터 계층(ArgoCD 밖, `local/install-operators.sh`)** — Istio ambient · ECK · Kyverno · cert-manager · **Tetragon**(eBPF 런타임) · **Trivy Operator**(상시 취약점 스캔) · **Policy Reporter**(결과 집계). Tetragon 은 정적 매니페스트가 없어 `helm template | kubectl apply` 로 **렌더만** 한다 — 클러스터에 Helm 릴리스는 남지 않는다
 1. **Admission** — Kyverno 6정책 (disallow-root, disallow-latest, disallow-privilege-escalation, require-labels, require-probes, require-resources). base는 Audit, prod는 4종만 Enforce
 2. **Network** — default-deny **ingress**(egress 차단 없음) + allow 13종 + Istio AuthorizationPolicy 4종
-3. **Runtime** — Falco DaemonSet(modern_ebpf) → Falcosidekick → Elasticsearch/Kafka. **local 에서는 Falco 가 스케줄되지 않는다** — WSL2 커널에서 modern_ebpf 가 `scap_init` 에 실패해 `nodeSelector: oneinchmarket.local/falco-supported=true` 로 비활성했다(어떤 노드에도 그 레이블이 없다). 대신 Tetragon 이 돈다(ADR-025). Slack 출력은 webhook URL 이 비어 있어 켜지지 않는다. **Falcosidekick 은 `args: ["-c", "/etc/falcosidekick/config.yaml"]` 이 없으면 설정을 읽지 못해 출력이 0개가 된다** — 파드는 Ready 로 보이고 단서는 기동 로그의 `Enabled Outputs: []` 뿐이다(§8-35)
+3. **Runtime** — Falco DaemonSet(modern_ebpf) → Falcosidekick → Elasticsearch/Kafka. **L0 랩은 Suricata(인라인·ET Open 36,818 규칙) · Zeek(포트 미러링) · ntopng 셋을 동시에 돌린다** — Suricata 는 `suricata`, Zeek 는 `zeek` 인덱스로 들어온다(§8-51). **local 에서는 Falco 가 스케줄되지 않는다** — WSL2 커널에서 modern_ebpf 가 `scap_init` 에 실패해 `nodeSelector: oneinchmarket.local/falco-supported=true` 로 비활성했다(어떤 노드에도 그 레이블이 없다). 대신 Tetragon 이 돈다(ADR-025). Slack 출력은 webhook URL 이 비어 있어 켜지지 않는다. **Falcosidekick 은 `args: ["-c", "/etc/falcosidekick/config.yaml"]` 이 없으면 설정을 읽지 못해 출력이 0개가 된다** — 파드는 Ready 로 보이고 단서는 기동 로그의 `Enabled Outputs: []` 뿐이다(§8-35)
 4. **Supply Chain** — CI의 Trivy 3잡 + Cosign 서명. **서명 검증 정책은 없다**
 
 ## 환경별 차이

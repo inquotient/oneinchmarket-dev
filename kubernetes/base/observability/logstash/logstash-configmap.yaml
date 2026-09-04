@@ -44,6 +44,22 @@ data:
       #   RFC5424 헤더를 붙여 줄 전체가 JSON 이 아니다. 헤더 제거는 filter 가
       #   한다 — 여기서 json 코덱을 쓰면 전부 _jsonparsefailure 가 되고
       #   그 실패는 태그로만 남아 조용히 유실된다.
+
+      # ADR-031 — L0-Target 의 Zeek 프로토콜 로그
+      #
+      # ★ Suricata(5140) 와 달리 여기는 json_lines 다. 전송자가 Zeek 의 JSON
+      #   한 줄을 그대로 보내기 때문에 syslog 헤더가 없다.
+      #   전송자는 `zeek_log` 필드(conn·dns·http·ssl…)를 덧붙인다 — Zeek 의
+      #   JSON 자체에는 어느 로그인지가 들어 있지 않다.
+      #
+      # ★ 왜 Zeek 가 L0-Target 에 있나 — OPNsense 저장소에 Zeek 패키지가
+      #   없다(플러그인 210종 중 부재). Hyper-V 포트 미러링으로 OPNsense LAN
+      #   어댑터를 복제해 L0-Target 의 두 번째 NIC(eth1)에 흘린다(§8-51).
+      tcp {
+        port => 5141
+        codec => json_lines
+        add_field => { "[@metadata][pipeline]" => "zeek" }
+      }
       tcp {
         port => 5140
         codec => plain { charset => "UTF-8" }
@@ -121,6 +137,25 @@ data:
             match => ["timestamp", "ISO8601"]
             target => "@timestamp"
             tag_on_failure => ["_suricata_dateparsefailure"]
+          }
+        }
+      }
+
+      # ADR-031 — Zeek 프로토콜 로그
+      #
+      # Suricata EVE 와 겹친다(둘 다 dns·http·tls 를 낸다). 의도된 중복이다 —
+      # 같은 트래픽을 두 엔진이 어떻게 다르게 보는지 비교하는 것이 L0 랩의
+      # 목적 중 하나다. 인덱스를 분리해 두면 나중에 한쪽을 걷어내기 쉽다.
+      else if [@metadata][pipeline] == "zeek" {
+        mutate {
+          add_field => { "[@metadata][target_index]" => "zeek" }
+        }
+        # Zeek 의 ts 는 epoch(초, 소수점) 이다. @timestamp 로 승격한다.
+        if [ts] {
+          date {
+            match => ["ts", "UNIX"]
+            target => "@timestamp"
+            tag_on_failure => ["_zeek_dateparsefailure"]
           }
         }
       }

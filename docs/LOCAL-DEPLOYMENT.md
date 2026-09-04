@@ -4584,6 +4584,114 @@ Suricata EVE 가 이미 flow·http·dns·tls 를 내므로 랩 목적에서는 (
 시리얼은 짧은 확인용으로만 쓸 것. 아울러 OPNsense 의 root 셸은 **csh** 라
 `"...$|..."` 가 `Illegal variable name` 으로 죽는다.
 
+
+### 8-51. Zeek 3안을 전부 구현했다 — 세 경로가 동시에 돈다
+
+§8-50 에서 "Zeek 패키지가 없다"로 끝내고 3안을 제시했는데, **겹치더라도 셋 다
+돌려 비교하기로 결정했다.** 랩의 목적이 비교이므로 중복 자체가 산출물이다.
+
+| 안 | 무엇 | 어디 | 결과 |
+|---|---|---|---|
+| 1 | Suricata EVE 프로토콜 로그 | OPNsense | `suricata` 인덱스 |
+| 2 | Zeek | L0-Target + Hyper-V 포트 미러링 | `zeek` 인덱스 |
+| 3 | ntopng | OPNsense | 자체 UI(3000) · Redis |
+
+#### 1안 — 켜는 것만으로는 밖으로 나가지 않았다
+
+EVE http/tls 를 켜니 `eve.json` 에는 곧바로 들어왔다. 그런데 Elasticsearch 에는
+여전히 `alert` 만 왔다.
+
+원인: 생성된 `suricata.yaml` 에 eve-log 출력이 **둘**이다.
+
+```
+1) 파일(eve.json)  : alert · anomaly · http · tls · drop · ssh
+2) syslog          : alert 만          <- Logstash 로 가는 것은 이쪽
+```
+
+**GUI 에는 2)의 types 를 바꾸는 항목이 없다.** `conf.d/eve-syslog.yaml` 로
+`outputs` 를 통째로 대체해 해결했다.
+
+★ `include` 는 리스트를 병합하지 않고 **대체**한다. 일부만 적을 수 없어
+outputs 전체를 옮겨야 했다. 버전을 올리면 원본과 어긋날 수 있는 부채다.
+
+★ 첫 시도는 **Suricata 가 아예 기동하지 않았다** — 파일이 `%YAML 1.1` + `---`
+로 시작하지 않아서다. `installed_rules.yaml` 과 같은 제약인데, 이번에도
+`configctl ids restart` 는 조용히 넘어가고 `service suricata status` 만
+"not running" 이었다.
+
+#### 2안 — Gen2 라 무중단으로 됐다
+
+L0-Target 이 Gen2 여서 NIC 핫애드가 됐다(OPNsense 는 Gen1 이라 안 된다).
+VM 을 내리지 않고 미러 NIC 을 붙였다.
+
+```
+Set-VMNetworkAdapter -VMName L0-OPNsense -Name LAN    -PortMirroring Source
+Set-VMNetworkAdapter -VMName L0-Target   -Name MIRROR -PortMirroring Destination
+```
+
+**먼저 미러가 실제로 패킷을 주는지 tcpdump 로 확인하고** Zeek 를 깔았다 —
+안 되는 상태에서 설치부터 하면 원인이 둘로 늘어난다. 40패킷이 잡혔다.
+
+Zeek 8.2.2 (OBS `security:zeek`). 메타패키지 `zeek` 은 `zeek-btest-data`·
+`zeek-spicy-dev` 를 끌어오는데 그 둘이 미러 리다이렉트 해석 실패로 죽었다 —
+`zeek-core` + `zeekctl` 로 충분하다.
+
+전송은 직접 만든 `zeek-ship.py` 다. Filebeat 를 쓰지 않은 이유는 저장소를 하나
+더 붙여야 하는 것과, **Zeek JSON 에는 어느 로그인지가 들어 있지 않다**는 점이다
+(conn/dns/http 가 같은 모양이다). 파일명을 아는 쪽에서 `zeek_log` 를 넣는다.
+로그 회전 시 inode 변경을 감지해 다시 연다 — 그러지 않으면 조용히 멈춘다.
+
+★ **포트포워딩만으로는 안 됐다.** 5141 은 `netsh portproxy` 를 넣었는데도
+`timed out` 이었다. 5140 에는 방화벽 규칙이 있었고 5141 에는 없었다.
+호스트 방화벽 규칙까지 넣어야 경로가 열린다.
+
+#### 3안 — 모델을 손으로 만들면 안 된다
+
+ntopng 은 Redis 없이는 기동하지 않는다(`ntopng requires redis server`).
+`os-redis` 를 함께 깔았다.
+
+★★ `config.xml` 에 `<redis><general><enabled>1` 을 손으로 넣었더니 템플릿
+렌더가 죽었다:
+
+```
+error generating template OPNsense/Redis :
+  'collections.OrderedDict object' has no attribute 'slowlog'
+```
+
+모델에 필드가 많아 하나라도 빠지면 이렇게 된다. `run_migrations.php` 도
+노드를 만들어 주지 않는다 — **OPNsense 는 모델을 저장할 때** 기본값으로
+노드를 만든다. GUI 가 하는 일을 그대로 하는 PHP 스크립트
+(`enable-redis.php`: 모델 인스턴스 → 검증 → serializeToConfig → save)로
+해결했다. **헤드리스 OPNsense 조작의 일반 해법이다.**
+
+#### 실측 비교 (같은 트래픽)
+
+```
+suricata   dns 3306 · flow 1523 · tls 806 · http 96 · ssh 51 · alert 9
+zeek       conn 242 · dns 148 · ssl 109 · weird 25 · ntp 12 · http 7
+Ready 79/79
+```
+
+건수 차이는 우열이 아니다. Suricata 는 인라인(netmap)으로 모든 패킷을 보고
+Zeek 는 미러를 통해 본다. Zeek 의 `conn` 이 Suricata 의 `flow` 에 대응하고,
+Zeek 는 `weird`(프로토콜 이상)처럼 Suricata 에 없는 로그를 낸다.
+**둘을 함께 두는 값어치는 이 차이를 보는 데 있다** — 그것이 겹치더라도 셋 다
+돌리기로 한 이유다.
+
+#### 자원
+
+```
+OPNsense  6 GB : Suricata 1.2 GB + ntopng + redis, 여유 3.5 GB
+L0-Target 2 GB -> 4 GB(동적 최대). Zeek + 전송기.
+디스크    OPNsense 12 G 여유 · Target 19 G 여유
+```
+
+#### 이번에도 반복된 것
+
+★ **"켰다"와 "도달한다"는 다르다.** 1안은 설정을 켜고도 밖으로 나가지 않았고,
+2안은 포트포워딩을 넣고도 방화벽에서 막혔다. §8-50 의 port-forward 와 같은
+부류이고, 이 랩에서만 세 번째다. **경로는 끝단에서 확인해야 한다.**
+
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용

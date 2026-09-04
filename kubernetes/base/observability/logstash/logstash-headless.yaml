@@ -19,6 +19,11 @@ spec:
       targetPort: suricata
       protocol: TCP
       name: suricata
+    # ADR-031 — L0-Target 의 Zeek JSON
+    - port: 5141
+      targetPort: zeek
+      protocol: TCP
+      name: zeek
     - port: 9600
       targetPort: api
       protocol: TCP

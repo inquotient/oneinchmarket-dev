@@ -222,20 +222,138 @@ nohup sudo k3s kubectl -n local port-forward --address 0.0.0.0 \
 확인은 인덱스의 **최신 문서 시각**으로 한다. 건수만 보면 과거 데이터 때문에
 멈춘 것을 알 수 없다.
 
-## Zeek — OPNsense 26.7 에는 패키지가 없다
 
-`pkg search zeek` 결과 0건, 플러그인 210종 중에도 없다(`os-ntopng` 이
-그나마 인접하다). 선택지는 셋이다:
+## Zeek — 3안을 모두 구현했다 (2026-09-04)
 
-| 안 | 내용 |
-|---|---|
-| 도입하지 않는다 | Suricata EVE 가 이미 flow·http·dns·tls 이벤트를 낸다. L0 랩 목적에는 중복이 크다 |
-| L0-Target 에서 돌린다 | Ubuntu 이므로 패키지가 있다. 다만 트래픽을 미러링해 줘야 한다 |
-| `os-ntopng` | 플로우 가시성은 얻지만 Zeek 의 프로토콜 로그와는 다른 물건이다 |
+`pkg search zeek` 는 0건이다. OPNsense 26.7 에 Zeek 패키지는 없다.
+그래서 선택지를 셋으로 정리했는데, **겹치더라도 셋 다 돌려 비교하기로 했다.**
+현재 세 경로가 동시에 살아 있다.
 
-**미결정 — 사용자 판단이 필요하다.** 이 문서의 제목이 "OPNsense · Suricata ·
-Zeek" 인 것은 초기 계획이며, Zeek 부분은 아직 근거가 채워지지 않았다.
+| 안 | 무엇 | 어디 | Elasticsearch |
+|---|---|---|---|
+| 1 | Suricata EVE 프로토콜 로그 | OPNsense | `suricata` 인덱스 |
+| 2 | Zeek | L0-Target(Ubuntu) + 포트 미러링 | `zeek` 인덱스 |
+| 3 | ntopng | OPNsense | (자체 UI · Redis) |
 
+### 1안 — Suricata EVE 의 http·tls 를 켠다
+
+GUI 의 IDS > Administration > Logging 에서 EVE http/tls 를 켜는 것에 해당한다.
+헤드리스로는 `suricata/enable-eve-protocols.py` 를 쓴다.
+
+```sh
+scp suricata/enable-eve-protocols.py root@10.77.0.1:/tmp/
+ssh root@10.77.0.1 'python3 /tmp/enable-eve-protocols.py'
+ssh root@10.77.0.1 'configctl template reload OPNsense/IDS && configctl ids restart'
+```
+
+★★ **이것만으로는 방화벽 밖으로 나가지 않는다.** 생성된 `suricata.yaml` 에는
+eve-log 출력이 **둘** 있다:
+
+```
+1) 파일(eve.json)  : alert · anomaly · http · tls · drop · ssh
+2) syslog          : alert 만
+```
+
+Logstash 로 가는 것은 2)뿐이고, **GUI 에는 2)의 types 를 바꾸는 항목이 없다.**
+그래서 `suricata/eve-syslog.yaml` 을 `conf.d/` 에 넣어 `outputs` 를 통째로
+대체한다.
+
+```sh
+scp suricata/eve-syslog.yaml root@10.77.0.1:/usr/local/etc/suricata/conf.d/
+ssh root@10.77.0.1 'configctl template reload OPNsense/IDS && configctl ids restart'
+```
+
+★ `include` 는 리스트를 **병합하지 않고 대체**한다. 일부만 적을 수 없어
+outputs 전체를 옮겨야 한다. OPNsense 를 올리면 원본이 바뀔 수 있으므로
+그때 이 파일을 다시 맞춰야 한다 — 그 대가를 알고 쓰는 것이다.
+
+★ 파일이 `%YAML 1.1` 과 `---` 로 시작하지 않으면 Suricata 가 include 를
+거부하고 **기동하지 않는다.** `installed_rules.yaml` 과 같은 제약이다.
+
+### 2안 — L0-Target 에서 Zeek + Hyper-V 포트 미러링
+
+L0-Target 은 **Gen2** 라 NIC 핫애드가 된다. VM 을 내리지 않아도 된다.
+
+```powershell
+Set-VMMemory        -VMName L0-Target -MaximumBytes 4GB      # 2GB 로는 빠듯하다
+Add-VMNetworkAdapter -VMName L0-Target -Name MIRROR -SwitchName L0-LAN
+Set-VMNetworkAdapter -VMName L0-Target   -Name MIRROR -PortMirroring Destination
+Set-VMNetworkAdapter -VMName L0-OPNsense -Name LAN    -PortMirroring Source
+```
+
+게스트에서 `eth1` 로 올라온다. IP 를 주지 않고 promisc 로만 쓴다.
+
+```sh
+# Zeek 는 Ubuntu 기본 저장소에 없다. Zeek 프로젝트가 안내하는 OBS 저장소를 쓴다.
+curl -fsSL https://download.opensuse.org/repositories/security:zeek/xUbuntu_24.04/Release.key \
+  | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/security_zeek.gpg > /dev/null
+echo 'deb http://download.opensuse.org/repositories/security:/zeek/xUbuntu_24.04/ /' \
+  | sudo tee /etc/apt/sources.list.d/security-zeek.list > /dev/null
+sudo apt-get update && sudo apt-get install -y zeek-core zeekctl
+```
+
+★ 메타패키지 `zeek` 은 `zeek-btest-data`·`zeek-spicy-dev` 까지 끌어오는데
+그 두 개가 미러 리다이렉트에서 해석 실패로 죽었다. `zeek-core` 로 충분하다.
+
+전송은 `zeek/zeek-ship.py` 가 한다. Filebeat 를 쓰지 않는 이유는 저장소를
+하나 더 붙여야 하는 것과, **Zeek 의 JSON 에는 어느 로그인지가 들어 있지
+않다**는 점이다(conn/dns/http 가 같은 모양이다). 파일명을 아는 쪽에서
+`zeek_log` 를 넣어 준다.
+
+```sh
+scp zeek/zeek-ship.py ubuntu@10.77.0.191:/tmp/
+scp zeek/install-zeek-units.sh ubuntu@10.77.0.191:/tmp/
+ssh ubuntu@10.77.0.191 'sudo install -m755 /tmp/zeek-ship.py /usr/local/bin/ && bash /tmp/install-zeek-units.sh'
+```
+
+`zeek-capture.service` 와 `zeek-ship.service` 로 상주한다(재부팅 후에도 뜬다).
+
+★ 호스트 쪽에 **포트포워딩과 방화벽 규칙이 둘 다** 필요하다. 5140 은 이미
+있었지만 5141 은 방화벽 규칙이 없어 `timed out` 이었다 — netsh 항목만 넣고
+끝내면 실패한다.
+
+```powershell
+netsh interface portproxy add v4tov4 listenaddress=10.77.0.190 listenport=5141 `
+      connectaddress=127.0.0.1 connectport=5141
+New-NetFirewallRule -DisplayName "L0-Lab Zeek 5141" -Direction Inbound -Protocol TCP `
+      -LocalPort 5141 -RemoteAddress 10.77.0.0/24 -Action Allow
+```
+
+### 3안 — ntopng
+
+```sh
+ssh root@10.77.0.1 'pkg install -y os-ntopng os-redis'
+scp enable-redis.php root@10.77.0.1:/tmp/ && ssh root@10.77.0.1 'php /tmp/enable-redis.php'
+ssh root@10.77.0.1 'service redis start && service ntopng start'
+# UI: http://10.77.0.1:3000
+```
+
+★ ntopng 은 Redis 가 없으면 기동하지 않는다(`ntopng requires redis server`).
+`os-redis` 를 함께 깔아야 한다.
+
+★★ **config.xml 을 손으로 만들면 안 된다.** 모델에 필드가 많아
+(`slowlog` 등) 빠뜨리면 템플릿 렌더가 이렇게 죽는다:
+
+```
+error generating template OPNsense/Redis :
+  'collections.OrderedDict object' has no attribute 'slowlog'
+```
+
+`run_migrations.php` 도 노드를 만들어 주지 않는다 — OPNsense 는 **모델을
+저장할 때** 기본값으로 노드를 만든다. `enable-redis.php` 가 GUI 가 하는 일을
+그대로 한다(모델 인스턴스 → 검증 → serializeToConfig → save).
+
+### 실측 비교 (같은 트래픽, 2026-09-04)
+
+```
+suricata 인덱스   dns 3306 · flow 1523 · tls 806 · http 96 · ssh 51 · alert 9
+zeek     인덱스   conn 242 · dns 148 · ssl 109 · weird 25 · ntp 12 · http 7
+```
+
+건수 차이는 우열이 아니다 — Suricata 는 미러 없이 인라인(netmap)으로 모든
+패킷을 보고, Zeek 는 미러를 통해 본다. 또 Zeek 의 `conn` 은 Suricata 의
+`flow` 에 대응하고, Zeek 는 `weird`(프로토콜 이상)처럼 Suricata 에 없는
+로그를 낸다. **둘을 함께 두는 값어치는 이 차이를 보는 데 있다.**
 ## 검증 항목
 
 | 항목 | 이것이 답하는 질문 |
