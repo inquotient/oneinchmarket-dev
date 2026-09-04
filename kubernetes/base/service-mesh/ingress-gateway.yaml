@@ -1,0 +1,171 @@
+# 외부 진입점 — Istio Gateway (Gateway API)
+#
+# ★ 왜 nginx-ingress·traefik 이 아니라 Istio 인가
+#   메시가 이미 Istio(ambient)다. Istio Gateway 를 쓰면 신원·mTLS·
+#   AuthorizationPolicy 가 **게이트웨이까지 연속**된다. 다른 컨트롤러를 넣으면
+#   메시 밖 홉이 하나 생기고 그 구간만 정책이 다른 상태가 된다.
+#   GatewayClass `istio` 는 이미 등록되어 있다(Gateway API CRD 5종 설치됨).
+#
+# ★★ 이것은 "외부 트래픽을 받기 위한 것"만이 아니다. **API 과금의 전제 부품**이다.
+#   호출을 세려면 L7 프록시가 요청 경로에 있어야 하는데, ztunnel 은 L4 라
+#   요청 단위가 보이지 않고 waypoint 는 떠 있어도 use-waypoint 워크로드가
+#   0개다. 지금 이 클러스터에는 계량 지점이 하나도 없다.
+#   계량 지점을 나중에 바꾸면 이벤트 스키마와 이미 청구한 이력이 함께
+#   흔들리므로 먼저 고정한다 — contracts/asyncapi/api-usage.yaml 참조.
+---
+# 1) 자체 서명 루트 — 로컬은 공인 DNS 가 없어 ACME 를 쓸 수 없다.
+#    Wazuh 인증서(selfsigned -> CA -> 리프)와 같은 패턴이다. 이 레포에서
+#    cert-manager 가 실제로 검증된 유일한 경로다.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: gateway-selfsigned
+  labels:
+    app.kubernetes.io/name: gateway-selfsigned
+    app.kubernetes.io/component: service-mesh
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: gateway-ca
+  labels:
+    app.kubernetes.io/name: gateway-ca
+    app.kubernetes.io/component: service-mesh
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  isCA: true
+  commonName: oneinchmarket-gateway-ca
+  secretName: gateway-ca-cert
+  duration: 43800h    # 5년. 랩 루트라 회전 부담을 줄인다
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: gateway-selfsigned
+    kind: Issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: gateway-ca
+  labels:
+    app.kubernetes.io/name: gateway-ca
+    app.kubernetes.io/component: service-mesh
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  ca:
+    secretName: gateway-ca-cert
+---
+# 2) 리프 인증서. Gateway 의 listener 가 이 Secret 을 참조한다.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: gateway-tls
+  labels:
+    app.kubernetes.io/name: gateway-tls
+    app.kubernetes.io/component: service-mesh
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  secretName: gateway-tls-cert
+  duration: 2160h       # 90일
+  renewBefore: 360h     # 15일 전 갱신
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  # ★ SAN 을 넉넉히 잡는다. DS389 인증서가 SAN 하나뿐이라 겪은 문제(§8-38)를
+  #   되풀이하지 않는다 — 나중에 호스트를 늘릴 때 인증서를 다시 발급하고
+  #   게이트웨이를 재시작해야 하는 상황을 피한다.
+  dnsNames:
+    - api.oneinchmarket.local
+    - kibana.oneinchmarket.local
+    - grafana.oneinchmarket.local
+    - ranger.oneinchmarket.local
+    - akhq.oneinchmarket.local
+  issuerRef:
+    name: gateway-ca
+    kind: Issuer
+---
+# 3) Gateway 본체
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: ingress
+  labels:
+    app.kubernetes.io/name: ingress-gateway
+    app.kubernetes.io/component: service-mesh
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    # ★ k3s 에서 servicelb 를 껐다. type=LoadBalancer 로 두면 Service 가
+    #   영원히 Pending 이고 게이트웨이에 도달할 방법이 없다. NodePort 로 받는다.
+    networking.istio.io/service-type: NodePort
+spec:
+  gatewayClassName: istio
+  listeners:
+    - name: https
+      port: 443
+      protocol: HTTPS
+      hostname: "*.oneinchmarket.local"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: gateway-tls-cert
+      allowedRoutes:
+        namespaces:
+          from: Same
+    # ★ 평문 리스너를 열되 리다이렉트 전용이다. 과금 대상 API 가 평문으로
+    #   흐르면 자격이 그대로 샌다.
+    - name: http
+      port: 80
+      protocol: HTTP
+      hostname: "*.oneinchmarket.local"
+      allowedRoutes:
+        namespaces:
+          from: Same
+---
+# 4) HTTP -> HTTPS 리다이렉트
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: https-redirect
+  labels:
+    app.kubernetes.io/component: service-mesh
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  parentRefs:
+    - name: ingress
+      sectionName: http
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301
+---
+# 5) 과금 대상 API. 계량은 이 경로를 지나는 요청을 센다.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: api
+  labels:
+    app.kubernetes.io/component: service-mesh
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  parentRefs:
+    - name: ingress
+      sectionName: https
+  hostnames:
+    - api.oneinchmarket.local
+  rules:
+    - backendRefs:
+        - name: cmmn-api-headless
+          port: 8080

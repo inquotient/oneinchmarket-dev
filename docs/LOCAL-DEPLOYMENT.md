@@ -4796,6 +4796,107 @@ Ready 79/79 · ztunnel 정책 거부 2건(재시작 경합, 같은 파드의 정
 Cilium 쪽 전제를 함께 옮기지 않았다. 두 계층이 같은 통신을 각자 통제하는
 구조에서는 한쪽만 고치면 반드시 이런 일이 난다 — 이 문서에서 세 번째다.
 
+
+### 8-53. 외부 진입점을 세우고 API 과금 계량을 계약으로 고정했다
+
+요건: **외부 고객에게 인보이스를 발행한다.** 외부 트래픽 수용은 나중이라고
+했으나, 검토해 보니 **게이트웨이가 과금의 전제 부품**이라 순서가 뒤집혔다.
+
+#### 왜 게이트웨이가 먼저였나
+
+API 호출을 세려면 L7 프록시가 요청 경로에 있어야 한다. 그런데 이 클러스터에는
+계량 지점이 **하나도 없었다**:
+
+- `ztunnel` 은 L4 다. 바이트·커넥션만 보이고 요청 단위가 보이지 않는다.
+- `waypoint` 는 파드가 떠 있으나 `istio.io/use-waypoint` 워크로드가 **0개**다.
+  배포만 되고 아무 트래픽도 지나지 않는다.
+- Ingress 12개가 있으나 전부 OpenReplay 것이고 `ingressClassName: openreplay`
+  인데 **그런 IngressClass 도 컨트롤러도 없다.** 주소도 `<none>` 이다.
+  (CLAUDE.md 의 "Ingress 객체 0개" 도, "Gateway API CRD 가 설치되지 않아" 도
+  둘 다 낡은 서술이었다 — CRD 5종과 GatewayClass 3종이 이미 있다.)
+
+그리고 계량 지점을 나중에 바꾸면 이벤트 스키마와 **이미 청구한 이력**이 함께
+흔들린다. 청구는 소급 재해석이 불가능한 데이터다.
+
+#### 세운 것
+
+```
+Gateway(istio) + NodePort 30727/31938 + cert-manager TLS
+  HTTPRoute api        api.oneinchmarket.local -> cmmn-api:8080
+  HTTPRoute redirect   80 -> 443 (301)
+Telemetry api-usage -> meshConfig extensionProvider(api-usage-json)
+```
+
+★ `networking.istio.io/service-type: NodePort` 가 필수다. k3s 에서 servicelb 를
+껐으므로 LoadBalancer 로 두면 Service 가 영원히 Pending 이고 도달할 방법이 없다.
+
+검증:
+
+```
+Programmed=True · 인증서 Ready · SAN 5개
+HTTPS  /actuator/health -> 200 {"status":"UP"}
+HTTP   -> 301 https://...
+호스트 불일치 -> 404
+```
+
+#### 계약을 먼저 고정했다
+
+```
+contracts/schemas/api-usage-event.json   CloudEvents 1.0 페이로드
+contracts/asyncapi/api-usage.yaml        채널 계약
+```
+
+`contracts/` 는 ADR-067 이 계약 우선을 규정해 두고도 **비어 있었다.** 과금이
+첫 입주자가 됐다.
+
+청구 정확성에 직결되는 세 가지를 계약에 박았다.
+
+1. **멱등성** — Kafka 는 at-least-once 다. `id`(Envoy `x-request-id`)로 중복을
+   제거하지 않으면 **고객에게 과다 청구한다.**
+2. **관측 시각** — `time` 이 청구 주기 귀속을 정한다. 수집 시각이 아니다.
+3. **결과와 무관하게 전부 낸다** — `status` 를 실어 미터가 고르게 한다. 5xx
+   청구는 방어할 수 없고, 4xx 청구 여부는 **요금제가 정할 문제이지 계량기가
+   정할 문제가 아니다.**
+
+#### 함정 둘
+
+★ **`logFormat.labels` 를 쓰면 안 된다.** 값이 전부 문자열이 되어 `status` 가
+`"200"` 으로 나가고 스키마를 깬다. `text` 에 원시 JSON 을 넣어야 정수가 정수로
+나간다. 계약이 정수를 요구하는데 계량기가 문자열을 내면 파서가 조용히 어긋난다.
+
+★ **meshConfig 는 ConfigMap 안의 YAML 문자열**이라 `kubectl patch` 로 문자열
+조작을 하면 깨진다. 파싱해서 병합하는 스크립트를 따로 뒀다
+(`local/configure-istio-usage-logging.sh`). 작성 중 `python3 - <<PY <<<"$cur"`
+로 stdin 리다이렉션을 둘 두어 **YAML 이 파이썬 스크립트로 읽히는** 실수를 한 번
+했다 — 뒤엣것이 이긴다.
+
+#### 실측 — 계약대로 나온다
+
+```json
+{"specversion":"1.0","id":"f8b9880b-e6e8-4f40-b13e-39b44547d604",
+ "source":"//gateway.oneinchmarket.local/istio",
+ "type":"io.oneinchmarket.api.request.v1","subject":"acme-corp",
+ "time":"2026-09-04T18:18:16.724Z","datacontenttype":"application/json",
+ "data":{"route":"local.api.0","method":"GET","status":200,
+         "duration_ms":3,"request_bytes":0,"response_bytes":49}}
+```
+
+스키마 검증 **3/3 통과**, 멱등성 키 **3/3 유일**.
+
+#### 아직 안 된 것 — 이대로는 과금에 쓸 수 없다
+
+★★ **`subject` 를 클라이언트가 보내는 헤더에서 그대로 읽는다.** Keycloak JWT 의
+테넌트 클레임을 게이트웨이가 검증해 내려주는 배선이 없다. 지금은 아무나
+`X-OIM-Tenant: 남의회사` 를 보내면 그 회사에 청구된다. **이것을 고치기 전에는
+계량 결과를 인보이스에 쓰면 안 된다**(ADR-071 미결).
+
+- 액세스 로그 → Kafka `api-usage` 다리도 아직 없다(형식이 확정됐으므로 이제
+  만들 수 있다).
+- 계량 백엔드 미정(ADR-072). OpenMeter 가 유력하나 **차트를 찾지 못해 배포
+  규모를 검증하지 못했다.** ADR-069 가 OpenReplay 에 요구한 규율을 여기에도
+  적용해 보류했다. 노드 메모리 requests 가 **88%** 인 것도 이유다.
+- ClickHouse 범위(ADR-070)와 충돌하므로 개정 여부를 함께 정해야 한다(ADR-073).
+
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용

@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oneinchmarket.co.kr/schemas/api-usage-event/v1",
+  "title": "API Usage Event (CloudEvents 1.0)",
+  "description": "외부 고객에게 인보이스를 발행하기 위한 API 호출 계량 이벤트. CloudEvents 1.0 봉투를 쓴다 — 계량 백엔드(OpenMeter 등)를 나중에 바꾸더라도 이 계약은 유지된다.",
+  "type": "object",
+  "required": ["specversion", "id", "source", "type", "subject", "time", "data"],
+  "additionalProperties": false,
+  "properties": {
+    "specversion": { "const": "1.0" },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "★ 멱등성 키다. 청구의 정확성이 여기에 달려 있다. Kafka 는 at-least-once 이므로 같은 이벤트가 반드시 두 번 이상 온다 — 소비자는 이 값으로 중복을 제거해야 한다. 값의 출처는 Envoy 의 x-request-id 다(요청당 유일). 애플리케이션이 직접 발행할 때도 요청당 유일한 값을 써야 하며, 타임스탬프나 순번을 쓰지 말 것."
+    },
+    "source": {
+      "type": "string",
+      "format": "uri-reference",
+      "description": "이벤트를 낸 계량 지점. 예: //gateway.oneinchmarket.co.kr/istio. 어느 지점에서 셌는지가 분쟁 시 근거가 된다."
+    },
+    "type": {
+      "type": "string",
+      "enum": ["io.oneinchmarket.api.request.v1"],
+      "description": "버전을 타입에 박는다. 스키마가 바뀌면 v2 를 새로 내고 둘을 병행한다 — 청구 이력을 소급 재해석하지 않기 위해서다."
+    },
+    "subject": {
+      "type": "string",
+      "minLength": 1,
+      "description": "★ 청구 대상. Keycloak 의 조직/테넌트 식별자를 쓴다(사용자 sub 가 아니다 — 사람이 바뀌어도 청구 주체는 유지되어야 한다). 개인식별정보를 넣지 말 것."
+    },
+    "time": {
+      "type": "string",
+      "format": "date-time",
+      "description": "★ 관측 시각이다. 수집 시각이 아니다. 청구 주기 경계(월말)에서 어느 달에 속하는지를 이 값이 정한다. 게이트웨이 시계가 틀어지면 청구가 틀어지므로 NTP 동기화가 전제다."
+    },
+    "datacontenttype": { "const": "application/json" },
+    "data": {
+      "type": "object",
+      "required": ["route", "method", "status", "duration_ms"],
+      "additionalProperties": false,
+      "properties": {
+        "route": {
+          "type": "string",
+          "description": "정규화된 경로 템플릿(예: /v1/orders/{id}). ★ 원본 경로를 그대로 넣지 말 것 — 카디널리티가 폭발하고 경로에 식별자가 섞여 들어온다."
+        },
+        "method": { "type": "string", "enum": ["GET","POST","PUT","PATCH","DELETE","HEAD","OPTIONS"] },
+        "status": {
+          "type": "integer", "minimum": 100, "maximum": 599,
+          "description": "★ 이벤트는 결과와 무관하게 전부 낸다. 대신 이 값을 실어 미터가 골라 쓰게 한다. 5xx(우리 잘못)를 청구하는 것은 방어할 수 없고, 4xx 를 청구할지는 요금제가 정할 문제이지 계량기가 정할 문제가 아니다."
+        },
+        "duration_ms": { "type": "number", "minimum": 0 },
+        "request_bytes": { "type": "integer", "minimum": 0 },
+        "response_bytes": { "type": "integer", "minimum": 0 },
+        "api_product": {
+          "type": "string",
+          "description": "요금제가 묶는 단위. 경로보다 거칠고 안정적이라 가격표가 경로 변경에 흔들리지 않는다."
+        }
+      }
+    }
+  }
+}

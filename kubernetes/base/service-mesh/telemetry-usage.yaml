@@ -1,0 +1,38 @@
+# API 과금 계량 — 게이트웨이 액세스 로그를 계약 형태로 낸다.
+#
+# ★ 형식이 계약이다. contracts/schemas/api-usage-event.json 과 필드가
+#   1:1 로 대응해야 하고, 어긋나면 청구가 어긋난다. 바꿀 때는 계약을 먼저
+#   고치고 여기를 따라오게 할 것(ADR-067 계약 우선).
+#
+# ★ 지금은 stdout 으로 낸다. Kafka(api-usage 토픽)로 보내는 다리는 다음
+#   증분이다 — 형식이 확정되어야 그 다리를 만들 수 있고, 형식이 흔들리면
+#   이미 청구한 이력을 재해석할 수 없기 때문이다.
+#
+# ★★ 멱등성 키는 `%REQ(X-REQUEST-ID)%` 다. Envoy 가 요청마다 유일하게
+#   발급한다. Kafka 는 at-least-once 라 같은 이벤트가 반드시 두 번 이상
+#   오고, 이 키로 중복을 제거하지 않으면 **고객에게 과다 청구한다.**
+#
+# ★ `route` 는 정규화된 이름(HTTPRoute 이름)을 쓴다. 원본 경로를 그대로
+#   넣으면 카디널리티가 폭발하고 경로에 섞인 식별자가 청구 데이터로 샌다.
+apiVersion: telemetry.istio.io/v1
+kind: Telemetry
+metadata:
+  name: api-usage
+  labels:
+    app.kubernetes.io/name: api-usage-telemetry
+    app.kubernetes.io/component: service-mesh
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  # 게이트웨이에만 건다. 메시 전체에 걸면 내부 호출까지 계량되어
+  # 청구 대상이 아닌 트래픽이 섞인다.
+  selector:
+    matchLabels:
+      gateway.networking.k8s.io/gateway-name: ingress
+  accessLogging:
+    - providers:
+        - name: api-usage-json
+      # 5xx 도 낸다. 이벤트는 전부 내고 무엇을 청구할지는 미터가 고른다 —
+      # 계량기가 요금 정책을 품으면 정책을 바꿀 때 과거를 재계산할 수 없다.
+      filter:
+        expression: "true"

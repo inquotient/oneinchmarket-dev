@@ -397,6 +397,150 @@ IngressClass 가 0개라 SafeLine 앞단에 트래픽이 없다. 실증된 것�
 
 ---
 
+
+### ADR-071 — 외부 진입점으로 Istio Gateway 채택 (API 과금의 계량 지점을 겸한다)
+**상태: `Accepted`** (2026-09-05)
+
+**결정** — 외부 진입점을 **Istio Gateway(Gateway API)** 로 세운다. nginx-ingress ·
+traefik 을 넣지 않는다.
+
+**근거**
+
+- 메시가 이미 Istio ambient 다. Istio Gateway 를 쓰면 신원·mTLS·
+  AuthorizationPolicy 가 **게이트웨이까지 연속**된다. 다른 컨트롤러를 넣으면
+  메시 밖 홉이 하나 생기고 그 구간만 정책이 다른 상태가 된다.
+- GatewayClass `istio` 와 Gateway API CRD 5종이 **이미 설치되어 있다.**
+  (CLAUDE.md Gotcha 2 의 "Gateway API CRD 가 설치되지 않아" 는 낡은 서술이었다.)
+- cert-manager 가 이미 검증된 경로다(Wazuh selfsigned -> CA -> 리프).
+
+**★ 외부 트래픽보다 과금이 먼저 요구했다.** API 호출을 세려면 L7 프록시가 요청
+경로에 있어야 하는데, ztunnel 은 L4 라 요청 단위가 보이지 않고 waypoint 는
+파드만 떠 있고 `use-waypoint` 워크로드가 0개였다. **계량 지점이 하나도 없었다.**
+그리고 계량 지점을 나중에 바꾸면 이벤트 스키마와 **이미 청구한 이력**이 함께
+흔들린다. 그래서 외부 트래픽 수용 계획보다 앞서 세웠다.
+
+**구현**
+
+```
+kubernetes/base/service-mesh/ingress-gateway.yaml   Gateway · TLS · HTTPRoute
+kubernetes/base/service-mesh/telemetry-usage.yaml   계량 액세스 로그
+local/configure-istio-usage-logging.sh              meshConfig 제공자
+```
+
+- k3s 에서 servicelb 를 껐으므로 `networking.istio.io/service-type: NodePort` 로
+  받는다. LoadBalancer 로 두면 Service 가 영원히 Pending 이다.
+- 평문 80 은 리다이렉트 전용이다. 과금 대상 API 가 평문으로 흐르면 자격이 샌다.
+- 인증서 SAN 을 5개 호스트로 넉넉히 잡았다 — DS389 가 SAN 하나뿐이라 겪은
+  문제(§8-38)를 되풀이하지 않기 위해서다.
+
+**미결**
+
+- `subject`(청구 대상)를 `X-OIM-Tenant` 헤더에서 읽는다. **Keycloak JWT 의
+  테넌트 클레임을 게이트웨이가 이 헤더로 내려주는 배선이 아직 없다.**
+  지금은 클라이언트가 보내는 값을 그대로 믿는 상태이므로 **과금에 쓸 수 없다.**
+- ArgoCD AppProject 가 `gateway.networking.k8s.io` 를 화이트리스트하지 않아
+  dev/prod 승격 시 sync 가 거부된다.
+
+---
+
+### ADR-072 — API 과금 계량: 계약을 먼저 고정하고 백엔드는 보류한다
+**상태: `Accepted (계약)` · `Open (백엔드)`** (2026-09-05)
+
+**결정** — 외부 고객 인보이스를 전제로 **사용량 이벤트 계약을 먼저 확정한다.**
+계량 백엔드(OpenMeter 등)는 아직 고르지 않는다.
+
+```
+contracts/schemas/api-usage-event.json   CloudEvents 1.0 페이로드
+contracts/asyncapi/api-usage.yaml        채널 계약
+```
+
+**왜 계약이 먼저인가** — 청구는 소급 재해석이 불가능한 데이터다. 계량 지점이나
+스키마를 나중에 바꾸면 이미 발행한 인보이스의 근거가 흔들린다. CloudEvents 봉투를
+쓰는 이유도 같다 — 백엔드를 바꿔도 발행 측과 계약은 그대로 둔다.
+
+**청구 정확성에 직결되는 세 가지**(계약에 명시)
+
+1. **멱등성** — Kafka 는 at-least-once 다. `id`(Envoy `x-request-id`)로 중복을
+   제거하지 않으면 **고객에게 과다 청구한다.**
+2. **관측 시각** — `time` 이 청구 주기 귀속을 정한다. 수집 시각이 아니다.
+3. **결과와 무관하게 전부 낸다** — `status` 를 실어 미터가 고르게 한다.
+   5xx(우리 잘못) 청구는 방어할 수 없고, 4xx 청구 여부는 요금제가 정할 문제이지
+   계량기가 정할 문제가 아니다.
+
+**실측 검증** — 게이트웨이가 낸 이벤트 3건이 스키마 검증을 통과했고 멱등성 키가
+전부 유일했다.
+
+```json
+{"specversion":"1.0","id":"f8b9880b-…","subject":"acme-corp",
+ "time":"2026-09-04T18:18:16.724Z",
+ "data":{"route":"local.api.0","method":"GET","status":200,"duration_ms":3,…}}
+```
+
+**백엔드를 보류하는 이유** — OpenMeter 가 유력하나 **차트를 찾지 못해 배포 규모를
+검증하지 못했다.** ADR-069 가 OpenReplay 에 요구한 규율("도입 시 차트를 렌더해
+실제 구성요소를 세는 것이 선행")을 여기에도 적용한다. 게다가 **노드 메모리
+requests 가 88%** 이고, OpenMeter 는 ClickHouse 를 요구하는데 **ADR-070 이
+ClickHouse 용도를 OpenReplay 하나로 못박고 있다**(→ ADR-073).
+
+**선택지**
+
+| 안 | 내용 |
+|---|---|
+| ⓐ OpenMeter | 멱등성·정산·요금제 모델이 제품의 존재 이유다. ADR-070 개정 필요 |
+| ⓑ 자체 집계(Kafka+ES) | 부품은 이미 있다. 중복 제거·지각 이벤트를 직접 만들어야 하고, 틀리면 돈 문제가 된다 |
+| ⓒ 외부 SaaS | 사용량을 밖으로 내보내는 결정이 따로 필요하다 |
+
+**다음 단계** — 액세스 로그 → Kafka `api-usage` 토픽 다리. 형식이 확정됐으므로
+이제 만들 수 있다.
+
+---
+
+### ADR-073 — ADR-070(ClickHouse 범위) 개정 필요 여부
+**상태: `Open`** (2026-09-05)
+
+ADR-070 은 ClickHouse 용도를 **OpenReplay 하나로** 못박았다. 근거는
+"ClickHouse 가 Trino/Iceberg·Elasticsearch·Loki 를 **대체**하는 것을 막자"였다.
+
+API 과금 계량이 OpenMeter 로 가면 ClickHouse 의 두 번째 용도가 생긴다.
+**대체가 아니라 추가이므로 ADR-070 의 취지를 깨지는 않는다** — 다만 슬쩍
+넘어가지 말고 개정으로 남겨야 한다. ADR-072 의 백엔드 결정과 함께 처리한다.
+
+---
+
+### ADR-074 — Envoy Rate Limit Service 는 계량 이후로 미룬다
+**상태: `Deferred`** (2026-09-05)
+
+할당량 강제(플랜 초과 차단)는 **OpenMeter 의 entitlement 가 "무엇을 넘었나"를
+정의한 뒤**라야 의미가 있다. 순서를 뒤집으면 무엇을 제한하는지 모르는 채
+제한 장치를 붙이게 된다.
+
+기술적으로도 지금이 아니다 — 레이트 리밋은 L7 이라 waypoint 나 게이트웨이가
+경로에 있어야 한다. ADR-071 로 게이트웨이가 섰으므로 **waypoint 없이
+게이트웨이에 직접** 붙일 수 있고, 그 편이 훨씬 싸다.
+
+---
+
+### ADR-075 — OPA 는 어드미션 용도로 재검토하지 않는다
+**상태: `Rejected (어드미션)` · `Open (API 인가)`** (2026-09-05)
+
+**ADR-007 이 이미 Kyverno 를 채택하며 Gatekeeper 를 물리쳤다**(Accepted).
+Kyverno 6정책이 실제로 가동 중이다. 지금 OPA 를 넣으면 정책 엔진이 둘이 되어
+같은 리소스를 서로 다른 규칙으로 판정하게 된다 — 이 레포엔 **이미 그 부류의
+충돌이 있다**(dev/prod 가 동일 ClusterPolicy 를 다른 `validationFailureAction`
+으로 소유).
+
+**다만 한 갈래가 열려 있다** — 플랜별 엔드포인트 접근 제어처럼 **admission 이
+아닌 API 인가**가 요건이 되면 Envoy `ext_authz` 가 후보가 되고, 그것이 Kyverno 가
+못 하는 영역이다. OpenMeter entitlement 로 먼저 해 보고 부족할 때 꺼낸다.
+
+---
+
+### ADR-076 — OpenMeter: 요건이 생겼다 (기각 철회)
+**상태: `Superseded by ADR-072`** (2026-09-05)
+
+2026-09-04 에 "과금 요건이 없다"를 근거로 기각했으나, **외부 고객 인보이스
+발행이 요건으로 확정되어 그 전제가 사라졌다.** 판단을 ADR-072 로 옮긴다.
+
 ## 보안
 
 ### ADR-007 — 어드미션 제어로 Kyverno 채택 (OPA Gatekeeper 대비)

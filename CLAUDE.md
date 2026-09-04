@@ -191,12 +191,12 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 ### 배포 전 반드시 알아야 할 것
 
 1. **Secret이 0개 렌더된다.** `secretKeyRef`를 참조하는 워크로드 8개 이상이 `CreateContainerConfigError`로 기동 실패한다
-2. **오퍼레이터 설치 경로가 없다.** ECK·Kyverno·Gateway API CRD·Argo Events가 설치되지 않아 wave 0·7이 sync되지 않는다
+2. **오퍼레이터 설치 경로가 없었다 — 지금은 `local/install-operators.sh` 가 있다.** ECK·Kyverno·cert-manager·Tetragon 이 거기서 설치된다. **Gateway API CRD 5종과 GatewayClass(istio·istio-remote·istio-waypoint)는 이미 설치되어 있다** — Istio ambient 설치가 함께 넣는다. Argo Events 는 여전히 없다
 3. **DB·롤·버킷·토픽 부트스트랩이 없다.** `postgresql-configmap.yaml`은 `oneinchmarket` DB만 만든다. Keycloak/GitLab/Apicurio/Hive Metastore가 존재하지 않는 DB에 접속한다
 4. **ServiceAccount 12개가 없다.** 15개 워크로드가 존재하지 않는 SA를 지정한다
 5. **storageClass `standard`가 없다.** k3s 기본은 `local-path`라 모든 PVC가 Pending에 머문다 — **로컬은 `local/storageclass-standard.yaml` 로 해소됨**(local-path 별칭). 그 SC 에 `is-default-class` 를 붙이지 않는다: k3s 내장 `local-path` 와 기본값이 둘이 되면 `storageClassName` 을 생략한 PVC 의 동작이 정의되지 않는다. 전 PVC 가 명시하도록 고쳐 두었다
 6. **WSL 배포판이 유휴 시 종료된다 — 클러스터가 조용히 전멸한다.** 붙은 프로세스가 없으면 WSL 이 `systemctl poweroff` 를 넣어(`InitTerminateInstanceInternal`) k3s 가 정지하고, 다음 `wsl.exe` 명령에서 파드 110여 개가 전부 재시작한다. 증상은 "k3s 가 10분마다 크래시"로 보이나 원인은 k3s 가 아니다. **`local/keepalive.ps1` 을 먼저 띄울 것.** `.wslconfig` 의 `vmIdleTimeout` 으로는 부족하다 — 그것은 VM 유휴 타임아웃이고 이것은 배포판 종료다(그 키는 `[wsl2]` 섹션이 맞다. `[experimental]` 에 두면 조용히 무시된다)
-7. **외부 진입점이 없다.** Ingress/Gateway/NodePort/LoadBalancer 객체 0개, traefik·servicelb 비활성
+7. **외부 진입점은 Istio Gateway 로 섰다(ADR-071).** `ingress` Gateway 가 NodePort 로 443·80 을 받고 cert-manager 가 TLS 를 발급한다. traefik·servicelb 는 여전히 비활성이므로 `networking.istio.io/service-type: NodePort` 가 필수다 — LoadBalancer 로 두면 Service 가 영원히 Pending 이다. **OpenReplay 의 Ingress 12개는 여전히 죽어 있다** — `ingressClassName: openreplay` 인데 그런 IngressClass 도 컨트롤러도 없다
 8. **`.ps1` 은 BOM 없이 저장하면 코드가 조용히 사라진다.** PowerShell 5.1 은 BOM 이 없는 `.ps1` 을 시스템 ANSI(CP949)로 읽는다. 한글 주석이 잘못 디코딩되면서 따옴표 짝이 어긋나 **뒤따르는 코드가 문자열 리터럴로 흡수**된다. 실측: `setup-l0-lab.ps1` 이 VM 생성 40여 줄을 잃고도 **파싱 오류 0건**으로 "완료"를 출력했다. 문법적으로 완결된 다른 프로그램이 되므로 정적 검증 수단이 없다. 추가·수정 시 `head -c3 f.ps1 | od -An -tx1` 이 `efbbbf` 인지 볼 것 — §8-30
 
 9. **Istio AuthorizationPolicy 의 principal 에 중간 `*` 를 쓰지 말 것.** Istio 문자열 매칭은 완전 일치·접두(`abc*`)·접미(`*abc`)·존재(`*`)만 지원한다. **중간 `*` 는 리터럴이다.** `cluster.local/ns/*/sa/keycloak` 은 아무것도 매칭하지 않는다. ALLOW 정책이 워크로드를 선택하면 매칭되지 않은 전부가 거부되므로, 네임스페이스를 ambient 에 편입하는 순간 해당 정책이 **전면 거부**로 바뀐다. 실측: 26곳 전부가 이 형태였고 편입 때마다 15개 파드가 동시에 무너졌다. base 는 네임스페이스를 모르므로 접미 매칭 `*/sa/<name>` 을 쓴다 — §8-47
@@ -208,6 +208,9 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 
 13. **ambient 편입은 통신 경로를 15008(HBONE)로 바꾼다.** 목적지 포트를 NetworkPolicy 로 열어 두어도 15008 이 막히면 못 간다. 차단은 **거부가 아니라 타임아웃**이라 정책을 의심하기 어렵다. `allow-istio-hbone` 을 같은 네임스페이스로 좁히면 **네임스페이스를 넘는 메시 통신이 전부 끊긴다** — 실측으로 ECK 오퍼레이터가 Elasticsearch 를 관리하지 못했고(9200 은 열려 있었다), argo-events→Kafka 도 같은 상태였다. 15008 은 넓게 열 것: 그 포트는 메시의 전송 계층이고 **실제 인가는 ztunnel 이 AuthorizationPolicy 로 한다** — §8-52
 14. **단일 노드 ES 에서 복제본 1 은 배포를 멈춘다.** 배정될 노드가 없어 클러스터가 영구히 yellow 이고, **ECK 는 green 이 아니면 파드를 롤링하지 않는다.** 증상은 "매니페스트를 고쳤는데 파드가 안 바뀐다" 이고 오류는 나지 않는다. local 오버레이가 `ES_REPLICAS=0` 으로 덮는다. `index_patterns: ["*"]` 인 catch-all 템플릿은 ES 가 거부하므로(패턴 충돌) 쓰는 이름을 명시할 것 — §8-52
+
+15. **API 과금은 계량 지점이 있어야 성립하고, 그 지점은 L7 이어야 한다.** ztunnel 은 L4 라 요청 단위가 보이지 않고, waypoint 는 떠 있어도 `use-waypoint` 워크로드가 0이면 경로에 없는 것이다. 계량 지점을 나중에 바꾸면 이벤트 스키마와 **이미 청구한 이력**이 함께 흔들린다 — 청구는 소급 재해석이 불가능하다. 그래서 외부 트래픽 수용보다 게이트웨이가 먼저다(ADR-071·072). 액세스 로그 형식이 곧 계약이므로 `contracts/schemas/api-usage-event.json` 을 먼저 고치고 `local/configure-istio-usage-logging.sh` 가 따라오게 할 것. **`logFormat.labels` 를 쓰지 말 것** — 값이 전부 문자열이 되어 `status` 가 `"200"` 으로 나가고 스키마를 깬다. `text` 에 원시 JSON 을 넣어야 정수가 정수로 나간다
+16. **Kafka 는 at-least-once 다 — 과금 이벤트에는 멱등성 키가 필수다.** 같은 이벤트가 반드시 두 번 이상 오고, 중복을 제거하지 않으면 **고객에게 과다 청구한다.** 키는 Envoy 의 `x-request-id`(요청당 유일)를 쓴다. 타임스탬프나 순번을 키로 쓰지 말 것. 그리고 `subject`(청구 대상) 헤더가 없으면 Envoy 가 `-` 를 넣는다 — 소비자는 그런 이벤트를 **청구하지 말고 격리**해야 한다
 
 ### 매니페스트 작업 시
 

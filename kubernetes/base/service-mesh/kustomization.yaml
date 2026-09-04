@@ -5,6 +5,8 @@ resources:
   # Istio Ambient Mode
   - peer-authentication.yaml
   - authorization-policies.yaml
+  - ingress-gateway.yaml
+  - telemetry-usage.yaml
   - waypoint-proxy.yaml
   - spark-connect-authz.yaml
 
