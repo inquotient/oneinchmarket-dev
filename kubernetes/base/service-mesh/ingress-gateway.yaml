@@ -107,6 +107,16 @@ metadata:
     #   영원히 Pending 이고 게이트웨이에 도달할 방법이 없다. NodePort 로 받는다.
     networking.istio.io/service-type: NodePort
 spec:
+  # ★ 게이트웨이는 ztunnel 에 포획되면 안 된다.
+  #   Gateway 파드는 그 자체가 온전한 Envoy 다. 네임스페이스 전체를 ambient 에
+  #   편입하면 istio-cni 가 이 파드의 아웃바운드까지 ztunnel 로 돌려 **이중
+  #   프록시**가 된다. 라우팅은 그래도 동작해서 눈치채기 어렵지만,
+  #   Envoy 자신이 여는 gRPC 연결(액세스 로그 서비스)이 성립하지 않는다.
+  #   실측: ALS 클러스터 엔드포인트가 healthy 인데 cx_total 이 0 이었고,
+  #   endpoint 주소가 `envoy://connect_originate/...` 로 나왔다(§8-55).
+  infrastructure:
+    labels:
+      istio.io/dataplane-mode: none
   gatewayClassName: istio
   listeners:
     - name: https

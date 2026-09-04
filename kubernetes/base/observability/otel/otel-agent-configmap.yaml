@@ -20,6 +20,47 @@ data:
           http:
             endpoint: 0.0.0.0:4318
 
+
+      # ★ 과금 계량 전용 filelog. **일반 filelog 와 별개의 수신기**다.
+      #   같은 수신기에 필터를 걸어 가르지 않는 이유는, 필터가 조용히
+      #   어긋나면 청구 데이터가 유실되거나 오염되기 때문이다. include 글롭이
+      #   범위를 정하므로 어긋날 여지가 없다.
+      #
+      #   ★ 왜 Envoy 의 OTel ALS(gRPC)를 쓰지 않는가 — Istio 1.24 의
+      #     envoyOtelAls 와 수집기 0.160 의 OTLP gRPC 수신기 사이에서
+      #     `upstream reset: protocol error` 로 스트림이 끊긴다. 설정은
+      #     정확했고(config_dump 확인) 연결도 성립했으며(cx_total 2)
+      #     ztunnel 구간도 무오류인데 수신기가 한 건도 받지 못했다.
+      #     HBONE 을 빼도 같았다. 그래서 **이미 검증된 stdout 경로**를 쓴다(§8-55).
+      filelog/usage:
+        include: [/var/log/pods/local_ingress-istio-*/istio-proxy/*.log]
+        start_at: end
+        storage: file_storage
+        operators:
+          # ① 계량 이벤트가 아닌 줄(기동 로그 등)을 먼저 버린다.
+          #   ★ expr 은 자체 이스케이프 규칙이 있어 정규식에 백슬래시를 쓰면
+          #     'invalid char escape' 로 **수집기가 기동하지 않는다.**
+          - type: filter
+            expr: 'body not matches "specversion"'
+          # ② CRI 접두(<time> <stream> <F|P>)를 뗀다.
+          #   ★ container 연산자는 이 로그에서 "Failed to process entry" 로
+          #     실패해 접두가 그대로 Kafka 메시지에 남았다 — 계약 위반이다.
+          #     형식이 고정되어 있으므로 정규식으로 직접 떼는 편이 확실하다.
+          - type: regex_parser
+            regex: '^\S+ \S+ \S+ (?P<event>\{.*\})\s*$'
+            parse_from: body
+            on_error: drop
+          # ③ ★ 본문을 **맵**으로 만든다. 문자열로 두면 안 된다 —
+          #   Kafka exporter 의 `raw` 인코딩은 문자열 본문을 JSON 으로 한 번 더
+          #   감싸서 토픽에 `"{\"specversion\"...}"` 가 들어간다(실측: 첫 바이트가
+          #   `"` 였다). 계약은 순수 JSON 객체를 요구하므로 소비자가 두 번
+          #   파싱해야 하는 상태가 된다. 맵이면 raw 가 그대로 직렬화한다.
+          #   `encoding: text` 는 이 버전에 없다(unrecognized logs encoding).
+          - type: json_parser
+            parse_from: attributes.event
+            parse_to: body
+            on_error: drop
+
       filelog:
         include: [/var/log/pods/*/*/*.log]
         # 자기 자신과 게이트웨이는 제외한다. 내보내기 실패 로그가
@@ -88,6 +129,22 @@ data:
         send_batch_max_size: 2048
 
     exporters:
+
+      # ★ 과금 이벤트 -> Kafka. 게이트웨이(otel-gateway)를 거치지 않고
+      #   에이전트가 직접 넣는다 — 홉이 하나 줄고, 게이트웨이 장애가
+      #   청구 누락으로 이어지지 않는다.
+      kafka/usage:
+        brokers: ["kafka-headless:9092"]
+        logs:
+          topic: api-usage
+          encoding: raw
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 60s
+        sending_queue:
+          enabled: true
+          queue_size: 5000
       otlp:
         endpoint: otel-gateway:4317
         tls:
@@ -126,6 +183,11 @@ data:
           receivers: [otlp, hostmetrics]
           processors: [memory_limiter, k8sattributes, resourcedetection, batch]
           exporters: [otlp]
+        # ★ 과금 파이프라인. 수신기·내보내기 모두 전용이다.
+        logs/usage:
+          receivers: [filelog/usage]
+          processors: [memory_limiter, batch]
+          exporters: [kafka/usage]
         logs:
           receivers: [otlp, filelog]
           processors: [memory_limiter, k8sattributes, resourcedetection, batch]

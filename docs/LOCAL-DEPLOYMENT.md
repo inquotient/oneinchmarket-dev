@@ -4966,7 +4966,7 @@ Keycloak 에는 ingress 허용 규칙이 **하나도 없었다.** 그런데도 �
   쪽 재시도 정책이 필요하다
 
 
-### 8-55. Kafka 다리 — 배선은 끝났고 데이터는 아직 흐르지 않는다 (미완)
+### 8-55. Kafka 다리 — Envoy ALS 를 버리고 stdout 경로로 완성했다
 
 §8-54 다음 단계로 게이트웨이 액세스 로그를 Kafka `api-usage` 토픽에 넣으려
 했다. **구성은 전부 섰으나 이벤트가 도달하지 않는다. 원인을 규명하지 못했다.**
@@ -5013,22 +5013,93 @@ Envoy 통계에도 `access_logs.*` 나 otel-gateway 클러스터 항목이 나�
    마이그레이션에 이어). 평소에 돌지 않아 편입 시점에 드러나지 않고,
    재실행할 때 비로소 막힌다.
 
-#### 다음에 시도할 것
+#### 중간에 미완으로 남겼던 이유 (기록)
 
-- **수집기 4319 를 합성 OTLP 로 직접 두드려** 수집기 쪽인지 Envoy 쪽인지 가른다.
-  지금은 두 후보가 갈리지 않았다.
-- Istio 1.24 의 `envoyOtelAls` 가 `logFormat.text` 만으로 레코드를 만드는지
-  확인한다. `labels` 가 함께 필요하면 본문만으로는 아무것도 나가지 않을 수 있다.
-- 대안: stdout 은 이미 검증됐으므로, 게이트웨이 컨테이너 로그만 골라
-  Kafka 로 보내는 경로. 다만 이것은 "일반 파이프라인 + 필터" 라 필터가 조용히
-  어긋나면 청구 데이터가 오염된다 — 그래서 처음에 택하지 않았다.
+★ 이 시점에 "완료" 로 적을 뻔했다. 구성이 서 있고 오류가 없고 연결까지 보여
+**성공처럼 보였다.** §8-47·§8-50·§8-52 에서 반복해 적은 "성공 출력이 성공을
+뜻하지 않는다" 의 또 다른 사례였고, **판정을 수집기 지표와 토픽 내용으로 한
+덕에** 함정을 피했다. 아래가 그 다음에 실제로 규명한 내용이다.
 
-#### 기록해 두는 이유
 
-★ 이 상태를 "완료" 로 적으면 안 된다. 구성이 서 있고 오류가 없고 연결까지
-보이므로 **성공처럼 보인다.** 이 문서가 §8-47·§8-50·§8-52 에서 반복해 적은
-"성공 출력이 성공을 뜻하지 않는다" 의 또 다른 사례이고, 이번에는 그 함정에
-빠지지 않기 위해 미완으로 남긴다. **판정은 수집기 지표와 토픽 내용으로 한다.**
+#### 결말 — Envoy ALS 는 포기하고 stdout 경로로 완성했다
+
+##### 원인 규명 (합성 OTLP 로 두 후보를 갈랐다)
+
+수집기 4319 에 **HTTP 프로토콜을 임시로 열어** 합성 CloudEvents 를 직접 넣었다.
+
+```
+otelcol_receiver_accepted_log_records{receiver="otlp/usage",transport="http"} 1
+otelcol_exporter_sent_log_records{exporter="kafka/usage"} 1
+-> 토픽에 도착
+```
+
+**수집기 -> Kafka 는 멀쩡했다.** 문제는 Envoy 쪽으로 확정됐다.
+
+Envoy 디버그 로깅을 켜니 결정적 단서가 나왔다.
+
+```
+router.cc:527  cluster 'outbound|4319||otel-gateway...' match for URL
+               '/opentelemetry.proto.collector...'
+router.cc:1384 upstream reset: reset reason: protocol error
+```
+
+- 클러스터 정의·엔드포인트 healthy·`cx_total::2`·`rq_error::2`
+- ztunnel 구간은 무오류(`connection complete`)
+- 게이트웨이를 ambient 에서 빼도, 수집기를 빼도 동일
+
+즉 **Istio 1.24.2 의 `envoyOtelAls` 와 수집기 0.160 의 OTLP gRPC 수신기가
+HTTP/2 수준에서 맞지 않는다.** 설정은 전부 정확했다(config_dump 확인).
+
+##### 그래서 이미 검증된 경로를 썼다
+
+게이트웨이는 **stdout 으로 계약 JSON 을 이미 정확히 내고 있었다.** otel-agent 가
+호스트 로그를 마운트하고 있으므로, **게이트웨이 로그만 겨냥한 전용 filelog
+수신기**를 붙였다.
+
+```
+filelog/usage  include: /var/log/pods/local_ingress-istio-*/istio-proxy/*.log
+               -> logs/usage 파이프라인 -> kafka/usage -> api-usage 토픽
+```
+
+일반 `filelog` 와 **수신기 자체를 분리**했다. 같은 수신기에 필터를 걸어 가르면
+필터가 조용히 어긋날 때 청구 데이터가 오염된다. include 글롭이 범위를 정하므로
+어긋날 여지가 없다.
+
+##### 여기서 또 세 번 물렸다
+
+1. **`expr` 이스케이프.** `body not matches "^\{\"specversion\""` 는
+   `invalid char escape` 로 **수집기가 기동하지 않는다.** expr 은 자체
+   이스케이프 규칙이 있다. 특수문자 없는 최소 패턴(`"specversion"`)이면 충분하다.
+2. **`container` 연산자 실패.** `Failed to process entry` 가 나면서 CRI 접두가
+   그대로 남아 Kafka 메시지가
+   `2026-09-05T... stdout F {"specversion"...}` 로 들어갔다. 형식이 고정되어
+   있으므로 `regex_parser` 로 직접 뗐다.
+3. **★ `raw` 인코딩이 문자열 본문을 JSON 으로 한 번 더 감쌌다.**
+   토픽의 실제 첫 바이트가 `"` 였다(`od -c` 로 확인). 계약은 순수 JSON 객체를
+   요구하므로 소비자가 두 번 파싱해야 하는 상태였다. `encoding: text` 는 이
+   버전에 없다(`unrecognized logs encoding "text"`).
+   **본문을 `json_parser` 로 맵으로 만들면** `raw` 가 그대로 직렬화한다.
+
+##### 최종 검증
+
+```
+토픽 메시지 첫 바이트            {        (순수 JSON 객체)
+계약 스키마 검증                 8/8 통과
+멱등성 키(x-request-id) 유일     8/8
+subject                          전부 acme-corp
+   ★ 요청에는 X-OIM-Tenant: victim-corp 를 실었다.
+     JWT 클레임에서 나온 값이 이겼다(§8-54).
+```
+
+**ADR-071 의 계량 경로가 끝까지 살아 있다.**
+
+##### 남은 것
+
+- 파티션 키를 `subject` 로 두는 것(계약 명시). 현재는 기본 분배다 —
+  한 테넌트의 이벤트 순서가 보장되지 않는다.
+- 계량 백엔드 결정(ADR-072). 여전히 OpenMeter 규모를 검증하지 못했다.
+- 로그 회전 시 유실 여부. `storage: file_storage` 로 오프셋을 남기지만
+  실측하지 않았다.
 
 ## 관련 문서
 

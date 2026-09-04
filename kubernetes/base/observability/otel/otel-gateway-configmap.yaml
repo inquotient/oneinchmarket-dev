@@ -30,6 +30,10 @@ data:
         protocols:
           grpc:
             endpoint: 0.0.0.0:4319
+          # ★ 진단용 HTTP. gRPC(4319)로 아무것도 안 들어올 때 이쪽으로
+          #   합성 OTLP 를 넣어 **수집기 쪽인지 보내는 쪽인지** 가른다.
+          http:
+            endpoint: 0.0.0.0:4320
 
     processors:
       memory_limiter:

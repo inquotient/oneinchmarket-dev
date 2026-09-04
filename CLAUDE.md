@@ -218,6 +218,9 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 19. **부트스트랩 Job 은 `default` SA 로 도는지 반드시 확인할 것.** 지금까지 세 건이 같은 결함이었다 — `elasticsearch-ilm-setup`(ES 9200) · `databases-migrate`(PostgreSQL·ClickHouse) · `kafka-topics`(Kafka 9092). **Job 은 평소에 돌지 않아 ambient 편입 시점에 드러나지 않고, 재실행할 때 비로소 ztunnel 이 거부한다.** 클러스터를 다시 세울 때가 그때다 — §8-52·§8-55
 20. **OTel 수집기 설정 두 가지 함정.** ① 파이프라인을 `service.pipelines` 가 아니라 `service.telemetry` 아래에 넣으면 `'service.telemetry' has invalid keys` 로 기동하지 않는다(둘 다 `metrics:` 키를 갖고 있어 자동 편집 시 헷갈린다). ② 최신 contrib 의 Kafka exporter 는 `topic`·`encoding` 을 **신호별 블록**(`logs:`) 아래로 옮겼다. 최상위에 두면 `'kafkaexporter.Config' has invalid keys` 다. 파이프라인 동작 여부는 로그가 아니라 **`otelcol_receiver_accepted_log_records` 지표**로 판정할 것 — 수신기가 0건이어도 오류는 나지 않는다 — §8-55
 
+21. **Istio 의 `envoyOtelAls`(Envoy OTel 액세스 로그)는 이 조합에서 동작하지 않는다.** Istio 1.24.2 + OTel 수집기 0.160 에서 gRPC 스트림이 `upstream reset: protocol error` 로 끊긴다. 설정은 정확하고(config_dump 확인) 클러스터 엔드포인트는 healthy 이며 ztunnel 구간도 무오류인데 **수신기가 한 건도 받지 못한다.** 게이트웨이·수집기를 ambient 에서 빼도 같다. 대신 **게이트웨이 stdout 을 겨냥한 전용 filelog 수신기**를 쓴다 — 일반 filelog 와 수신기 자체를 분리할 것(필터로 가르면 조용히 어긋날 때 청구 데이터가 오염된다) — §8-55
+22. **Kafka exporter 의 `raw` 인코딩은 문자열 본문을 JSON 으로 한 번 더 감싼다.** 토픽의 첫 바이트가 `{` 가 아니라 `"` 가 되어 소비자가 두 번 파싱해야 한다. `encoding: text` 는 없다(`unrecognized logs encoding`). **`json_parser` 로 본문을 맵으로 만들면** `raw` 가 그대로 직렬화한다. 그리고 filelog 의 `container` 연산자가 실패하면(`Failed to process entry`) CRI 접두가 그대로 메시지에 남으므로 `regex_parser` 로 직접 뗄 것. 필터의 `expr` 은 자체 이스케이프 규칙이 있어 정규식에 백슬래시를 쓰면 수집기가 기동하지 않는다 — §8-55
+
 ### 매니페스트 작업 시
 
 - `v1/` 매니페스트는 **배포 금지**. 단 CI가 이 경로의 Dockerfile을 참조한다는 모순이 있다

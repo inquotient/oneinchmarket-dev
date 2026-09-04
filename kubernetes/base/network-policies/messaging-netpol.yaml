@@ -32,6 +32,9 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: otel-gateway
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: otel-agent
         # OpenReplay — 세션 이벤트 파이프라인이 Kafka 를 쓴다
         - podSelector:
             matchLabels:
