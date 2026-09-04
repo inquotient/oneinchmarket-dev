@@ -3498,6 +3498,9 @@ Logstash 가 이미 이 토픽을 SIEM 으로 소비하고 있으므로(§8-35) 
 
 ### 8-39. ambient 편입 시도 — 되돌리기가 편입보다 위험했다 (2026-09-04)
 
+> ★ 이 항목의 결론은 불완전하다. §8-40 이 원인을 특정한다 — mTLS 는 동작하고
+> 있었고 막힌 것은 kubelet 헬스 프로브였다.
+
 §8-38 에서 LDAP 전송 암호화를 검토하다 막혔다. 경로마다 TLS 를 붙이는 방식이
 각각 벽에 부딪혔다.
 
@@ -3576,6 +3579,91 @@ ambient 는 `istio.io/dataplane-mode` 를 파드 레이블로도 받으므로, O
 
 **root DN 제거(§8-38)는 유지된다.** 전송 암호화만 미해결이며, 두 문제 중
 자격 권한 쪽이 더 심각했다는 점은 변하지 않는다.
+
+### 8-40. ambient 재조사 — mTLS 는 되고 있었다. 막힌 것은 헬스 프로브다 (2026-09-04)
+
+§8-39 는 "ambient 편입이 OpenReplay 를 무너뜨렸다" 로 끝났다. **그 결론은
+불완전했다.** 파드 단위로 좁혀 다시 들어가 원인을 특정했다.
+
+#### mTLS 는 실제로 동작하고 있었다
+
+네임스페이스 편입 시점의 ztunnel 접속 로그다.
+
+```
+src.identity="spiffe://cluster.local/ns/local/sa/gitlab"
+dst.addr=10.0.0.49:15008  dst.hbone_addr=10.0.0.49:6379
+dst.identity="spiffe://cluster.local/ns/local/sa/redis"
+```
+
+SPIFFE 신원이 양쪽에 붙고 HBONE 터널(15008)을 탄다. **원하던 전체 전송 암호화가
+그 시점에 이미 성립하고 있었다.** inbound 방향도 13 KB 를 정상 전달한 기록이 있다
+(safeline-luigi → safeline-detector:8001).
+
+#### 막힌 것은 kubelet 헬스 프로브였다
+
+파드 단위로 하나씩 편입해 보니 상관관계가 100% 로 갈렸다.
+
+| 파드 | readiness 프로브 | 편입 결과 |
+|---|---|---|
+| http·sink·integrations·api-openreplay | `httpGet` | **깨짐** |
+| ds389 | `tcpSocket` | **깨짐** |
+| ranger-usersync | **`exec`** | **정상** |
+
+ds389 가 결정적이었다. 파드 **안에서는** LDAP 이 정상이다.
+
+```
+DS389 로그 : slapd started. Listening on All Interfaces port 3389
+파드 내부  : ldapsearch localhost:3389 → 2건 정상
+kubelet    : Startup probe failed: dial tcp 10.0.0.69:3389: i/o timeout
+```
+
+서버는 멀쩡한데 **밖에서 들어오는 프로브만** 실패한다. 그래서 파드가 영원히
+Ready 가 되지 못하고, OpenReplay 는 CrashLoop 까지 갔다.
+
+`ranger-usersync` 는 프로브가 `exec`(프로세스 생존)라서 무사했다. 편입 상태로
+정상 동작했고, ztunnel 로그가 그 증거다 —
+`ranger-usersync → ds389-0:3389` 와 `→ ranger-admin-0:6080` 이 모두 흘렀다.
+
+> 덤으로 §8-38 의 미확인 항목이 풀렸다. usersync → ranger-admin:6080 연결이
+> 65초 동안 7424 바이트를 받았다. **동기화는 실제로 돌고 있다.**
+
+#### ADR-043 의 전제는 전부 충족되어 있었다
+
+```
+M1  bpf-lb-sock-hostns-only : true    ✓
+M2  cni-exclusive           : false   ✓
+M3  istio-cni DaemonSet     : Running ✓
+```
+
+CNI 체이닝도 정상이다 — `05-cilium.conflist` 안에 `cilium-cni` 와 `istio-cni`
+(`ambient_enabled: true`)가 함께 들어 있다.
+
+**즉 ADR-043 이 필수라고 적은 세 가지를 다 지켜도 이 실패는 일어난다.**
+ADR-043 은 M1 의 실패 모드로 "조용한 보안 우회"(통신은 되는데 mTLS 만 안 걸림)를
+경고하는데, 여기서 관측된 것은 **정반대**다 — mTLS 는 걸리고 헬스 프로브가 막힌다.
+ADR-043 에 이 실패 모드를 추가해야 한다.
+
+> 조사 중 "Cilium 이 istio-cni 의 conflist 를 지웠다"고 한 번 결론 냈다가
+> 철회했다. `cni-exclusive` 는 `false` 였고 체이닝은 멀쩡했다.
+
+#### 정확한 원인은 규명하지 못했다
+
+ambient 는 kubelet 프로브를 리다이렉션에서 제외하도록 되어 있다(출발지가 노드 IP).
+이 클러스터에서 그 제외가 동작하지 않는다. 후보는 Cilium 의 데이터패스가
+프로브 트래픽의 출발지 주소를 바꾸는 경우인데 **확인하지 못했다.**
+
+#### 그래서 지금 할 수 있는 것
+
+전체 전송 암호화는 **불가능한 것이 아니라 프로브 문제 하나에 막혀 있다.**
+
+| | 내용 | 대가 |
+|---|---|---|
+| 프로브 제외 원인 규명 | 정공법 | istio-cni·Cilium 데이터패스 조사 필요 |
+| `exec` 프로브로 전환 | 실증됨(usersync) | 워크로드마다 프로브를 다시 써야 한다 |
+| 아웃바운드 전용 파드만 편입 | 즉시 가능 | 양쪽 편입이 아니면 mTLS 가 안 된다 |
+
+**되돌리기의 위험(§8-39)은 그대로 유효하다.** 편입·해제 모두 기존 연결을
+끊으므로, 다음 시도도 파드 단위로 좁혀서 해야 한다.
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용
