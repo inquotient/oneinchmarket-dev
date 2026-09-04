@@ -11,7 +11,12 @@ spec:
     matchLabels: {app.kubernetes.io/name: ds389}
   template:
     metadata:
-      labels: {app.kubernetes.io/name: ds389, app.kubernetes.io/component: governance, app.kubernetes.io/part-of: oneinchmarket}
+      # ★ istio.io/dataplane-mode — ambient 편입. LDAP 트래픽이 mTLS 로 덮인다.
+      #   전송 암호화를 LDAPS 로 붙이려던 시도가 인증서 SAN 문제로 막혔고
+      #   (§8-38) 메시가 그것을 대체한다. 애플리케이션 설정은 무변경이다.
+      #   ★ 전제가 둘 있다 — default-deny.yaml 의 allow-istio-health-probes 와
+      #     allow-istio-hbone. 없으면 이 파드는 Ready 가 되지 못한다(§8-41).
+      labels: {app.kubernetes.io/name: ds389, app.kubernetes.io/component: governance, app.kubernetes.io/part-of: oneinchmarket, istio.io/dataplane-mode: ambient}
     spec:
       serviceAccountName: ds389
       # ── 의도된 예외 ─────────────────────────────────────────────

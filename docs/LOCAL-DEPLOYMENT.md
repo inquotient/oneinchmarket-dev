@@ -3498,7 +3498,8 @@ Logstash 가 이미 이 토픽을 SIEM 으로 소비하고 있으므로(§8-35) 
 
 ### 8-39. ambient 편입 시도 — 되돌리기가 편입보다 위험했다 (2026-09-04)
 
-> ★ 이 항목의 결론은 불완전하다. §8-40 이 원인을 특정한다 — mTLS 는 동작하고
+> ★ 이 항목의 결론은 틀렸다. §8-40 이 방향을 잡고 §8-41 이 원인을 특정한다 —
+> 우리 default-deny 가 Istio 의 헬스 프로브와 HBONE 포트를 막고 있었다. mTLS 는 동작하고
 > 있었고 막힌 것은 kubelet 헬스 프로브였다.
 
 §8-38 에서 LDAP 전송 암호화를 검토하다 막혔다. 경로마다 TLS 를 붙이는 방식이
@@ -3664,6 +3665,121 @@ ambient 는 kubelet 프로브를 리다이렉션에서 제외하도록 되어 �
 
 **되돌리기의 위험(§8-39)은 그대로 유효하다.** 편입·해제 모두 기존 연결을
 끊으므로, 다음 시도도 파드 단위로 좁혀서 해야 한다.
+
+### 8-41. ambient 를 막고 있던 것은 우리 NetworkPolicy 두 줄이었다 (2026-09-04)
+
+§8-40 은 "kubelet 헬스 프로브가 막힌다, 원인은 규명하지 못했다" 로 끝났다.
+규명했고, 고쳤다. **전체 전송 암호화가 열렸다.**
+
+#### 추적 — 시험 파드 하나로 격리 재현
+
+기존 워크로드를 건드리지 않고 `tcpSocket` 프로브를 가진 nginx 파드 하나를
+ambient 로 띄웠다. 그대로 재현됐다.
+
+```
+ambient-probe-test  0/1 Running
+Readiness probe failed: dial tcp 10.0.0.94:80: i/o timeout
+```
+
+파드 netns 의 리다이렉션 규칙을 직접 읽었다(`nsenter -t <pid> -n iptables -S`).
+
+```
+-A ISTIO_PRERT -s 169.254.7.127/32 -p tcp -j ACCEPT        ← 인바운드 예외는 이것뿐
+-A ISTIO_PRERT ! -d 127.0.0.1/32 -p tcp ! --dport 15008 ... -j REDIRECT --to-ports 15006
+```
+
+`169.254.7.127` 은 Istio 가 **프로브 트래픽을 표시하려고 SNAT 하는 링크로컬
+주소**다. 호스트 쪽 규칙도 있었고 **실제로 매칭되고 있었다**.
+
+```
+-A ISTIO_POSTRT -p tcp -m owner --socket-exists \
+   -m set --match-set istio-inpod-probes-v4 dst -j SNAT --to-source 169.254.7.127
+   pkts 683  bytes 40980      ← 카운터가 올라간다
+```
+
+SNAT 은 되는데 nginx 액세스 로그에는 연결 기록이 없다. 그 사이에서 사라진다.
+
+#### 범인 — Cilium 이 떨어뜨리고 있었다
+
+```
+xx drop (Policy denied) ... file bpf_lxc.c:2067
+   identity world->6594: 169.254.7.127:41884 -> 10.0.0.94:80 tcp SYN
+```
+
+사슬이 완성된다.
+
+1. kubelet 이 파드 IP 로 프로브한다
+2. Istio 가 출발지를 `169.254.7.127` 로 SNAT 한다
+3. **Cilium 은 그 링크로컬 주소에 대응하는 신원이 없어 `world` 로 분류한다**
+4. **우리 `default-deny-ingress` 가 `world → 파드` 를 거부한다**
+5. 드롭
+
+**즉 ambient 를 막고 있던 것은 Istio 도 Cilium 도 아니고 우리 정책이었다.**
+
+#### 두 번째 벽 — HBONE 포트도 막혀 있었다
+
+프로브를 뚫고 양쪽을 편입하니 ztunnel 이 다음 문제를 **직접 말해줬다.**
+
+```
+error="connection timed out, maybe a NetworkPolicy is blocking
+       HBONE port 15008: deadline has elapsed"
+```
+
+ambient 의 mTLS 는 파드→파드 직통이 아니라 **양쪽 ztunnel 이 15008 로 맺는
+터널** 위를 흐른다. 원래 포트(3389·9092…)를 여는 기존 정책들은 이 포트를
+다루지 않는다.
+
+신원 협상은 이미 성립한 상태라 오해하기 쉽다 —
+`src.identity=.../sa/ranger-usersync`, `dst.identity=.../sa/ds389` 가 찍히는데
+연결만 안 된다. "인증서 문제" 로 읽힌다.
+
+#### 조치 — `default-deny.yaml` 에 정책 두 개
+
+```
+allow-istio-health-probes : ipBlock 169.254.7.127/32
+allow-istio-hbone         : podSelector {} · TCP 15008
+```
+
+둘 다 범위가 좁다. 전자는 클러스터 밖에서 라우팅되지 않는 링크로컬 단일
+주소이고, 후자는 ztunnel 만 듣는 포트이며 HBONE 은 mTLS 를 요구하므로 신원
+없는 상대는 통과하지 못한다. ambient 를 쓰지 않는 환경에서는 매칭되는
+트래픽이 없어 무해하다 — 그래서 base 에 둔다.
+
+#### 결과 — LDAP 이 mTLS 로 흐른다
+
+```
+src.identity = spiffe://cluster.local/ns/local/sa/ranger-usersync
+dst.identity = spiffe://cluster.local/ns/local/sa/ds389
+dst.addr     = 10.0.0.44:15008   hbone_addr = 10.0.0.44:3389
+direction    = inbound · outbound 모두 성공, 오류 없음
+```
+
+§8-38 이 남긴 "전송 암호화 미해결" 이 해소되었다. **LDAPS 없이** 해결됐다는
+점이 중요하다 — DS389 의 NSS DB 를 건드리지 않았고 인증서 수명도 관리하지
+않는다. 애플리케이션 설정은 한 줄도 바뀌지 않았다.
+
+`ds389` 와 `ranger-usersync` 파드 템플릿에 `istio.io/dataplane-mode: ambient`
+를 넣었다. 클러스터 Ready 79/79.
+
+#### 세 번의 오진을 남겨 둔다
+
+| 시점 | 결론 | 실제 |
+|---|---|---|
+| §8-39 | "ambient 가 OpenReplay 와 호환되지 않는다" | 아니다 |
+| §8-40 | "kubelet 프로브가 막힌다. 원인 불명" | 방향은 맞았다 |
+| 조사 중 | "Cilium 이 istio-cni conflist 를 지웠다" | 아니다. 체이닝은 정상이었다 |
+| §8-41 | **우리 default-deny 가 프로브와 HBONE 을 막고 있었다** | 확인됨 |
+
+첫 결론에서 멈췄다면 "ambient 는 이 클러스터에서 못 쓴다" 로 남았을 것이다.
+**증상을 컴포넌트 탓으로 돌리기 전에 우리 설정을 의심했어야 했다** — 이 레포에서
+NetworkPolicy 누락이 타임아웃으로 나타난 것이 오늘만 세 번째다(§8-35 Kafka,
+§8-34 Logstash, 그리고 이번).
+
+#### 남은 것
+
+전체 네임스페이스 편입은 아직 하지 않았다. 두 정책이 생겼으니 §8-39 의
+실패는 재현되지 않을 가능성이 높지만, **되돌리기가 편입보다 위험했다는 사실은
+그대로다.** 확대는 파드 단위로 계속하는 편이 안전하다.
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용

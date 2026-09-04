@@ -11,3 +11,85 @@ spec:
   podSelector: {}
   policyTypes:
     - Ingress
+---
+# ★ Istio ambient 의 헬스 프로브를 허용한다.
+#
+#   이것이 없으면 **ambient 편입이 불가능하다.** 사슬은 이렇다(§8-41 실측):
+#     1. kubelet 이 파드 IP 로 프로브한다
+#     2. Istio 의 호스트 규칙이 출발지를 169.254.7.127 로 SNAT 한다
+#        (ISTIO_POSTRT, ipset istio-inpod-probes-v4 매칭)
+#     3. Cilium 은 그 링크로컬 주소에 해당하는 신원이 없어 `world` 로 분류한다
+#     4. 위의 default-deny-ingress 가 world -> 파드 를 거부한다
+#     5. 드롭. 증상은 "Readiness probe failed: dial tcp ...: i/o timeout" 이다
+#
+#   Cilium 드롭 로그가 근거다:
+#     xx drop (Policy denied) ... identity world->6594:
+#        169.254.7.127:41884 -> 10.0.0.94:80 tcp SYN
+#
+#   ★ 증상이 원인을 가린다. 파드 안에서는 서비스가 멀쩡히 듣고 있고
+#     (slapd·nginx 정상, localhost 접속 성공) 밖에서 들어오는 프로브만 막힌다.
+#     그래서 워크로드 문제나 ambient 비호환으로 오진하기 쉽다 — 실제로 한 번
+#     그렇게 결론 냈다가 뒤집었다(§8-39 → §8-40 → §8-41).
+#
+#   ★ 범위. 169.254.7.127/32 는 Istio 가 프로브 전용으로 쓰는 링크로컬 단일
+#     주소이고 클러스터 밖에서 라우팅되지 않는다. 노드가 보내는 프로브만 이
+#     주소로 SNAT 되므로 외부 노출이 늘지 않는다.
+#
+#   ambient 를 쓰지 않는 환경에서는 매칭되는 트래픽이 없어 무해하다.
+#   그래서 오버레이로 나누지 않고 base 에 둔다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-istio-health-probes
+  labels:
+    app.kubernetes.io/name: allow-istio-health-probes
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 169.254.7.127/32
+---
+# ★ ztunnel 사이의 HBONE 터널(15008)을 허용한다.
+#
+#   프로브를 뚫고 나면 다음으로 여기서 막힌다. ztunnel 이 오류 메시지로
+#   직접 알려준다(실측):
+#     error="connection timed out, maybe a NetworkPolicy is blocking
+#            HBONE port 15008: deadline has elapsed"
+#
+#   ambient 의 mTLS 는 파드→파드 직통이 아니라 **양쪽 ztunnel 이 15008 로
+#   맺는 터널** 위를 흐른다. 원래 포트(3389·9092 …)를 허용하는 기존 정책들은
+#   이 포트를 다루지 않으므로 default-deny 에 걸린다.
+#
+#   ★ 신원은 이미 붙어 있는데 연결만 안 되는 상태가 된다:
+#       src.identity=spiffe://cluster.local/ns/local/sa/ranger-usersync
+#       dst.identity=spiffe://cluster.local/ns/local/sa/ds389
+#       dst.addr=10.0.0.44:15008  dst.hbone_addr=10.0.0.44:3389
+#     mTLS 협상 자체는 성립하므로 "인증서 문제" 로 오해하기 쉽다.
+#
+#   ★ 범위. 15008 은 ztunnel 만 듣는 포트이고 HBONE 은 mTLS 를 요구한다.
+#     신원 없는 상대는 이 포트를 열어도 통과하지 못한다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-istio-hbone
+  labels:
+    app.kubernetes.io/name: allow-istio-hbone
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 15008
