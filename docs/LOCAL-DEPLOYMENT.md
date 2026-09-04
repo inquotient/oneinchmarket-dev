@@ -3170,7 +3170,7 @@ modern_ebpf 프로브가 `scap_init` 에 실패한다. ADR-025 가 Tetragon 전�
 - **falcosidekick 의 Kafka 임계값이 ES 와 다르다** — Kafka 는 error 이상,
   ES 는 warning 이상. 의도된 것인지 확인되지 않았다
 
-### 8-36. Falco 가 WSL2 에서 안 되는 이유 — 기록이 틀렸고, 다른 실패를 가리고 있었다 (2026-09-04)
+### 8-36. Falco 가 WSL2 에서 안 되는 진짜 이유 — sys_exit 프로그램의 attach 거부 (2026-09-04)
 
 `overlays/local/patches/falco-local.yaml` 에 이렇게 적혀 있었다.
 
@@ -3207,27 +3207,76 @@ fs.inotify.max_user_instances = 128
 워크로드도 조용히 실패할 수 있었다. `/etc/sysctl.d/99-inotify.conf` 로 1024 로
 올려 해소했고, 이 조치는 되돌리지 않았다.
 
-#### 그 뒤에야 scap_init 에 도달한다 — 증상 자체는 실재한다
+#### 원인을 특정했다 — 검증기가 아니라 attach 단계다
 
 inotify 를 넘기니 여기까지 간다.
 
 ```
 Opening 'syscall' source with modern BPF probe.
-One ring buffer every '2' CPUs.
 An error occurred in an event source, forcing termination...
 Error: Initialization issues during scap_init
 ```
 
-확인한 것과 못 한 것을 나눠 둔다.
+falco 로그로는 더 나오지 않는다. `log_level=debug` 도 소용없다 — libbpf 메시지가
+억제된다. 두 가지로 뚫었다.
 
-- **메모리가 아니다.** 한도를 256Mi → 1Gi 로 올려도 동일했고, 종료 사유는
-  `OOMKilled` 이 아니라 `Error` 다
-- `modern_bpf.cpus_for_each_syscall_buffer` 를 줘도 falco 0.39.2 가 무시한다
-  (로그가 계속 `every '2' CPUs`)
-- dmesg 에 BPF 관련 메시지가 남지 않는다(WSL2 는 비어 있다)
-- tracefs·debugfs 가 마운트되어 있지 않다. 다만 이전 기록에 마운트해도
-  해소되지 않았다고 되어 있다
-- **정확한 원인은 규명하지 못했다.**
+**① strace 로 실패한 시스템콜을 특정**
+
+```
+bpf(BPF_PROG_LOAD, {prog_type=BPF_PROG_TYPE_TRACING,
+                    prog_name="sys_exit",
+                    expected_attach_type=BPF_TRACE_RAW_TP,
+                    attach_btf_id=28947, insn_cnt=247})
+    = -1 EINVAL (Invalid argument)
+```
+
+같은 오브젝트의 다른 TRACING 프로그램(insn_cnt 93·95·235·391)은 **전부 정상
+적재**되고 `BPF_PROG_BIND_MAP` 까지 성공한다. `sys_exit` 하나만 거부된다.
+
+**② `libs_logger` 로 검증기 로그 확보** — falco 에 `-o libs_logger.enabled=true`
+가 있다. 이것이 결정적이었다.
+
+```
+libbpf: prog 'sys_exit': -- BEGIN PROG LOAD LOG --
+processed 606 insns (limit 1000000) max_states_per_insn 4 total_states 58 ...
+-- END PROG LOAD LOG --
+libbpf: prog 'sys_exit': failed to load: -22
+```
+
+**거부 사유가 한 줄도 없다.** 검증기는 통과했다. 프로그램 로직이 아니라
+**attach 검증 단계**의 EINVAL 이다.
+
+#### 커널 기능의 부재가 아니다
+
+| 확인 항목 | 결과 |
+|---|---|
+| tracepoint | `raw_syscalls/sys_enter`=369 · `sys_exit`=368 · `sched_process_exit`=295 · `signal_deliver`=187 모두 존재 |
+| tracefs·debugfs | **둘 다 마운트되어 있다**(이벤트 그룹 125개, tracepoint 2446개) |
+| CO-RE 재배치 | 정상. 6.2+ 의 `mm_struct___v6_2` 변종까지 맞춰 잡는다 |
+| 다른 프로그램 | 전부 적재 성공 |
+| 메모리 | 무관(1Gi 로 올려도 동일, 종료 사유가 `Error`) |
+
+> 앞선 조사에서 "tracefs 가 마운트되어 있지 않다" 고 적었던 것은 **틀렸다.**
+> `sudo` 없이 `ls` 해서 권한 거부를 부재로 읽었다.
+
+#### 실제 원인 — 버전 간 비호환
+
+```
+Falco 0.39.2 / libs 0.18.2     이미지 latest 가 2024-11-21 이후 미갱신
+WSL2 커널  6.18.33.2
+```
+
+2024년판 프로브가 2026년판 커널의 raw tracepoint attach 규약을 만족하지 못한다.
+`sys_exit` 이 tail call 테이블(`syscall_exit_tail_table`, PROG_ARRAY)을 쓰는
+프로그램이라는 점이 다른 프로그램과의 차이다.
+
+#### 고칠 수 없다 — 그 이유도 확인했다
+
+- **더 새 Falco 가 없다.** `falcosecurity/falco-no-driver` 의 최신 태그가 0.39.2 다
+- **레거시 eBPF 프로브·kmod 는 커널 헤더를 요구하는데 없다.**
+  `/lib/modules/$(uname -r)/build` 부재, `linux-headers` 패키지 후보도 없다.
+  Microsoft 의 WSL2 커널 소스를 받아 빌드하는 길은 남아 있으나 아래를 보면
+  균형이 맞지 않는다
 
 #### 결론 — 못 쓰는 것은 맞지만 막다른 길은 아니다
 
@@ -3243,6 +3292,11 @@ DaemonSet 인자 제거. **inotify 상향만 남겼다**(그것은 Falco 와 무
 추정을 단정처럼 남기면 다음 사람이 그 지점을 다시 파지 않는다. 이 항목은
 **두 개의 실패가 겹쳐 있었고 기록은 두 번째만 언급**하고 있었다. 첫 번째는
 훨씬 사소하고 훨씬 넓게 영향을 주는 것이었다.
+
+두 번째로, 로그가 없다고 원인을 못 찾는 것이 아니다. falco 는 libbpf 메시지를
+억제하지만 `-o libs_logger.enabled=true` 가 그것을 열어 준다. 그 한 줄이
+"규명 불가" 와 "attach 단계 EINVAL, 검증기는 통과" 를 갈랐다.
+
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용
