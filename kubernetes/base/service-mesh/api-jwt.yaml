@@ -1,0 +1,77 @@
+# API 과금의 신뢰 근거 — 게이트웨이가 JWT 를 검증하고 테넌트를 스스로 판정한다.
+#
+# ★★ 이것이 없으면 계량은 **과금에 쓸 수 없다.** 클라이언트가 보내는
+#   `X-OIM-Tenant` 를 그대로 믿게 되어 아무나 남의 회사에 청구를 떠넘긴다.
+#   §8-53 이 남긴 미결이 바로 이것이다.
+---
+# 1) JWT 검증 + 클레임을 헤더로 내리기
+apiVersion: security.istio.io/v1
+kind: RequestAuthentication
+metadata:
+  name: api-jwt
+  labels:
+    app.kubernetes.io/name: api-jwt
+    app.kubernetes.io/component: service-mesh
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  selector:
+    matchLabels:
+      gateway.networking.k8s.io/gateway-name: ingress
+  jwtRules:
+    # ★ issuer 는 토큰의 `iss` 와 **완전히 일치**해야 한다. Keycloak 이
+    #   내부 서비스명으로 발급하므로 여기도 그 값이다. 프런트엔드 URL 을
+    #   나중에 바꾸면 이 값도 함께 바꿔야 하고, 어긋나면 전부 401 이 된다.
+    - issuer: "http://keycloak-headless:8080/realms/oneinchmarket"
+      # ★★ FQDN 이어야 한다. JWKS 를 가져오는 것은 게이트웨이가 아니라
+      #   **istio-system 의 istiod** 다. 단축명 `keycloak-headless` 는 그 쪽에서
+      #   풀리지 않아 `dial tcp: lookup keycloak-head...` 로 실패하고,
+      #   증상은 모든 유효 토큰이 401 이 되는 것이다(오류는 istiod 로그에만 남는다).
+      #   issuer 는 토큰의 iss 와 맞춰야 하므로 단축명 그대로 두고 여기만 고친다.
+      jwksUri: "http://keycloak-headless.local.svc.cluster.local:8080/realms/oneinchmarket/protocol/openid-connect/certs"
+      # ★★ 핵심. 토큰의 tenant 클레임을 게이트웨이가 헤더에 **덮어쓴다.**
+      #   클라이언트가 같은 헤더를 실어 보내도 이 값으로 대체되므로
+      #   위조가 통하지 않는다. 계량 액세스 로그가 읽는 헤더가 바로 이것이다
+      #   (local/configure-istio-usage-logging.sh 의 %REQ(X-OIM-TENANT)%).
+      outputClaimToHeaders:
+        - header: "x-oim-tenant"
+          claim: "tenant"
+      # 검증 실패 시 요청을 통과시키지 않는다. RequestAuthentication 만으로는
+      # **토큰이 없는 요청은 그냥 통과한다** — 아래 AuthorizationPolicy 가
+      # 그것을 막는다. 둘을 함께 두지 않으면 인증이 선택사항이 된다.
+      forwardOriginalToken: false
+---
+# 2) 토큰 없는 요청 차단
+#
+# ★ RequestAuthentication 은 "토큰이 있으면 검증한다" 일 뿐이다.
+#   토큰이 아예 없으면 아무 판단도 하지 않고 통과시킨다. 과금 대상 경로에서
+#   그것은 곧 무료 통행이므로 requestPrincipals 로 존재를 강제한다.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: api-require-jwt
+  labels:
+    app.kubernetes.io/name: api-require-jwt
+    app.kubernetes.io/component: service-mesh
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  selector:
+    matchLabels:
+      gateway.networking.k8s.io/gateway-name: ingress
+  action: ALLOW
+  rules:
+    # 과금 대상 API — 유효한 JWT 필수
+    - from:
+        - source:
+            requestPrincipals: ["*"]
+      to:
+        - operation:
+            hosts: ["api.oneinchmarket.local", "api.oneinchmarket.local:*"]
+    # ★ 그 밖의 호스트(운영 UI 등)는 이 정책의 대상이 아니다. ALLOW 정책은
+    #   선택된 워크로드에서 매칭되지 않은 것을 거부하므로, 게이트웨이가
+    #   다른 호스트도 받는다면 여기에 규칙을 더해야 한다. 빠뜨리면
+    #   그 호스트가 전면 거부된다(§8-47 과 같은 함정).
+    - to:
+        - operation:
+            notHosts: ["api.oneinchmarket.local", "api.oneinchmarket.local:*"]

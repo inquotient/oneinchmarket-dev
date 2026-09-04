@@ -435,9 +435,11 @@ local/configure-istio-usage-logging.sh              meshConfig 제공자
 
 **미결**
 
-- `subject`(청구 대상)를 `X-OIM-Tenant` 헤더에서 읽는다. **Keycloak JWT 의
-  테넌트 클레임을 게이트웨이가 이 헤더로 내려주는 배선이 아직 없다.**
-  지금은 클라이언트가 보내는 값을 그대로 믿는 상태이므로 **과금에 쓸 수 없다.**
+- ~~`subject` 배선 없음~~ **해소됨 (2026-09-05, §8-54).** RequestAuthentication 의
+  `outputClaimToHeaders` 가 JWT 의 `tenant` 클레임을 `x-oim-tenant` 로 덮어쓰고,
+  `AuthorizationPolicy(api-require-jwt)` 가 토큰 없는 요청을 차단한다.
+  위조 헤더를 실어도 클레임 값이 이긴다(실측: 토큰없음 403 · 위조헤더 403 ·
+  정상토큰 200 · 정상토큰+위조헤더 200 이면서 기록된 subject 는 클레임 값).
 - ArgoCD AppProject 가 `gateway.networking.k8s.io` 를 화이트리스트하지 않아
   dev/prod 승격 시 sync 가 거부된다.
 

@@ -92,3 +92,42 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: safeline
+---
+# Keycloak — JWT 공개키(JWKS) 조회 경로
+#
+# ★ 이 정책이 없어도 클러스터 안에서는 Keycloak 이 잘 붙는다. 양쪽이 ambient 라
+#   트래픽이 HBONE(15008)로 흐르고 그 포트는 allow-istio-hbone 이 허용하기
+#   때문이다. 그래서 "Keycloak 은 허용 규칙 없이도 되는구나" 로 오해하기 쉽다.
+#
+# ★★ istiod 는 다르다. **istio-system 은 메시에 편입되어 있지 않아** 평문
+#   8080 으로 오고, 그것은 default-deny-ingress 에 막힌다.
+#   증상: RequestAuthentication 을 걸었는데 **유효한 토큰이 전부 401** 이 된다.
+#   게이트웨이 로그에는 단서가 없고 istiod 로그에만 남는다:
+#     Failed to refresh JWT public key from ".../certs": context deadline exceeded
+#
+#   JWKS 를 가져오는 주체가 게이트웨이가 아니라 **컨트롤 플레인**이라는 점이
+#   이 결함의 핵심이다(§8-54).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-keycloak-access
+  labels:
+    app.kubernetes.io/name: allow-keycloak-access
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: keycloak
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # istiod 가 RequestAuthentication 의 jwksUri 를 주기적으로 갱신한다.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: istio-system
+      ports:
+        - protocol: TCP
+          port: 8080

@@ -6,6 +6,7 @@ resources:
   - peer-authentication.yaml
   - authorization-policies.yaml
   - ingress-gateway.yaml
+  - api-jwt.yaml
   - telemetry-usage.yaml
   - waypoint-proxy.yaml
   - spark-connect-authz.yaml

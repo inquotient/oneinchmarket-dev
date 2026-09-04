@@ -1,0 +1,146 @@
+# API 과금용 Keycloak realm 부트스트랩
+#
+# ★ 왜 필요한가 — 게이트웨이가 JWT 를 검증해 **테넌트를 스스로 판정**해야 한다.
+#   지금은 클라이언트가 보내는 `X-OIM-Tenant` 헤더를 그대로 믿고 있어서
+#   아무나 남의 회사에 청구를 떠넘길 수 있다(§8-53 미결). 그 헤더를
+#   **토큰 클레임에서 파생된 값으로 대체**하는 것이 이 Job 의 목적이다.
+#
+# ★ master realm 을 쓰지 않는다. master 는 Keycloak 자체의 관리 realm 이고,
+#   거기에 고객 클라이언트를 넣으면 관리 권한 경계와 과금 대상 경계가 섞인다.
+#
+# ★ 테넌트는 **클라이언트에 박힌 하드코딩 클레임**이다. 사용자 속성이 아니다 —
+#   API 과금은 client_credentials(기계 대 기계)라 사람이 없고, 담당자가 바뀌어도
+#   청구 주체는 유지되어야 하기 때문이다(계약의 subject 정의와 같은 이유).
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: keycloak-bootstrap
+  labels:
+    app.kubernetes.io/name: keycloak-bootstrap
+    app.kubernetes.io/component: bootstrap
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+automountServiceAccountToken: false
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: keycloak-realm-bootstrap
+  labels:
+    app.kubernetes.io/name: keycloak-realm-bootstrap
+    app.kubernetes.io/component: bootstrap
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: keycloak-realm-bootstrap
+        app.kubernetes.io/component: bootstrap
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: keycloak-bootstrap
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: bootstrap
+          image: curlimages/curl:latest
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits:   {cpu: 300m, memory: 256Mi}
+          env:
+            - name: KC
+              value: "http://keycloak-headless:8080"
+            - name: REALM
+              value: "oneinchmarket"
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: keycloak-secret, key: admin-password}
+            # 스모크 테넌트. 이 클라이언트로 토큰을 받아 게이트웨이 배선을
+            # 검증한다 — "설정은 했는데 클레임이 안 나온다" 를 구분하기 위해서다.
+            - name: SMOKE_TENANT
+              value: "acme-corp"
+            - name: SMOKE_SECRET
+              valueFrom:
+                secretKeyRef: {name: keycloak-secret, key: smoke-client-secret}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              echo "[0/4] Keycloak 대기"
+              until curl -sf -o /dev/null "${KC}/realms/master"; do sleep 5; done
+
+              echo "[1/4] 관리 토큰"
+              TOK=$(curl -sf -X POST "${KC}/realms/master/protocol/openid-connect/token" \
+                -d "client_id=admin-cli" -d "username=admin" \
+                -d "password=${ADMIN_PASSWORD}" -d "grant_type=password" \
+                | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+              [ -n "$TOK" ] || { echo "관리 토큰 실패 — admin-password 를 확인할 것" >&2; exit 1; }
+              A="Authorization: Bearer ${TOK}"
+
+              echo "[2/4] realm ${REALM}"
+              if curl -sf -o /dev/null -H "$A" "${KC}/admin/realms/${REALM}"; then
+                echo "  이미 있음"
+              else
+                curl -sf -X POST "${KC}/admin/realms" -H "$A" \
+                  -H 'Content-Type: application/json' \
+                  -d "{\"realm\":\"${REALM}\",\"enabled\":true,
+                       \"accessTokenLifespan\":300}"
+                echo "  생성"
+              fi
+
+              echo "[3/4] 스모크 클라이언트 ${SMOKE_TENANT}"
+              # ★ 하드코딩 클레임 매퍼가 핵심이다. 이 클라이언트가 받은 토큰에는
+              #   tenant=acme-corp 가 반드시 들어가고, 클라이언트는 그 값을
+              #   바꿀 수 없다. 게이트웨이는 이것만 믿는다.
+              EXIST=$(curl -sf -H "$A" "${KC}/admin/realms/${REALM}/clients?clientId=${SMOKE_TENANT}" | head -c 3)
+              if [ "$EXIST" = "[]" ]; then
+                curl -sf -X POST "${KC}/admin/realms/${REALM}/clients" -H "$A" \
+                  -H 'Content-Type: application/json' \
+                  -d "{\"clientId\":\"${SMOKE_TENANT}\",
+                       \"enabled\":true,
+                       \"publicClient\":false,
+                       \"serviceAccountsEnabled\":true,
+                       \"standardFlowEnabled\":false,
+                       \"directAccessGrantsEnabled\":false,
+                       \"secret\":\"${SMOKE_SECRET}\",
+                       \"protocolMappers\":[{
+                         \"name\":\"tenant\",
+                         \"protocol\":\"openid-connect\",
+                         \"protocolMapper\":\"oidc-hardcoded-claim-mapper\",
+                         \"config\":{
+                           \"claim.name\":\"tenant\",
+                           \"claim.value\":\"${SMOKE_TENANT}\",
+                           \"jsonType.label\":\"String\",
+                           \"access.token.claim\":\"true\",
+                           \"id.token.claim\":\"false\",
+                           \"userinfo.token.claim\":\"false\"
+                         }}]}"
+                echo "  생성"
+              else
+                echo "  이미 있음"
+              fi
+
+              echo "[4/4] 검증 — 발급된 토큰에 tenant 클레임이 있는가"
+              AT=$(curl -sf -X POST "${KC}/realms/${REALM}/protocol/openid-connect/token" \
+                -d "grant_type=client_credentials" \
+                -d "client_id=${SMOKE_TENANT}" -d "client_secret=${SMOKE_SECRET}" \
+                | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+              [ -n "$AT" ] || { echo "토큰 발급 실패" >&2; exit 1; }
+              # payload 만 떼어 base64url 디코딩
+              P=$(echo "$AT" | cut -d. -f2)
+              case $(( ${#P} % 4 )) in 2) P="${P}==";; 3) P="${P}=";; esac
+              echo "$P" | tr '_-' '/+' | base64 -d 2>/dev/null | tr ',' '\n' | grep -E '"tenant"|"iss"' \
+                || { echo "★ tenant 클레임이 없다 — 매퍼가 적용되지 않았다" >&2; exit 1; }
+              echo "=== realm 부트스트랩 완료 ==="

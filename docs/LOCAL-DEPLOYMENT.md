@@ -4897,6 +4897,74 @@ contracts/asyncapi/api-usage.yaml        채널 계약
   적용해 보류했다. 노드 메모리 requests 가 **88%** 인 것도 이유다.
 - ClickHouse 범위(ADR-070)와 충돌하므로 개정 여부를 함께 정해야 한다(ADR-073).
 
+
+### 8-54. 과금 신원 배선 — 클라이언트가 보내는 테넌트를 더 이상 믿지 않는다
+
+§8-53 이 남긴 미결이다. 계량은 되는데 `subject`(청구 대상)를 클라이언트가
+보내는 `X-OIM-Tenant` 헤더에서 그대로 읽고 있었다. 아무나
+`X-OIM-Tenant: 남의회사` 를 보내면 그 회사에 청구되는 상태였다.
+
+#### 세운 것
+
+```
+Keycloak realm oneinchmarket  +  클라이언트 acme-corp
+   -> 하드코딩 클레임 매퍼로 tenant=acme-corp 를 토큰에 박는다
+RequestAuthentication(api-jwt)
+   -> JWT 검증 + outputClaimToHeaders 로 tenant 를 x-oim-tenant 에 **덮어쓴다**
+AuthorizationPolicy(api-require-jwt)
+   -> 토큰 없는 요청 차단
+```
+
+realm 부트스트랩이 레포에 아예 없어 `master` 하나뿐이었다. master 는 Keycloak
+자체의 관리 realm 이라 거기에 고객 클라이언트를 넣으면 관리 권한 경계와 과금
+대상 경계가 섞인다. 별도 realm 을 만들었다.
+
+테넌트는 **클라이언트에 박힌 하드코딩 클레임**이다. 사용자 속성이 아니다 —
+API 과금은 client_credentials(기계 대 기계)라 사람이 없고, 담당자가 바뀌어도
+청구 주체는 유지되어야 한다(계약의 `subject` 정의와 같은 이유).
+
+#### 검증 — 네 경우
+
+| | 요청 | 결과 |
+|---|---|---|
+| ① | 토큰 없음 | **403** |
+| ② | 토큰 없이 헤더만 위조 | **403** |
+| ③ | 정상 토큰 | **200** |
+| ④ | 정상 토큰 + 위조 헤더 `victim-corp` | **200, 기록된 subject = `acme-corp`** |
+
+④ 가 이 작업의 전부다. 클라이언트가 보낸 값이 **클레임에서 나온 값으로
+대체**되므로 위조가 통하지 않는다.
+
+#### 두 번 물렸다 — 둘 다 "유효한 토큰이 전부 401"
+
+증상이 같아서 원인을 구분하기 어려웠다. **게이트웨이 로그에는 단서가 없고
+istiod 로그에만 남는다.**
+
+**첫째, 단축 서비스명.** `jwksUri` 를 `keycloak-headless:8080` 으로 썼는데
+`dial tcp: lookup keycloak-head...` 로 실패했다.
+**JWKS 를 가져오는 주체가 게이트웨이가 아니라 `istio-system` 의 istiod** 라서
+`local` 네임스페이스의 단축명이 풀리지 않는다. FQDN 이어야 한다.
+`issuer` 는 토큰의 `iss` 와 맞춰야 하므로 단축명 그대로 두고 `jwksUri` 만 고친다 —
+두 필드의 값이 서로 달라도 되는 이유다.
+
+**둘째, NetworkPolicy.** FQDN 으로 고쳐도 `context deadline exceeded` 였다.
+Keycloak 에는 ingress 허용 규칙이 **하나도 없었다.** 그런데도 클러스터 안에서는
+잘 붙었다 — 양쪽이 ambient 라 트래픽이 HBONE(15008)로 흐르고 그 포트는
+`allow-istio-hbone` 이 허용하기 때문이다. **istio-system 은 메시 밖이라 평문
+8080 으로 오고 그것만 막혔다.** Gotcha 13 과 같은 계열이고, 이 문서에서 네 번째다.
+
+★ 정책을 고친 뒤에도 401 이 계속됐다. **istiod 가 JWKS 실패를 캐시하고 곧바로
+재시도하지 않는다.** 재시작해야 다시 가져온다. "정책은 고쳤는데 여전히 안 된다"
+로 보이므로 컨트롤 플레인 재시작을 확인 절차에 넣어야 한다.
+
+#### 남은 것
+
+- 액세스 로그 → Kafka `api-usage` 다리(형식·신원이 확정됐으므로 이제 만들 수 있다)
+- 계량 백엔드 결정(ADR-072) — OpenMeter 규모 미검증, ADR-070 개정 여부
+- 고객마다 클라이언트를 만드는 절차. 지금은 스모크 테넌트 하나뿐이다
+- `accessTokenLifespan` 300초. 토큰 갱신 실패가 곧 과금 누락이 되므로 클라이언트
+  쪽 재시도 정책이 필요하다
+
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용

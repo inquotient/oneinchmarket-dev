@@ -10,6 +10,7 @@ resources:
   - kafka-topics.yaml
   - hive-schematool.yaml
   - minio-bootstrap.yaml
+  - keycloak-realm.yaml
   - ds389-bootstrap.yaml
   - apicurio-rules.yaml
   - glitchtip-migrate.yaml
