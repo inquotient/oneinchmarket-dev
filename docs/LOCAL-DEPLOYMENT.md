@@ -3495,6 +3495,87 @@ CA → 노드 인증서). 같은 방식으로 SAN 을 갖춘 인증서를 발급
 Logstash 가 이미 이 토픽을 SIEM 으로 소비하고 있으므로(§8-35) 그대로 둔다.
 `argocd/events/` 의 센서는 스텁이고 Argo Events 자체가 설치되어 있지 않다 —
 정리 대상이지만 감사 경로와 무관하므로 별도로 판단한다.
+
+### 8-39. ambient 편입 시도 — 되돌리기가 편입보다 위험했다 (2026-09-04)
+
+§8-38 에서 LDAP 전송 암호화를 검토하다 막혔다. 경로마다 TLS 를 붙이는 방식이
+각각 벽에 부딪혔다.
+
+- **LDAP** — DS389 의 자동 생성 인증서는 SAN 이 하나이고
+  `ds389-0.ds389-headless.local.svc.cluster.local` 로 **네임스페이스가 박혀 있다.**
+  base 매니페스트가 담을 수 없다. 이식 가능하게 만들려면 cert-manager 인증서를
+  NSS DB 에 임포트해야 하는데, DS389 는 기동이 까다로운 컴포넌트다
+- **Kafka** — `PLAINTEXT` 리스너뿐이다. TLS 를 얹으면 OpenReplay·AKHQ·
+  kafka-bridge·Logstash 를 전부 함께 고쳐야 한다
+
+그래서 ambient 로 한 번에 덮으려 했다. 근거는 있었다.
+
+```
+istiod · ztunnel · istio-cni-node   전부 Running (설치는 되어 있고 편입만 안 됨)
+PeerAuthentication                  PERMISSIVE  (양쪽 편입 시에만 mTLS)
+hostNetwork 파드                     없음        (ambient 제외 대상 없음)
+```
+
+**애플리케이션 설정을 하나도 건드리지 않고** 레이블 한 줄로 LDAP·Kafka·
+PostgreSQL·ES 를 함께 덮는다 — 레버리지가 압도적으로 좋아 보였다.
+
+#### 편입 결과 — OpenReplay 9개가 무너졌다
+
+```
+Ready 79 → 70
+CrashLoopBackOff : http-openreplay, sink-openreplay
+Error            : integrations-openreplay
+0/1 Running      : api, canvases, db, ender, images, spot
+로그             : "i/o timeout"
+```
+
+전부 OpenReplay 의 수집 계층이고 Kafka 를 많이 쓰는 것들이다. 반면 같은 시점에
+`logstash → kafka:9092` 와 `usersync → ds389:3389` TCP 프로브는 성공했다.
+**모든 트래픽이 깨진 것이 아니라 특정 통신 양상이 깨졌다.** 정확한 기제는
+규명하지 못했다 — ztunnel 로그·패킷 수준 조사가 필요하다.
+
+#### 더 중요한 발견 — 되돌리기가 더 넓게 흔들었다
+
+레이블을 지우자 상황이 **악화**됐다.
+
+```
+편입 후    Ready 70 / 79
+되돌린 직후 Ready 43 / 79   ← postgresql·minio·mariadb·keycloak·vault·gitlab·
+                              logstash·loki·grafana·knox 까지 readiness 상실
++30초      69 / 79
++60초      76 / 79
++120초     79 / 79          ← 자력 회복
+```
+
+데이터플레인이 붙었다 떨어지며 **기존 연결이 끊긴** 것으로 보인다. 대부분
+크래시가 아니라 `0/1 Running`(readiness 실패)이었고 재연결로 회복했다.
+
+**"되돌릴 수 있다" 가 "되돌리는 것이 무해하다" 를 뜻하지 않는다.** 이번에는
+3분 만에 자력 회복했으나, 그 3분 동안 데이터 계층 전체가 준비 상태를 잃었다.
+운영 환경이었다면 그 자체가 장애다.
+
+#### 판단
+
+레이블 한 줄이라는 점이 위험을 과소평가하게 만들었다. 변경의 **크기**와 변경의
+**범위**는 다르다 — 이 한 줄은 파드 110개의 데이터플레인을 바꾼다.
+
+다시 시도한다면 네임스페이스 전체가 아니라 **파드 단위로 좁혀** 들어가야 한다.
+ambient 는 `istio.io/dataplane-mode` 를 파드 레이블로도 받으므로, OpenReplay 를
+제외한 채 LDAP·Kafka 경로의 양끝(usersync·ds389·logstash·kafka)만 편입하는
+것이 가능하다. 그러면 실패 반경이 4개 파드로 줄고 되돌리기도 그 범위에 그친다.
+
+#### 그래서 LDAPS 는 아직 미해결이다
+
+§8-38 의 "남은 것" 이 그대로 남는다. 선택지는 셋이고 각각 대가가 있다.
+
+| | 내용 | 대가 |
+|---|---|---|
+| cert-manager + NSS 임포트 | 정공법·이식 가능 | DS389 부팅 경로를 건드린다 |
+| local 한정 CA 고정 | 지금 이 경로만 암호화 | 이식 불가, PVC 재생성에 깨짐 |
+| ambient 파드 단위 편입 | 앱 설정 무변경 | 위 실패의 축소판을 다시 겪을 수 있다 |
+
+**root DN 제거(§8-38)는 유지된다.** 전송 암호화만 미해결이며, 두 문제 중
+자격 권한 쪽이 더 심각했다는 점은 변하지 않는다.
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용
