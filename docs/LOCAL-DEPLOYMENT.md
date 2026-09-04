@@ -4159,6 +4159,104 @@ OpenReplay 파드 하나만 편입해 ztunnel 로그를 보는 것부터 시작�
 
 **현재 편입 상태로 유지하는 것은 LDAP 경로(`ds389` · `ranger-usersync`)뿐이고,
 그 경로는 mTLS 로 흐른다(§8-41).** 전면 적용은 미해결로 남는다.
+
+### 8-46. ambient 전면 편입의 진짜 원인 — AuthorizationPolicy 였다 (2026-09-04)
+
+§8-45 에서 "남은 원인 미상" 으로 남긴 것을 규명했다.
+
+#### 먼저 두 가설을 배제했다
+
+**① OpenReplay 가 ambient 와 비호환?** 아니다. `ender-openreplay` 하나만 편입하니
+`1/1 Running` 으로 정상 동작했다(`"Ender service started"`, 오류 없음).
+
+**② PostgreSQL 연결 고갈?** 아니다. `max_connections` 를 300 으로 올리고
+`67/300` 여유가 충분한 상태에서 재시도했는데 **동일하게 실패**했다.
+
+개별 편입은 되고 전체 편입은 안 된다. 차이는 **상대편도 편입되는가** 하나다.
+한쪽만 편입되면 PERMISSIVE 라 평문으로 흐르고, 양쪽이 편입되면 HBONE 을 탄다.
+문제는 그 HBONE 경로에 있었다.
+
+#### ztunnel 이 답을 말한다
+
+```
+src.identity="spiffe://cluster.local/ns/local/sa/chalice-openreplay"
+dst.hbone_addr=10.0.0.233:5432  dst.identity=".../sa/postgresql"
+error="connection closed due to policy rejection: allow policies exist, but none allowed"
+```
+
+파드 쪽 증상은 이렇게 나온다.
+
+```
+can't init postgres connection: ... read: connection reset by peer
+```
+
+#### 원인 — ztunnel 은 NetworkPolicy 가 아니라 AuthorizationPolicy 를 본다
+
+`allow-postgresql-access`(Kubernetes NetworkPolicy)에는
+`app.kubernetes.io/instance: openreplay` 가 **들어 있다.** 파드 라벨도 맞는다.
+그래서 Cilium 은 이 트래픽을 허용하고, 오늘도 정상 동작한다.
+
+그런데 ztunnel 이 강제하는 것은 **Istio AuthorizationPolicy** 다.
+
+```
+allow-database-access   selector={app.kubernetes.io/component: database}  ALLOW
+  5432 :  keycloak · hive-metastore · apicurio · gitlab
+  3306 :  admin · cmmn-api
+  27017:  admin · cmmn-api
+  6379 :  keycloak · admin · cmmn-api
+```
+
+**OpenReplay 의 ServiceAccount 가 없다.** Istio 의 ALLOW 의미론은 이렇다 —
+어떤 워크로드를 선택하는 ALLOW 정책이 하나라도 존재하면, **그 정책에 매칭되지
+않는 모든 요청은 거부된다.** `postgresql` 은 `component: database` 라 선택되므로
+목록에 없는 OpenReplay 는 전부 막힌다.
+
+#### 같은 기제가 §8-42 의 Kafka 401 도 설명한다
+
+```
+allow-messaging-access  selector={name: kafka}  ALLOW
+  9092/9093 : akhq · apicurio · logstash · admin · cmmn-api · argo-events-sa
+```
+
+`logstash` 가 목록에 있는데도 401 이었다. 이유는 §8-42 에서 이미 관측했다 —
+**logstash 는 `sa/default` 로 돈다.**
+
+```
+src.identity="spiffe://cluster.local/ns/local/sa/default"
+```
+
+정책은 `cluster.local/ns/*/sa/logstash` 를 허용하는데 실제 신원이 `sa/default`
+라 매칭되지 않는다. **ambient 에서 워크로드 신원은 ServiceAccount 다.**
+
+#### 그리고 LDAP 이 성공한 이유도 설명된다
+
+`ds389`(component: governance)를 선택하는 AuthorizationPolicy 가 **없다.**
+선택하는 ALLOW 정책이 없으면 거부 로직이 발동하지 않는다. §8-41 에서 LDAP 만
+성공한 것은 그 경로가 운 좋게 정책 사각지대에 있었기 때문이다.
+
+#### 정리 — 이 정책들은 한 번도 실제로 강제된 적이 없다
+
+`service-mesh/` 의 AuthorizationPolicy 5종은 ambient 가 비활성인 채로 작성되어
+**실 트래픽으로 검증된 적이 없다.** 그래서 실제 통신과 어긋나 있다. ambient 를
+켜는 순간 그 격차가 전부 거부로 나타난다.
+
+#### 고치려면
+
+| 대상 | 필요한 것 |
+|---|---|
+| `allow-database-access` | OpenReplay 서비스어카운트 다수를 5432 에 추가. Redis(6379)·ClickHouse 경로도 함께 |
+| `allow-messaging-access` | logstash 에 **전용 ServiceAccount** 부여(현재 `default`). OpenReplay 도 추가 |
+| `allow-observability-access` | ES 소비자 재확인 |
+| 공통 | `default` SA 로 도는 워크로드 색출 — 신원이 구분되지 않아 정책을 쓸 수 없다 |
+
+**작업 순서가 중요하다.** 정책을 먼저 맞추고 그 다음에 편입해야 한다. 반대로 하면
+오늘처럼 15개 파드가 동시에 무너진다.
+
+#### 부수 소득 — PostgreSQL max_connections
+
+원인 추적 중 별개 결함을 찾아 고쳤다(§8-45). `max_connections` 가 기본값 100
+이었고 실제로 고갈되어 있었다. 300 으로 올려 적용했다(`67/300` 확인).
+ambient 와 무관하며 노드 재부팅으로도 터졌을 문제다.
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용
