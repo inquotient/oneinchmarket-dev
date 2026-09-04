@@ -3971,6 +3971,72 @@ keyadmin_password
 않는다(`ranger-admin -> ranger-usersync:5151` 실패). 그럼에도 내부 DB 인증으로
 로그인이 되므로 실사용에 지장은 없다. 다만 **설정과 실제 동작이 어긋나 있으며**
 LDAP·PAM 으로 옮길 때 이 값이 먼저 정리되어야 한다.
+
+### 8-44. Ranger 자격 분리 — 하나의 비밀번호가 다섯 곳에 쓰이고 있었다 (2026-09-04)
+
+§8-43 정정 과정에서 드러났다. 이미지 엔트리포인트
+`/home/ranger/scripts/ranger.sh` 가 이렇게 쓴다.
+
+```bash
+echo "db_password=${RANGER_DB_PASSWORD}"
+echo "rangerAdmin_password=${RANGER_DB_PASSWORD}"
+echo "rangerTagsync_password=${RANGER_DB_PASSWORD}"
+echo "rangerUsersync_password=${RANGER_DB_PASSWORD}"
+echo "keyadmin_password=${RANGER_DB_PASSWORD}"
+```
+
+**다섯이 같은 값이다.**
+
+#### 왜 문제인가
+
+- **DB 자격이 곧 관리자 자격이다.** PostgreSQL 접속 문자열이 새면 정책 엔진의
+  관리자 권한까지 함께 샌다. 그런데 DB 자격은 성질상 더 널리 퍼진다 —
+  백업 스크립트·마이그레이션 Job·psql 접속에 쓰인다
+- **`keyadmin` 이 특히 나쁘다.** Ranger KMS 의 키 관리자다. 암호화 키를
+  다루는 계정이 DB 접속 계정과 같은 비밀번호를 쓴다
+- **회전이 불가능하다.** 하나를 바꾸려면 다섯을 함께 바꿔야 하고, 이미 초기화된
+  인스턴스는 `install.properties` 수정만으로 반영되지 않는다
+- **감사 추적이 무의미해진다.** 어느 자격이 쓰였는지 값으로 구분할 수 없다
+
+#### 조치 ① 매니페스트 — 재구축 시 분리된다
+
+`ranger-admin` StatefulSet 에 엔트리포인트 래퍼를 넣었다. `ranger.sh` 의 네 줄을
+각각의 환경변수로 바꿔치기한 뒤 원래 엔트리포인트를 `exec` 한다.
+
+```
+RANGER_ADMIN_PASSWORD     <- ranger-secret/admin-password
+RANGER_TAGSYNC_PASSWORD   <- ranger-secret/tagsync-password
+RANGER_USERSYNC_PASSWORD  <- ranger-secret/usersync-password
+RANGER_KEYADMIN_PASSWORD  <- ranger-secret/keyadmin-password
+```
+
+**★ 치환이 하나라도 실패하면 기동을 멈춘다.** 그냥 넘어가면 자격이 조용히 다시
+합쳐진 채로 뜨는데, 그것이 이 변경으로 없애려는 상태 그 자체다. 이미지 태그를
+올릴 때 엔트리포인트가 바뀌면 여기서 걸린다.
+
+`ranger-usersync` 의 `RANGER_USERSYNC_PASSWORD` 도 `db-password` 에서
+`usersync-password` 로 바꿨다.
+
+#### 조치 ② 실행 중 인스턴스 — 별도 회전이 필요하다
+
+`ranger.sh` 는 `${RANGER_HOME}/.setupDone` 이 있으면 setup 을 건너뛴다.
+**따라서 매니페스트 변경만으로는 기존 인스턴스가 바뀌지 않는다.**
+
+회전은 공식 유틸 `changepasswordutil.py` 로 한다. 이 유틸은 현재 비밀번호를
+요구하는데 지금은 그것을 알고 있다(§8-43). 순서가 중요하다 —
+`rangerusersync` 를 먼저 바꾸면 usersync 가 즉시 끊기므로
+**비밀번호 변경 → Deployment 시크릿 키 교체 → 재기동** 으로 간다.
+
+스크립트를 `local/` 밖(`iso/ranger-cred-split.sh`)에 준비해 두었다. 자격 변경은
+승인이 필요한 동작이라 이 항목에서는 실행하지 않았다.
+
+#### 남는 한계
+
+이미지 엔트리포인트를 `sed` 로 고치는 방식은 **이미지에 결합된다.** 태그를
+올리면 깨질 수 있고, 위의 검증이 그때 기동을 멈춘다(조용히 합쳐지는 것보다는
+낫다). 근본 해법은 `ranger-admin-install.properties` 를 우리 ConfigMap 으로
+덮어쓰는 것이며, 그때 `authentication_method` 도 함께 정리하면 된다
+(§8-43 의 UNIX/unixauth 불일치).
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용

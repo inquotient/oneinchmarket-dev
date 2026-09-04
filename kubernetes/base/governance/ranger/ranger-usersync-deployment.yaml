@@ -75,8 +75,11 @@ spec:
               touch    "${RANGER_HOME}/usersync/logs/auth.log"
               exec "${RANGER_SCRIPTS}/ranger-usersync.sh"
           env:
+            # ★ db-password 가 아니라 전용 자격이다. 원래는 Ranger 의 다섯 자격
+            #   (db·admin·keyadmin·tagsync·usersync)이 전부 같은 값이었고,
+            #   DB 자격이 새면 정책 엔진 관리자까지 함께 샜다(§8-44).
             - name: RANGER_USERSYNC_PASSWORD
-              valueFrom: {secretKeyRef: {name: ranger-secret, key: db-password}}
+              valueFrom: {secretKeyRef: {name: ranger-secret, key: usersync-password}}
             # ★ dm-password(root DN)가 아니라 동기화 전용 계정의 비밀번호다.
             #   ds389-bootstrap 이 uid=ranger-sync 를 만들고 ACI 로 읽기만
             #   허용한다. 키 이름이 바뀌었으므로 ds389-secret 에 sync-password
