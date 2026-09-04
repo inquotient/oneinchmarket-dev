@@ -11,7 +11,7 @@ spec:
     matchLabels: {app.kubernetes.io/name: ranger-admin}
   template:
     metadata:
-      labels: {app.kubernetes.io/name: ranger-admin, app.kubernetes.io/component: governance, app.kubernetes.io/part-of: oneinchmarket}
+      labels: {app.kubernetes.io/name: ranger-admin, app.kubernetes.io/component: governance, app.kubernetes.io/part-of: oneinchmarket, istio.io/dataplane-mode: ambient}
     spec:
       serviceAccountName: ranger-admin
       securityContext:
@@ -67,6 +67,23 @@ spec:
           args:
             - |
               set -e
+              # ★ 이미지 템플릿을 ConfigMap 것으로 갈아끼운다.
+              #   ranger.sh 는 ${RANGER_SCRIPTS}/ranger-admin-install.properties
+              #   를 그대로 복사해 쓴다. 그 파일을 우리 것으로 바꾸면 Ranger 의
+              #   정적 설정 전체를 매니페스트에서 통제할 수 있다 —
+              #   authentication_method 가 그 안에 있다.
+              #   LDAP bind 비밀번호만 치환한다(ConfigMap 에 둘 수 없다).
+              T=/etc/ranger-admin/install.properties.tmpl
+              D="${RANGER_SCRIPTS}/ranger-admin-install.properties"
+              sed -e "s|__LDAP_BIND_PASSWORD__|${LDAP_BIND_PASSWORD}|" "$T" > "$D"
+              chmod 600 "$D"
+              grep -q '^authentication_method=LDAP' "$D" || {
+                echo "[ranger-admin] install.properties 교체 실패." >&2
+                echo "[ranger-admin] 이미지 기본값(UNIX)으로 뜨면 LDAP 사용자가" >&2
+                echo "[ranger-admin] 로그인할 수 없다. 기동하지 않는다." >&2
+                exit 1
+              }
+              echo "[ranger-admin] install.properties 교체 완료 (authentication_method=LDAP)"
               S=/home/ranger/scripts/ranger.sh
               sed -i \
                 -e 's|rangerAdmin_password=${RANGER_DB_PASSWORD}|rangerAdmin_password=${RANGER_ADMIN_PASSWORD}|' \
@@ -106,8 +123,15 @@ spec:
               valueFrom: {secretKeyRef: {name: ranger-secret, key: tagsync-password}}
             - name: RANGER_USERSYNC_PASSWORD
               valueFrom: {secretKeyRef: {name: ranger-secret, key: usersync-password}}
+            # ★ LDAP 조회 전용 계정. dm-password(root DN)가 아니다.
+            #   ds389-bootstrap 이 uid=ranger-sync 를 만들고 ACI 로 읽기만
+            #   허용한다. usersync 와 같은 자격을 쓴다 — 둘 다 조회만 한다.
+            - name: LDAP_BIND_PASSWORD
+              valueFrom: {secretKeyRef: {name: ds389-secret, key: sync-password}}
             - name: RANGER_KEYADMIN_PASSWORD
               valueFrom: {secretKeyRef: {name: ranger-secret, key: keyadmin-password}}
+          volumeMounts:
+            - {name: config, mountPath: /etc/ranger-admin}
           ports:
             - {containerPort: 6080, name: http, protocol: TCP}
           securityContext:
@@ -133,3 +157,6 @@ spec:
             periodSeconds: 20
             timeoutSeconds: 10
             failureThreshold: 6
+      volumes:
+        - name: config
+          configMap: {name: ranger-admin-config}

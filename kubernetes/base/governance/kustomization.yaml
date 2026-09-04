@@ -24,6 +24,7 @@ resources:
   - solr/solr-statefulset.yaml
   # Ranger admin — 정책 관리
   - ranger/ranger-admin-service.yaml
+  - ranger/ranger-admin-configmap.yaml
   - ranger/ranger-admin-statefulset.yaml
   # Ranger usersync — DS389 -> Ranger 사용자·그룹 동기화
   - ranger/ranger-usersync-sa.yaml

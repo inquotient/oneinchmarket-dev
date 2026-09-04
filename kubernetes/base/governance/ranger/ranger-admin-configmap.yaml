@@ -1,0 +1,134 @@
+# ★ 이미지에 구워진 install.properties 템플릿을 대체한다.
+#
+#   apache/ranger:2.9.0 의 엔트리포인트(ranger.sh)는 이렇게 동작한다:
+#     cp ${RANGER_SCRIPTS}/ranger-admin-install.properties \
+#        ${RANGER_HOME}/admin/install.properties
+#     { echo "db_root_password=..."; ... } >> install.properties   # env 유래
+#     ./setup.sh        # ranger-admin-site.xml 을 생성한다
+#     rm install.properties; touch .setupDone
+#
+#   즉 **원본 템플릿이 Ranger 의 모든 정적 설정을 결정한다.** 이미지 안에
+#   있으므로 매니페스트로는 손댈 수 없었다. 이 ConfigMap 이 그 파일을 대신한다.
+#
+#   ★ ranger-admin 에는 PVC 가 없다. `/opt/ranger` 는 컨테이너 임시 계층이고
+#     `.setupDone` 도 함께 사라지므로 **재시작마다 setup 이 다시 돈다.**
+#     따라서 여기의 변경은 파드를 재시작하면 그대로 반영된다.
+#
+#   ★ 비밀번호는 여기 두지 않는다. 넷(admin·keyadmin·tagsync·usersync)은
+#     ranger.sh 가 env 에서 append 하고(뒤 값이 이긴다) StatefulSet 의
+#     엔트리포인트가 각각의 Secret 으로 분리한다. LDAP bind 비밀번호만
+#     플레이스홀더로 두고 기동 시 치환한다 — usersync 와 같은 방식이다.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ranger-admin-config
+  labels:
+    app.kubernetes.io/name: ranger-admin
+    app.kubernetes.io/component: governance
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+data:
+  install.properties.tmpl: |
+    PYTHON_COMMAND_INVOKER=python3
+    RANGER_ADMIN_LOG_DIR=/var/log/ranger
+    RANGER_PID_DIR_PATH=/var/run/ranger
+    DB_FLAVOR=POSTGRES
+    SQL_CONNECTOR_JAR=/usr/share/java/postgresql.jar
+    RANGER_ADMIN_LOGBACK_CONF_FILE=/opt/ranger/admin/ews/webapp/WEB-INF/classes/conf/logback.xml
+    db_root_user=postgres
+    db_host=ranger-db
+    db_name=ranger
+    postgres_core_file=db/postgres/optimized/current/ranger_core_db_postgres.sql
+    postgres_audit_file=db/postgres/xa_audit_db_postgres.sql
+    mysql_core_file=db/mysql/optimized/current/ranger_core_db_mysql.sql
+    mysql_audit_file=db/mysql/xa_audit_db.sql
+    audit_store=solr
+    audit_solr_urls=http://ranger-solr:8983/solr/ranger_audits
+    audit_solr_collection_name=ranger_audits
+    audit_elasticsearch_urls=
+    audit_elasticsearch_port=9200
+    audit_elasticsearch_protocol=http
+    audit_elasticsearch_user=elastic
+    audit_elasticsearch_password=elasticsearch
+    audit_elasticsearch_index=ranger_audits
+    audit_elasticsearch_bootstrap_enabled=true
+    policymgr_external_url=http://ranger-admin:6080
+    policymgr_http_enabled=true
+    unix_user=ranger
+    unix_user_pwd=ranger
+    unix_group=ranger
+    oracle_core_file=
+    sqlserver_core_file=
+    sqlanywhere_core_file=
+    cred_keystore_filename=
+    XAPOLICYMGR_DIR=$PWD
+    app_home=$PWD/ews/webapp
+    TMPFILE=$PWD/.fi_tmp
+    LOGFILE=$PWD/logfile
+    LOGFILES="$LOGFILE"
+    JAVA_BIN='java'
+    JAVA_VERSION_REQUIRED='1.8'
+    ranger_admin_max_heap_size=1g
+    PATCH_RETRY_INTERVAL=120
+    STALE_PATCH_ENTRY_HOLD_TIME=10
+    hadoop_conf=
+
+    # ★★ UNIX -> LDAP. 이미지 기본값은 UNIX 였고 **작동하지 않았다.**
+    #
+    #   UNIX 방식은 Ranger admin 이 UnixAuthenticationService(포트 5151)에
+    #   물어본다. 그 프로세스는 **ranger-usersync 파드**에서 돌고 있고,
+    #   ranger.unixauth.* 설정이 하나도 없어 admin 은 자기 파드의
+    #   localhost:5151 로 붙으려 한다 — 거기엔 아무것도 없다. usersync 는
+    #   Service 객체조차 없어 애초에 도달할 수도 없다.
+    #
+    #   실측: LDAP 에서 동기화된 사용자 `oim-svc` 로 로그인하면 401 이다.
+    #   내장 `admin` 만 되는 이유는 Ranger 가 내부 사용자에 대해 DB 로
+    #   폴백하기 때문이고, 그래서 이 결함이 지금까지 드러나지 않았다.
+    #
+    #   사용자는 usersync 가 DS389 에서 가져온다. 인증도 같은 DS389 에
+    #   맡기는 것이 일관된다 — 아래 값은 전부 ranger-usersync-configmap 의
+    #   SYNC_LDAP_* 와 짝을 맞춘 것이다. 어긋나면 "동기화는 되는데 로그인은
+    #   안 되는" 지금 상태로 되돌아간다.
+    #
+    #   ★ 평문 LDAP 처럼 보이지만 ds389 와 ranger-admin 이 모두 ambient 에
+    #     편입되어 있어 ztunnel 이 mTLS 로 감싼다(§8-41·§8-47).
+    #
+    #   ★ 내장 사용자(admin·keyadmin)는 계속 쓸 수 있다. Ranger 는 LDAP 바인드가
+    #     실패하면 내부 DB 로 폴백한다 — keyadmin·rangerusersync 로 실측 확인했다.
+    #
+    #   ★★ 단 **로그인 실패가 누적되면 계정이 잠긴다.** 잠금은 `x_auth_sess` 의
+    #     연속 실패 기록에서 파생되므로 **파드를 재시작해도 풀리지 않는다.**
+    #     증상은 401 이고 로그에만 단서가 남는다:
+    #       Login Unsuccessful:admin | ... | User account is locked
+    #     실측: 검증하느라 틀린 비밀번호를 반복해 admin 이 잠겼다. 푸는 방법은
+    #     ranger DB 에서 그 사용자의 실패 기록(auth_status 2·4)을 지우는 것뿐이다.
+    #     설정으로 끄는 항목은 이미지 안에 없다(jar 에 관련 property 가 없다).
+    #     자동화된 헬스체크가 Ranger 로그인을 두드리지 않게 할 것.
+    authentication_method=LDAP
+    xa_ldap_url=ldap://ds389-headless:3389
+    xa_ldap_userDNpattern=uid={0},ou=people,dc=oneinchmarket,dc=co,dc=kr
+    xa_ldap_groupSearchBase=ou=groups,dc=oneinchmarket,dc=co,dc=kr
+    xa_ldap_groupSearchFilter=(member=uid={0},ou=people,dc=oneinchmarket,dc=co,dc=kr)
+    xa_ldap_groupRoleAttribute=cn
+    xa_ldap_base_dn=dc=oneinchmarket,dc=co,dc=kr
+    # 조회 전용 계정이다. ds389-bootstrap 이 ACI 로 read/search/compare 만 준다.
+    xa_ldap_bind_dn=uid=ranger-sync,ou=people,dc=oneinchmarket,dc=co,dc=kr
+    xa_ldap_bind_password=__LDAP_BIND_PASSWORD__
+    xa_ldap_referral=follow
+    xa_ldap_userSearchFilter=(uid={0})
+
+    spnego_principal=
+    spnego_keytab=
+    token_valid=
+    admin_principal=
+    admin_keytab=
+    lookup_principal=
+    lookup_keytab=
+    audit_jaas_client_loginModuleName=
+    audit_jaas_client_loginModuleControlFlag=
+    audit_jaas_client_option_useKeyTab=
+    audit_jaas_client_option_storeKey=
+    audit_jaas_client_option_useTicketCache=
+    audit_jaas_client_option_serviceName=
+    audit_jaas_client_option_keyTab=
+    audit_jaas_client_option_principal=

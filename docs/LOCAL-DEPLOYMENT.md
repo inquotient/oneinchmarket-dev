@@ -4330,6 +4330,89 @@ HBONE 15008 인바운드 (최근 90초)     252 건   # 전 구간 mTLS
 - ★ 방향이 반대였다. §8-39~§8-45 는 "편입했더니 무엇이 깨졌나"를 물었다.
   옳은 질문은 "**편입하면 무엇이 강제되기 시작하나**"였다.
 
+
+### 8-48. Ranger 인증 — UNIX 는 처음부터 도달 불가능한 곳을 가리키고 있었다
+
+CLAUDE.md 의 미결 항목이었다. 두 가지가 얽혀 있었다.
+
+#### 1. `authentication_method=UNIX` 가 아무데도 가리키지 않았다
+
+이미지의 `ranger-admin-install.properties` 기본값이 UNIX 다. UNIX 방식은 Ranger
+admin 이 `UnixAuthenticationService`(포트 5151)에 인증을 위임하는 것이다. 그런데
+
+- 그 프로세스는 **ranger-usersync 파드**에서 돈다(usersync 의 liveness 프로브가
+  바로 그 프로세스를 확인한다).
+- `ranger-admin-site.xml` 에 `ranger.unixauth.*` 가 **하나도 없다.** 기본값이므로
+  admin 은 자기 파드의 `localhost:5151` 로 붙으려 한다 — 거기엔 아무것도 없다.
+- 애초에 `ranger-usersync` 에는 **Service 객체가 없다.** 도달할 방법이 없다.
+
+즉 LDAP 에서 동기화된 사용자는 로그인할 수 없다. 실측으로 확인했다 —
+`oim-svc`(DS389 에서 동기화된 사용자) 로그인은 401 이다. **내장 `admin` 만
+되는 이유는 Ranger 가 내부 사용자에 대해 DB 로 폴백하기 때문이고, 그래서 이
+결함이 지금까지 드러나지 않았다.** "관리자가 들어가지니 인증은 된다"고
+읽었던 것이다.
+
+사용자를 DS389 에서 가져오면서 인증은 다른 데 맡길 이유가 없다.
+`authentication_method=LDAP` 으로 바꾸고 `xa_ldap_*` 를
+`ranger-usersync-configmap` 의 `SYNC_LDAP_*` 와 짝을 맞췄다. 둘이 어긋나면
+"동기화는 되는데 로그인은 안 되는" 상태로 되돌아간다.
+
+#### 2. 이미지 템플릿을 매니페스트로 통제할 수 없었다
+
+`authentication_method` 는 이미지에 구워진 `ranger-admin-install.properties`
+안에 있다. 엔트리포인트(`ranger.sh`)가 그것을 복사해 쓰고 setup 이 끝나면
+지운다. 매니페스트에서 손댈 방법이 없었다 — 그래서 지금까지 `ranger.sh` 자체를
+sed 로 고치는 결합이 남아 있었다.
+
+`ranger-admin-config` ConfigMap 으로 그 템플릿을 통째로 대체했다. 엔트리포인트는
+LDAP bind 비밀번호만 치환해 `${RANGER_SCRIPTS}/ranger-admin-install.properties`
+로 쓴다 — usersync 가 이미 쓰던 방식과 같다. 치환이 적용되지 않으면 기동을
+멈춘다(이미지 기본값 UNIX 로 조용히 돌아가는 것을 막는다).
+
+> ★ ranger-admin 에는 **PVC 가 없다.** `/opt/ranger` 는 컨테이너 임시 계층이라
+> `.setupDone` 도 함께 사라지고 **재시작마다 setup 이 다시 돈다.** §8-44 에서
+> "이미 초기화된 인스턴스에는 효과가 없다"고 적었던 전제가 이 배포에는
+> 해당하지 않는다. 설정 변경이 재시작만으로 반영된다.
+
+#### 3. 부수 발견 — 로그인 실패가 누적되면 계정이 영구히 잠긴다
+
+검증하느라 틀린 비밀번호를 반복했더니 `admin` 이 잠겼다. 특징이 고약하다:
+
+- 증상은 그냥 **401** 이다. 응답으로는 잠금인지 비밀번호 오류인지 알 수 없다.
+- **파드를 재시작해도 풀리지 않는다.** 인메모리 카운터가 아니라 `x_auth_sess`
+  의 연속 실패 기록에서 파생된다(admin 은 222건이 쌓여 있었다).
+- `x_portal_user.status` 는 `1`(정상) 그대로다. 사용자 테이블만 봐서는 알 수 없다.
+- 단서는 로그 한 줄뿐이다: `Login Unsuccessful:admin | ... | User account is locked`
+- **끄는 설정이 없다.** jar 안에 관련 property 문자열이 존재하지 않는다.
+
+푸는 방법은 ranger DB 에서 그 사용자의 실패 기록(`auth_status` 2·4)을 지우는
+것뿐이다. 지우자마자 200 이 됐다.
+
+★ 운영상 함의 — Ranger 로그인을 두드리는 자동화(헬스체크·모니터링)를 두면
+**관리자가 잠긴다.** 이 배포의 readiness 프로브가 `/login.jsp`(인증 불필요)를
+쓰는 것은 다행이었다.
+
+#### 결과
+
+```
+authentication_method               LDAP
+admin (내장)                        200
+keyadmin (내장)                     200   # LDAP 실패 시 내부 DB 폴백이 동작한다
+ranger-sync (LDAP, 올바른 비밀번호)  200
+ranger-sync (LDAP, 틀린 비밀번호)    401
+Ready 79/79 · ztunnel 정책 거부 0건
+```
+
+`oim-svc` 는 여전히 로그인할 수 없다 — `ds389-bootstrap` 이 `userPassword` 를
+주지 않는 동기화 전용 픽스처이기 때문이다. 의도된 것이고, 인증 경로 검증에는
+비밀번호가 있는 `ranger-sync` 를 썼다.
+
+#### 남은 것
+
+- `ranger-admin` 도 ambient 에 편입했다(§8-47 의 전제). DS389 로 가는 LDAP
+  바인드가 평문처럼 보이지만 ztunnel 이 mTLS 로 감싼다.
+- Keycloak 을 IdP 로 세우면 이 자리는 다시 검토 대상이다(ADR 후보).
+
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용
