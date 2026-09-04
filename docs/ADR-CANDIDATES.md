@@ -446,7 +446,7 @@ local/configure-istio-usage-logging.sh              meshConfig 제공자
 ---
 
 ### ADR-072 — API 과금 계량: 계약을 먼저 고정하고 백엔드는 보류한다
-**상태: `Accepted (계약)` · `Open (백엔드)`** (2026-09-05)
+**상태: `Accepted (계약)` · `Open (백엔드 — 규모는 실측 완료)`** (2026-09-05)
 
 **결정** — 외부 고객 인보이스를 전제로 **사용량 이벤트 계약을 먼저 확정한다.**
 계량 백엔드(OpenMeter 등)는 아직 고르지 않는다.
@@ -478,6 +478,34 @@ contracts/asyncapi/api-usage.yaml        채널 계약
  "data":{"route":"local.api.0","method":"GET","status":200,"duration_ms":3,…}}
 ```
 
+**백엔드 규모 실측 (2026-09-05) — 보류 해제**
+
+차트를 찾아 렌더했다(`oci://ghcr.io/openmeterio/helm-charts/openmeter`,
+버전 `1.0.0-beta.232`). ADR-069 가 OpenReplay 에 요구한 규율을 그대로 적용했다.
+
+| 구성 | 기본값 | 기존 인프라 재사용 시 |
+|---|---|---|
+| Deployment | 7 | **6** |
+| StatefulSet | 4 | 0 |
+| CronJob | 3 | 3 |
+| ClickHouseInstallation | 1 | 1 |
+| 렌더 크기 | 3,666줄 | **825줄** |
+
+★ **기본값으로 넣으면 Kafka·PostgreSQL·Redis 를 자기 것으로 또 세운다**
+(bitnami subchart). 이 클러스터에는 셋 다 이미 있으므로
+`kafka.enabled=false`·`postgresql.enabled=false`·`redis.enabled=false` 로 꺼야
+한다. 끄면 워크로드가 11개에서 **9개(Deployment 6 + CronJob 3)** 로 줄고
+ClickHouse 만 새로 들어온다.
+
+★ ClickHouse 는 **Altinity 오퍼레이터 + ClickHouseInstallation CR** 로 온다.
+이미 떠 있는 `clickhouse-0`(OpenReplay 용)과는 **별개 인스턴스**가 된다 —
+오퍼레이터를 끄더라도 CR 은 남으므로 기존 인스턴스에 물리려면 차트 밖에서
+접속 설정을 덮어야 한다. 그 배선은 아직 확인하지 않았다.
+
+**판단** — 규모는 수용 가능하다. 다만 노드 메모리 requests 가 88% 이므로
+**Deployment 6개를 실제로 올리기 전에 여유를 확보해야 한다.** 그리고
+ClickHouse 두 번째 인스턴스는 ADR-070 개정(ADR-073)과 직결된다.
+
 **백엔드를 보류하는 이유** — OpenMeter 가 유력하나 **차트를 찾지 못해 배포 규모를
 검증하지 못했다.** ADR-069 가 OpenReplay 에 요구한 규율("도입 시 차트를 렌더해
 실제 구성요소를 세는 것이 선행")을 여기에도 적용한다. 게다가 **노드 메모리
@@ -507,6 +535,22 @@ API 과금 계량이 OpenMeter 로 가면 ClickHouse 의 두 번째 용도가 �
 **대체가 아니라 추가이므로 ADR-070 의 취지를 깨지는 않는다** — 다만 슬쩍
 넘어가지 말고 개정으로 남겨야 한다. ADR-072 의 백엔드 결정과 함께 처리한다.
 
+
+**실측으로 구체화됨 (2026-09-05)** — OpenMeter 차트를 렌더하니 ClickHouse 가
+**Altinity 오퍼레이터 + ClickHouseInstallation CR** 로 들어온다. 즉 기존
+`clickhouse-0`(OpenReplay 용)과 **별개 인스턴스**가 생긴다.
+
+그래서 선택은 셋이다.
+
+| 안 | 내용 |
+|---|---|
+| ⓐ 인스턴스 2개 | 격리는 확실하나 단일 노드에서 ClickHouse 를 둘 돌린다. 메모리 requests 가 이미 88% 다 |
+| ⓑ 기존 인스턴스 공유 | ADR-070 을 "용도 2개" 로 개정. 차트의 ClickHouse 를 끄고 접속 설정을 밖에서 덮어야 하는데 **그 배선은 아직 확인하지 않았다** |
+| ⓒ OpenMeter 를 쓰지 않는다 | Kafka+ES 자체 집계. 중복 제거·지각 이벤트를 직접 만들어야 한다 |
+
+ADR-070 의 취지는 "ClickHouse 가 Trino/Iceberg·ES·Loki 를 **대체**하는 것을
+막자" 였다. ⓐ·ⓑ 어느 쪽도 대체가 아니므로 취지를 깨지 않는다 — 다만
+**개정 없이 슬쩍 넘어가지 않는다.**
 ---
 
 ### ADR-074 — Envoy Rate Limit Service 는 계량 이후로 미룬다

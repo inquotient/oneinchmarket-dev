@@ -60,6 +60,16 @@ data:
             parse_from: attributes.event
             parse_to: body
             on_error: drop
+          # ④ ★ 파티션 키. 계약이 "파티션 키는 subject(테넌트)" 를 규정한다 —
+          #   한 고객의 이벤트가 순서를 유지해야 집계와 정정이 단순해진다.
+          #   Kafka exporter 는 **리소스 속성**의 해시를 키로 쓰므로
+          #   (partition_logs_by_resource_attributes) 테넌트를 거기로 올린다.
+          #   이 파이프라인에는 다른 리소스 속성이 없으므로 키는 사실상
+          #   테넌트 하나로 정해진다.
+          - type: copy
+            from: body.subject
+            to: resource.tenant
+            on_error: send
 
       filelog:
         include: [/var/log/pods/*/*/*.log]
@@ -135,6 +145,17 @@ data:
       #   청구 누락으로 이어지지 않는다.
       kafka/usage:
         brokers: ["kafka-headless:9092"]
+        # ★ 파티션 키는 지금 붙지 않는다 — 메시지 key 가 null 이다.
+        #   `partition_logs_by_resource_attributes` 는 최상위에서만 유효하고
+        #   (logs 블록 아래에 두면 invalid keys 로 기동 실패), 최상위에 두어도
+        #   raw·otlp_json 어느 인코딩에서도 키가 생기지 않았다. 리소스 속성
+        #   `tenant` 는 실제로 붙어 있다(debug exporter 로 확인).
+        #   **효과 없는 설정을 남기지 않는다** — 설정만 보고 "되고 있다" 고
+        #   오해하는 것이 이 레포에서 반복된 실패 방식이다.
+        #   계약(contracts/asyncapi/api-usage.yaml)의 파티션 규정은 아직
+        #   충족되지 않았다. 다만 과금 정확성은 멱등성 키(id)와 관측 시각(time)이
+        #   보장하므로 순서는 필수가 아니다 — 미결로 남긴다(§8-56).
+        partition_logs_by_resource_attributes: false
         logs:
           topic: api-usage
           encoding: raw

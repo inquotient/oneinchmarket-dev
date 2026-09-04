@@ -221,6 +221,9 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 21. **Istio 의 `envoyOtelAls`(Envoy OTel 액세스 로그)는 이 조합에서 동작하지 않는다.** Istio 1.24.2 + OTel 수집기 0.160 에서 gRPC 스트림이 `upstream reset: protocol error` 로 끊긴다. 설정은 정확하고(config_dump 확인) 클러스터 엔드포인트는 healthy 이며 ztunnel 구간도 무오류인데 **수신기가 한 건도 받지 못한다.** 게이트웨이·수집기를 ambient 에서 빼도 같다. 대신 **게이트웨이 stdout 을 겨냥한 전용 filelog 수신기**를 쓴다 — 일반 filelog 와 수신기 자체를 분리할 것(필터로 가르면 조용히 어긋날 때 청구 데이터가 오염된다) — §8-55
 22. **Kafka exporter 의 `raw` 인코딩은 문자열 본문을 JSON 으로 한 번 더 감싼다.** 토픽의 첫 바이트가 `{` 가 아니라 `"` 가 되어 소비자가 두 번 파싱해야 한다. `encoding: text` 는 없다(`unrecognized logs encoding`). **`json_parser` 로 본문을 맵으로 만들면** `raw` 가 그대로 직렬화한다. 그리고 filelog 의 `container` 연산자가 실패하면(`Failed to process entry`) CRI 접두가 그대로 메시지에 남으므로 `regex_parser` 로 직접 뗄 것. 필터의 `expr` 은 자체 이스케이프 규칙이 있어 정규식에 백슬래시를 쓰면 수집기가 기동하지 않는다 — §8-55
 
+23. **과금 토픽에 대고 실험하지 말 것.** 인코딩을 `otlp_json` 으로 잠깐 바꿔 시험했더니 OTLP 봉투가 씌워진 메시지 2건이 토픽에 영구히 남아 계약 검증이 29건 중 2건 실패했다. 랩이라 토픽을 재생성했지만 운영에서는 그럴 수 없다. **별도 토픽에서 검증하고 옮길 것.** 그리고 소비자는 계약을 만족하지 않는 메시지를 **청구하지 말고 격리**해야 한다(`subject` 가 `-` 인 이벤트와 같은 취급) — §8-56
+24. **stanza 연산자의 필드 표기는 OTTL 과 다르다.** filelog 의 `copy`/`move` 등에서 `resource["tenant"]` 는 **오류 없이 조용히 빗나간다** — `resource.tenant` 가 맞다. 붙었는지는 `debug` exporter(`verbosity: detailed`)로 `Resource attributes` 를 직접 볼 것. 참고로 `partition_logs_by_resource_attributes` 는 최상위에서만 유효하지만(신호 블록 아래면 기동 실패), **최상위에 두어도 raw·otlp_json 어느 인코딩에서도 메시지 key 가 생기지 않았다** — §8-56
+
 ### 매니페스트 작업 시
 
 - `v1/` 매니페스트는 **배포 금지**. 단 CI가 이 경로의 Dockerfile을 참조한다는 모순이 있다
