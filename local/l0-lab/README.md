@@ -118,6 +118,124 @@ nano 이미지는 MBR 이고 EFI 파티션이 없어 Gen2(UEFI)로는 부팅하�
 > **파싱 오류 없이** 실행된다. 실제로 이 스크립트가 target VM 생성부를 통째로
 > 잃은 적이 있다 — `docs/LOCAL-DEPLOYMENT.md §8-30`.
 
+
+## 디스크 확장 — ET Open 을 넣기 전에 반드시 먼저
+
+nano 이미지는 루트가 **2.8 GB** 다. 기본 설치만으로 82% 가 차서 여유가
+**482 MB** 밖에 없다. ET Open 은 그 자체로 60 MB 남짓이지만 다운로드 중간
+파일과 로그를 감안하면 이 여유로는 안전하지 않다.
+
+가상 디스크는 이미 16 GB 다(`prepare-opnsense-vm.sh` 가 그렇게 만든다).
+파티션과 파일시스템만 따라가지 않은 상태이므로 **게스트 안에서만 늘리면 된다.**
+Hyper-V 쪽 `Resize-VHD` 는 필요 없고 VM 을 끌 필요도 없다.
+
+```sh
+# 되돌릴 수 있게 체크포인트를 먼저 만든다 (호스트에서)
+#   Checkpoint-VM -Name L0-OPNsense -SnapshotName before-disk-grow
+
+gpart show da0                    # 3.0G 파티션 + 13G free 확인
+gpart resize -i 1 da0             # 파티션을 디스크 끝까지
+growfs -y /dev/ufs/OPNsense_Nano  # ★ /dev/da0a 로 하면 실패한다
+mount -u -o rw /                  # 슈퍼블록 재적재
+df -h /                           # 15G / 12G avail
+```
+
+★ `growfs /dev/da0a` 는 `Operation not permitted` 로 거부된다.
+`kern.geom.debugflags=16` 을 켜도 마찬가지다. 루트가 **레이블**
+(`/dev/ufs/OPNsense_Nano`)로 마운트되어 있어 GEOM 의 배타적 쓰기 권한이 그
+provider 에 걸려 있기 때문이다. **레이블 경로로 호출해야 통과한다.**
+
+★ `growfs` 직후 `WARNING: /: reload pending error` 가 나오는 것은 정상이다.
+`mount -u` 로 슈퍼블록을 다시 읽으면 `df` 가 새 크기를 보고한다.
+
+## SSH 접속 — 시리얼 콘솔보다 이쪽을 쓸 것
+
+호스트는 `vEthernet (L0-LAN)` 으로 **10.77.0.190** 에 있고 OPNsense LAN 은
+10.77.0.1 이다. SSH 가 열려 있다.
+
+```powershell
+# 키 권한이 느슨하면 ssh 가 키를 무시한다. 한 번만 정리하면 된다.
+$k = "$env:USERPROFILE\.ssh\L0-OPNsense-key"
+Copy-Item C:\Users\darka\HyperV\L0Lab\L0-OPNsense-key $k -Force
+icacls $k /inheritance:r
+icacls $k /grant:r "$($env:USERNAME):R"
+
+ssh -i $k root@10.77.0.1
+scp -i $k .\suricata\enable-et-open.py root@10.77.0.1:/tmp/
+```
+
+★ **시리얼 콘솔은 대량 입력에서 바이트를 잃는다.** 여러 줄짜리 heredoc 을
+입력 파일로 밀어 넣었더니 중간에서 끊겨 셸이 heredoc 을 연 채로 멈췄다.
+짧은 명령 확인용으로만 쓰고, 파일 전송은 `scp` 로 할 것.
+
+★ OPNsense 의 root 셸은 **csh** 다. `"...$|..."` 같은 것이 `Illegal variable
+name` 으로 죽는다. `sh` 로 바꾸거나 작은따옴표를 쓸 것.
+
+## ET Open 룰셋
+
+```sh
+scp enable-et-open.py root@10.77.0.1:/tmp/
+ssh root@10.77.0.1 'python3 /tmp/enable-et-open.py'
+ssh root@10.77.0.1 'configctl template reload OPNsense/IDS'   # ★ 빼먹지 말 것
+ssh root@10.77.0.1 'configctl ids update'
+ssh root@10.77.0.1 'configctl ids restart'
+```
+
+실측 결과:
+
+```
+룰셋 23종 · 규칙 36,818개 · 디스크 62 MB · Suricata RSS 약 1.2 GB
+디스크 여유 12 G 유지
+```
+
+### 동작 확인 — HOME_NET 안에서는 대부분 걸리지 않는다
+
+ET Open 규칙의 다수(16,564개)가 `$HOME_NET any -> $EXTERNAL_NET any` 다.
+호스트(10.77.0.190)에서 방화벽(10.77.0.1)으로 보내는 트래픽은 HOME_NET 안이라
+**아무것도 매칭되지 않는다.** 처음에 sqlmap/Nikto User-Agent 로 HTTP 를
+쐈지만 알림이 0 이었던 이유가 이것이다.
+
+목적지가 `any` 인 DNS 규칙을 쓰면 라우팅을 건드리지 않고 검증할 수 있다:
+
+```sh
+nslookup sqlmapff.com 10.77.0.1
+#  -> ET MALWARE Possible Winnti-related DNS Lookup  (10.77.0.190 -> 10.77.0.1)
+```
+
+DNS 질의만 보내고 그 도메인에 접속하지는 않는다.
+
+### 알림이 클러스터까지 가는지 — 포트포워드가 조용히 끊긴다
+
+경로는 `Suricata EVE -> syslog(10.77.0.190:5140) -> netsh portproxy ->
+WSL localhostForwarding -> kubectl port-forward -> logstash:5140` 이다.
+
+★ **맨 끝의 `kubectl port-forward` 는 logstash 파드를 재생성하면 죽는다.**
+방화벽 쪽에는 아무 오류도 나지 않고 alert 는 eve.json 에 정상적으로 쌓인다.
+Elasticsearch 의 `suricata` 인덱스만 조용히 멈춘다 — 실제로 14시간을 놓쳤다.
+
+```bash
+# WSL 에서 다시 띄운다
+nohup sudo k3s kubectl -n local port-forward --address 0.0.0.0 \
+      logstash-0 5140:5140 > /tmp/pf.log 2>&1 &
+```
+
+확인은 인덱스의 **최신 문서 시각**으로 한다. 건수만 보면 과거 데이터 때문에
+멈춘 것을 알 수 없다.
+
+## Zeek — OPNsense 26.7 에는 패키지가 없다
+
+`pkg search zeek` 결과 0건, 플러그인 210종 중에도 없다(`os-ntopng` 이
+그나마 인접하다). 선택지는 셋이다:
+
+| 안 | 내용 |
+|---|---|
+| 도입하지 않는다 | Suricata EVE 가 이미 flow·http·dns·tls 이벤트를 낸다. L0 랩 목적에는 중복이 크다 |
+| L0-Target 에서 돌린다 | Ubuntu 이므로 패키지가 있다. 다만 트래픽을 미러링해 줘야 한다 |
+| `os-ntopng` | 플로우 가시성은 얻지만 Zeek 의 프로토콜 로그와는 다른 물건이다 |
+
+**미결정 — 사용자 판단이 필요하다.** 이 문서의 제목이 "OPNsense · Suricata ·
+Zeek" 인 것은 초기 계획이며, Zeek 부분은 아직 근거가 채워지지 않았다.
+
 ## 검증 항목
 
 | 항목 | 이것이 답하는 질문 |

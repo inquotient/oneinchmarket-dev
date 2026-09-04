@@ -204,6 +204,8 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 
 11. **Ranger 는 로그인 실패가 누적되면 계정을 영구히 잠근다.** 증상은 그냥 401 이고, `x_auth_sess` 의 연속 실패 기록에서 파생되므로 **파드를 재시작해도 풀리지 않는다.** `x_portal_user.status` 는 `1`(정상) 그대로라 사용자 테이블만 봐서는 알 수 없다. 단서는 로그의 `User account is locked` 한 줄뿐이고 **끄는 설정이 없다**(jar 에 관련 property 가 없다). 푸는 방법은 ranger DB 에서 해당 사용자의 `auth_status` 2·4 행을 지우는 것뿐이다. **Ranger 로그인을 두드리는 자동화를 두지 말 것** — 관리자가 잠긴다 — §8-48
 
+12. **성공 출력이 성공을 뜻하지 않는 경로가 반복해서 나온다.** `configctl ids update` 는 `OK` 를 출력하고 룰을 하나도 받지 않았다(config.xml 을 직접 고쳐 `configctl template reload OPNsense/IDS` 를 거치지 않으면 `rule-updater.config` 가 비어 있다). Suricata 알림이 Elasticsearch 로 가는 경로는 **파드를 재생성하면 `kubectl port-forward` 가 죽어** 14시간 조용히 끊겨 있었고, 방화벽 쪽에는 아무 오류도 나지 않았다. **파이프라인은 건수가 아니라 최신 문서 시각으로 확인할 것** — §8-50
+
 ### 매니페스트 작업 시
 
 - `v1/` 매니페스트는 **배포 금지**. 단 CI가 이 경로의 Dockerfile을 참조한다는 모순이 있다
