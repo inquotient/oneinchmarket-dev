@@ -16,5 +16,8 @@ spec:
   ports:
     - {name: otlp-grpc, port: 4317, targetPort: 4317, protocol: TCP}
     - {name: otlp-http, port: 4318, targetPort: 4318, protocol: TCP}
+    # ★ 과금 계량 전용 OTLP. 일반 로그(4317)와 포트를 나눠 파이프라인이
+    #   섞이지 않게 한다(otel-gateway-configmap 참조).
+    - {name: otlp-usage, port: 4319, targetPort: 4319, protocol: TCP}
     - {name: prom, port: 8889, targetPort: 8889, protocol: TCP}
   selector: {app.kubernetes.io/name: otel-gateway}

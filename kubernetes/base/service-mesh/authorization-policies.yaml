@@ -123,6 +123,12 @@ spec:
               - "*/sa/akhq"
               - "*/sa/apicurio"
               - "*/sa/kafka-bridge"
+              # ★ 과금 계량. 게이트웨이의 액세스 로그를 OTLP 로 받아 api-usage
+              #   토픽에 넣는다. 이 줄이 없으면 이벤트가 조용히 사라진다 —
+              #   수집기 쪽에는 오류가 나지 않는다(§8-55).
+              - "*/sa/otel-gateway"
+              # 토픽 부트스트랩 Job. 평소에 돌지 않아 편입 시점에 드러나지 않는다.
+              - "*/sa/kafka-topics"
               # ★ logstash 는 전용 ServiceAccount 를 쓴다. 예전에는 `default`
               #   로 돌았고 ambient 에서는 그것이 곧 신원이라
               #   elasticsearch·kibana·falcosidekick 과 구분되지 않았다.

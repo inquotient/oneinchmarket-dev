@@ -26,6 +26,12 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: kafka-bridge
+        # ★ 과금 계량 — 게이트웨이 액세스 로그를 api-usage 토픽에 넣는다.
+        #   AuthorizationPolicy(allow-messaging-access)에도 같은 신원이 있어야
+        #   한다. 한쪽만 고치면 Cilium 은 통과시키고 ztunnel 이 끊는다.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: otel-gateway
         # OpenReplay — 세션 이벤트 파이프라인이 Kafka 를 쓴다
         - podSelector:
             matchLabels:

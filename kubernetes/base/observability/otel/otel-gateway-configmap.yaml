@@ -21,6 +21,16 @@ data:
           http:
             endpoint: 0.0.0.0:4318
 
+      # ★ 과금 계량 전용 수신기. 일반 로그(otlp:4317)와 **포트를 나눈다.**
+      #   같은 수신기를 쓰면 애플리케이션 로그와 과금 이벤트가 한 파이프라인에
+      #   섞여 Loki 로도 가고 Kafka 로도 간다. 필터로 가르는 방법도 있으나,
+      #   필터가 조용히 어긋나면 **청구 데이터가 유실되거나 오염된다.**
+      #   포트로 가르면 어긋날 여지가 없다.
+      otlp/usage:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4319
+
     processors:
       memory_limiter:
         check_interval: 5s
@@ -46,6 +56,34 @@ data:
         endpoint: http://loki-headless:3100/otlp
         retry_on_failure:
           enabled: true
+
+
+      # ★ 과금 이벤트 -> Kafka. encoding: raw 는 로그 레코드의 **본문을 그대로**
+      #   메시지로 넣는다. Envoy 가 낸 CloudEvents JSON 한 줄이 그대로 토픽에
+      #   들어가므로 contracts/asyncapi/api-usage.yaml 과 일치한다.
+      #   otlp_json 을 쓰면 OTel 봉투가 한 겹 더 씌워져 계약이 깨진다.
+      #
+      #   ★ 재시도를 켠다. 과금 이벤트의 유실은 곧 매출 누락이다.
+      #     큐가 가득 차면 버리는 대신 배압을 준다(sending_queue).
+      kafka/usage:
+        brokers: ["kafka-headless:9092"]
+        # ★ 최신 contrib 수집기는 topic·encoding 을 **신호별 블록**으로 옮겼다.
+        #   최상위에 두면 기동하지 않는다:
+        #     'kafkaexporter.Config' has invalid keys: encoding, topic
+        logs:
+          topic: api-usage
+          # raw 는 로그 레코드의 **본문**을 그대로 메시지로 넣는다.
+          # Envoy 가 낸 CloudEvents JSON 한 줄이 그대로 토픽에 들어가
+          # contracts/asyncapi/api-usage.yaml 과 일치한다.
+          # otlp_json 을 쓰면 OTel 봉투가 한 겹 더 씌워져 계약이 깨진다.
+          encoding: raw
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 60s
+        sending_queue:
+          enabled: true
+          queue_size: 5000
 
       prometheus:
         endpoint: 0.0.0.0:8889
@@ -77,6 +115,14 @@ data:
           receivers: [otlp]
           processors: [memory_limiter, batch]
           exporters: [otlphttp/loki]
+        # ★ 과금 파이프라인. 수신기·내보내기 모두 전용이라 일반 로그와
+        #   섞이지 않는다. batch 는 두되 memory_limiter 도 같이 둔다 —
+        #   과금 이벤트가 폭주해 수집기가 죽으면 그 구간이 통째로 비는데,
+        #   그것은 청구 누락으로 이어진다.
+        logs/usage:
+          receivers: [otlp/usage]
+          processors: [memory_limiter, batch]
+          exporters: [kafka/usage]
         metrics:
           receivers: [otlp]
           processors: [memory_limiter, batch]

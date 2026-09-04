@@ -12,6 +12,10 @@
 set -euo pipefail
 
 PROVIDER=api-usage-json
+# ★ Kafka 로 가는 경로. stdout(api-usage-json)은 사람이 보기 위한 것이고,
+#   과금의 원천은 이쪽이다 — otel-gateway 의 전용 수신기(4319)로 보낸다.
+PROVIDER_OTEL=api-usage-otel
+OTEL_SVC=otel-gateway.local.svc.cluster.local
 
 # 계약과 1:1 로 대응한다. 바꿀 때는 계약을 먼저 고칠 것(ADR-067).
 #   id      멱등성 키. Kafka 가 at-least-once 라 이 값으로 중복을 제거하지
@@ -35,7 +39,8 @@ import os, sys, yaml
 mesh = yaml.safe_load(sys.stdin.read()) or {}
 provider = os.environ["PROVIDER"]
 eps = mesh.setdefault("extensionProviders", [])
-eps[:] = [e for e in eps if e.get("name") != provider]
+otel = os.environ["PROVIDER_OTEL"]
+eps[:] = [e for e in eps if e.get("name") not in (provider, otel)]
 eps.append({
     "name": provider,
     "envoyFileAccessLog": {
@@ -43,10 +48,21 @@ eps.append({
         "logFormat": {"text": os.environ["FMT"].rstrip("\n") + "\n"},
     },
 })
+# OTLP 경로 — 이쪽이 과금의 원천이다. envoyOtelAls 의 logFormat.text 가
+# 로그 레코드의 **본문**이 되고, Kafka exporter(encoding: raw)가 그 본문을
+# 그대로 메시지로 넣는다. 그래서 토픽에는 계약 JSON 이 한 줄로 들어간다.
+eps.append({
+    "name": otel,
+    "envoyOtelAls": {
+        "service": os.environ["OTEL_SVC"],
+        "port": 4319,
+        "logFormat": {"text": os.environ["FMT"].rstrip("\n")},
+    },
+})
 sys.stdout.write(yaml.safe_dump(mesh, default_flow_style=False, sort_keys=True, allow_unicode=True))
 PYEOF
 
-merged=$(printf '%s' "$cur" | FMT="$FMT" PROVIDER="$PROVIDER" python3 /tmp/merge-mesh.py)
+merged=$(printf '%s' "$cur" | FMT="$FMT" PROVIDER="$PROVIDER" PROVIDER_OTEL="$PROVIDER_OTEL" OTEL_SVC="$OTEL_SVC" python3 /tmp/merge-mesh.py)
 
 [ -n "$merged" ] || { echo "[usage-logging] meshConfig 병합 실패 — 중단" >&2; exit 1; }
 

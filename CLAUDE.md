@@ -215,6 +215,9 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 17. **JWKS 를 가져오는 것은 게이트웨이가 아니라 istiod 다.** `RequestAuthentication.jwksUri` 에 단축 서비스명을 쓰면 `istio-system` 에서 풀리지 않아 실패한다 — **FQDN 이어야 한다.** `issuer` 는 토큰의 `iss` 와 맞춰야 하므로 두 필드의 값이 달라도 된다. 그리고 istiod 는 메시 밖이라 대상 서비스에 **평문으로** 접근하므로 NetworkPolicy 허용이 따로 필요하다(메시 안에서는 HBONE 15008 로 흘러 잘 되기 때문에 "규칙 없이도 된다" 로 오해하기 쉽다). 증상은 두 경우 모두 **유효한 토큰이 전부 401** 이고, 게이트웨이 로그에는 단서가 없고 istiod 로그에만 남는다. ★ 정책을 고친 뒤 **istiod 를 재시작해야 한다** — JWKS 실패를 캐시하고 곧바로 재시도하지 않는다 — §8-54
 18. **RequestAuthentication 만으로는 인증이 강제되지 않는다.** 그것은 "토큰이 있으면 검증한다" 일 뿐이고 **토큰이 없는 요청은 그냥 통과한다.** 과금 대상 경로에서 그것은 무료 통행이다. `AuthorizationPolicy` 에 `requestPrincipals: ["*"]` 를 함께 두어야 한다. 그리고 그 ALLOW 정책이 게이트웨이를 선택하는 순간 **매칭되지 않은 다른 호스트가 전면 거부**되므로 `notHosts` 규칙을 함께 둘 것 — §8-54
 
+19. **부트스트랩 Job 은 `default` SA 로 도는지 반드시 확인할 것.** 지금까지 세 건이 같은 결함이었다 — `elasticsearch-ilm-setup`(ES 9200) · `databases-migrate`(PostgreSQL·ClickHouse) · `kafka-topics`(Kafka 9092). **Job 은 평소에 돌지 않아 ambient 편입 시점에 드러나지 않고, 재실행할 때 비로소 ztunnel 이 거부한다.** 클러스터를 다시 세울 때가 그때다 — §8-52·§8-55
+20. **OTel 수집기 설정 두 가지 함정.** ① 파이프라인을 `service.pipelines` 가 아니라 `service.telemetry` 아래에 넣으면 `'service.telemetry' has invalid keys` 로 기동하지 않는다(둘 다 `metrics:` 키를 갖고 있어 자동 편집 시 헷갈린다). ② 최신 contrib 의 Kafka exporter 는 `topic`·`encoding` 을 **신호별 블록**(`logs:`) 아래로 옮겼다. 최상위에 두면 `'kafkaexporter.Config' has invalid keys` 다. 파이프라인 동작 여부는 로그가 아니라 **`otelcol_receiver_accepted_log_records` 지표**로 판정할 것 — 수신기가 0건이어도 오류는 나지 않는다 — §8-55
+
 ### 매니페스트 작업 시
 
 - `v1/` 매니페스트는 **배포 금지**. 단 CI가 이 경로의 Dockerfile을 참조한다는 모순이 있다

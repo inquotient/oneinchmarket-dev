@@ -1,3 +1,18 @@
+---
+# ★ 전용 SA. 이 Job 은 `default` 로 돌아 ztunnel 이 Kafka 접근을 거부했다
+#   (30건/5분). 편입 전에는 통했으므로 드러나지 않다가 재실행할 때 터진다 —
+#   부트스트랩 Job 세 번째 사례다(§8-52 의 ILM·마이그레이션에 이어).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kafka-topics
+  labels:
+    app.kubernetes.io/name: kafka-topics
+    app.kubernetes.io/component: bootstrap
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+automountServiceAccountToken: false
+---
 # G22 — v1 의 kafka-job.yaml 패턴 계승. keycloak-events 토픽에 프로듀서가
 # 없는 것(Keycloak event-listener SPI 미설정)은 별개 문제로 남는다.
 apiVersion: batch/v1
@@ -23,6 +38,7 @@ spec:
         app.kubernetes.io/component: bootstrap
         app.kubernetes.io/part-of: oneinchmarket
     spec:
+      serviceAccountName: kafka-topics
       restartPolicy: OnFailure
       priorityClassName: batch-low
       securityContext:
@@ -42,7 +58,12 @@ spec:
               echo "[kafka-topics] Kafka 대기"
               until /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server "$BS" >/dev/null 2>&1; do sleep 5; done
               # 로컬은 단일 브로커라 replication-factor 1 이다.
-              for t in keycloak-events falco-alerts trivy-reports; do
+              # ★ api-usage 는 과금 이벤트다. 파티션을 subject(테넌트)로 나누면
+              #   한 고객의 이벤트 순서가 유지되어 집계와 정정이 단순해진다
+              #   (contracts/asyncapi/api-usage.yaml).
+              #   보존 기간은 청구 분쟁 대응 기간을 따라야 하며 아직 미결이다 —
+              #   집계 후 원본을 버리면 재계산과 감사가 불가능해진다.
+              for t in keycloak-events falco-alerts trivy-reports api-usage; do
                 /opt/kafka/bin/kafka-topics.sh --bootstrap-server "$BS" \
                   --create --if-not-exists --topic "$t" --partitions 3 --replication-factor 1
                 echo "[kafka-topics] topic $t"

@@ -4965,6 +4965,71 @@ Keycloak 에는 ingress 허용 규칙이 **하나도 없었다.** 그런데도 �
 - `accessTokenLifespan` 300초. 토큰 갱신 실패가 곧 과금 누락이 되므로 클라이언트
   쪽 재시도 정책이 필요하다
 
+
+### 8-55. Kafka 다리 — 배선은 끝났고 데이터는 아직 흐르지 않는다 (미완)
+
+§8-54 다음 단계로 게이트웨이 액세스 로그를 Kafka `api-usage` 토픽에 넣으려
+했다. **구성은 전부 섰으나 이벤트가 도달하지 않는다. 원인을 규명하지 못했다.**
+
+#### 만든 것 (전부 개별 검증됨)
+
+```
+Istio meshConfig  extensionProvider api-usage-otel (envoyOtelAls -> 4319)  ✅
+Telemetry         api-usage 가 두 제공자를 쓴다(stdout + OTLP)              ✅
+otel-gateway      otlp/usage(4319) 수신기 · kafka/usage 내보내기 · logs/usage ✅
+Kafka             api-usage 토픽 생성                                       ✅
+AuthorizationPolicy / NetworkPolicy  otel-gateway·kafka-topics 신원 추가     ✅
+```
+
+- 게이트웨이 Envoy 의 config_dump 에 `envoy.access_loggers.open_telemetry` 가
+  7건 있고 `cluster_name: outbound|4319||otel-gateway.local.svc.cluster.local`
+  로 정확히 잡혀 있다.
+- ztunnel 로그에 게이트웨이 → otel-gateway:4319 연결이 **25초 지속**되며
+  `bytes_sent=1023 bytes_recv=732` 로 데이터가 오갔다.
+- 수집기는 4319 를 포함해 gRPC 서버 2개를 열고 정상 기동했다. 오류 로그가 없다.
+
+#### 그런데 흐르지 않는다
+
+수집기 내부 지표가 명확하다.
+
+```
+otelcol_receiver_accepted_log_records{receiver="otlp"}       23692
+otelcol_receiver_accepted_log_records{receiver="otlp/usage"}  (항목 자체가 없다)
+```
+
+`otlp/usage` 수신기는 **레코드를 한 건도 받은 적이 없다.** 토픽도 비어 있다.
+Envoy 통계에도 `access_logs.*` 나 otel-gateway 클러스터 항목이 나타나지 않는다.
+
+#### 도중에 고친 결함 세 가지 (이것들은 실제 결함이었다)
+
+1. **파이프라인이 `service.telemetry` 아래로 들어갔다.** awk 로 삽입할 때
+   `metrics:` 를 처음 만나는 곳이 `telemetry` 였다.
+   `'service.telemetry' has invalid keys: logs/usage` 로 수집기가 기동하지 않는다.
+2. **Kafka exporter 스키마가 바뀌었다.** 최신 contrib 수집기는 `topic`·`encoding`
+   을 **신호별 블록**(`logs:`) 아래로 옮겼다. 최상위에 두면
+   `'kafkaexporter.Config' has invalid keys: encoding, topic` 로 죽는다.
+3. **`kafka-topics` Job 이 `default` SA 로 돌아** ztunnel 이 Kafka 접근을
+   거부했다(30건/5분). **부트스트랩 Job 세 번째 사례다**(§8-52 의 ILM·
+   마이그레이션에 이어). 평소에 돌지 않아 편입 시점에 드러나지 않고,
+   재실행할 때 비로소 막힌다.
+
+#### 다음에 시도할 것
+
+- **수집기 4319 를 합성 OTLP 로 직접 두드려** 수집기 쪽인지 Envoy 쪽인지 가른다.
+  지금은 두 후보가 갈리지 않았다.
+- Istio 1.24 의 `envoyOtelAls` 가 `logFormat.text` 만으로 레코드를 만드는지
+  확인한다. `labels` 가 함께 필요하면 본문만으로는 아무것도 나가지 않을 수 있다.
+- 대안: stdout 은 이미 검증됐으므로, 게이트웨이 컨테이너 로그만 골라
+  Kafka 로 보내는 경로. 다만 이것은 "일반 파이프라인 + 필터" 라 필터가 조용히
+  어긋나면 청구 데이터가 오염된다 — 그래서 처음에 택하지 않았다.
+
+#### 기록해 두는 이유
+
+★ 이 상태를 "완료" 로 적으면 안 된다. 구성이 서 있고 오류가 없고 연결까지
+보이므로 **성공처럼 보인다.** 이 문서가 §8-47·§8-50·§8-52 에서 반복해 적은
+"성공 출력이 성공을 뜻하지 않는다" 의 또 다른 사례이고, 이번에는 그 함정에
+빠지지 않기 위해 미완으로 남긴다. **판정은 수집기 지표와 토픽 내용으로 한다.**
+
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용
