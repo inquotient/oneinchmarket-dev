@@ -3297,6 +3297,110 @@ DaemonSet 인자 제거. **inotify 상향만 남겼다**(그것은 Falco 와 무
 억제하지만 `-o libs_logger.enabled=true` 가 그것을 열어 준다. 그 한 줄이
 "규명 불가" 와 "attach 단계 EINVAL, 검증기는 통과" 를 갈랐다.
 
+
+### 8-37. filebeat 인덱스 93 GB — 권한 오류 하나가 만든 증폭 루프 (2026-09-04)
+
+§8-34 작업 중 ES 인덱스 목록을 보다 걸린 것이다.
+
+```
+.ds-filebeat-9.5.2-* × 5   약 9.7억 건 · 93.6 GB
+ES 인덱스 총계             91.4 GB
+```
+
+3일치로는 초당 3,750건이다. 로컬 랩에서 나올 수 없다.
+
+#### 추적 — 최근 10분에 804만 건
+
+```
+최근 10분 유입 : 8,045,007 건   (≈ 13,400/s)
+```
+
+문서 한 건을 열어 보니 출처가 바로 나왔다.
+
+```json
+{"log":{"file":{"path":"/var/log/containers/postgresql-0_local_postgresql-....log"}},
+ "stream":"stderr",
+ "message":"... ERROR:  permission denied for schema spots at character 37"}
+```
+
+#### 원인 — 이전 작업의 잔재
+
+```
+public         owner=openreplay   acl 정상
+spots          owner=postgres     acl 없음
+events         owner=postgres     acl 없음
+events_common  owner=postgres     acl 없음
+```
+
+OpenReplay 를 전용 PG 17 에서 공유 18.6 으로 옮길 때(§8 앞부분) `public` 의
+테이블만 재지정하고 **이 세 스키마를 빠뜨렸다.** 테이블 17개 + 인덱스 102개가
+`postgres` 소유로 남아 있었다.
+
+증폭한 것은 클라이언트 쪽이다. 실패하던 쿼리는 폴링 워커의 것이다.
+
+```sql
+SELECT spot_id, crop, duration FROM spots.tasks
+WHERE status = 'pending' ORDER BY added_time FOR UPDATE SKIP LOCKED LIMIT ...
+```
+
+권한 거부 → 즉시 재시도 → 초당 1만 건. **백오프가 없다.**
+
+#### 조치 ① 소유권 정정
+
+세 스키마와 그 안의 객체를 `openreplay` 로 넘겼다. 두 가지를 제외했다 —
+확장(extension) 소속 객체(`pg_depend deptype='e'`)는 소유자를 바꾸면 확장이
+깨지고, identity/serial 시퀀스(`'a'`,`'i'`)는 테이블에 종속되어 직접 바꾸면
+`cannot change owner of sequence` 가 난다.
+
+결과가 즉시 나왔다.
+
+| | 분당 filebeat 유입 |
+|---|--:|
+| 조치 전 | 604,244 |
+| 조치 후 | **906** |
+
+**667배** 감소. PostgreSQL 로그도 checkpoint 만 남는 정상 상태로 돌아왔다.
+
+#### 조치 ② 재발 방지 — bootstrap 의 `ensure()`
+
+매니페스트에는 결함이 없었다. OpenReplay 마이그레이션 Job 의 `PGUSER` 는
+`openreplay` 로 올바르게 설정되어 있다(base64 확인). **드리프트는 수동 개입의
+결과**였다 — 이전 이설 때 `init_schema.sql` 을 superuser 로 적용했다.
+
+그래서 `ensure()` 에 **멱등한 소유권 정규화**를 넣었다. 기존 `GRANT ALL ON
+SCHEMA public` 은 public 만 다루므로, 앱이 자체 마이그레이션으로 만든 스키마는
+사각지대였다. 이제 그 DB 안의 모든 비시스템 스키마·객체를 앱 롤 소유로 맞춘다.
+
+#### 조치 ③ 보존 정책 — 이게 진짜 구조적 결함이었다
+
+오류가 없었더라도 filebeat 데이터는 **영원히 쌓인다.**
+
+```
+ILM 정책 "filebeat" (filebeat 이 스스로 만든 기본값)
+  hot    : rollover 30d / 50gb
+  delete : ** 없음 **
+```
+
+레포의 `oneinchmarket-ilm` 은 hot/warm/delete(30d) 로 제대로 되어 있는데,
+**filebeat 은 그것을 쓰지 않고 자기 정책을 쓴다.** 인덱스 템플릿 4종
+(logstash·falco-alerts·keycloak-events·trivy-reports)만 우리 정책을 참조한다.
+
+`elasticsearch-ilm-setup` Job 이 `filebeat` 정책도 만들도록 했다
+(rollover 1d/10gb + delete 7d). filebeat 은 정책이 이미 있으면 덮어쓰지
+않으므로(`setup.ilm.overwrite` 기본 false) 이 값이 유지된다.
+
+적용 후 백킹 인덱스 5개가 모두 `hot`(나이 8.5시간~1.01일)이고 7일 뒤 삭제된다.
+**93 GB 를 손으로 지우지 않았다** — 기제를 고쳤으므로 저절로 소멸한다.
+
+#### 이 항목의 성질
+
+세 층이 겹쳐 있었다.
+
+1. **소유권 드리프트** — 이전 작업의 잔재. 조용하지 않았지만 아무도 로그를 보지 않았다
+2. **백오프 없는 폴링** — 오류를 초당 1만 건으로 증폭
+3. **보존 정책 부재** — 그 결과를 무한히 보관
+
+①만 고치면 증상은 멎지만 ③은 남는다. ③만 고치면 93 GB 가 주기적으로 다시 쌓인다.
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용

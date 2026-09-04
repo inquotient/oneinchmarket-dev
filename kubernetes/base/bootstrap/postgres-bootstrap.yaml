@@ -65,6 +65,52 @@ spec:
                   || $PSQL -d postgres -c "CREATE DATABASE ${db} OWNER ${role}"
                 $PSQL -d postgres -c "GRANT ALL PRIVILEGES ON DATABASE ${db} TO ${role}"
                 $PSQL -d "${db}"   -c "GRANT ALL ON SCHEMA public TO ${role}"
+
+                # ★ public 밖의 스키마까지 소유권을 정규화한다.
+                #
+                #   위 GRANT 는 public 만 다룬다. 그런데 앱이 자체 마이그레이션으로
+                #   다른 스키마를 만드는 경우가 있고(OpenReplay 는 spots·events·
+                #   events_common 을 만든다), 그 마이그레이션이 어떤 이유로든
+                #   superuser 로 돌면 객체가 postgres 소유로 남는다. 그러면 앱은
+                #   **자기 스키마를 읽지 못한다.**
+                #
+                #   이 실패는 조용하지 않다. 폴링 워커가 붙어 있으면 권한 오류를
+                #   초당 수천 건 뱉는다 — 실측(§8-37)으로 PostgreSQL 이
+                #   "permission denied for schema spots" 를 초당 1만 건 넘게 남겼고
+                #   filebeat 가 그것을 받아 ES 에 **93 GB** 를 쌓았다.
+                #
+                #   제외 두 가지가 중요하다.
+                #     - 확장(extension) 소속 객체(pg_depend deptype='e') — 소유자를
+                #       바꾸면 확장이 깨진다
+                #     - identity/serial 시퀀스(deptype 'a','i') — 테이블에 종속되어
+                #       직접 바꾸려 하면 "cannot change owner of sequence" 가 난다
+                $PSQL -d "${db}" -c "DO \$\$
+                  DECLARE r record;
+                  BEGIN
+                    FOR r IN SELECT nspname FROM pg_namespace
+                             WHERE nspname NOT LIKE 'pg\\_%'
+                               AND nspname <> 'information_schema'
+                               AND pg_get_userbyid(nspowner) <> '${role}'
+                    LOOP
+                      EXECUTE format('ALTER SCHEMA %I OWNER TO ${role}', r.nspname);
+                    END LOOP;
+                    FOR r IN SELECT n.nspname, c.relname, c.relkind FROM pg_class c
+                             JOIN pg_namespace n ON n.oid = c.relnamespace
+                             WHERE n.nspname NOT LIKE 'pg\\_%'
+                               AND n.nspname <> 'information_schema'
+                               AND c.relkind IN ('r','p','v','m','S')
+                               AND pg_get_userbyid(c.relowner) <> '${role}'
+                               AND NOT EXISTS (SELECT 1 FROM pg_depend d
+                                 WHERE d.classid='pg_class'::regclass AND d.objid=c.oid
+                                   AND d.deptype IN ('a','i','e'))
+                    LOOP
+                      EXECUTE format('ALTER %s %I.%I OWNER TO ${role}',
+                        CASE r.relkind WHEN 'v' THEN 'VIEW'
+                                       WHEN 'm' THEN 'MATERIALIZED VIEW'
+                                       WHEN 'S' THEN 'SEQUENCE'
+                                       ELSE 'TABLE' END, r.nspname, r.relname);
+                    END LOOP;
+                  END \$\$;" || echo "[postgres-bootstrap] ${db}: 소유권 정규화 건너뜀"
               }
 
               # 각 값은 소비자 매니페스트에서 확인한 실제 롤·DB 이름이다.
