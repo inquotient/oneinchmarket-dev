@@ -1,24 +1,56 @@
-# Prod 환경: HA 레플리카 구성
+# Prod 환경: 레플리카 구성
+#
+# ★★ DB 3종(postgresql·mariadb·mongodb)은 **의도적으로 1이다.** 올리지 말 것.
+#
+#   이 파일은 원래 postgresql 2 · mariadb 2 · mongodb 3 이었다. 그것은
+#   가용성이 아니라 **데이터 분기**다(§11-3):
+#
+#     ① 셋 다 StatefulSet + volumeClaimTemplates 라 파드마다 **별도 PVC** 를
+#        받는다. 새 파드는 빈 디스크에 initdb 를 돌린다
+#     ② 복제 설정이 **하나도 없다** — wal_level·primary_conninfo·patroni·
+#        repmgr·wsrep(Galera)·replSet 어느 것도 매니페스트에 없다
+#     ③ 서비스가 헤드리스라 DNS 가 **두 파드 IP 를 모두** 반환한다
+#     ④ 소비자는 실측 34곳 전부가 서비스 이름(`postgresql-headless`)으로 붙고
+#        특정 파드(`postgresql-0.postgresql-headless`)를 지정한 곳은 0곳이다
+#
+#   즉 올리는 순간 서로 다른 두 DB 로 쓰기가 갈린다. Keycloak·GitLab·
+#   Apicurio·Hive Metastore·OpenMeter 가 요청마다 절반의 데이터만 본다.
+#   **접속은 성공하므로 오류가 나지 않는다.** prod 가 배포된 적이 없어
+#   드러난 적도 없었다.
+#
+#   올리려면 먼저 DB 안에서 복제를 구성해야 한다 — 방법·비용·순서는
+#   `docs/LOCAL-DEPLOYMENT.md §13` 에 있다(PostgreSQL 은 CloudNativePG,
+#   MariaDB 는 Galera, MongoDB 는 네이티브 replica set).
+#
+# keycloak·logstash·nginx 의 2는 정상이다 — 상태를 자기 PVC 에 두지 않는다.
+#   keycloak 은 상태가 PostgreSQL 에 있고(`KC_DB_*`), PVC 는
+#   /opt/keycloak/data 로 프로바이더·테마용이다. 다만 세션 복제
+#   (Infinispan JGroups DNS_PING)가 구성돼 있지 않아 **파드가 바뀌면
+#   로그아웃**된다 — 데이터 손상은 아니지만 사용자에게는 보인다.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: postgresql
 spec:
-  replicas: 2
+  # 복제 미구성 — §13-2 의 CloudNativePG 도입 전까지 1을 유지한다
+  replicas: 1
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: mariadb
 spec:
-  replicas: 2
+  # 복제 미구성 — §13-2 의 Galera 구성 전까지 1을 유지한다
+  replicas: 1
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: mongodb
 spec:
-  replicas: 3
+  # 복제 미구성 — §13-2 의 replica set 구성 전까지 1을 유지한다
+  #   MongoDB 는 셋 중 가장 쉽다(`--replSet` + rs.initiate() Job).
+  replicas: 1
 ---
 apiVersion: apps/v1
 kind: StatefulSet
