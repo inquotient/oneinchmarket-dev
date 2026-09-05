@@ -234,6 +234,8 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 29. **OpenMeter 미터의 JSONPath 기준점은 이벤트 전체가 아니라 `data` 내부다.** `$.data.route` 로 쓰면 **오류 없이 조용히 빈 문자열**이 되어 groupBy 가 전부 `""` 로 뭉개진다 — 그 상태로 인보이스를 내면 5xx 를 제외할 수 없다. `$.route` 가 맞다. 미터 정의는 **PostgreSQL 에 저장**되어 설정만 바꿔서는 갱신되지 않고, 불일치 시 OpenMeter 가 **기동을 거부한다**(`group by mismatch`) — DB 행을 지우고 재기동할 것 — §8-60
 30. **Logstash `mutate` 의 `add_field` 는 기존 필드에 배열로 덧붙는다.** 값을 바꾸려면 `replace` 를 써야 한다. `[@metadata][pipeline]` 같은 분기 키에 `add_field` 를 쓰면 조건이 조용히 어긋난다 — §8-60
 
+31. **전달 실패를 분기하려면 `http` 출력이 아니라 `http` 필터를 쓸 것.** 출력 플러그인은 재시도 후 영구 실패 시 이벤트를 버리고 로그 한 줄만 남긴다 — 파이프라인에 실패를 돌려주지 않아 dead-letter 분기를 만들 수 없다. 과금처럼 유실이 곧 매출 누락인 경로에서는 필터로 POST 하고 `tag_on_request_failure` 태그로 분기해 DLQ 인덱스에 남길 것. **DLQ 는 재처리 가능한 원문(`message`)을 담아야 한다** — 담지 않으면 기록일 뿐 복구 수단이 아니다. 필터에는 `target_response_code`·`retryable_codes` 가 없다(후자는 출력 전용) — 쓰면 기동 실패한다 — §8-61
+
 ### 매니페스트 작업 시
 
 - `v1/` 매니페스트는 **배포 금지**. 단 CI가 이 경로의 Dockerfile을 참조한다는 모순이 있다
