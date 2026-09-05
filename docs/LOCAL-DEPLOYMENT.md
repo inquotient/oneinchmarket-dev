@@ -7314,6 +7314,119 @@ ClickHouse 복제본이 **전부 같은 디스크**로 간다. §11-1 이 지적
 | L | policy-reporter `policy-reporter` | 0Mi | 1 | 2 | **+0Mi** |  |
 | L | trivy-operator `trivy-system` | 0Mi | 1 | 2 | **+0Mi** |  |
 
+## 19. 메모리를 줄이는 법 — zram 은 이 문제를 못 푼다 (2026-09-05)
+
+### 19-1. 먼저 — zram 과 스케줄 한계는 다른 문제다
+
+§2 의 zram 설계는 잘 돌고 있다. 그런데 **부족의 종류가 다르다.**
+
+```
+allocatable   41.1 GiB      ← kubelet 이 MemTotal 에서 계산
+requests      38.0 GiB (92%) ← 스케줄러가 보는 값
+실사용        21.0 GiB      ← 파드 합계
+zram          32G 중 DATA 7.1G → COMPR 1.9G
+```
+
+**스케줄링은 `requests` 로 한다.** 그 합이 `allocatable` 을 넘으면 파드가
+`Pending` 이 되고, `allocatable` 은 **MemTotal 에서 나온다**. zram 은 스왑이지
+MemTotal 이 아니다 — kubelet 은 스왑을 allocatable 로 세지 않는다.
+
+> 즉 zram 이 막아 주는 것은 **실사용이 물리를 넘을 때의 OOM** 이고,
+> 지금 걸리는 것은 **requests 가 allocatable 을 채운 것**이다. 두 벽은 다르고
+> zram 은 앞의 벽만 민다. §14-3 에서 파드가 `Too many pods` 로 막힌 것과
+> 같은 종류의 오해다 — 실제 여유는 있는데 장부상 자리가 없다.
+
+### 19-2. 진짜 문제 — requests 의 45%가 여백이다
+
+```
+requests 38.0 GiB · 실사용 21.0 GiB · **낭비 17.0 GiB (45%)**
+```
+
+| 파드 | requests | 실사용 | 여백 |
+|---|---:|---:|---:|
+| `safeline` | 2368Mi | 266Mi | **2102Mi** |
+| `trino-0` | 2048 | 823 | 1225 |
+| `loki-0` | 1024 | 177 | 847 |
+| `kafka-0` | 1536 | 704 | 832 |
+| `postgresql-0` | 1024 | 349 | 675 |
+| `minio-0` | 640 | 101 | 539 |
+| `mariadb-0` | 512 | 104 | 408 |
+| `elasticsearch-es-default-0` | 2048 | 1669 | 379 |
+
+**ES 만 여백이 작다**(18%) — 실제로 쓰고 있다는 뜻이다. 나머지는 대부분
+기본 권장값을 그대로 둔 것이고, `DEPLOYMENT.md §6` 머리말이 이미 그렇게
+적고 있다: *"v1 매니페스트에는 리소스 정의가 없고 신규 스택은 각 프로젝트
+기본 권장값을 사용했다. 실측 기반 재산정이 선행되어야 한다(ADR-058)."*
+
+### 19-3. 줄이는 방법 — 효과 순
+
+| | 레버 | 회수(추정) | 성격 |
+|:-:|---|---|---|
+| **①** | **requests 실측 정정** | **10~14 GiB** | 설정만. 전례 있음(2026-09-03, 6.7 GiB) |
+| **②** | **JVM 힙 명시** | 큼 | 12종 중 **9종이 미설정**(실측). 레포가 prod 산정에서 −48 GiB 로 잡은 레버다(§6-2 단계 2) |
+| **③** | **프로파일 분리**(Kustomize Component) | **매우 큼** | 항상 다 띄울 필요가 없다 |
+| ④ | 중복 스택 정리 | 중간 | 검토 필요 |
+| ⑤ | zram ZSTD 전환 | 실사용만 | 커널 빌드. §7 에서 이미 보류 |
+
+#### ① requests 정정 — ★ 다만 지금 값으로 깎지 말 것
+
+위 표의 "실사용" 은 **한 시점의 유휴 값**이다. Trino·Kafka·ES 는 부하가
+걸리면 오른다. `DEPLOYMENT.md §6-2` 가 못박아 둔 그대로다:
+
+> **3·4단계는 클러스터를 실제로 띄우고 최소 2주 측정한 뒤에만 적용한다.
+> 메모리는 CPU와 달리 throttle이 아니라 OOMKill이다.**
+
+도구는 이미 갖춰져 있다 — **KRR**(Prometheus 기반, 별도 컨트롤러 불필요).
+Prometheus 가 이미 돌고 있으므로 추가 비용이 0이다(§6-3). 피크 기준
+백분위로 산정하고 여유를 얹는다.
+
+#### ② JVM 힙 — 미설정 9종
+
+```
+미설정  trino · kafka · elasticsearch · ranger-admin · knox · jenkins ·
+        livy · spark-connect · apicurio-registry · akhq
+설정됨  solr(Xmx512m) · zookeeper(Xmx256m) · hbase · hive-metastore
+```
+
+힙을 명시하지 않으면 JVM 이 컨테이너 한도의 일정 비율을 잡아 **RSS 가 한도
+근처까지 자란다.** 그러면 requests 를 낮출 수가 없다 — 낮추면 OOMKill 이다.
+**힙을 먼저 고정해야 ①이 안전해진다.** 순서가 ② → ① 이다.
+
+#### ③ 프로파일 분리 — 가장 큰 레버
+
+`CLAUDE.md` 가 이미 적고 있다: *"64 GB에서는 Kustomize Component 기반
+프로파일 전환이 필요"*. 지금은 전부를 항상 띄운다.
+
+| 묶음 | requests | 언제 필요한가 |
+|---|---:|---|
+| OpenReplay 17종 | ~2.6 GiB | 세션 리플레이를 볼 때만 |
+| lakehouse-v1(HDFS·HBase·Hive·ZK) | ~3.2 | v1 호환 검증할 때만 |
+| SafeLine 3종 · Caldera | ~2.8 | 보안 시연할 때만 |
+| DefectDojo 4종 · Dependency-Track 2종 | ~2.0 | 취약점 관리 볼 때만 |
+| **합계** | **~10.6 GiB** | |
+
+**HA 예행(§15)에 이 넷은 필요 없다.** 프로파일로 빼면 §15-3 의 자리 문제가
+requests 정정 없이도 풀린다 — 그리고 파드 40여 개가 함께 빠져 **파드 상한
+문제도 같이 해소된다**(§14-3).
+
+#### ④ 중복 스택 — 검토 대상
+
+단정하지 않고 항목만 남긴다. `elasticsearch`(2048Mi)와 `wazuh-indexer`
+(768Mi)는 둘 다 Lucene 계열 검색 엔진이고, `defectdojo`와
+`dependency-track`은 둘 다 취약점 관리다. 통합 가능 여부는 각각의 기능
+의존성을 봐야 하므로 **여기서 결론 내지 않는다.**
+
+### 19-4. 권하는 순서
+
+```
+③ 프로파일 분리        ~10.6 GiB  · 설정만 · 파드 40여 개도 함께 회수
+② JVM 힙 명시 9종       ①의 안전 조건
+① KRR 2주 측정 → 정정  10~14 GiB
+```
+
+**③만 해도 §15-3 의 두 제약(파드·메모리)이 동시에 풀린다.** 그리고 셋 다
+하드웨어를 사지 않는다.
+
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용
