@@ -89,7 +89,9 @@ config:
 
   # ★ 미터 정의 — 계약(contracts/schemas/api-usage-event.json)과 짝을 맞춘다.
   #   `type` 은 이벤트의 CloudEvents type 이고, valueProperty·groupBy 는
-  #   data 하위 필드를 가리킨다.
+  #   ★ JSONPath 의 기준점은 **이벤트 전체가 아니라 `data` 내부**다.
+  #   `$.data.route` 로 쓰면 조용히 빈 문자열이 되어 groupBy 가 전부 ""
+  #   로 나온다 — 오류는 없고 집계만 뭉개진다. `$.route` 가 맞다(§8-60).
   #
   #   ★ status 를 groupBy 에 둔다. 5xx(우리 잘못)를 청구에서 제외하려면
   #     미터가 그것을 구분할 수 있어야 한다 — 계약이 "이벤트는 결과와 무관하게
@@ -100,16 +102,16 @@ config:
       eventType: io.oneinchmarket.api.request.v1
       aggregation: COUNT
       groupBy:
-        route: $.data.route
-        method: $.data.method
-        status: $.data.status
+        route: $.route
+        method: $.method
+        status: $.status
     - slug: api_response_bytes
       description: "응답 바이트 (대역 과금용)"
       eventType: io.oneinchmarket.api.request.v1
       aggregation: SUM
-      valueProperty: $.data.response_bytes
+      valueProperty: $.response_bytes
       groupBy:
-        route: $.data.route
+        route: $.route
 
   # ★ 소비 측. ingest 와 별도 키다(위 주석 참조).
   sink:

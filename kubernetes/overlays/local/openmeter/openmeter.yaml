@@ -36,11 +36,11 @@ data:
     \ 0\n    expiration: 768h\n    password: __REDIS_PASSWORD__\n  driver: redis\n\
     \  enabled: true\ningest:\n  kafka:\n    broker: kafka-headless:9092\nmeters:\n\
     - aggregation: COUNT\n  description: API 호출 수 (과금 기준)\n  eventType: io.oneinchmarket.api.request.v1\n\
-    \  groupBy:\n    method: $.data.method\n    route: $.data.route\n    status: $.data.status\n\
+    \  groupBy:\n    method: $.method\n    route: $.route\n    status: $.status\n\
     \  slug: api_requests_total\n- aggregation: SUM\n  description: 응답 바이트 (대역 과금용)\n\
-    \  eventType: io.oneinchmarket.api.request.v1\n  groupBy:\n    route: $.data.route\n\
-    \  slug: api_response_bytes\n  valueProperty: $.data.response_bytes\npostgres:\n\
-    \  autoMigrate: migration\n  url: postgres://openmeter:__POSTGRES_PASSWORD__@postgresql-headless:5432/openmeter?sslmode=disable\n\
+    \  eventType: io.oneinchmarket.api.request.v1\n  groupBy:\n    route: $.route\n\
+    \  slug: api_response_bytes\n  valueProperty: $.response_bytes\npostgres:\n  autoMigrate:\
+    \ migration\n  url: postgres://openmeter:__POSTGRES_PASSWORD__@postgresql-headless:5432/openmeter?sslmode=disable\n\
     sink:\n  kafka:\n    brokers: kafka-headless:9092\n"
 ---
 apiVersion: v1
@@ -89,7 +89,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: 57915a0c1dc7b8420b9c9e56298b19c5935bbeda002c8bf99b2eb8983baab921
+        checksum/config: b258dd68fd2e98e0969d7ab9c267145d7cbcae5fcd629bd51d69a0a24c437f56
       labels:
         helm.sh/chart: openmeter-1.0.0-beta.232
         app.kubernetes.io/name: openmeter
@@ -224,7 +224,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: 57915a0c1dc7b8420b9c9e56298b19c5935bbeda002c8bf99b2eb8983baab921
+        checksum/config: b258dd68fd2e98e0969d7ab9c267145d7cbcae5fcd629bd51d69a0a24c437f56
       labels:
         helm.sh/chart: openmeter-1.0.0-beta.232
         app.kubernetes.io/name: openmeter
@@ -354,7 +354,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: 57915a0c1dc7b8420b9c9e56298b19c5935bbeda002c8bf99b2eb8983baab921
+        checksum/config: b258dd68fd2e98e0969d7ab9c267145d7cbcae5fcd629bd51d69a0a24c437f56
       labels:
         helm.sh/chart: openmeter-1.0.0-beta.232
         app.kubernetes.io/name: openmeter
@@ -484,7 +484,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: 57915a0c1dc7b8420b9c9e56298b19c5935bbeda002c8bf99b2eb8983baab921
+        checksum/config: b258dd68fd2e98e0969d7ab9c267145d7cbcae5fcd629bd51d69a0a24c437f56
       labels:
         helm.sh/chart: openmeter-1.0.0-beta.232
         app.kubernetes.io/name: openmeter
@@ -614,7 +614,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: 57915a0c1dc7b8420b9c9e56298b19c5935bbeda002c8bf99b2eb8983baab921
+        checksum/config: b258dd68fd2e98e0969d7ab9c267145d7cbcae5fcd629bd51d69a0a24c437f56
       labels:
         helm.sh/chart: openmeter-1.0.0-beta.232
         app.kubernetes.io/name: openmeter
@@ -740,7 +740,7 @@ spec:
   jobTemplate:
     metadata:
       annotations:
-        checksum/config: 57915a0c1dc7b8420b9c9e56298b19c5935bbeda002c8bf99b2eb8983baab921
+        checksum/config: b258dd68fd2e98e0969d7ab9c267145d7cbcae5fcd629bd51d69a0a24c437f56
       labels:
         helm.sh/chart: openmeter-1.0.0-beta.232
         app.kubernetes.io/name: openmeter
@@ -752,7 +752,7 @@ spec:
       template:
         metadata:
           annotations:
-            checksum/config: 57915a0c1dc7b8420b9c9e56298b19c5935bbeda002c8bf99b2eb8983baab921
+            checksum/config: b258dd68fd2e98e0969d7ab9c267145d7cbcae5fcd629bd51d69a0a24c437f56
           labels:
             helm.sh/chart: openmeter-1.0.0-beta.232
             app.kubernetes.io/name: openmeter
@@ -872,7 +872,7 @@ spec:
   jobTemplate:
     metadata:
       annotations:
-        checksum/config: 57915a0c1dc7b8420b9c9e56298b19c5935bbeda002c8bf99b2eb8983baab921
+        checksum/config: b258dd68fd2e98e0969d7ab9c267145d7cbcae5fcd629bd51d69a0a24c437f56
       labels:
         helm.sh/chart: openmeter-1.0.0-beta.232
         app.kubernetes.io/name: openmeter
@@ -884,7 +884,7 @@ spec:
       template:
         metadata:
           annotations:
-            checksum/config: 57915a0c1dc7b8420b9c9e56298b19c5935bbeda002c8bf99b2eb8983baab921
+            checksum/config: b258dd68fd2e98e0969d7ab9c267145d7cbcae5fcd629bd51d69a0a24c437f56
           labels:
             helm.sh/chart: openmeter-1.0.0-beta.232
             app.kubernetes.io/name: openmeter
@@ -1004,7 +1004,7 @@ spec:
   jobTemplate:
     metadata:
       annotations:
-        checksum/config: 57915a0c1dc7b8420b9c9e56298b19c5935bbeda002c8bf99b2eb8983baab921
+        checksum/config: b258dd68fd2e98e0969d7ab9c267145d7cbcae5fcd629bd51d69a0a24c437f56
       labels:
         helm.sh/chart: openmeter-1.0.0-beta.232
         app.kubernetes.io/name: openmeter
@@ -1016,7 +1016,7 @@ spec:
       template:
         metadata:
           annotations:
-            checksum/config: 57915a0c1dc7b8420b9c9e56298b19c5935bbeda002c8bf99b2eb8983baab921
+            checksum/config: b258dd68fd2e98e0969d7ab9c267145d7cbcae5fcd629bd51d69a0a24c437f56
           labels:
             helm.sh/chart: openmeter-1.0.0-beta.232
             app.kubernetes.io/name: openmeter

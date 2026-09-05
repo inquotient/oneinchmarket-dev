@@ -231,6 +231,9 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 
 28. **Logstash `http` 출력에서 `format => "message"` 는 Content-Type 을 `text/plain` 으로 강제한다.** `headers => { "Content-Type" => ... }` 로 넣어도 덮인다 — 전용 `content_type` 설정을 써야 한다. OpenMeter 는 `400 header Content-Type has unexpected value "text/plain"` 으로 거부한다. 원문을 그대로 보내야 할 때(CloudEvents 등) `format => json` 을 쓰면 Logstash 가 `@timestamp`·`@version`·`tags` 를 덧붙여 계약이 깨지므로 `plain` 코덱 + `message` 형식이 맞다 — §8-59
 
+29. **OpenMeter 미터의 JSONPath 기준점은 이벤트 전체가 아니라 `data` 내부다.** `$.data.route` 로 쓰면 **오류 없이 조용히 빈 문자열**이 되어 groupBy 가 전부 `""` 로 뭉개진다 — 그 상태로 인보이스를 내면 5xx 를 제외할 수 없다. `$.route` 가 맞다. 미터 정의는 **PostgreSQL 에 저장**되어 설정만 바꿔서는 갱신되지 않고, 불일치 시 OpenMeter 가 **기동을 거부한다**(`group by mismatch`) — DB 행을 지우고 재기동할 것 — §8-60
+30. **Logstash `mutate` 의 `add_field` 는 기존 필드에 배열로 덧붙는다.** 값을 바꾸려면 `replace` 를 써야 한다. `[@metadata][pipeline]` 같은 분기 키에 `add_field` 를 쓰면 조건이 조용히 어긋난다 — §8-60
+
 ### 매니페스트 작업 시
 
 - `v1/` 매니페스트는 **배포 금지**. 단 CI가 이 경로의 Dockerfile을 참조한다는 모순이 있다

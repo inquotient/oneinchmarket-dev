@@ -183,6 +183,24 @@ data:
         }
       }
 
+      # ★ 테넌트 없는 계량 이벤트 격리 — 계약이 요구하는 규칙이다.
+      #
+      #   게이트웨이는 JWT 클레임이 없으면 `subject` 에 `-` 를 넣는다.
+      #   실재하지 않는 고객이므로 **청구하면 안 되고, 버려도 안 된다** —
+      #   왜 테넌트가 없었는지 나중에 추적해야 하기 때문이다.
+      #   OpenMeter 로 넘기지 않고 Elasticsearch 의 격리 인덱스에 남긴다.
+      #
+      #   실측(§8-60): 토큰 없는 요청 2건이 `subject: -` 로 OpenMeter 에
+      #   그대로 저장됐다. 청구되지는 않았지만 집계에 섞였다.
+      else if [@metadata][pipeline] == "openmeter-bridge" and [message] =~ /"subject":"-"/ {
+        mutate {
+          add_field => { "[@metadata][target_index]" => "api-usage-quarantine" }
+          # ★ add_field 는 기존 필드에 **배열로 덧붙는다** — replace 여야 한다.
+          replace => { "[@metadata][pipeline]" => "quarantine" }
+          add_tag => [ "no_tenant" ]
+        }
+      }
+
       # Falco 알림 처리
       #
       # ★ 토픽 이름은 [kafka][topic] 이 아니라 **[@metadata][kafka][topic]** 이다.
@@ -244,6 +262,8 @@ data:
       #   계량 이벤트는 OpenMeter 가 집계 원천이고, ES 에 또 넣으면 같은
       #   사실이 두 저장소에 남아 어느 쪽이 청구 근거인지 모호해진다.
       if [@metadata][pipeline] == "openmeter-bridge" {
+        # 격리된 것은 위 필터가 pipeline 을 "quarantine" 으로 바꿔 두므로
+        # 여기 조건에 걸리지 않고 아래 else(Elasticsearch)로 간다.
         http {
           url => "http://openmeter-api:80/api/v1/events"
           http_method => "post"
