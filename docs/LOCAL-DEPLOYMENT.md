@@ -6786,6 +6786,113 @@ GAP 을 줄이는 순서는 §13-4·§9-2 와 같다.
 HA-9·10 은 §14-4 의 GAP 목록에 **남겨 둔다.** 단일 노드에서 5~8이 전부
 통과해도 그 둘이 GAP 인 한 "다중 노드에서도 된다" 고 적지 않는다.
 
+## 16. DB 밖의 컴포넌트는 어떻게 HA 로 만드는가 (2026-09-05)
+
+§13 이 DB 를 다뤘고 §12-1 은 등급만 나눴다. 나머지를 컴포넌트별로 적는다.
+**일반론이 아니라 이 레포의 실제 매니페스트를 읽고 확인한 것이다.**
+
+### 16-0. ★ 먼저 — "무상태처럼 보이지만 아닌 것" 다섯
+
+§11-3 과 같은 부류의 함정이다. `replicas` 를 올리면 될 것처럼 생겼는데
+**로컬 디스크에 상태가 있어서** 올리는 순간 갈라지거나 조용히 어긋난다.
+
+| 컴포넌트 | 실측된 현재 구성 | 올리면 |
+|---|---|---|
+| **Grafana** | `GF_DATABASE_*` 가 없다 → **SQLite on PVC** | 대시보드·사용자가 인스턴스마다 따로 논다 |
+| **Loki** | `object_store: filesystem` | 인스턴스마다 다른 로그를 본다 |
+| **Tempo** | `backend: local` | 〃 |
+| **MinIO** | `args: ["server", "/data"]` — **단일 드라이브 standalone** | 분산 모드가 아니라 그냥 별개 인스턴스 |
+| **Vault** | `storage "file"` (설정 주석도 "Raft 는 3노드 이상" 이라 적고 있다) | 별개 금고 |
+
+**전부 저장소를 먼저 바꿔야 복제본이 의미를 갖는다.** 다행히 넷은 목적지가
+같다 — **MinIO(S3)** 다. 그런데 그 MinIO 자신이 단일 드라이브라 **MinIO 가
+선행 조건**이 된다.
+
+### 16-1. 플랫폼 필수 — 가장 싸고 가장 효과가 크다
+
+| 컴포넌트 | 현재 | HA 구성 | 추가 메모리 |
+|---|:-:|---|---:|
+| **CoreDNS** | **1** | `replicas: 2` + anti-affinity. **DNS 는 전부의 의존성**이라 여기가 1인 것이 가장 위험하다 | 70Mi |
+| **istiod** | **1** | `replicas: 2`. 죽으면 새 워크로드가 메시에 못 들어온다(기존 트래픽은 유지) | 256Mi |
+| **ingress gateway** | 1 | `replicas: 2` | 128Mi |
+| **ztunnel·istio-cni** | DaemonSet | 노드당 1 — 구조상 이미 그렇다 | — |
+| | | **소계** | **~0.44 GiB** |
+
+**0.44 GiB 로 DNS·컨트롤플레인·진입점이 이중화된다.** §13 의 DB 복제(5.07 GiB)
+보다 훨씬 싸고, 다중 노드로 가면 곧바로 효과가 난다.
+
+### 16-2. 메시징·검색 — base 는 이미 HA 다
+
+| 컴포넌트 | base | local | HA 로 만들려면 |
+|---|:-:|:-:|---|
+| **Kafka** | `replicas: 3` | 1 | local 오버레이의 축소를 걷고, **토픽 RF≥2 · `min.insync.replicas=2`** 를 함께 볼 것. 브로커만 3이고 RF=1 이면 브로커 하나 잃을 때 그 파티션이 사라진다 |
+| **Elasticsearch** | `nodeSets.count: 3` | 1 | 〃 + **인덱스 복제본 ≥1**. `ES_REPLICAS=0` 을 걷어야 한다(Gotcha 14 와 반대 방향) |
+| **ZooKeeper** | 1 | 1 | 앙상블 3. lakehouse-local 전용 |
+
+> **base 가 이미 3인데 local 이 1로 줄이고 있다.** 즉 HA 구성은 "만드는" 것이
+> 아니라 **"local 의 축소를 걷는" 것**이다. 비용은 §12 시나리오 ①의 ES 3중
+> (+4.0 GiB) · Kafka 3중(+3.0 GiB)이 그대로다.
+
+### 16-3. 관측성 — 넷이 각각 다르다
+
+| 컴포넌트 | HA 구성 방법 | 비고 |
+|---|---|---|
+| **Alertmanager** | **네이티브 클러스터링이 있다.** 현재 `--cluster.listen-address=`(빈 값 = 비활성). 3 복제본 + `--cluster.peer` 로 gossip 하면 **알림 중복이 자동 제거**된다 | 싸고(64Mi×2) 효과가 크다. §8-63 에서 단일로 세운 것을 되돌리면 된다 |
+| **Prometheus** | 동일 설정 2대를 **나란히** 돌린다(HA 쌍). 둘 다 같은 타깃을 긁고 Alertmanager 가 중복을 제거한다. 장기 저장·전역 질의가 필요하면 Thanos/Mimir | 512Mi 추가. 데이터는 이중으로 쌓인다 |
+| **Loki** | `filesystem` → **MinIO(S3)** 로 옮기고 마이크로서비스 모드(distributor·ingester·querier)로 분리 | 가장 큰 작업. 단일 바이너리로는 HA 불가 |
+| **Tempo** | `backend: local` → MinIO. Loki 와 같은 패턴 | 〃 |
+| **Grafana** | **먼저 SQLite → PostgreSQL** 로 옮긴다. 그 뒤에는 완전 무상태라 `replicas: 2` 로 끝 | §13 의 PostgreSQL 복제가 선행되면 자연스럽다 |
+| **Logstash** | 이미 무상태에 가깝다. Kafka **컨슈머 그룹**이 분배를 맡으므로 `replicas: 2` 로 충분 | prod 가 이미 2다 |
+| **Kibana** | 상태가 ES 에 있다 → `replicas: 2` | 768Mi 추가 |
+
+### 16-4. 보안·거버넌스
+
+| 컴포넌트 | HA 구성 방법 | 함정 |
+|---|---|---|
+| **Vault** | `storage "file"` → **Raft(integrated storage) 3노드** | ★ **자동 봉인 해제(auto-unseal)가 없으면 HA 가 무의미하다** — 재시작마다 사람이 열어야 한다(`NEXT-SESSION.md` 에 이미 적혀 있다). Transit·KMS auto-unseal 이 선행 |
+| **Keycloak** | 상태는 이미 PostgreSQL 에 있다. `replicas: 2` 는 지금도 동작한다 | ★ **세션 복제(Infinispan)가 없어 파드가 바뀌면 로그아웃**된다. `KC_CACHE=ispn` + JGroups **DNS_PING** 을 붙여야 진짜 무중단이 된다 |
+| **Wazuh indexer** | OpenSearch 클러스터다(`cluster.name` 있음) → 3노드 | ES 와 같은 패턴 |
+| **Wazuh manager** | master/worker 클러스터 모드 | 매니페스트에 클러스터 설정 없음 |
+| **Ranger admin** | 상태가 DB 에 있다 → 여러 인스턴스 + 앞단 분산 | Gotcha 11(계정 잠금)과 무관하게 가능 |
+| **DS389** | `replicas: 1` — **multi-supplier 복제** 구성 필요 | LDAP 복제는 별도 설정이다. 복제본만 늘리면 갈라진다 |
+| **Solr** | ZK 를 안 본다 → standalone. **SolrCloud** 로 바꿔야 한다 | ZooKeeper 앙상블이 선행 |
+| **SafeLine·Caldera·DefectDojo·Dependency-Track** | compose 태생 단일 | 웹 계층만 2로 늘릴 수 있으나 실익이 작다 |
+
+### 16-5. 레이크하우스
+
+| 컴포넌트 | HA 구성 방법 |
+|---|---|
+| **MinIO** | **분산 모드는 엔드포인트 4개 이상**이 필요하다. 3노드라면 노드당 드라이브를 2개씩 두어 6드라이브로 구성한다. 이것이 Loki·Tempo·Grafana·백업의 **공통 선행 조건**이다 |
+| **Trino** | 코디네이터 1 + 워커 N. **코디네이터 HA 는 Trino 에 없다** — 워커만 늘어난다 |
+| **Hive Metastore** | 상태가 PostgreSQL 에 있다 → `replicas: 2` 로 끝. 싸다 |
+| **HDFS NameNode** | JournalNode 3 + ZKFC + standby NN. **큰 작업**이고 lakehouse-local 전용이다 |
+| **HBase Master** | 마스터를 여럿 두면 ZK 가 선출한다. 비교적 쉽다 |
+| **Spark History·Livy·Connect** | 단일. 실익 작음 |
+
+### 16-6. DevOps — 사실상 불가
+
+- **GitLab** — 진짜 HA 는 Gitaly Cluster(Praefect) + Redis + 오브젝트 스토리지가
+  필요하다. 단일 StatefulSet 을 늘리는 것으로는 안 된다. **범위 밖으로 둔다.**
+- **Jenkins** — 컨트롤러 HA 는 상용 기능이다. 에이전트를 늘리고 컨트롤러는
+  백업으로 보호한다.
+
+### 16-7. 우선순위 — 싼 것부터
+
+| 순위 | 묶음 | 추가 메모리 | 얻는 것 |
+|:-:|---|---:|---|
+| 1 | **플랫폼 필수**(CoreDNS·istiod·게이트웨이) | 0.44 GiB | DNS·컨트롤플레인·진입점 |
+| 2 | **Alertmanager 클러스터링** | 0.13 | 경보 중복 제거 — 설정 한 줄 |
+| 3 | **Hive MS·Kibana·Logstash 복제본** | ~2.3 | 무상태라 그냥 됨 |
+| 4 | **Keycloak 세션 복제** | 0 | 설정만. 로그아웃 문제 해소 |
+| 5 | §13 의 **DB 복제** | 5.07 | 영속 계층 |
+| 6 | **MinIO 분산** | ~1.9 | Loki·Tempo·Grafana·백업의 선행 조건 |
+| 7 | Kafka·ES 3중화 | 7.0 | §12 시나리오 ① |
+| 8 | Vault Raft(+auto-unseal) · Loki/Tempo 분리 · HDFS NN HA | 큼 | |
+
+**1~4 는 합쳐 3 GiB 미만이고 대부분 설정 변경이다.** §15-3 의 자리 만들기
+(`max-pods` 상향 + requests 정정)만 하면 지금 단일 노드에서도 세워 시험할 수
+있다 — §15-1 의 "옮겨가는 것" 에 전부 해당한다.
+
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용
