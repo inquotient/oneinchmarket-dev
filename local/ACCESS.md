@@ -269,6 +269,185 @@ curl -sk -u "elastic:$(pw elasticsearch-es-elastic-user elastic)" \
 
 ---
 
+## 2-b. 전체 표 — 서비스 88개 · 포트 152개
+
+> **§1·§2 는 자주 쓰는 것만 골라 손으로 적은 것이라 빠진 것이 있었다**
+> (첫 판이 40여 개). 아래는 살아 있는 클러스터에서 생성한 **전부**다.
+>
+> ```
+> python3 local/access-gen.py --md
+> ```
+>
+> 규칙에 없는 서비스는 `미분류` 로 나온다 — 서비스가 늘면 다시 돌릴 것.
+
+```
+서비스 88 개 · 포트 152 개 — UI 44 · API 17 · DB 19 · INT 72
+```
+
+| 종류 | 뜻 |
+|:-:|---|
+| **UI** | 브라우저로 본다 |
+| **API** | HTTP 이지만 사람이 볼 화면은 아니다 — `curl`·도구용 |
+| **DB** | 전용 클라이언트로 붙는다 — DBeaver·LDAP 툴·kcat·mc 등 |
+| INT | 내부 전용. 사람이 붙을 일이 없다(메시·수신 포트·앙상블) |
+
+`로컬` 열은 권장 port-forward 포트다. `—` 는 forward 할 이유가 없다는 뜻이다.
+
+| 종류 | 서비스 | 포트 | 로컬 | 접속 / 비고 |
+|:-:|---|--:|--:|---|
+| UI | `admin-headless` | 3000 | 3001 |  |
+| UI | `akhq-headless` | 8080 | 8080 | Kafka UI · 인증 없음 |
+| UI | `alertmanager` | 9093 | 9093 | 인증 없음 |
+| UI | `apicurio-ui` | 8080 | 8888 | ★ Registry(8081)도 함께 forward |
+| UI | `caldera` | 8888 | 8887 | red/blue — `caldera-secret` 키를 먼저 확인 |
+| UI | `defectdojo` | 8080 | 8085 | admin / `pw defectdojo-secret admin-password` |
+| UI | `dependency-track` | 8080 | 8086 | admin/admin — 최초 로그인 시 변경 요구 |
+| UI | `frontend-openreplay` | 8080 | 8096 | OpenReplay frontend |
+| UI | `gitlab-headless` | 80 | 8090 | root / `pw gitlab-secret root-password` |
+| UI | `gitlab-headless` | 443 | 8443 | https |
+| UI | `glitchtip` | 8000 | 8000 | 가입 필요 |
+| UI | `grafana-headless` | 3000 | 3000 | admin / `pw grafana-secret admin-password` |
+| UI | `hadoop-datanode-headless` | 9864 | 9864 | DataNode UI |
+| UI | `hadoop-namenode` | 9870 | 9870 | HDFS UI |
+| UI | `hadoop-namenode-headless` | 9870 | 9870 | HDFS UI |
+| UI | `hbase-master` | 16010 | 16010 |  |
+| UI | `hbase-regionserver` | 16030 | 16030 |  |
+| UI | `hive-server-headless` | 10002 | 10002 | HiveServer2 웹 |
+| UI | `ingress-istio` | 80 | 31938 | **NodePort** — http://localhost:31938(https 로 리다이렉트) |
+| UI | `ingress-istio` | 443 | 30727 | **NodePort — forward 불필요.** https://localhost:30727 |
+| UI | `jenkins-headless` | 8080 | 8091 | admin / `pw jenkins-secret admin-password` |
+| UI | `keycloak-headless` | 8080 | 8083 | admin / `pw keycloak-secret admin-password` |
+| UI | `keycloak-headless` | 8443 | 8446 | TLS 쪽 |
+| UI | `kibana-kb-http` | 5601 | 5601 | **https** · elastic / `pw elasticsearch-es-elastic-user elastic` |
+| UI | `knox-headless` | 8443 | 8443 | https · `pw knox-secret master-secret` |
+| UI | `lam-headless` | 80 | 8084 | `pw lam-secret master-password` |
+| UI | `livy-headless` | 8998 | 8998 |  |
+| UI | `minio-headless` | 9001 | 9001 | 콘솔 · `pw minio-secret root-user`/`root-password` |
+| UI | `nginx` | 80 | 8093 |  |
+| UI | `nginx` | 443 | 8447 | https |
+| UI | `prometheus-headless` | 9090 | 9090 | 인증 없음 |
+| UI | `pyroscope` | 4040 | 4040 | 인증 없음 |
+| UI | `pyroscope-headless` | 4040 | 4042 | 위 pyroscope 와 같은 것 |
+| UI | `ranger-admin` | 6080 | 6080 | admin / `pw ranger-secret admin-password` · ★ 반복 실패 금지(Gotcha 11) |
+| UI | `ranger-solr` | 8983 | 8984 | Ranger 감사 색인 |
+| UI | `safeline` | 80 | 8101 | http(별칭) |
+| UI | `safeline` | 1443 | 1444 | https(별칭) |
+| UI | `safeline-mgt` | 80 | 8100 | http |
+| UI | `safeline-mgt` | 1443 | 1443 | https |
+| UI | `solr-headless` | 8983 | 8983 | 거버넌스 Solr |
+| UI | `spark-connect-headless` | 4040 | 4041 | Spark UI |
+| UI | `spark-history-headless` | 18080 | 18080 |  |
+| UI | `trino-headless` | 8080 | 8095 | 웹 UI + JDBC `jdbc:trino://localhost:8095/` |
+| UI | `vault-headless` | 8200 | 8200 | 토큰 `pw vault-init root-token` |
+| API | `api-openreplay` | 8080 | 8097 | OpenReplay api |
+| API | `apicurio-registry-headless` | 8080 | 8081 | Registry API — UI 와 함께 띄울 것 |
+| API | `chalice-openreplay` | 8000 | 8098 | OpenReplay chalice |
+| API | `cmmn-api-headless` | 8080 | 8092 |  |
+| API | `dependency-track-api` | 8080 | 8087 | 프런트가 부르는 API |
+| API | `falcosidekick` | 2801 | 2801 | Falco 수신 webhook · `/healthz` |
+| API | `ingress-istio` | 15021 | 32130 | **NodePort** — Envoy 헬스 |
+| API | `kafka-bridge` | 8080 | 8082 | HTTP→Kafka · ★ 자체 인증 없음(SEC-206) |
+| API | `kube-state-metrics` | 8080 | 8089 | `/metrics` |
+| API | `logstash-headless` | 9600 | 9600 | 파이프라인 상태 `/_node/stats` |
+| API | `loki-headless` | 3100 | 3100 | `/ready` · Grafana 가 소비 |
+| API | `openmeter-api` | 80 | 8094 | 과금 수집·조회 API |
+| API | `otel-gateway` | 8889 | 8889 | `/metrics`(Prometheus exporter) |
+| API | `safeline-fvm` | 80 | 8102 | 취약점 관리 모듈 |
+| API | `tempo-headless` | 3200 | 3200 | `/status` · Grafana 가 소비 |
+| API | `wazuh-indexer` | 9200 | 9201 | https · admin / `pw wazuh-secret indexer-admin-password` |
+| API | `wazuh-manager` | 55000 | 55000 | https · `pw wazuh-secret api-username`/`api-password` |
+| DB | `clickhouse-headless` | 8123 | 18123 | ★ **openmeter**/**openreplay** — `default` 없음(Gotcha 27) |
+| DB | `clickhouse-headless` | 9000 | 19000 | native 프로토콜 |
+| DB | `ds389-headless` | 3389 | 3389 | LDAP · `pw ds389-secret dm-password` |
+| DB | `ds389-headless` | 3636 | 3636 | LDAPS |
+| DB | `elasticsearch-es-http` | 9200 | 19200 | https · elastic / **ECK 시크릿**(수기 것은 401) |
+| DB | `gitlab-headless` | 22 | 2222 | git+ssh |
+| DB | `hadoop-namenode` | 8020 | 8020 | HDFS RPC |
+| DB | `hadoop-namenode-headless` | 8020 | 8020 | HDFS RPC |
+| DB | `hive-metastore-headless` | 9083 | 9083 | Thrift — 메타데이터 원본은 PG `hive_metastore` |
+| DB | `hive-server-headless` | 10000 | 10000 | JDBC `jdbc:hive2://localhost:10000/default` |
+| DB | `kafka-headless` | 9092 | 9092 | Kafka 클라이언트(kcat) — AKHQ 가 더 편하다 |
+| DB | `mariadb-headless` | 3306 | 13306 | root / `pw mariadb-secret root-password` · DB `cmmn` |
+| DB | `minio-headless` | 9000 | 9002 | S3 API — mc·s3cmd 용(DBeaver 아님) |
+| DB | `mongodb-headless` | 27017 | 17017 | root / `pw mongodb-secret root-password` · **authSource=admin** |
+| DB | `postgresql-headless` | 5432 | 15432 | postgres / `pw postgresql-secret postgres-password` · DB 13개 |
+| DB | `ranger-db` | 5432 | 15433 | PostgreSQL 별칭 — 같은 인스턴스다 |
+| DB | `redis-headless` | 6379 | 16379 | `pw redis-secret redis-password` · 과금 중복제거 키 |
+| DB | `spark-connect-headless` | 15002 | 15002 | Spark Connect gRPC — PySpark 클라이언트 |
+| DB | `zookeeper-headless` | 2181 | 2181 | zkCli |
+| INT | `alerts-openreplay` | 8888 | — | 내부 메트릭·헬스 |
+| INT | `alerts-openreplay` | 9000 | — | OpenReplay 내부 |
+| INT | `api-openreplay` | 8888 | — | 내부 메트릭·헬스 |
+| INT | `assets-openreplay` | 8888 | — | 내부 메트릭·헬스 |
+| INT | `assets-openreplay` | 9000 | — | OpenReplay 내부 |
+| INT | `assist-openreplay` | 8888 | — | 내부 메트릭·헬스 |
+| INT | `assist-openreplay` | 9001 | — | OpenReplay 내부 |
+| INT | `canvases-openreplay` | 8080 | — | OpenReplay 내부 |
+| INT | `canvases-openreplay` | 8888 | — | 내부 메트릭·헬스 |
+| INT | `chalice-openreplay` | 8888 | — | 내부 메트릭·헬스 |
+| INT | `db-openreplay` | 8888 | — | 내부 메트릭·헬스 |
+| INT | `db-openreplay` | 9000 | — | OpenReplay 내부 |
+| INT | `defectdojo-django` | 3031 | — | nginx 뒤의 uwsgi |
+| INT | `elasticsearch-es-default` | 9200 | — | 파드 직접 |
+| INT | `elasticsearch-es-internal-http` | 9200 | — | ECK 내부 |
+| INT | `elasticsearch-es-transport` | 9300 | — | 노드 간 |
+| INT | `ender-openreplay` | 8888 | — | 내부 메트릭·헬스 |
+| INT | `ender-openreplay` | 9000 | — | OpenReplay 내부 |
+| INT | `hadoop-datanode-headless` | 9866 | — |  |
+| INT | `hadoop-datanode-headless` | 9867 | — |  |
+| INT | `hbase-master` | 16000 | — | RPC |
+| INT | `hbase-regionserver` | 16020 | — | RPC |
+| INT | `heuristics-openreplay` | 8888 | — | 내부 메트릭·헬스 |
+| INT | `heuristics-openreplay` | 9000 | — | OpenReplay 내부 |
+| INT | `http-openreplay` | 8080 | — | OpenReplay 내부 |
+| INT | `http-openreplay` | 8888 | — | 내부 메트릭·헬스 |
+| INT | `images-openreplay` | 8080 | — | OpenReplay 내부 |
+| INT | `images-openreplay` | 8888 | — | 내부 메트릭·헬스 |
+| INT | `integrations-openreplay` | 8080 | — | OpenReplay 내부 |
+| INT | `integrations-openreplay` | 8888 | — | 내부 메트릭·헬스 |
+| INT | `jenkins-headless` | 50000 | — | 에이전트 JNLP |
+| INT | `kafka-bridge` | 8081 | — |  |
+| INT | `kafka-headless` | 9093 | — | KRaft 컨트롤러 |
+| INT | `logstash-headless` | 5044 | — | beats 입력 |
+| INT | `logstash-headless` | 5140 | — | L0 랩 syslog 입력(§8-34) |
+| INT | `logstash-headless` | 5141 | — | syslog 입력 |
+| INT | `logstash-headless` | 5142 | — | Alertmanager webhook 입력(§8-63) |
+| INT | `loki-headless` | 9095 | — | gRPC |
+| INT | `openreplay-tracker` | - | — | ExternalName 별칭 |
+| INT | `otel-agent` | 4317 | — | OTLP gRPC |
+| INT | `otel-agent` | 4318 | — | OTLP HTTP |
+| INT | `otel-gateway` | 4317 | — | OTLP gRPC |
+| INT | `otel-gateway` | 4318 | — | OTLP HTTP |
+| INT | `otel-gateway` | 4319 | — | OTLP 추가 |
+| INT | `pyroscope-headless` | 7946 | — | memberlist |
+| INT | `pyroscope-headless` | 9095 | — |  |
+| INT | `redis-headless` | 16379 | — | 클러스터 버스(미사용) |
+| INT | `safeline-chaos` | 8080 | — |  |
+| INT | `safeline-chaos` | 8088 | — |  |
+| INT | `safeline-chaos` | 9000 | — |  |
+| INT | `safeline-detector` | 8000 | — | 탐지 엔진 |
+| INT | `safeline-detector` | 8001 | — |  |
+| INT | `safeline-fvm` | 9004 | — |  |
+| INT | `sink-openreplay` | 8888 | — | 내부 메트릭·헬스 |
+| INT | `sink-openreplay` | 9000 | — | OpenReplay 내부 |
+| INT | `sourcemapreader-openreplay` | 8888 | — | 내부 메트릭·헬스 |
+| INT | `sourcemapreader-openreplay` | 9000 | — | OpenReplay 내부 |
+| INT | `spark-connect-headless` | 7078 | — |  |
+| INT | `spark-connect-headless` | 7079 | — |  |
+| INT | `spot-openreplay` | 8080 | — | OpenReplay 내부 |
+| INT | `spot-openreplay` | 8888 | — | 내부 메트릭·헬스 |
+| INT | `storage-openreplay` | 8888 | — | 내부 메트릭·헬스 |
+| INT | `storage-openreplay` | 9000 | — | OpenReplay 내부 |
+| INT | `tempo-headless` | 4317 | — | OTLP gRPC 수신 |
+| INT | `tempo-headless` | 4318 | — | OTLP HTTP 수신 |
+| INT | `vault-headless` | 8201 | — | Raft 클러스터 포트(미사용) |
+| INT | `waypoint` | 15008 | — | HBONE |
+| INT | `waypoint` | 15021 | — | Istio 내부 |
+| INT | `wazuh-manager` | 1514 | — | 에이전트 수신 |
+| INT | `wazuh-manager` | 1515 | — | 에이전트 등록 |
+| INT | `zookeeper-headless` | 2888 | — | 앙상블 내부 |
+| INT | `zookeeper-headless` | 3888 | — | 앙상블 선출 |
+
 ## 3. 자주 걸리는 것
 
 | 증상 | 원인 |
