@@ -68,6 +68,10 @@ WSL2 는 VM 에 붙은 프로세스가 없으면 VM 을 내린다. systemd 로 k
 
 ## 바로 확인하는 법
 
+> **UI·DB 접속은 [ACCESS.md](./ACCESS.md) 에 전부 정리했다** — port-forward
+> 명령·URL·계정·비밀번호 조회법, DBeaver 접속 정보, 자주 걸리는 것.
+> 아래는 상태를 훑는 최소 명령만 남긴다.
+
 ```bash
 wsl -d Ubuntu
 cd ~/oim-infra && git fetch origin local && git merge --ff-only FETCH_HEAD
