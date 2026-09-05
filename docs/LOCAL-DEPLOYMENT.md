@@ -7362,7 +7362,7 @@ requests 38.0 GiB · 실사용 21.0 GiB · **낭비 17.0 GiB (45%)**
 
 | | 레버 | 회수(추정) | 성격 |
 |:-:|---|---|---|
-| **①** | **requests 실측 정정** | **10~14 GiB** | 설정만. 전례 있음(2026-09-03, 6.7 GiB) |
+| **①** | **requests 실측 정정** | **6.5~10.7 GiB** | 설정만. 전례 있음(2026-09-03, 6.7 GiB 회수). 산출은 §19-5 |
 | **②** | **JVM 힙 명시** | 큼 | 12종 중 **9종이 미설정**(실측). 레포가 prod 산정에서 −48 GiB 로 잡은 레버다(§6-2 단계 2) |
 | **③** | **프로파일 분리**(Kustomize Component) | **매우 큼** | 항상 다 띄울 필요가 없다 |
 | ④ | 중복 스택 정리 | 중간 | 검토 필요 |
@@ -7415,6 +7415,123 @@ requests 정정 없이도 풀린다 — 그리고 파드 40여 개가 함께 빠
 (768Mi)는 둘 다 Lucene 계열 검색 엔진이고, `defectdojo`와
 `dependency-track`은 둘 다 취약점 관리다. 통합 가능 여부는 각각의 기능
 의존성을 봐야 하므로 **여기서 결론 내지 않는다.**
+
+### 19-5. 레버별 실행 방법
+
+#### ① requests 실측 정정 — 6.5~10.7 GiB
+
+**무엇을 하나.** 예약(`requests`)을 실측 기반으로 다시 잡는다. 스케줄러는
+`requests` 로만 판단하므로, 예약 38.0 · 실사용 21.0 이면 **17 GiB 가 장부에만
+잡혀 있다.**
+
+**전례가 있고 방법도 남아 있다.** 2026-09-03 에 한 번 했다 —
+`overlays/local/patches/requests-local.yaml`(53개 워크로드). 그 파일 머리말이
+기준을 적어 두었다:
+
+- Burstable 은 **실사용의 1.3~2배**. 기동 피크가 유휴보다 높은 JVM 은 넉넉히
+- **Guaranteed 8종은 건드리지 않는다** — `requests == limits` 불변식이
+  `qos-guaranteed.yaml` 에 있고 한쪽만 바꾸면 그 성질이 깨진다(§20-2)
+- `istiod`·`ztunnel` 은 istioctl 이 설치하므로 kustomize 밖이다
+
+**★ 순수 삭감이 아니다.** 그때 5건은 **예약이 실사용보다 적어서 올렸다** —
+safeline(−804Mi) · logstash(−333) · loki(−288) · spark-history(−195).
+requests 를 넘겨 쓰는 파드는 **압박 시 가장 먼저 축출된다.** 과대 예약보다
+이쪽이 위험하다.
+
+**★ 함정 — `request > limit` 이면 파드가 조용히 사라진다.** CrashLoop 도
+Pending 도 아니고 `get pods` 에 아무것도 안 나온다. 같은 파일이 기록해 둔
+실측이다.
+
+**회수량 산출**(§19-3 의 "10~14 GiB" 를 여기서 정정한다):
+
+```
+실사용 21.0 GiB × 1.3 = 27.3   →  회수 10.7 GiB (공격적)
+실사용 21.0 GiB × 1.5 = 31.5   →  회수  6.5 GiB (보수적)
+```
+
+앞서 적은 10~14 는 레포 자신의 기준(1.3~2배)을 적용하지 않은 낙관값이었다.
+
+**그리고 정정 이후 들어온 8종이 패치 밖이다** — `openmeter-*` 5종 ·
+`alertmanager` · `kube-state-metrics` · `falco`. 다음 정정에 포함할 것.
+
+**★ 다만 지금 값으로 깎지 말 것**(§19-3 재확인). 표의 실사용은 유휴 한
+시점이다. `DEPLOYMENT.md §6-2` 가 "최소 2주 측정 뒤에만" 이라 못박았고,
+**메모리는 throttle 이 아니라 OOMKill** 이다. KRR(Prometheus 기반, 이미 있는
+Prometheus 를 그대로 쓴다)로 백분위를 뽑는 것이 옳다.
+
+#### ② JVM 힙 명시 — ①의 **선행 조건**
+
+**왜 ①보다 먼저인가.** 힙을 명시하지 않으면 JVM 은 컨테이너 **한도**를 기준으로
+힙 상한을 잡고, GC 가 돌기 전까지 RSS 가 그쪽으로 자란다. 그러면 ①이 재는
+"실사용" 이 **실제 필요량이 아니라 한도의 함수**가 된다 — 기준선 자체가
+흔들린다. 힙을 고정해야 실사용이 의미를 갖는다.
+
+**미설정 9종**(실측): `trino` · `kafka` · `elasticsearch` · `ranger-admin` ·
+`knox` · `jenkins` · `livy` · `spark-connect` · `apicurio-registry` · `akhq`
+설정됨: `solr`(Xmx512m) · `zookeeper`(Xmx256m) · `hbase` · `hive-metastore`
+
+**방법.** 각 워크로드의 env 에 `JAVA_OPTS`/`JAVA_TOOL_OPTIONS` 로 `-Xmx` 를
+준다. 대략 **limits 의 50~70%** — 힙 밖에도 메타스페이스·스레드 스택·
+다이렉트 버퍼가 있다. ES 는 예외로 자체 `jvm.options` 규약이 있고 ECK 가
+관리하므로 CR 쪽에서 준다.
+
+#### ③ 프로파일 분리 — ~10.6 GiB · 위험이 가장 낮다
+
+**무엇을 하나.** 항상 켜 둘 필요가 없는 묶음을 Kustomize **Component** 로
+빼서, 필요할 때만 오버레이에 포함한다.
+
+```
+kubernetes/components/openreplay/kustomization.yaml     (kind: Component)
+kubernetes/components/lakehouse-v1/
+kubernetes/components/security-demo/
+kubernetes/components/vuln-mgmt/
+
+overlays/local/kustomization.yaml:
+  components:
+    - ../../components/openreplay   # 필요할 때만 주석 해제
+```
+
+**레포에 Component 가 하나도 없다**(실측) — 신설이다. `CLAUDE.md` 는 이미
+*"64 GB에서는 Kustomize Component 기반 프로파일 전환이 필요"* 라 적고 있다.
+
+| 묶음 | 현재 requests | HA 시 | 파드 |
+|---|---:|---:|---:|
+| OpenReplay 17종 | ~2.6 GiB | ~5.2 | 17 |
+| lakehouse-v1(HDFS·HBase·Hive·ZK) | ~3.2 | ~6.5 | 8 |
+| SafeLine 3종 · Caldera | ~2.8 | ~2.8 | 4 |
+| DefectDojo 4종 · Dependency-Track 2종 | ~2.0 | ~4.0 | 6 |
+| **합계** | **~10.6** | **~18.5** | **35** |
+
+**HA 예행(§15)에 이 넷은 필요 없다.** 그리고 파드 35개가 함께 빠져
+§14-3 의 파드 상한(109/110)도 같이 풀린다 — **한 조치로 두 제약이 풀리는
+유일한 레버**다.
+
+**위험이 낮은 이유** — 삭제가 아니라 **오버레이에서 빼는 것**이다. 매니페스트는
+그대로 남고 한 줄로 되돌린다. ①·②처럼 OOMKill 위험이 없다.
+
+#### ④ 중복 스택 — 검토만
+
+`elasticsearch`(2048Mi)와 `wazuh-indexer`(768Mi)는 둘 다 Lucene 계열이고,
+`defectdojo`와 `dependency-track`은 둘 다 취약점 관리다. 통합 가능 여부는
+각각의 기능 의존성을 봐야 한다 — **여기서 결론 내지 않는다.**
+
+#### ⑤ zram ZSTD — 실사용만, 그리고 보류
+
+`ZRAM_BACKEND_ZSTD` 로 압축률이 2.2 → 3.2 가 된다(§7). 그러나 ⓐ **커널을
+직접 빌드해야 하고**(Microsoft config 문제라 `wsl --update` 로 안 된다)
+ⓑ 커스텀 커널을 고정하면 보안 패치가 끊기며 ⓒ **무엇보다 requests 를 낮추지
+않는다**(§20-6). §7 이 이미 보류로 정했다.
+
+### 19-6. 순서와 이유
+
+```
+③ 프로파일 분리   위험 0 · 즉효 · 파드까지 회수     →  먼저
+② JVM 힙 명시     ①의 기준선을 고정한다             →  다음
+① requests 정정   KRR 2주 측정 후                   →  마지막
+```
+
+**①을 먼저 하면 안 되는 이유**가 ②에 있고, ③은 둘과 독립이라 지금 바로
+할 수 있다. 셋 다 하드웨어를 사지 않는다.
 
 ### 19-4. 권하는 순서
 
