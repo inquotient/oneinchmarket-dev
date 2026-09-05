@@ -7509,6 +7509,62 @@ overlays/local/kustomization.yaml:
 **위험이 낮은 이유** — 삭제가 아니라 **오버레이에서 빼는 것**이다. 매니페스트는
 그대로 남고 한 줄로 되돌린다. ①·②처럼 OOMKill 위험이 없다.
 
+#### ③-1. 프로파일 전환이 실제로 뜻하는 것
+
+**그 묶음의 파드가 아예 없다.** 렌더 결과에서 워크로드가 빠지므로 존재하지
+않는다 — 축소(replicas 0)가 아니라 **미배포**다. 다시 켜려면 오버레이에서
+한 줄을 되살리고 재적용한다.
+
+| | 끄면 | 켜면 |
+|---|---|---|
+| 워크로드 | 없다 | 다시 뜬다(이미지 재적재·부트스트랩 시간 필요) |
+| **PVC(volumeClaimTemplates)** | **남는다** | 같은 볼륨을 다시 문다 |
+| 기능 | 못 쓴다 | 쓴다 |
+
+PVC 가 남는 근거는 둘이다 — ⓐ `persistentVolumeClaimRetentionPolicy` 가
+레포 어디에도 없어 기본값 **Retain** 이고, ⓑ `volumeClaimTemplates` 로 생기는
+PVC 는 Git 매니페스트에 없어 **ArgoCD 가 추적하지 않으므로 prune 대상이
+아니다.** 즉 데이터는 살아남는다.
+
+#### ③-2. ★ 그런데 예외가 셋 있다 — 직접 선언된 PVC
+
+```
+defectdojo-media        4Gi   base/security/defectdojo/defectdojo-service.yaml
+dependency-track-data   8Gi   base/security/dependency-track/...-service.yaml
+safeline-data           4Gi   base/security/safeline/safeline-service.yaml
+```
+
+이 셋은 **매니페스트에 직접 선언된 PVC** 라 Git 에 있고, ArgoCD 가 추적한다.
+그리고 dev·prod Application 이 **`prune: true`** 다(실측). 이 셋이 속한
+묶음(vuln-mgmt · security-demo)을 Component 로 빼면 **PVC 가 함께 지워져
+데이터가 사라진다.**
+
+> **설계 규칙 — PVC 는 Component 에 넣지 않는다.** 워크로드(Deployment·
+> StatefulSet·Service)만 옮기고 PVC 선언은 base 에 남긴다. 4~8Gi 짜리
+> 빈 볼륨이 놀지만, 데이터가 사라지는 것보다 낫다.
+
+#### ③-3. 의존성 확인 결과
+
+| 묶음 | 밖에서 참조하는가 |
+|---|---|
+| **lakehouse-v1**(ZK·HDFS·HBase·hive-server) | **없다** — `lakehouse-local` 밖에서 참조 0건. 깨끗하게 뺄 수 있다 |
+| **OpenReplay 17종** | 워크로드 참조는 없으나 **base 에 흔적이 있다** — `postgres-bootstrap`(DB 생성) · `clickhouse-configmap`·`-statefulset` · `database-netpol`. 남아도 무해하다(쓰지 않는 DB, 매칭되지 않는 allow 규칙) |
+| SafeLine·Caldera · DefectDojo·Dependency-Track | 위 PVC 예외를 빼면 독립 |
+
+#### ③-4. 대가 — 검증 커버리지가 준다
+
+이것이 프로파일 전환의 진짜 비용이다. §8-64 가 남긴 교훈과 같은 자리다:
+
+> **죽어 있는 구성요소는 그 하류 전체를 검증되지 않은 상태로 만든다.**
+
+OpenReplay 를 늘 꺼 두면 그 17종에 대한 Kyverno 정책·NetworkPolicy·
+AuthorizationPolicy·ambient 편입이 **한 번도 실행되지 않는다.** Falco 를
+살리자 401·정책 누락·소켓 오설정 셋이 한꺼번에 나온 것이 바로 그 형태였다.
+
+완화책은 **주기적으로 전부 켜서 한 번 돌리는 것**이다 — 상시가 아니라
+검증 회차로. 그때는 메모리가 필요하므로 §15-3 의 자리 만들기가 함께 있어야
+한다. "끄고 잊는다" 가 아니라 "평소엔 끄고 정기적으로 켠다" 로 운용할 것.
+
 #### ④ 중복 스택 — 검토만
 
 `elasticsearch`(2048Mi)와 `wazuh-indexer`(768Mi)는 둘 다 Lucene 계열이고,
