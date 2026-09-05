@@ -525,8 +525,8 @@ ClickHouse 용도를 OpenReplay 하나로 못박고 있다**(→ ADR-073).
 
 ---
 
-### ADR-073 — ADR-070(ClickHouse 범위) 개정 필요 여부
-**상태: `Open`** (2026-09-05)
+### ADR-073 — ADR-070(ClickHouse 범위) 개정 — **ⓑ 채택**
+**상태: `Accepted` — ⓑ(기존 인스턴스 공유). ADR-070 개정 완료** (2026-09-05)
 
 ADR-070 은 ClickHouse 용도를 **OpenReplay 하나로** 못박았다. 근거는
 "ClickHouse 가 Trino/Iceberg·Elasticsearch·Loki 를 **대체**하는 것을 막자"였다.
@@ -981,6 +981,26 @@ B안은 이미 채택한 OTel 경로(ADR-039)와 중복된다.
 ### ADR-070 — ClickHouse 는 OpenReplay 전용으로만 도입한다
 **상태: `Accepted (범위 한정)`** (2026-09-03)
 
+
+**개정 (2026-09-05) — 용도 2개로 확대한다**
+
+API 과금 계량(ADR-072)이 OpenMeter 로 확정되면서 ClickHouse 의 두 번째 용도가
+생겼다. **범위를 넓히되 취지는 유지한다** — 이 ADR 이 막으려던 것은
+"ClickHouse 가 Trino/Iceberg·Elasticsearch·Loki 를 **대체**하는 것" 이었고,
+과금 계량은 대체가 아니라 추가다.
+
+| 용도 | 데이터베이스 | 근거 |
+|---|---|---|
+| 세션 리플레이 | `openreplay` | ADR-069 |
+| **API 과금 계량** | **`openmeter`** | **ADR-072 (신규)** |
+
+★ **인스턴스는 하나다.** OpenMeter 차트가 Altinity 오퍼레이터로 두 번째
+인스턴스를 세우려 하는 것을 껐다(`clickhouse.enabled=false`). 데이터베이스로
+용도를 나누고 **ClickHouse 사용자도 분리**한다 — `openmeter` 사용자는
+`GRANT ALL ON openmeter.*` 뿐이라 OpenReplay 데이터에 닿지 못한다.
+
+세 번째 용도가 생기면 이 표에 줄을 더하기 전에 다시 판단할 것. 표가 길어지는
+것 자체가 "범용 분석 저장소로 확대되고 있다" 는 신호다.
 **결정** — ClickHouse 를 아키텍처에 넣는다. **단 용도는 OpenReplay 하나뿐이다**(ADR-069).
 범용 분석 저장소로 확대하지 않는다.
 

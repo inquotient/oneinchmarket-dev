@@ -1,0 +1,23 @@
+# ─────────────────────────────────────────────────────────────────────────
+# OpenMeter — API 과금 계량 백엔드. **local 오버레이 전용**
+#
+# base 에 두지 않는 이유는 OpenReplay 와 같다 — 매니페스트가 환경에 묶인 값을
+# 갖는다(clickhouse-headless · kafka-headless · redis-headless 는 이 클러스터의
+# 서비스명이다). dev/prod 는 엔드포인트가 달라진다.
+#
+# openmeter.yaml 은 **생성 파일**이다. 직접 고치지 말 것 —
+#   bash local/render-openmeter.sh
+# 가 `helm template` 으로 만든다(ADR-003 유지. Helm 을 배포가 아니라 생성
+# 도구로만 쓴다 — Tetragon·OpenReplay 와 같은 방식).
+#
+# ★★ 지금 이 스택은 **아직 이벤트를 받지 못한다.**
+#   OpenMeter 는 자기 토픽을 스스로 만들고 HTTP API(/api/v1/events)로 수집한다.
+#   우리 `api-usage` 토픽을 직접 읽지 않는다 — 그 사이를 잇는 다리가 없다.
+#   ADR-072 의 다음 증분이다(§8-58).
+#
+# ★ ADR-070 개정 전제 — ClickHouse 를 OpenReplay 와 **공유**한다.
+#   데이터베이스만 `openmeter` 로 나눈다. 두 번째 인스턴스를 세우지 않는다.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - openmeter.yaml

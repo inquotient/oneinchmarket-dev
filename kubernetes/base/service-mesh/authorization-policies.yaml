@@ -53,6 +53,9 @@ spec:
               - "*/sa/dependency-track"
               - "*/sa/defectdojo"
               - "*/sa/safeline"
+              # ★ OpenMeter — 요금제·구독·인보이스 메타데이터를 PostgreSQL 에 둔다.
+              #   ClickHouse 는 집계용이고 엔터티는 여기다(§8-58).
+              - "*/sa/openmeter"
               # OpenReplay 는 파드마다 별도 SA 를 쓴다(alerts-openreplay ·
               # chalice-openreplay · db-openreplay …). 15개를 나열하는 대신
               # 접미 매칭으로 묶는다. `*/sa/*-openreplay` 는 `*` 가 둘이라
@@ -90,15 +93,22 @@ spec:
               - "*/sa/admin"
               - "*/sa/cmmn-api"
               - "*-openreplay"
+              # ★ OpenMeter — 중복 제거(dedupe)에 Redis 를 쓴다. 과금 정확성의
+              #   핵심이므로 이 줄이 없으면 이벤트가 중복 청구된다.
+              - "*/sa/openmeter"
       to:
         - operation:
             ports: ["6379"]
-    # → ClickHouse. OpenReplay 전용이다(allow-clickhouse-access).
+    # → ClickHouse. OpenReplay 와 **OpenMeter 가 공유**한다(ADR-070 개정).
+    #   데이터베이스로 용도를 나눈다(openreplay · openmeter).
     #   ClickHouse 에 component: database 라벨이 없으면 이 규칙은 그냥
     #   선택되지 않을 뿐 해가 없다.
     - from:
         - source:
-            principals: ["*-openreplay"]
+            principals:
+              - "*-openreplay"
+              # ★ OpenMeter — 데이터베이스 `openmeter` 를 쓴다(ADR-070 개정).
+              - "*/sa/openmeter"
       to:
         - operation:
             ports: ["8123", "9000"]
@@ -129,6 +139,8 @@ spec:
               - "*/sa/otel-gateway"
               # 에이전트가 게이트웨이 액세스 로그를 직접 api-usage 에 넣는다.
               - "*/sa/otel-agent"
+              # ★ OpenMeter — 자기 토픽을 만들고 소비한다(ADR-072).
+              - "*/sa/openmeter"
               # 토픽 부트스트랩 Job. 평소에 돌지 않아 편입 시점에 드러나지 않는다.
               - "*/sa/kafka-topics"
               # ★ logstash 는 전용 ServiceAccount 를 쓴다. 예전에는 `default`

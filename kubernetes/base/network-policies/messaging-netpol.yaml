@@ -35,6 +35,10 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: otel-agent
+        # ★ OpenMeter — 자기 토픽을 만들고 소비한다(ADR-072).
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: openmeter
         # OpenReplay — 세션 이벤트 파이프라인이 Kafka 를 쓴다
         - podSelector:
             matchLabels:

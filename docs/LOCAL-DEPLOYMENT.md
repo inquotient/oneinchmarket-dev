@@ -5252,6 +5252,82 @@ OpenMeter 자체 워크로드 8개뿐이고 ADR-070 을 "용도 2개" 로 개정
 
 파드 교체와 에이전트 재시작(§8-56)은 견딘다. 남은 미검증은 **파일 회전** 하나다.
 
+
+### 8-58. OpenMeter 도입 — ClickHouse 를 공유한다 (ADR-070 개정)
+
+사용자가 ADR-073 의 ⓑ(기존 ClickHouse 공유)를 택했다. 배포하고 수집→집계까지
+확인했다.
+
+#### 결과
+
+```
+Deployment 5 + CronJob 3 전부 Running
+수집 API  POST /api/v1/events -> 204
+ClickHouse openmeter.om_events -> 1건 적재
+미터 조회  api_requests_total -> value: 1
+ClickHouse 테이블  openreplay 1 · openmeter 1   (공유 성립, 서로 침범 없음)
+Ready 85/87 · ztunnel 거부 0건
+```
+
+#### 어떻게 넣었나
+
+`local/render-openmeter.sh` + `local/openmeter-values.yaml` 로 렌더해
+`kubernetes/overlays/local/openmeter/openmeter.yaml` 을 커밋한다. OpenReplay·
+Tetragon 과 같은 방식이다 — **Helm 을 배포가 아니라 생성 도구로만 쓴다**
+(ADR-003 유지).
+
+후처리(`render-openmeter.py`)가 차트에 없는 것을 넣는다: 규약 라벨,
+securityContext, 그리고 **비밀번호 치환 initContainer**.
+
+#### ★ 자격 처리 — 차트에 넣을 자리가 없었다
+
+차트에는 `extraEnv` 도 secret 마운트도 없고, **환경변수 오버라이드도 먹지
+않는다.** 네 가지 표기법을 실측했다:
+
+```
+OPENMETER_AGGREGATION_CLICKHOUSE_PASSWORD     무시
+OPENMETER_AGGREGATION__CLICKHOUSE__PASSWORD   무시
+AGGREGATION_CLICKHOUSE_PASSWORD               무시
+AGGREGATION__CLICKHOUSE__PASSWORD             무시
+```
+
+설정 파일이 유일한 경로인데 그것은 ConfigMap 이다. **평문 비밀번호를 ConfigMap
+에 두지 않기 위해** ranger-usersync 와 같은 패턴을 썼다 — 자리표시자를 넣은
+설정을 ConfigMap 에 두고, initContainer 가 Secret 에서 읽어 emptyDir 로 치환해
+내보내며, 본 컨테이너는 그것을 읽는다. 치환이 남으면 **기동을 멈춘다.**
+
+#### 세 번 막혔고 세 번 다 다른 원인이었다
+
+| 증상 | 원인 |
+|---|---|
+| `code: 516 default: Authentication failed` | ClickHouse 의 **`default` 사용자가 이 인스턴스에 없다**(system.users 에 openreplay 뿐). 로컬 `clickhouse-client` 가 자격 없이 붙는 것에 속기 쉽다 — 원격은 실제 사용자가 필요하다. 전용 `openmeter` 사용자를 만들고 `openmeter.*` 로만 권한을 줬다 |
+| `failed to initialize database` | **PostgreSQL 이 필요하다.** §8-56 에서 "postgres/redis 참조는 전부 Svix" 로 읽은 것은 **렌더된 매니페스트 텍스트만 본 것**이고 런타임 요구는 별개였다. 전용 롤·DB 를 만들었다 |
+| sink-worker 가 `127.0.0.1:29092` 로 붙어 CrashLoop | **`ingest.kafka.broker`(단수)와 `sink.kafka.brokers`(복수)가 다른 키다.** ingest 만 설정하면 sink 는 기본값으로 간다. 오류는 sink-worker 로그에만 나온다 |
+| 수집 API 500 `NOAUTH Authentication required` | dedupe 용 **Redis 에 비밀번호가 걸려 있다.** 중복 제거 단계라 이벤트가 아예 들어가지 못한다 |
+
+★ 마지막 것을 고칠 때 **`sed -i '80a\...'` 로 넣은 줄이 셸 스크립트 2행에
+들어가** 명령이 깨졌다. 렌더 결과에 `password` 줄이 통째로 사라졌는데도
+initContainer 는 `완료` 를 출력했다 — 또 하나의 "성공 출력이 성공이 아닌"
+사례다. 배포된 ConfigMap 과 파드 안의 파일을 **둘 다** 확인해서야 알았다.
+
+#### 자격 분리
+
+| 자격 | 범위 |
+|---|---|
+| ClickHouse `openmeter` | `GRANT ALL ON openmeter.*` — OpenReplay 데이터에 닿지 못한다 |
+| PostgreSQL `openmeter` | 자기 DB 소유자 |
+| Redis | 기존 공유 자격(전용 분리는 하지 않았다 — Redis 는 ACL 을 쓰지 않는다) |
+
+#### 아직 안 된 것
+
+★★ **`api-usage` 토픽과 OpenMeter 사이에 다리가 없다.** OpenMeter 는 자기
+토픽을 스스로 만들고 **HTTP API 로만** 수집한다. 지금 계량 이벤트는
+`api-usage` 에 쌓이고 OpenMeter 는 그것을 읽지 않는다. 위 검증은 API 에 직접
+넣어서 한 것이다. 다리가 ADR-072 의 다음 증분이다.
+
+- ADR-070 을 "ClickHouse 용도 2개" 로 개정해야 한다(문서 반영은 이 커밋에서).
+- 요금제·구독 설정은 아직 없다. 미터 2종만 정의했다.
+
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용

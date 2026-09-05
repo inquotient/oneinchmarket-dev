@@ -52,6 +52,10 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: safeline
+        # ★ OpenMeter — 메타데이터 저장소(ADR-072).
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: openmeter
       ports:
         - protocol: TCP
           port: 5432
@@ -146,6 +150,10 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: defectdojo
+        # ★ OpenMeter — 중복 제거(dedupe)에 Redis 를 쓴다(과금 멱등성).
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: openmeter
       ports:
         - protocol: TCP
           port: 6379
@@ -175,6 +183,11 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/instance: openreplay
+        # ★ OpenMeter — API 과금 계량(ADR-072 ⓑ). ClickHouse 를 OpenReplay 와
+        #   공유하되 데이터베이스로 용도를 나눈다(ADR-070 개정).
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: openmeter
       ports:
         - { protocol: TCP, port: 8123 }
         - { protocol: TCP, port: 9000 }

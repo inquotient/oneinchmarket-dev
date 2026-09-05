@@ -96,7 +96,7 @@ cd scripts/security-verification && ./run-all.sh [namespace]
 0. **오퍼레이터 계층(ArgoCD 밖, `local/install-operators.sh`)** — Istio ambient · ECK · Kyverno · cert-manager · **Tetragon**(eBPF 런타임) · **Trivy Operator**(상시 취약점 스캔) · **Policy Reporter**(결과 집계). Tetragon 은 정적 매니페스트가 없어 `helm template | kubectl apply` 로 **렌더만** 한다 — 클러스터에 Helm 릴리스는 남지 않는다
 1. **Admission** — Kyverno 6정책 (disallow-root, disallow-latest, disallow-privilege-escalation, require-labels, require-probes, require-resources). base는 Audit, prod는 4종만 Enforce
 2. **Network** — default-deny **ingress**(egress 차단 없음) + allow 13종 + Istio AuthorizationPolicy 4종
-3. **Runtime** — Falco DaemonSet(modern_ebpf) → Falcosidekick → Elasticsearch/Kafka. **L0 랩은 Suricata(인라인·ET Open 36,818 규칙) · Zeek(포트 미러링) · ntopng 셋을 동시에 돌린다** — Suricata 는 `suricata`, Zeek 는 `zeek` 인덱스로 들어온다(§8-51). **local 에서는 Falco 가 스케줄되지 않는다** — WSL2 커널에서 modern_ebpf 가 `scap_init` 에 실패해 `nodeSelector: oneinchmarket.local/falco-supported=true` 로 비활성했다(어떤 노드에도 그 레이블이 없다). 대신 Tetragon 이 돈다(ADR-025). Slack 출력은 webhook URL 이 비어 있어 켜지지 않는다. **Falcosidekick 은 `args: ["-c", "/etc/falcosidekick/config.yaml"]` 이 없으면 설정을 읽지 못해 출력이 0개가 된다** — 파드는 Ready 로 보이고 단서는 기동 로그의 `Enabled Outputs: []` 뿐이다(§8-35)
+&(modern_ebpf) → Falcosidekick → Elasticsearch/Kafka. **L0 랩은 Suricata(인라인·ET Open 36,818 규칙) · Zeek(포트 미러링) · ntopng 셋을 동시에 돌린다** — Suricata 는 `suricata`, Zeek 는 `zeek` 인덱스로 들어온다(§8-51). **local 에서는 Falco 가 스케줄되지 않는다** — WSL2 커널에서 modern_ebpf 가 `scap_init` 에 실패해 `nodeSelector: oneinchmarket.local/falco-supported=true` 로 비활성했다(어떤 노드에도 그 레이블이 없다). 대신 Tetragon 이 돈다(ADR-025). Slack 출력은 webhook URL 이 비어 있어 켜지지 않는다. **Falcosidekick 은 `args: ["-c", "/etc/falcosidekick/config.yaml"]` 이 없으면 설정을 읽지 못해 출력이 0개가 된다** — 파드는 Ready 로 보이고 단서는 기동 로그의 `Enabled Outputs: []` 뿐이다(§8-35)
 4. **Supply Chain** — CI의 Trivy 3잡 + Cosign 서명. **서명 검증 정책은 없다**
 
 ## 환경별 차이
@@ -225,6 +225,9 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 24. **stanza 연산자의 필드 표기는 OTTL 과 다르다.** filelog 의 `copy`/`move` 등에서 `resource["tenant"]` 는 **오류 없이 조용히 빗나간다** — `resource.tenant` 가 맞다. 붙었는지는 `debug` exporter(`verbosity: detailed`)로 `Resource attributes` 를 직접 볼 것. 참고로 `partition_logs_by_resource_attributes` 는 최상위에서만 유효하지만(신호 블록 아래면 기동 실패), **최상위에 두어도 raw·otlp_json 어느 인코딩에서도 메시지 key 가 생기지 않았다** — §8-56
 
 25. **컨테이너 로그 회전을 `mv`+`touch` 로 흉내내지 말 것.** 프로세스의 fd 는 `mv` 를 따라가지 않아 새 파일이 0바이트로 남는다. 실측에서 "회전 시 4건 유실" 로 보였으나 **그 4건은 애초에 새 파일에 쓰이지 않았다** — 파이프라인 결함이 아니라 시험 방법의 결함이었다. 실제 kubelet 회전은 컨테이너 런타임이 파일 전환까지 처리하므로 다르다. **측정값이 이상하면 측정 방법부터 의심할 것** — §8-57
+
+26. **OpenMeter 는 설정 파일이 유일한 경로다 — 환경변수 오버라이드가 먹지 않는다.** 네 가지 표기법을 실측했고 전부 무시됐다. 차트에 `extraEnv` 도 secret 마운트도 없다. 평문 비밀번호를 ConfigMap 에 두지 않으려면 **ranger-usersync 와 같은 자리표시자+initContainer 치환**을 쓸 것(`local/render-openmeter.py`). 그리고 **`ingest.kafka.broker`(단수)와 `sink.kafka.brokers`(복수)는 다른 키다** — ingest 만 설정하면 sink-worker 가 기본값 `127.0.0.1:29092` 로 붙어 CrashLoop 하고 오류는 그 파드 로그에만 나온다 — §8-58
+27. **ClickHouse 의 `default` 사용자가 이 인스턴스에는 없다.** 로컬 `clickhouse-client` 가 자격 없이 붙는 것에 속기 쉬운데, 원격 접속은 `system.users` 에 있는 실제 사용자가 필요하다(`code: 516 ... there is no user with such name`). 새 소비자에게는 전용 사용자를 만들고 `GRANT ALL ON <db>.*` 로 범위를 좁힐 것 — §8-58
 
 ### 매니페스트 작업 시
 
