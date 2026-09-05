@@ -143,6 +143,12 @@ def mem_mi(v):
     return float(m.group(1)) * {"Ki": 1 / 1024.0, "Mi": 1.0, "Gi": 1024.0, "": 1 / 1048576.0}[m.group(2)]
 
 
+def cpu_m(v):
+    if not v:
+        return 0.0
+    return float(v[:-1]) if v.endswith("m") else float(v) * 1000
+
+
 def classify(name, kind, has_pvc):
     if kind == "DaemonSet":
         return "D", "구조상 노드당 1 — 이미 그 형태다"
@@ -174,7 +180,9 @@ def collect():
             grade, how = classify(name, kind, pvc)
             mem = sum(mem_mi((c.get("resources", {}).get("requests") or {}).get("memory"))
                       for c in tpl.get("containers", []))
-            rows.append((grade, ns, name, kind, reps, pvc, how, mem))
+            cpu = sum(cpu_m((c.get("resources", {}).get("requests") or {}).get("cpu"))
+                      for c in tpl.get("containers", []))
+            rows.append((grade, ns, name, kind, reps, pvc, how, mem, cpu))
     order = {"R": 0, "C": 1, "S": 2, "L": 3, "D": 4, "J": 5, "X": 6, "미분류": 7}
     rows.sort(key=lambda r: (order.get(r[0], 9), r[1], r[2]))
     return rows
@@ -183,7 +191,7 @@ def collect():
 def cost_report(rows, md):
     """HA 구성 시 컴포넌트별 메모리 증가분."""
     items, ds_per_node, total_add = [], 0.0, 0.0
-    for grade, ns, name, kind, reps, pvc, _how, mem in rows:
+    for grade, ns, name, kind, reps, pvc, _how, mem, _cpu in rows:
         if kind == "DaemonSet":
             ds_per_node += mem
             continue
@@ -225,20 +233,56 @@ def cost_report(rows, md):
     print("3노드 HA 전면 적용 시 총 증가  %.2f GiB" % ((total_add + ds_per_node * 2) / 1024))
 
 
+def limits_report(rows, nodes=3):
+    """메모리 말고 무엇이 먼저 걸리는가 — 파드 수와 CPU."""
+    pods_now = pods_ha = 0
+    cpu_now = cpu_ha = 0.0
+    ds_pods = ds_cpu = 0
+    for grade, _ns, name, kind, reps, _pvc, _how, _mem, cpu in rows:
+        if kind == "CronJob":
+            continue
+        if kind == "DaemonSet":
+            ds_pods += 1
+            ds_cpu += cpu
+            continue
+        cur = reps if isinstance(reps, int) else 1
+        tgt, _ = target_for(name, grade, cur)
+        tgt = max(tgt, cur) if grade not in ("J", "X") else cur
+        pods_now += cur
+        pods_ha += tgt
+        cpu_now += cpu * cur
+        cpu_ha += cpu * tgt
+    for _name, cnt, _mem, _g, _why in NEW_WORKLOADS:
+        pods_ha += cnt
+    print("파드 수 (DaemonSet·CronJob 제외)")
+    print("  현재 %d  →  HA 전면 %d" % (pods_now, pods_ha))
+    print("  + DaemonSet %d종 × %d노드 = %d" % (ds_pods, nodes, ds_pods * nodes))
+    print("  합계 %d 파드 / %d노드 = 노드당 %.0f  (k3s 기본 상한 110)"
+          % (pods_ha + ds_pods * nodes, nodes, (pods_ha + ds_pods * nodes) / float(nodes)))
+    print()
+    print("CPU requests")
+    print("  현재 %.1f 코어  →  HA 전면 %.1f 코어  (+ DaemonSet %.1f × %d노드)"
+          % (cpu_now / 1000, cpu_ha / 1000, ds_cpu / 1000, nodes))
+    print("  합계 %.1f 코어" % ((cpu_ha + ds_cpu * nodes) / 1000))
+
+
 def main():
     rows = collect()
+    if "--limits" in sys.argv:
+        limits_report(rows)
+        return
     if "--cost" in sys.argv:
         cost_report(rows, "--md" in sys.argv)
         return
     if "--md" in sys.argv:
         print("| 등급 | 컴포넌트 | 종류 | 현재 | PVC | HA 구성 방법 |")
         print("|:-:|---|---|:-:|:-:|---|")
-        for grade, ns, name, kind, reps, pvc, how, _mem in rows:
+        for grade, ns, name, kind, reps, pvc, how, _mem, _cpu in rows:
             nsx = "" if ns == "local" else " `%s`" % ns
             print("| **%s** | %s%s | %s | %s | %s | %s |"
                   % (grade, name, nsx, kind, reps, "Y" if pvc else "-", how))
     else:
-        for grade, ns, name, kind, reps, pvc, _how, _mem in rows:
+        for grade, ns, name, kind, reps, pvc, _how, _mem, _cpu in rows:
             print("%-6s %-16s %-34s %-12s %-3s %s"
                   % (grade, ns, name, kind, reps, "PVC" if pvc else ""))
 
