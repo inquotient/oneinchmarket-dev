@@ -101,33 +101,37 @@ pw() { $K get secret "$1" -o jsonpath="{.data.$2}" | base64 -d; echo; }
 > **★ Vault 는 재시작하면 다시 봉인된다.** `vault-0` 이 `0/1` 이면 대개
 > 이것이다 — `bash local/vault-init.sh unseal`.
 
-### 1-b. ★ Knox 게이트웨이는 지금 아무것도 프록시하지 않는다
+### 1-b. Knox 게이트웨이 — HDFS·Hive·HBase 를 한 곳에서
 
-"Knox 를 통해 붙는 법" 을 확인하려다 나온 것이다(§8-65). 파드는
-`1/1 Running` 이지만 **모든 요청이 401** 이다 — 실측:
+§8-65 에서 "아무것도 프록시하지 않는다" 였던 것을 §8-66 에서 뚫었다.
+**인증은 DS389 LDAP** 이고 세 서비스가 한 진입점 뒤에 있다.
 
-```
-/                                      404
-/gateway/homepage/home                 301
-/gateway/admin/api/v1/topologies       401
-/gateway/sandbox/webhdfs/v1/?op=...    401
+```bash
+$K port-forward svc/knox-headless 8443:8443
+PW=$(pw ds389-secret sync-password)   # 예시 계정: ranger-sync
 ```
 
-원인 셋:
+| 서비스 | 경로 | 확인 |
+|---|---|---|
+| **WebHDFS** | `https://localhost:8443/gateway/oim/webhdfs/v1/?op=LISTSTATUS` | 200 + 디렉터리 목록 |
+| **HBase REST** | `https://localhost:8443/gateway/oim/hbase/version/cluster` | 200 + `2.6.6` |
+| **Hive JDBC** | `jdbc:hive2://knox-headless:8443/default;ssl=true;transportMode=http;httpPath=gateway/oim/hive` | `show databases` 동작 |
 
-1. **토폴로지가 이 클러스터를 안 가리킨다.** ConfigMap 이 없어 이미지 기본
-   토폴로지로 돌고, `sandbox.xml` 이 `localhost:50070`·`localhost:8020`
-   (Hortonworks Sandbox 데모)을 가리킨다
-2. **인증 원천이 없다.** `ShiroProvider` + 데모 LDAP 을 보는데 **그 LDAP 이
-   안 돈다**(`ps` 0건). `users.ldif` 의 guest·admin 계정도 소용없다
-3. DS389(3389)·Keycloak 어느 쪽과도 연결돼 있지 않다
+```bash
+# 예: WebHDFS
+curl -k -u "ranger-sync:$PW" \n  'https://localhost:8443/gateway/oim/webhdfs/v1/?op=LISTSTATUS'
+```
 
-> `readinessProbe` 가 `tcpSocket` 이라 **포트만 열려 있으면 Ready** 다.
-> 그래서 이 상태로 계속 떠 있었다 — §8-64 와 같은 부류다.
+**인증 없이 부르면 401** 이다(확인함). DS389 에 없는 사용자·틀린 비밀번호도 401.
 
-**그래서 지금은 각 서비스에 직접 port-forward 하는 것이 유일한 길이다**
-(위 표 그대로). Knox 를 살리려면 토폴로지 ConfigMap + 인증 원천 + probe
-교체가 필요하고, 방법은 §8-65 에 적어 두었다.
+> **TLS** — cert-manager 가 `gateway-ca` 로 발급한다. SAN 에 `knox-headless` ·
+> `knox-headless.local.svc.cluster.local` · `knox` · `localhost` 가 들어 있다.
+> `curl -k` 로 넘기거나 `gateway-ca-cert` 의 `ca.crt` 를 신뢰하면 된다.
+> JDBC 는 그 인증서를 트러스트스토어에 넣어야 한다.
+
+> **★ Ranger 는 이 경로의 권한을 제어하지 않는다.** 플러그인이 없고 Ranger 에
+> 등록된 서비스도 0개다(§8-66). Knox 가 **인증**은 하지만 **인가**는 아직
+> POSIX 퍼미션(HDFS)과 무제한(Hive·HBase)이다.
 
 ### DevOps · 앱
 

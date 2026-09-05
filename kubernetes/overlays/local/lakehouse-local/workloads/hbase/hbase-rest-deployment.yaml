@@ -1,0 +1,123 @@
+# HBase REST 서버(Stargate) — Knox 의 WEBHBASE 가 요구한다
+#
+# ★ 왜 필요한가 (§8-66)
+#   Knox 의 `WEBHBASE` 서비스는 **HBase REST 게이트웨이**를 대상으로 한다.
+#   이 클러스터에는 마스터 UI(16010)와 RPC(16000)뿐이라 Knox 가 붙을 곳이
+#   없었다. REST 는 별도 프로세스이며 HBase 배포에 자동으로 딸려 오지 않는다.
+#
+# ★ 무상태다
+#   REST 서버는 ZooKeeper 를 통해 클러스터를 찾고 요청을 RPC 로 옮길 뿐
+#   자체 상태가 없다. 그래서 StatefulSet 이 아니라 Deployment 이고 PVC 도 없다.
+#   HA 등급으로는 **R**(복제만 하면 됨)이다 — 지금은 1이지만 늘려도 갈라지지
+#   않는다.
+#
+# ★ 포트를 8085 로 둔 이유
+#   HBase REST 기본값이 8080 인데 이 네임스페이스에 8080 이 이미 여럿 있다
+#   (akhq · apicurio · trino · kafka-bridge · dependency-track …).
+#   포트포워드할 때 헷갈리므로 8085 로 명시한다.
+#   ★ 그런데 8085 는 REST **info 서버**의 기본값이기도 하다 — `--infoport` 를
+#     함께 옮기지 않으면 두 리스너가 같은 포트를 잡아 기동하지 못한다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hbase-rest
+  labels: {app.kubernetes.io/name: hbase-rest, app.kubernetes.io/component: data-lakehouse, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+  annotations: {reloader.stakater.com/auto: "true"}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: hbase-rest}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: hbase-rest, app.kubernetes.io/component: data-lakehouse, app.kubernetes.io/part-of: oneinchmarket}
+    spec:
+      serviceAccountName: hbase
+      securityContext:
+        # 마스터와 같은 이미지라 uid 도 같다 — docker/hbase 가 1001 로 만든다.
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        - name: wait-deps
+          image: busybox:1.36
+          command: ["/bin/sh","-c"]
+          args:
+            - |
+              set -eu
+              echo "[wait] ZooKeeper"
+              until nc -z zookeeper-headless 2181; do sleep 3; done
+              echo "[wait] HBase Master RPC"
+              until nc -z hbase-master 16000; do sleep 3; done
+              echo "[wait] 완료"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits:   {cpu: 100m, memory: 64Mi}
+      containers:
+        - name: hbase-rest
+          image: oneinch/hbase:2.6.6
+          imagePullPolicy: IfNotPresent
+          # foreground 로 띄운다 — 마스터와 같은 이유다.
+          # ★ --infoport 를 반드시 함께 준다.
+          #   `hbase.rest.port` 기본값은 8080 이고 **`hbase.rest.info.port`
+          #   기본값이 8085** 다. `-p 8085` 만 주면 REST 본체와 info 서버가
+          #   같은 포트를 잡아 기동하지 못한다(실측):
+          #     java.io.IOException: Failed to bind to /0.0.0.0:8085
+          #     Caused by: java.net.BindException: Address already in use
+          command: ["hbase", "rest", "start", "-p", "8085", "--infoport", "8086"]
+          env:
+            - {name: HBASE_CONF_DIR, value: /opt/hbase/conf}
+            - {name: HBASE_HEAPSIZE, value: "384m"}
+            - {name: HBASE_REST_OPTS, value: "-XX:+UseContainerSupport"}
+          ports:
+            - {containerPort: 8085, name: rest, protocol: TCP}
+            - {containerPort: 8086, name: rest-info, protocol: TCP}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 50m, memory: 384Mi}
+            limits:   {cpu: 500m, memory: 768Mi}
+          # REST 는 `/version/cluster` 로 클러스터에 실제로 닿았는지 답한다.
+          # tcpSocket 이면 ZooKeeper 를 못 찾아도 Ready 가 된다 — §8-65 의 교훈.
+          startupProbe:
+            httpGet: {path: /version/cluster, port: rest}
+            failureThreshold: 60
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: {port: rest}
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            httpGet: {path: /version/cluster, port: rest}
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - {name: hbase-config, mountPath: /opt/hbase/conf/hbase-site.xml, subPath: hbase-site.xml}
+            - {name: hadoop-config, mountPath: /opt/hbase/conf/core-site.xml, subPath: core-site.xml}
+            - {name: hadoop-config, mountPath: /opt/hbase/conf/hdfs-site.xml, subPath: hdfs-site.xml}
+            - {name: tmp, mountPath: /opt/hbase/tmp}
+      volumes:
+        - name: hbase-config
+          configMap: {name: hbase-config}
+        - name: hadoop-config
+          configMap: {name: hadoop-config}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hbase-rest
+  labels: {app.kubernetes.io/name: hbase-rest, app.kubernetes.io/component: data-lakehouse, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  ports:
+    - {name: rest, port: 8085, targetPort: 8085, protocol: TCP}
+    - {name: rest-info, port: 8086, targetPort: 8086, protocol: TCP}
+  selector: {app.kubernetes.io/name: hbase-rest}

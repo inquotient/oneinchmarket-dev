@@ -21,9 +21,9 @@
 #              binary(10000) → http(10001, path=cliservice)로 바꿨다.
 #              10000 을 쓰는 소비자가 없어 안전했다(Trino·Spark 는 메타스토어
 #              9083 을 직접 본다)
-#   WEBHBASE — **HBase REST 서버(Stargate)** 가 필요한데 배포돼 있지 않다.
-#              16010 은 마스터 UI 이고 16000 은 RPC 라 Knox 가 쓸 수 없다.
-#              파드를 하나 더 써야 해서 분리했다 — LOCAL-DEPLOYMENT.md §8-66
+#   WEBHBASE — **HBase REST 서버(Stargate)** 를 새로 배포해 붙였다
+#              (`hbase-rest:8085`). 16010 은 마스터 UI 이고 16000 은 RPC 라
+#              Knox 가 쓸 수 없다. 파드 상한을 200 으로 올린 뒤에야 자리가 났다
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -104,5 +104,11 @@ data:
         <service>
             <role>HIVE</role>
             <url>http://hive-server-headless:10001/cliservice</url>
+        </service>
+
+        <!-- HBase REST(Stargate). 마스터 UI(16010)·RPC(16000)로는 안 된다 -->
+        <service>
+            <role>WEBHBASE</role>
+            <url>http://hbase-rest:8085</url>
         </service>
     </topology>

@@ -5955,10 +5955,10 @@ readinessProbe:
 
 | 대상 | 상태 | 근거 |
 |---|---|---|
-| **HDFS(WebHDFS)** | ✅ **된다** | Knox 경유 `HTTP 200` + 실제 디렉터리 목록(hbase·tmp·user·warehouse) |
-| **Hive** | ⚠ **백엔드는 되고 TLS 이름이 막는다** | HS2 HTTP JDBC 직접 `show databases` 성공. Knox 경로도 열림. 다만 인증서 SAN 문제로 JDBC 클라이언트가 `knox-headless` 로 못 붙는다 |
-| **HBase** | ❌ 미착수 | REST 서버(Stargate)가 없고 **파드 상한 110/110** 이라 넣을 자리가 없다 |
-| **Ranger 권한 제어** | ❌ **작동하지 않는다** | 플러그인이 HDFS·Hive·HBase 어디에도 **설치돼 있지 않다** |
+| **HDFS(WebHDFS)** | ✅ **된다** | Knox 경유 `200` + 실제 디렉터리 목록(hbase·tmp·user·warehouse). 인증 없으면 401 |
+| **Hive** | ✅ **된다** | Knox 경유 **JDBC** 로 `show databases` → `default`·`oim_hdfs`·`oim_s3` |
+| **HBase** | ✅ **된다** | REST(Stargate)를 새로 배포. Knox 경유 `200` + 클러스터 버전 `2.6.6` |
+| **Ranger 권한 제어** | ❌ **작동하지 않는다** | 플러그인 부재 + **Ranger 에 등록된 서비스 0개**(API 확인) |
 
 #### 한 일
 
@@ -6012,9 +6012,24 @@ alternative names: [knox-6b66c4c4b5-lf7rw, localhost]
 > `knox-deployment.yaml` 주석이 "KNOX_CERT·KNOX_KEY 로 바꾼다" 고 적어 둔 것은
 > **추정이었고 틀렸다.**
 
-고치려면 `gateway.jks` 를 `gateway-identity` 별칭으로 직접 만들어 넣는
-initContainer 가 필요하다. **그 전까지 Hive JDBC 는 Knox 를 거치지 못한다** —
-HS2 에 직접 붙는 것은 된다.
+**해결했다** — `gateway.jks` 를 `gateway-identity` 별칭으로 미리 만드는
+initContainer 를 넣었다. Knox 는 이미 있는 keystore 를 그대로 쓴다.
+
+```
+전  subject=CN = localhost, OU = Test, O = Hadoop
+    SAN: knox-6b66c4c4b5-lf7rw, localhost
+후  subject=CN = knox-headless
+    SAN: knox-headless, knox-headless.local.svc,
+         knox-headless.local.svc.cluster.local, knox, localhost
+```
+
+그 뒤 Hive JDBC 가 Knox 를 통과한다:
+
+```
+jdbc:hive2://knox-headless:8443/default;ssl=true;transportMode=http;
+            httpPath=gateway/oim/hive
+  → default · oim_hdfs · oim_s3   (3 rows)
+```
 
 #### ★ 남은 것 2 — Ranger 가 권한을 제어하지 않는다
 
@@ -6022,7 +6037,16 @@ HS2 에 직접 붙는 것은 된다.
 
 ```
 ranger-.*-plugin · ranger.plugin · xasecure  →  레포 전체에서 0건
+
+Ranger Admin API 확인:
+  /service/public/v2/api/service      →  **등록된 서비스 0개**
+  /service/public/v2/api/servicedef   →  정의는 22종 있다
+      (hdfs · hive · hbase · kafka · knox · solr · trino · yarn · …)
 ```
+
+정의가 22종 있다는 것은 **붙일 준비는 돼 있다**는 뜻이다. 그러나 리포지토리가
+하나도 등록돼 있지 않고 플러그인 하트비트도 없다 — 즉 Ranger 는 아직
+**정책을 만들 대상조차 모른다.**
 
 Ranger Admin 은 돌고 정책 UI 도 뜨지만, **정책을 강제하는 주체는 각 서비스에
 들어가는 플러그인**이다(HDFS NameNode·HiveServer2·HBase Master). 그것이 없으면
@@ -6033,12 +6057,26 @@ POSIX 퍼미션뿐이고 Hive·HBase 는 사실상 무제한이다.
 `ranger-*-audit.xml` 을 배포한 뒤 서비스를 재기동하는 일이다. `docker/` 에
 로컬 빌드 이미지가 있어 불가능하지는 않으나 **작은 작업이 아니다.**
 
-#### ★ 남은 것 3 — HBase
+#### HBase — REST 서버를 새로 배포했다
 
-Knox 의 `WEBHBASE` 는 **HBase REST 서버(Stargate)** 를 요구한다. 16010 은 마스터
-UI, 16000 은 RPC 라 쓸 수 없다. REST 서버는 파드를 하나 더 쓰는데 **지금
-110/110** 이다 — 실제로 이 작업 중에 `hive-server-0` 이 `Too many pods` 로
-Pending 이 되어 9분을 멈췄다. §19-5 ③ 의 프로파일 분리가 선행되어야 한다.
+Knox 의 `WEBHBASE` 는 **HBase REST(Stargate)** 를 요구한다. 16010 은 마스터 UI,
+16000 은 RPC 라 쓸 수 없다. `hbase-rest` Deployment 를 새로 만들었다(무상태라
+StatefulSet 이 아니다).
+
+**★ 함정 — `-p 8085` 만 주면 기동하지 못한다.** `hbase.rest.port` 기본값은
+8080 이고 **`hbase.rest.info.port` 기본값이 8085** 라, 두 리스너가 같은 포트를
+잡는다:
+
+```
+java.io.IOException: Failed to bind to /0.0.0.0:8085
+Caused by: java.net.BindException: Address already in use
+```
+
+`--infoport 8086` 을 함께 줘야 한다.
+
+파드 자리는 **상한을 110 → 200 으로 올려** 확보했다(`local/kubelet-config.yaml`).
+이 작업 중 실제로 `hive-server-0` 이 `Too many pods` 로 9분 Pending 이었고,
+올린 뒤 그동안 눌려 있던 trivy 스캔 파드들도 함께 떴다.
 
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 

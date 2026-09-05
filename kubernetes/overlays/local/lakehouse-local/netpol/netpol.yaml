@@ -218,3 +218,28 @@ spec:
         - { protocol: TCP, port: 8020 }
         - { protocol: TCP, port: 9866 }
         - { protocol: TCP, port: 9867 }
+---
+# HBase REST(Stargate) — Knox 만 부른다(§8-66)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-hbase-rest-access
+  labels:
+    app.kubernetes.io/name: allow-hbase-rest-access
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: hbase-rest
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: knox
+      ports:
+        - protocol: TCP
+          port: 8085

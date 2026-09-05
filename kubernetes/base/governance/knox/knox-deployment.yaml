@@ -20,6 +20,46 @@ spec:
         runAsGroup: 8000
         fsGroup: 8000
         seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        # ★ 게이트웨이 TLS 신원을 미리 넣는다 (§8-66)
+        #
+        #   Knox 는 기동 시 `gateway.jks` 가 없으면 **자체 서명 인증서를 만들고
+        #   SAN 에 파드 이름과 localhost 만** 넣는다. 파드 이름은 재기동마다
+        #   바뀌므로 `jdbc:hive2://knox-headless:8443/...` 이 영구히
+        #   SSLPeerUnverifiedException 으로 끊긴다.
+        #
+        #   ★ `KNOX_CERT`/`KNOX_KEY` 로는 해결되지 않는다 — 그 둘은 entrypoint 가
+        #     `keystore.jks` 의 별칭 `keystore`(서명용, JWT·KnoxSSO)로 넣는다.
+        #     게이트웨이 TLS 는 `gateway.jks` 의 별칭 **`gateway-identity`** 다.
+        #     매니페스트 주석이 KNOX_CERT 로 된다고 적어 두었던 것은 틀렸다.
+        #
+        #   그래서 cert-manager 인증서로 `gateway.jks` 를 직접 만들어 둔다.
+        #   Knox 는 이미 있는 것을 그대로 쓴다.
+        - name: gateway-identity
+          image: apache/knox:3.0
+          command: ["/bin/bash","-c"]
+          args:
+            - |
+              set -euo pipefail
+              KS=/keystores/gateway.jks
+              if [ -f "$KS" ]; then echo "[init] gateway.jks 이미 있음 — 건너뜀"; exit 0; fi
+              PW="$(cat /etc/knox/pw/master-secret)"
+              echo "[init] cert-manager 인증서로 gateway-identity 생성"
+              openssl pkcs12 -export                 -in  /etc/knox/tls/tls.crt                 -inkey /etc/knox/tls/tls.key                 -name gateway-identity                 -passout "pass:${PW}"                 -out /tmp/gw.p12
+              keytool -importkeystore -noprompt                 -srckeystore /tmp/gw.p12 -srcstoretype PKCS12 -srcstorepass "${PW}"                 -destkeystore "$KS" -deststorepass "${PW}" -destkeypass "${PW}"                 -alias gateway-identity
+              rm -f /tmp/gw.p12
+              echo "[init] 완료 — SAN 확인:"
+              keytool -list -v -keystore "$KS" -storepass "${PW}" -alias gateway-identity                 | grep -A1 "SubjectAlternativeName" | head -4 || true
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits:   {cpu: 500m, memory: 384Mi}
+          volumeMounts:
+            - {name: keystores, mountPath: /keystores}
+            - {name: tls, mountPath: /etc/knox/tls, readOnly: true}
+            - {name: keystore-pw, mountPath: /etc/knox/pw, readOnly: true}
       containers:
         - name: knox
           # ★ 버전 선택 근거 — Docker Hub `apache/knox` 에는 2.x 태그가 없다
