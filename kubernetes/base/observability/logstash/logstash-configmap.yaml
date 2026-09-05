@@ -33,6 +33,29 @@ data:
         add_field => { "[@metadata][pipeline]" => "kafka" }
       }
 
+      # ★ 과금 다리 — api-usage -> OpenMeter 수집 API
+      #
+      #   OpenMeter 는 **자기 토픽을 스스로 만들고 HTTP API 로만 수집한다.**
+      #   우리 `api-usage` 토픽을 직접 읽지 않는다(§8-58). 그 사이를 잇는다.
+      #   새 컴포넌트를 만들지 않고 이미 Kafka 를 소비하는 Logstash 를 쓴다.
+      #
+      #   ★ 위 kafka 입력에 토픽만 더하지 않고 **입력을 분리한다.**
+      #     그쪽은 `codec => json` 이라 이벤트가 파싱되어 Logstash 필드
+      #     (@timestamp·@version·tags)가 섞인다. OpenMeter 는 CloudEvents 를
+      #     그대로 받아야 하므로 **원문을 손대지 않고 message 에 담아** 보낸다.
+      #     Suricata 입력을 따로 둔 것과 같은 이유다.
+      #
+      #   ★ group_id 를 분리한다. SIEM 소비자와 오프셋을 공유하면 한쪽의
+      #     재처리가 다른 쪽의 유실이 된다.
+      kafka {
+        bootstrap_servers => "kafka-headless:9092"
+        topics => ["api-usage"]
+        group_id => "logstash-openmeter-bridge"
+        codec => plain
+        consumer_threads => 1
+        add_field => { "[@metadata][pipeline]" => "openmeter-bridge" }
+      }
+
       # ADR-031 — L0(OPNsense) 의 Suricata EVE JSON
       #
       # ★ 왜 beats(5044) 가 아니라 별도 tcp 인가
@@ -217,6 +240,29 @@ data:
     }
 
     output {
+      # ★ 과금 다리 — 이 분기는 Elasticsearch 로 가지 않는다.
+      #   계량 이벤트는 OpenMeter 가 집계 원천이고, ES 에 또 넣으면 같은
+      #   사실이 두 저장소에 남아 어느 쪽이 청구 근거인지 모호해진다.
+      if [@metadata][pipeline] == "openmeter-bridge" {
+        http {
+          url => "http://openmeter-api:80/api/v1/events"
+          http_method => "post"
+          # ★ 원문 그대로 보낸다. `format => json` 을 쓰면 Logstash 가
+          #   @timestamp·@version·tags 를 덧붙여 CloudEvents 가 아니게 된다.
+          format => "message"
+          message => "%{message}"
+          # ★ `format => "message"` 는 Content-Type 을 text/plain 으로 강제한다.
+          #   headers 로 넣어도 덮인다 — 전용 `content_type` 을 써야 한다.
+          #   OpenMeter 는 400 으로 거부한다:
+          #     header Content-Type has unexpected value "text/plain"
+          content_type => "application/cloudevents+json"
+          # ★ 실패를 조용히 버리지 않는다. 과금 이벤트의 유실은 매출 누락이다.
+          #   재시도 후에도 실패하면 로그에 남긴다.
+          automatic_retries => 3
+          retry_failed => true
+          retryable_codes => [429, 500, 502, 503, 504]
+        }
+      } else {
       elasticsearch {
         hosts => ["https://elasticsearch-es-http:9200"]
         user => "elastic"
@@ -236,5 +282,6 @@ data:
         ilm_rollover_alias => "%{[@metadata][target_index]}"
         ilm_pattern => "{now/d}-000001"
         ilm_policy => "oneinchmarket-ilm"
+      }
       }
     }

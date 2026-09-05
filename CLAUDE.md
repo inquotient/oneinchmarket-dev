@@ -229,6 +229,8 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 26. **OpenMeter 는 설정 파일이 유일한 경로다 — 환경변수 오버라이드가 먹지 않는다.** 네 가지 표기법을 실측했고 전부 무시됐다. 차트에 `extraEnv` 도 secret 마운트도 없다. 평문 비밀번호를 ConfigMap 에 두지 않으려면 **ranger-usersync 와 같은 자리표시자+initContainer 치환**을 쓸 것(`local/render-openmeter.py`). 그리고 **`ingest.kafka.broker`(단수)와 `sink.kafka.brokers`(복수)는 다른 키다** — ingest 만 설정하면 sink-worker 가 기본값 `127.0.0.1:29092` 로 붙어 CrashLoop 하고 오류는 그 파드 로그에만 나온다 — §8-58
 27. **ClickHouse 의 `default` 사용자가 이 인스턴스에는 없다.** 로컬 `clickhouse-client` 가 자격 없이 붙는 것에 속기 쉬운데, 원격 접속은 `system.users` 에 있는 실제 사용자가 필요하다(`code: 516 ... there is no user with such name`). 새 소비자에게는 전용 사용자를 만들고 `GRANT ALL ON <db>.*` 로 범위를 좁힐 것 — §8-58
 
+28. **Logstash `http` 출력에서 `format => "message"` 는 Content-Type 을 `text/plain` 으로 강제한다.** `headers => { "Content-Type" => ... }` 로 넣어도 덮인다 — 전용 `content_type` 설정을 써야 한다. OpenMeter 는 `400 header Content-Type has unexpected value "text/plain"` 으로 거부한다. 원문을 그대로 보내야 할 때(CloudEvents 등) `format => json` 을 쓰면 Logstash 가 `@timestamp`·`@version`·`tags` 를 덧붙여 계약이 깨지므로 `plain` 코덱 + `message` 형식이 맞다 — §8-59
+
 ### 매니페스트 작업 시
 
 - `v1/` 매니페스트는 **배포 금지**. 단 CI가 이 경로의 Dockerfile을 참조한다는 모순이 있다

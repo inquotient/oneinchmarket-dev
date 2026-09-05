@@ -5328,6 +5328,82 @@ initContainer 는 `완료` 를 출력했다 — 또 하나의 "성공 출력이 
 - ADR-070 을 "ClickHouse 용도 2개" 로 개정해야 한다(문서 반영은 이 커밋에서).
 - 요금제·구독 설정은 아직 없다. 미터 2종만 정의했다.
 
+
+### 8-59. 다리 완성 — 게이트웨이에서 인보이스 근거까지 한 줄로 이어졌다
+
+§8-58 이 남긴 마지막 구간이다. `api-usage` 토픽과 OpenMeter 사이에 다리를 놓았다.
+
+#### 새 컴포넌트를 만들지 않았다
+
+OpenMeter 는 HTTP API 로만 수집한다. 컨슈머를 새로 쓰는 대신 **이미 Kafka 를
+소비하는 Logstash** 를 썼다 — 이 플랫폼에서 Kafka→X 다리는 원래 그것의 역할이다.
+
+```
+kafka(api-usage) ──▶ logstash ──▶ POST openmeter-api/api/v1/events
+```
+
+★ 기존 kafka 입력에 토픽만 더하지 않고 **입력을 분리했다.** 그쪽은
+`codec => json` 이라 이벤트가 파싱되어 Logstash 필드(@timestamp·@version·tags)가
+섞인다. OpenMeter 는 CloudEvents 를 그대로 받아야 하므로 `codec => plain` 으로
+원문을 `message` 에 담아 보낸다. Suricata 입력을 따로 둔 것과 같은 이유다.
+
+★ `group_id` 도 분리했다. SIEM 소비자와 오프셋을 공유하면 한쪽의 재처리가
+다른 쪽의 유실이 된다.
+
+★ 이 분기는 **Elasticsearch 로 가지 않는다.** 계량 이벤트는 OpenMeter 가 집계
+원천이고, ES 에 또 넣으면 같은 사실이 두 저장소에 남아 어느 쪽이 청구 근거인지
+모호해진다.
+
+#### 한 번 막혔다 — Content-Type
+
+```
+400  header Content-Type has unexpected value "text/plain"
+```
+
+`format => "message"` 가 Content-Type 을 `text/plain` 으로 강제한다.
+**`headers` 로 넣어도 덮인다** — 전용 `content_type` 설정을 써야 한다.
+
+진단이 빨랐던 이유는 구간마다 확인할 지표가 있었기 때문이다:
+
+```
+① api-usage 토픽        29건        (게이트웨이→토픽 정상)
+② 컨슈머 그룹 LAG        0          (logstash 가 소비함)
+③ logstash 로그          400 응답    ← 여기
+```
+
+#### 최종 검증 — 전 구간
+
+```
+게이트웨이로 요청 6건 (X-OIM-Tenant: victim-corp 위조 헤더 포함)
+  ↓
+ClickHouse openmeter.om_events   1 → 7   (정확히 6 증가)
+미터 api_requests_total          value: 7
+subject                          acme-corp 7건 — 전부 클레임 값
+id 유일성                        7 / 7
+```
+
+**위조 헤더를 실었는데도 청구 대상은 JWT 클레임에서 나온 값이다**(§8-54).
+게이트웨이에서 인보이스 근거까지 한 줄로 이어졌다.
+
+```
+브라우저/클라이언트
+  → Istio Gateway (JWT 검증 · tenant 클레임을 헤더로 덮어씀)
+  → Envoy 액세스 로그 (계약 형식 CloudEvents)
+  → otel-agent filelog → Kafka api-usage
+  → Logstash 다리 → OpenMeter 수집 API
+  → Redis 중복 제거 → ClickHouse openmeter.om_events
+  → 미터 집계
+```
+
+#### 아직 없는 것
+
+- **요금제·구독·가격**. 미터 2종만 정의했고 무엇을 얼마에 팔지는 없다.
+  인보이스를 실제로 발행하려면 그것이 필요하다.
+- 다리의 유실 특성. Logstash 는 재시도하지만 **영구 실패 시 이벤트를 버린다** —
+  dead-letter 경로가 없다. 과금에서는 그것이 매출 누락이다.
+- `subject` 가 `-` 인 이벤트(테넌트 없는 요청)를 격리하는 규칙. 계약이 요구하는데
+  아직 다리에 없다 — 지금은 OpenMeter 로 그대로 넘어간다.
+
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용
