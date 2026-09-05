@@ -7,6 +7,8 @@
 
   python3 scripts/ha-verification/ha-classify.py         # 표 형식
   python3 scripts/ha-verification/ha-classify.py --md    # 마크다운 표
+  python3 scripts/ha-verification/ha-classify.py --cost  # HA 구성 시 메모리 증가분
+  python3 scripts/ha-verification/ha-classify.py --cost --md
 
 등급
   R  복제만 하면 됨      무상태 · 상태가 외부(DB/ES/오브젝트)에 있다
@@ -96,9 +98,49 @@ RULES = [
 ]
 
 
+# HA 구성 시 목표 복제본. 등급 기본값을 이름별로 덮어쓴다.
+DEFAULT_TARGET = {"R": 2, "C": 3, "S": 2, "L": 2, "D": 1, "J": 0, "X": 0}
+TARGET_OVERRIDE = [
+    (r"^minio$", 4, "분산 모드는 엔드포인트 4개 이상"),
+    (r"^clickhouse$", 2, "복제본 2 + Keeper 3(아래 신규 항목)"),
+    (r"^keycloak$", 2, "상태가 PG 에 있어 2로 충분"),
+    (r"^ds389$", 2, "multi-supplier 2"),
+    (r"^hbase-master$", 2, "standby 1개면 족하다"),
+    (r"^wazuh-manager$", 2, "master + worker"),
+    (r"^hadoop-namenode$", 2, "active + standby (JournalNode 는 아래 신규 항목)"),
+    (r"^redis$", 1, "★ Sentinel 미채택 — AOF 만 켠다. 복제본 증가 없음"),
+    (r"^prometheus$", 2, "HA 쌍. 데이터가 이중으로 쌓인다"),
+]
+
+# HA 를 구성하면 **새로 생기는** 워크로드. 지금 클러스터에 없으므로 인벤토리에
+# 잡히지 않는다 — 손으로 적을 수밖에 없고, 그래서 여기 모아 둔다.
+NEW_WORKLOADS = [
+    ("cnpg-operator",        1, 200,  "C", "CloudNativePG 오퍼레이터 (§13-2)"),
+    ("clickhouse-keeper",    3, 128,  "C", "ReplicatedMergeTree 의 조정자"),
+    ("hadoop-journalnode",   3, 256,  "C", "NameNode HA 의 편집 로그 정족수"),
+    ("hadoop-zkfc",          2, 128,  "C", "NameNode 자동 장애 전환 컨트롤러"),
+]
+
+
+def target_for(name, grade, cur):
+    for pat, t, why in TARGET_OVERRIDE:
+        if re.search(pat, name):
+            return t, why
+    return DEFAULT_TARGET.get(grade, cur), ""
+
+
 def sh(args):
     out = subprocess.run(KUBECTL + args + ["-o", "json"], capture_output=True, text=True).stdout
     return json.loads(out or "{}")
+
+
+def mem_mi(v):
+    if not v:
+        return 0.0
+    m = re.match(r"^(\d+(?:\.\d+)?)(Ki|Mi|Gi|)$", v)
+    if not m:
+        return 0.0
+    return float(m.group(1)) * {"Ki": 1 / 1024.0, "Mi": 1.0, "Gi": 1024.0, "": 1 / 1048576.0}[m.group(2)]
 
 
 def classify(name, kind, has_pvc):
@@ -130,23 +172,73 @@ def collect():
             pvc = bool(sp.get("volumeClaimTemplates")) or any(
                 v.get("persistentVolumeClaim") for v in tpl.get("volumes", []))
             grade, how = classify(name, kind, pvc)
-            rows.append((grade, ns, name, kind, reps, pvc, how))
+            mem = sum(mem_mi((c.get("resources", {}).get("requests") or {}).get("memory"))
+                      for c in tpl.get("containers", []))
+            rows.append((grade, ns, name, kind, reps, pvc, how, mem))
     order = {"R": 0, "C": 1, "S": 2, "L": 3, "D": 4, "J": 5, "X": 6, "미분류": 7}
     rows.sort(key=lambda r: (order.get(r[0], 9), r[1], r[2]))
     return rows
 
 
+def cost_report(rows, md):
+    """HA 구성 시 컴포넌트별 메모리 증가분."""
+    items, ds_per_node, total_add = [], 0.0, 0.0
+    for grade, ns, name, kind, reps, pvc, _how, mem in rows:
+        if kind == "DaemonSet":
+            ds_per_node += mem
+            continue
+        if kind == "CronJob" or grade in ("J", "X"):
+            continue
+        cur = reps if isinstance(reps, int) else 1
+        tgt, why = target_for(name, grade, cur)
+        if tgt <= cur:
+            continue
+        add = mem * (tgt - cur)
+        total_add += add
+        items.append((grade, name, ns, mem, cur, tgt, add, why))
+    for name, cnt, mem, grade, why in NEW_WORKLOADS:
+        add = mem * cnt
+        total_add += add
+        items.append((grade, name + " (신규)", "local", mem, 0, cnt, add, why))
+    items.sort(key=lambda x: -x[6])
+
+    if md:
+        print("| 등급 | 컴포넌트 | 파드당 | 현재 | 목표 | **증가분** | 비고 |")
+        print("|:-:|---|---:|:-:|:-:|---:|---|")
+        for g, n, ns, mem, cur, tgt, add, why in items:
+            nsx = "" if ns == "local" else " `%s`" % ns
+            print("| %s | %s%s | %.0fMi | %d | %d | **+%.0fMi** | %s |"
+                  % (g, n, nsx, mem, cur, tgt, add, why))
+    else:
+        print("%-4s %-34s %8s %4s %4s %10s" % ("등급", "컴포넌트", "파드당", "현재", "목표", "증가분"))
+        for g, n, ns, mem, cur, tgt, add, why in items:
+            print("%-4s %-34s %6.0fMi %4d %4d %8.0fMi" % (g, n, mem, cur, tgt, add))
+
+    by = {}
+    for g, _n, _ns, _m, _c, _t, add, _w in items:
+        by[g] = by.get(g, 0.0) + add
+    print()
+    print("등급별 증가분: " + " · ".join("%s %.2fGi" % (k, by[k] / 1024) for k in sorted(by)))
+    print("비-DaemonSet 증가분 합계  %.2f GiB" % (total_add / 1024))
+    print("DaemonSet 노드당          %.2f GiB  → 3노드면 %.2f GiB (지금보다 +%.2f)"
+          % (ds_per_node / 1024, ds_per_node * 3 / 1024, ds_per_node * 2 / 1024))
+    print("3노드 HA 전면 적용 시 총 증가  %.2f GiB" % ((total_add + ds_per_node * 2) / 1024))
+
+
 def main():
     rows = collect()
+    if "--cost" in sys.argv:
+        cost_report(rows, "--md" in sys.argv)
+        return
     if "--md" in sys.argv:
         print("| 등급 | 컴포넌트 | 종류 | 현재 | PVC | HA 구성 방법 |")
         print("|:-:|---|---|:-:|:-:|---|")
-        for grade, ns, name, kind, reps, pvc, how in rows:
+        for grade, ns, name, kind, reps, pvc, how, _mem in rows:
             nsx = "" if ns == "local" else " `%s`" % ns
             print("| **%s** | %s%s | %s | %s | %s | %s |"
                   % (grade, name, nsx, kind, reps, "Y" if pvc else "-", how))
     else:
-        for grade, ns, name, kind, reps, pvc, _ in rows:
+        for grade, ns, name, kind, reps, pvc, _how, _mem in rows:
             print("%-6s %-16s %-34s %-12s %-3s %s"
                   % (grade, ns, name, kind, reps, "PVC" if pvc else ""))
 

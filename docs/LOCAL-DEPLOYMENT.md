@@ -5945,6 +5945,11 @@ ADR-068 이 **"7단계까지 모두 끝난 뒤 `v2` 로 합치고 `local` 은 �
 
 ### 9-6. HA — 고치기 전까지 건드리면 안 되는 것
 
+- **오퍼레이터 7종이 메모리 requests 없이 돈다**(§18-3) — cert-manager 3종·
+  cilium-operator·local-path-provisioner·trivy-operator·policy-reporter.
+  **BestEffort QoS 라 메모리 압박 시 가장 먼저 축출된다.** provisioner 가
+  빠지면 새 PVC 가 묶이지 않고 cert-manager 가 빠지면 인증서 갱신이 멈춘다.
+  HA 와 무관하게 고쳐야 한다
 - ~~prod 의 DB 3종 `replicas`~~ — **지혈 완료**(2026-09-05). `replicas-prod.yaml` 에서 postgresql 2→1 · mariadb 2→1 · mongodb 3→1 로 되돌리고 사유를 파일 머리말에 박았다. **제대로 된 조치는 아직이다** — DB 안에서 복제를 구성해야 하며 방법·비용·순서는 §13 에 있다
 - **백업이 전무하다**(ADR-018 `Open`). §11-0 이 디스크 장애를 범위 밖으로 두어 **MinIO 로 충분하다** — 호스트 밖 반출이 필요 없어 사실상 공짜다. 막는 것은 **논리 손상**(실수·결함)이고 복제로는 막지 못한다. 순서상 복제보다 먼저 할 것(§13-5)
 - **ADR-015(스토리지)를 닫아야 한다.** `Open` 인 채로는 HA 논의가 전부 공중에 뜬다 —
@@ -7091,6 +7096,169 @@ python3 scripts/ha-verification/ha-classify.py --md
    분산화가 선행**이다(§16-0)
 3. **J 등급 15개는 복제가 아니라 멱등성을 본다.** 과금 CronJob 넷이 우선
 4. **C 등급 17개**가 §13 과 §16-4 의 본체다. 가장 비싸고 가장 늦다
+
+## 18. HA 구성 시 컴포넌트별 메모리 (2026-09-05)
+
+§17 의 등급대로 **전부** HA 로 만들면 얼마가 드는가. 같은 생성기가 계산한다.
+
+```
+python3 scripts/ha-verification/ha-classify.py --cost --md
+```
+
+목표 복제본은 등급 기본값(R 2 · C 3 · S 2 · L 2)에 이름별 예외를 덮어쓴다 —
+MinIO 4(erasure), ClickHouse 2, Keycloak 2, Redis 1(Sentinel 미채택) 등.
+**HA 를 구성해야 비로소 생기는 워크로드**(CNPG 오퍼레이터 · ClickHouse Keeper ·
+HDFS JournalNode·ZKFC)는 인벤토리에 없으므로 스크립트에 따로 적어 두었다.
+
+### 18-1. 결론부터 — 전면 적용은 불가능하다
+
+```
+등급별 증가분: C 20.45Gi · L 0.52Gi · R 13.64Gi · S 2.31Gi
+비-DaemonSet 증가분 합계  36.92 GiB
+DaemonSet 노드당          0.91 GiB  → 3노드면 2.73 GiB (지금보다 +1.82)
+3노드 HA 전면 적용 시 총 증가  38.74 GiB
+```
+
+**현재 requests 38.0 GiB + 증가 38.74 = 약 77 GiB.** 가용은 47.6 GiB 다(§10-1-b).
+§12 의 "완전 HA 56.28" 은 A급 3종과 B급 11종만 계산한 값이었다 — **전 컴포넌트로
+넓히면 그보다 훨씬 크다.**
+
+즉 **HA 는 전부/전무가 아니라 고르는 일**이다. 아래가 그 근거다.
+
+### 18-2. 묶음별 누적 비용
+
+| 묶음 | 내용 | 증가분 | 누적 |
+|---|---|---:|---:|
+| **1. 플랫폼 필수** | coredns 70 · istiod 256 · ingress 128 · waypoint 128 | 0.57 GiB | 0.57 |
+| **2. 리더 선출 13종** | 오퍼레이터·컨트롤러 전부 | 0.52 | 1.09 |
+| **3. Alertmanager 3중** | gossip 클러스터 — 설정 한 줄 | 0.13 | 1.22 |
+| **4. 과금 경로(무상태)** | openmeter-api + 워커 4종 | 0.94 | 2.16 |
+| **5. 과금 원장** | postgresql 3 + clickhouse 2 + Keeper 3 + CNPG | 2.87 | 5.03 |
+| 6. 관측성 | prometheus 2 · logstash 2 · kibana 2 | 2.75 | 7.78 |
+| 7. 나머지 DB | mariadb·mongodb 3중 | 2.00 | 9.78 |
+| 8. Kafka·ES 3중 | | 7.00 | 16.78 |
+| 9. MinIO 분산 4 | S급 6종의 선행 조건 | 1.88 | 18.66 |
+| 10. 그 외 전부 | 레이크하우스·거버넌스·OpenReplay 17종 등 | 20.08 | **38.74** |
+
+**1~5 가 합쳐 5.03 GiB 다.** 여기까지가 실익 대비 값이 가장 좋은 구간이고,
+§15-3 의 자리 만들기(requests 정정 −6 GiB)만 해도 들어간다.
+
+6번부터는 다중 노드가 있어야 의미가 산다 — 단일 노드에서 Prometheus 2대는
+같은 커널 위에 있으므로 §15-2 의 "옮겨가지 않는 것" 이다.
+
+### 18-3. 곁가지 발견 — requests 가 아예 없는 것들
+
+비용을 계산하다 드러났다. **파드당 0Mi** 로 잡히는 컴포넌트가 있다.
+
+```
+cert-manager · cert-manager-cainjector · cert-manager-webhook
+cilium-operator · local-path-provisioner · trivy-operator · policy-reporter
+```
+
+메모리 requests 가 **설정돼 있지 않다.** 전부 오퍼레이터 계층
+(`local/install-operators.sh` 가 Helm 으로 렌더한 것)이라 Kustomize
+`require-resources` 정책의 적용 범위 밖이다.
+
+requests 가 없으면 **BestEffort QoS** 가 되어 **메모리 압박 시 가장 먼저
+축출된다.** `local-path-provisioner` 가 축출되면 새 PVC 가 묶이지 않고,
+`cert-manager` 가 축출되면 인증서 갱신이 멈춘다. HA 와 별개로 고쳐야 한다.
+
+### 18-4. 전체 표
+
+| 등급 | 컴포넌트 | 파드당 | 현재 | 목표 | **증가분** | 비고 |
+|:-:|---|---:|:-:|:-:|---:|---|
+| C | elasticsearch-es-default | 2048Mi | 1 | 3 | **+4096Mi** |  |
+| C | kafka | 1536Mi | 1 | 3 | **+3072Mi** |  |
+| C | postgresql | 1024Mi | 1 | 3 | **+2048Mi** |  |
+| C | minio | 640Mi | 1 | 4 | **+1920Mi** | 분산 모드는 엔드포인트 4개 이상 |
+| R | logstash | 1536Mi | 1 | 2 | **+1536Mi** |  |
+| C | wazuh-indexer | 768Mi | 1 | 3 | **+1536Mi** |  |
+| C | mariadb | 512Mi | 1 | 3 | **+1024Mi** |  |
+| C | mongodb | 512Mi | 1 | 3 | **+1024Mi** |  |
+| C | solr | 512Mi | 1 | 3 | **+1024Mi** |  |
+| S | loki | 1024Mi | 1 | 2 | **+1024Mi** |  |
+| R | hive-metastore | 768Mi | 1 | 2 | **+768Mi** |  |
+| R | kibana-kb | 768Mi | 1 | 2 | **+768Mi** |  |
+| C | hadoop-journalnode (신규) | 256Mi | 0 | 3 | **+768Mi** | NameNode HA 의 편집 로그 정족수 |
+| R | defectdojo-django | 640Mi | 1 | 2 | **+640Mi** |  |
+| R | hadoop-datanode | 640Mi | 1 | 2 | **+640Mi** |  |
+| R | hive-server | 640Mi | 1 | 2 | **+640Mi** |  |
+| R | ranger-admin | 640Mi | 1 | 2 | **+640Mi** |  |
+| C | keycloak | 640Mi | 1 | 2 | **+640Mi** | 상태가 PG 에 있어 2로 충분 |
+| S | dependency-track-apiserver | 640Mi | 1 | 2 | **+640Mi** |  |
+| R | hbase-regionserver | 512Mi | 1 | 2 | **+512Mi** |  |
+| R | prometheus | 512Mi | 1 | 2 | **+512Mi** | HA 쌍. 데이터가 이중으로 쌓인다 |
+| C | clickhouse | 512Mi | 1 | 2 | **+512Mi** | 복제본 2 + Keeper 3(아래 신규 항목) |
+| C | hadoop-namenode | 512Mi | 1 | 2 | **+512Mi** | active + standby (JournalNode 는 아래 신규 항목) |
+| C | zookeeper | 256Mi | 1 | 3 | **+512Mi** |  |
+| C | hbase-master | 448Mi | 1 | 2 | **+448Mi** | standby 1개면 족하다 |
+| C | clickhouse-keeper (신규) | 128Mi | 0 | 3 | **+384Mi** | ReplicatedMergeTree 의 조정자 |
+| R | defectdojo-celery-worker | 320Mi | 1 | 2 | **+320Mi** |  |
+| R | knox | 320Mi | 1 | 2 | **+320Mi** |  |
+| C | wazuh-manager | 320Mi | 1 | 2 | **+320Mi** | master + worker |
+| R | istiod `istio-system` | 256Mi | 1 | 2 | **+256Mi** |  |
+| R | admin | 256Mi | 1 | 2 | **+256Mi** |  |
+| R | akhq | 256Mi | 1 | 2 | **+256Mi** |  |
+| R | api-openreplay | 256Mi | 1 | 2 | **+256Mi** |  |
+| R | apicurio-registry | 256Mi | 1 | 2 | **+256Mi** |  |
+| R | assist-openreplay | 256Mi | 1 | 2 | **+256Mi** |  |
+| R | chalice-openreplay | 256Mi | 1 | 2 | **+256Mi** |  |
+| R | cmmn-api | 256Mi | 1 | 2 | **+256Mi** |  |
+| R | glitchtip-web | 256Mi | 1 | 2 | **+256Mi** |  |
+| R | glitchtip-worker | 256Mi | 1 | 2 | **+256Mi** |  |
+| R | spot-openreplay | 256Mi | 1 | 2 | **+256Mi** |  |
+| C | ds389 | 256Mi | 1 | 2 | **+256Mi** | multi-supplier 2 |
+| C | vault | 128Mi | 1 | 3 | **+256Mi** |  |
+| S | grafana | 256Mi | 1 | 2 | **+256Mi** |  |
+| S | tempo | 256Mi | 1 | 2 | **+256Mi** |  |
+| C | hadoop-zkfc (신규) | 128Mi | 0 | 2 | **+256Mi** | NameNode 자동 장애 전환 컨트롤러 |
+| C | cnpg-operator (신규) | 200Mi | 0 | 1 | **+200Mi** | CloudNativePG 오퍼레이터 (§13-2) |
+| R | kafka-bridge | 192Mi | 1 | 2 | **+192Mi** |  |
+| R | openmeter-api | 192Mi | 1 | 2 | **+192Mi** |  |
+| R | openmeter-balance-worker | 192Mi | 1 | 2 | **+192Mi** |  |
+| R | openmeter-billing-worker | 192Mi | 1 | 2 | **+192Mi** |  |
+| R | openmeter-notification-service | 192Mi | 1 | 2 | **+192Mi** |  |
+| R | openmeter-sink-worker | 192Mi | 1 | 2 | **+192Mi** |  |
+| R | otel-gateway | 192Mi | 1 | 2 | **+192Mi** |  |
+| S | pyroscope | 192Mi | 1 | 2 | **+192Mi** |  |
+| L | elastic-operator `elastic-system` | 150Mi | 1 | 2 | **+150Mi** |  |
+| R | assets-openreplay | 128Mi | 1 | 2 | **+128Mi** |  |
+| R | canvases-openreplay | 128Mi | 1 | 2 | **+128Mi** |  |
+| R | db-openreplay | 128Mi | 1 | 2 | **+128Mi** |  |
+| R | ender-openreplay | 128Mi | 1 | 2 | **+128Mi** |  |
+| R | falcosidekick | 128Mi | 1 | 2 | **+128Mi** |  |
+| R | frontend-openreplay | 128Mi | 1 | 2 | **+128Mi** |  |
+| R | http-openreplay | 128Mi | 1 | 2 | **+128Mi** |  |
+| R | images-openreplay | 128Mi | 1 | 2 | **+128Mi** |  |
+| R | ingress-istio | 128Mi | 1 | 2 | **+128Mi** |  |
+| R | integrations-openreplay | 128Mi | 1 | 2 | **+128Mi** |  |
+| R | lam | 128Mi | 1 | 2 | **+128Mi** |  |
+| R | nginx | 128Mi | 1 | 2 | **+128Mi** |  |
+| R | sink-openreplay | 128Mi | 1 | 2 | **+128Mi** |  |
+| R | storage-openreplay | 128Mi | 1 | 2 | **+128Mi** |  |
+| R | waypoint | 128Mi | 1 | 2 | **+128Mi** |  |
+| C | alertmanager | 64Mi | 1 | 3 | **+128Mi** |  |
+| L | kyverno-admission-controller `kyverno` | 128Mi | 1 | 2 | **+128Mi** |  |
+| R | coredns `kube-system` | 70Mi | 1 | 2 | **+70Mi** |  |
+| R | metrics-server `kube-system` | 70Mi | 1 | 2 | **+70Mi** |  |
+| R | alerts-openreplay | 64Mi | 1 | 2 | **+64Mi** |  |
+| R | apicurio-ui | 64Mi | 1 | 2 | **+64Mi** |  |
+| R | defectdojo-nginx | 64Mi | 1 | 2 | **+64Mi** |  |
+| R | dependency-track-frontend | 64Mi | 1 | 2 | **+64Mi** |  |
+| R | heuristics-openreplay | 64Mi | 1 | 2 | **+64Mi** |  |
+| R | kube-state-metrics | 64Mi | 1 | 2 | **+64Mi** |  |
+| R | sourcemapreader-openreplay | 64Mi | 1 | 2 | **+64Mi** |  |
+| L | kyverno-background-controller `kyverno` | 64Mi | 1 | 2 | **+64Mi** |  |
+| L | kyverno-cleanup-controller `kyverno` | 64Mi | 1 | 2 | **+64Mi** |  |
+| L | kyverno-reports-controller `kyverno` | 64Mi | 1 | 2 | **+64Mi** |  |
+| L | tetragon-operator `tetragon` | 64Mi | 1 | 2 | **+64Mi** |  |
+| L | cert-manager `cert-manager` | 0Mi | 1 | 2 | **+0Mi** |  |
+| L | cert-manager-cainjector `cert-manager` | 0Mi | 1 | 2 | **+0Mi** |  |
+| L | cert-manager-webhook `cert-manager` | 0Mi | 1 | 2 | **+0Mi** |  |
+| L | cilium-operator `kube-system` | 0Mi | 1 | 2 | **+0Mi** |  |
+| L | local-path-provisioner `kube-system` | 0Mi | 1 | 2 | **+0Mi** |  |
+| L | policy-reporter `policy-reporter` | 0Mi | 1 | 2 | **+0Mi** |  |
+| L | trivy-operator `trivy-system` | 0Mi | 1 | 2 | **+0Mi** |  |
 
 ## 관련 문서
 
