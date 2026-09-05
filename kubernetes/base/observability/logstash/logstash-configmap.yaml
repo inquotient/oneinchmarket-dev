@@ -56,6 +56,16 @@ data:
         add_field => { "[@metadata][pipeline]" => "openmeter-bridge" }
       }
 
+      # ★ Alertmanager webhook 수신 — 경보가 도착할 실제 장소.
+      #   이 클러스터에는 Slack·SMTP 가 없다. 빈 receiver 를 두면 경보가
+      #   조용히 사라지므로 Elasticsearch 에 남긴다(§8-63).
+      #   Kibana 에서 `alerts-*` 로 본다.
+      http {
+        port => 5142
+        codec => json
+        add_field => { "[@metadata][pipeline]" => "alertmanager" }
+      }
+
       # ADR-031 — L0(OPNsense) 의 Suricata EVE JSON
       #
       # ★ 왜 beats(5044) 가 아니라 별도 tcp 인가
@@ -248,6 +258,39 @@ data:
         }
       }
 
+
+      # ★ Alertmanager 경보 → alerts 인덱스
+      #   webhook 페이로드는 alerts 배열을 담는다. 하나씩 쪼개야 한 건씩
+      #   조회·집계할 수 있다 — 통째로 두면 "몇 건이 울렸나" 를 셀 수 없다.
+      else if [@metadata][pipeline] == "alertmanager" {
+        split { field => "alerts" }
+        mutate {
+          add_field => { "[@metadata][target_index]" => "alerts" }
+          add_field => { "[event][kind]" => "alert" }
+          add_field => { "[event][module]" => "alertmanager" }
+          # 조회·집계에 쓰는 세 필드를 최상위로 올린다. 중첩 그대로 두면
+          # Kibana 에서 alerts.labels.alertname 처럼 길어지고, 경보 종류별
+          # 집계가 사실상 불가능하다.
+          add_field => { "alertname"    => "%{[alerts][labels][alertname]}" }
+          add_field => { "severity"     => "%{[alerts][labels][severity]}" }
+          add_field => { "alert_status" => "%{[alerts][status]}" }
+        }
+        # ★ @timestamp 는 수신 시각이 아니라 **경보 발생 시각**이어야 한다.
+        #   Alertmanager 는 group_wait(30s)·group_interval(5m)·repeat_interval(4h)
+        #   만큼 지연시켜 보내고, 같은 경보를 4시간마다 다시 보낸다. 수신 시각을
+        #   쓰면 재전송분이 전부 "새 경보" 로 보여 발생 시점을 알 수 없다.
+        date {
+          match => [ "[alerts][startsAt]", "ISO8601" ]
+          target => "@timestamp"
+          tag_on_failure => ["_alertdateparsefailure"]
+        }
+        # 원본 페이로드는 split 이전의 alerts 배열 전체를 담고 있어 문서마다
+        # 통째로 중복된다. 실측: keyword 길이 한도를 넘겨 `_ignored` 로 색인
+        # 대상에서 빠졌다 — 저장만 하고 검색은 안 되는 필드다.
+        mutate {
+          remove_field => [ "[event][original]", "message" ]
+        }
+      }
 
       # Falco 알림 처리
       #

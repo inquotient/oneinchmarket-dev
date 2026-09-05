@@ -1,0 +1,98 @@
+# Prometheus 경보 규칙.
+#
+# ★ 규칙을 고를 때의 기준 — **이 문서(§8)가 실제로 겪은 실패 방식**을 담는다.
+#   일반적인 예제 규칙을 나열하지 않는다. 겪지 않은 실패에 대한 경보는
+#   울려도 무엇을 해야 할지 모르고, 겪은 실패에 대한 경보는 즉시 행동으로
+#   이어진다.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+data:
+  billing.rules.yml: |
+    groups:
+      - name: billing
+        rules:
+          # ★★ 과금 이벤트가 OpenMeter 에 들어가지 못하고 있다.
+          #   DLQ 재처리 Job 이 실패한다는 것은 재처리조차 안 된다는 뜻이고,
+          #   그 구간의 사용량은 **청구되지 않는다** = 매출 누락이다.
+          #   §8-62 에서 "Job 실패가 신호" 로 만든 것을 여기서 밀어내는
+          #   경보로 바꾼다.
+          - alert: BillingDLQReplayFailing
+            expr: kube_job_status_failed{job_name=~"openmeter-dlq-replay.*"} > 0
+            for: 5m
+            labels:
+              severity: critical
+              domain: billing
+            annotations:
+              summary: "과금 DLQ 재처리 실패 ({{ $labels.job_name }})"
+              description: >-
+                OpenMeter 로 넣지 못한 계량 이벤트가 재처리도 되지 않는다.
+                그 구간의 사용량은 청구되지 않는다.
+                확인: kubectl -n local logs job/{{ $labels.job_name }}
+                원본은 Kafka api-usage 토픽과 ES api-usage-dlq 에 남아 있다.
+
+          # ★ 과금 경로의 구성요소가 죽어 있다. 게이트웨이·수집기·다리 중
+          #   하나라도 내려가면 계량이 멈춘다 — 조용히 멈춘다는 것이 문제다.
+          - alert: BillingComponentDown
+            expr: |
+              kube_deployment_status_replicas_available{
+                deployment=~"openmeter-.*|otel-gateway|ingress-istio"
+              } < 1
+            for: 5m
+            labels:
+              severity: critical
+              domain: billing
+            annotations:
+              summary: "과금 경로 구성요소 정지 ({{ $labels.deployment }})"
+              description: >-
+                계량이 멈춘 상태일 수 있다. 이 구간의 사용량은 청구되지 않는다.
+
+  platform.rules.yml: |
+    groups:
+      - name: platform
+        rules:
+          # ★ 이 문서에서 가장 자주 본 증상이다(§8-39·§8-45·§8-47 …).
+          #   원인은 매번 달랐지만 신호는 늘 같았다.
+          - alert: PodCrashLooping
+            expr: |
+              increase(kube_pod_container_status_restarts_total[15m]) > 3
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "파드 재시작 반복 ({{ $labels.pod }})"
+              description: >-
+                15분 안에 3회 넘게 재시작했다. ambient 편입 직후라면
+                AuthorizationPolicy 를, 그 밖이라면 로그를 볼 것.
+
+          # ★ §8-52 — 단일 노드에서 복제본 1 이면 ES 가 영구히 yellow 이고
+          #   그러면 ECK 가 파드를 롤링하지 않는다. 오류 없이 멈춘다.
+          - alert: JobFailed
+            expr: kube_job_status_failed > 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Job 실패 ({{ $labels.job_name }})"
+              description: >-
+                부트스트랩 Job 이 실패하면 클러스터를 다시 세울 때 드러난다.
+                ambient 편입 후 첫 실행에서 막히는 사례가 반복됐다(§8-52·§8-55).
+
+          # ★ 경보 경로 자체가 살아 있는지 본다. Alertmanager 가 죽으면
+          #   다른 모든 경보가 조용히 사라진다 — 그것을 알 방법이 필요하다.
+          - alert: AlertmanagerDown
+            expr: up{job="kubernetes-pods", pod=~"alertmanager-.*"} == 0
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Alertmanager 정지 — 모든 경보가 사라진다"
+              description: >-
+                이 경보 자체도 도달하지 못한다. Prometheus UI 의 Alerts 를
+                직접 볼 것.

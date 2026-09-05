@@ -238,6 +238,9 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 
 32. **경보 수단이 없으면 Job 실패를 신호로 쓸 것 — 다만 그것이 밀어내는 경보가 아님을 알고 쓸 것.** 이 클러스터에는 alertmanager·elasticsearch exporter·Prometheus 경보 규칙이 **하나도 없다.** `openmeter-dlq-replay` CronJob 은 재처리 후 남은 건수가 임계를 넘으면 `exit 1` 해서 Job 실패로 드러낸다. ★ 그런 Job 을 짤 때는 **연결 오류를 반드시 잡을 것** — 미처리 예외로 죽으면 Job 은 실패하지만 이미 처리한 건의 정리도, 임계 판정 로그도 남지 않는다(실측: `ConnectionResetError`). 재처리 중복은 OpenMeter 의 `id` 기반 중복 제거가 잡으므로 **"확실하지 않으면 다시 보낸다" 가 옳다** — 유실은 매출 누락이지만 중복은 잡힌다 — §8-62
 
+23. **Alertmanager 는 receiver 가 비어 있어도 오류를 내지 않는다.** Slack·SMTP 가 없다고 receiver 를 비워 두면 경보가 **조용히 사라진다** — Falcosidekick `Enabled Outputs: []`(§8-35), Envoy ALS 수신 0건(§8-55)과 같은 부류다. 이 클러스터는 webhook 으로 Logstash(5142)를 거쳐 Elasticsearch `alerts` 인덱스에 남긴다. webhook 페이로드는 **alerts 배열**이므로 `split` 하지 않으면 "몇 건이 울렸나"를 셀 수 없다. 그리고 `@timestamp` 를 수신 시각으로 두지 말 것 — Alertmanager 는 `group_wait`·`group_interval` 만큼 늦춰 보내고 같은 경보를 `repeat_interval`(4h)마다 **다시** 보내므로 재전송분이 전부 "새 경보"로 보인다. `[alerts][startsAt]` 을 쓸 것 — §8-63
+24. **Logstash 가 즉석 생성하는 인덱스는 전부 클러스터를 yellow 로 묶는다.** Gotcha 14 의 반복이다 — 템플릿이 없으면 ES 기본값인 복제본 1 이 붙고 단일 노드에는 배정될 곳이 없다. yellow 면 **ECK 가 파드를 롤링하지 않는다.** 실측으로 `alerts`·`api-usage-dlq`·`api-usage-quarantine` 셋이 그랬다. 새 인덱스 이름을 쓸 때는 `elasticsearch-ilm-setup` 에 함께 넣을 것. **템플릿은 생성 시점에만 적용되므로** 이미 만들어진 인덱스에는 `_settings` 를 따로 한 번 더 밀어야 한다 — §8-63
+
 ### 매니페스트 작업 시
 
 - `v1/` 매니페스트는 **배포 금지**. 단 CI가 이 경로의 Dockerfile을 참조한다는 모순이 있다

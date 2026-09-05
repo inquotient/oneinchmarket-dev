@@ -9,6 +9,18 @@ data:
       scrape_interval: 30s
       evaluation_interval: 30s
       external_labels: {cluster: oneinchmarket}
+
+    # ★ 경보 경로. 이것이 없으면 규칙이 평가돼도 아무데도 가지 않는다.
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets: ["alertmanager:9093"]
+
+    # ★ 규칙 파일. prometheus-rules ConfigMap 이 별도 볼륨으로 마운트된다.
+    #   같은 ConfigMap 에 두지 않는 이유는 규칙이 자주 바뀌기 때문이다 —
+    #   스크레이프 설정과 수명이 다르다.
+    rule_files:
+      - /etc/prometheus/rules/*.yml
     scrape_configs:
       - job_name: kubernetes-apiservers
         kubernetes_sd_configs: [{role: endpoints}]

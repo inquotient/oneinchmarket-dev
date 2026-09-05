@@ -163,6 +163,29 @@ spec:
                 echo " -> ${IDX} L0 template created"
               done
 
+              # ★ 경보·과금 우회 인덱스 — alerts·api-usage-dlq·api-usage-quarantine.
+              #   위의 L0 인덱스와 완전히 같은 함정이다: Logstash 가 고정 이름으로
+              #   즉석 생성하므로 템플릿이 없으면 복제본 1 이 붙고, 단일 노드에서는
+              #   배정될 곳이 없어 클러스터가 yellow 로 남아 ECK 가 파드를 롤링하지
+              #   못한다(§8-52). 실측: `alerts` 인덱스가 생기자마자 yellow 였다.
+              #
+              #   템플릿은 **생성 시점에만** 적용된다. 이미 만들어진 인덱스는
+              #   그대로 남으므로 설정을 따로 한 번 더 밀어 넣는다(멱등적).
+              for IDX in alerts api-usage-dlq api-usage-quarantine; do
+                curl ${OPTS} -X PUT "${ES_URL}/_index_template/${IDX}-template"                   -u "${AUTH}" -H "Content-Type: application/json" -d "{
+                  \"index_patterns\": [\"${IDX}*\"],
+                  \"priority\": 100,
+                  \"template\": {
+                    \"settings\": {
+                      \"number_of_shards\": 1,
+                      \"number_of_replicas\": ${ES_REPLICAS}
+                    }
+                  }
+                }"
+                curl ${OPTS} -X PUT "${ES_URL}/${IDX}/_settings"                   -u "${AUTH}" -H "Content-Type: application/json"                   -d "{\"index\":{\"number_of_replicas\":${ES_REPLICAS}}}" 2>/dev/null                   || echo " -> ${IDX} not created yet (template will apply)"
+                echo " -> ${IDX} template created"
+              done
+
               echo "[3/3] Creating initial write aliases..."
               for IDX in logstash falco-alerts keycloak-events trivy-reports; do
                 curl ${OPTS} -X PUT "${ES_URL}/${IDX}-000001" \

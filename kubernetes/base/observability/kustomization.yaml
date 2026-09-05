@@ -17,6 +17,9 @@ resources:
   - logstash/logstash-configmap.yaml
   # Prometheus - 메트릭 (INFRA-601)
   - prometheus/prometheus-rbac.yaml
+  - prometheus/prometheus-rules.yaml
+  - alertmanager/alertmanager.yaml
+  - kube-state-metrics/kube-state-metrics.yaml
   - prometheus/prometheus-configmap.yaml
   - prometheus/prometheus-statefulset.yaml
   - prometheus/prometheus-headless.yaml

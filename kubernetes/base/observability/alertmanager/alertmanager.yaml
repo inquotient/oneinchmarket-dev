@@ -1,0 +1,138 @@
+# Alertmanager — Prometheus 경보를 받아 중복을 묶고 수신처로 보낸다.
+#
+# ★★ 수신처가 문제였다. 이 클러스터에는 **외부 알림 경로가 없다** —
+#   Slack webhook 은 비어 있고(falcosidekick 도 같은 이유로 Slack 출력이
+#   꺼져 있다) SMTP 도 없다. 없는 것을 있는 척하고 빈 receiver 를 두면
+#   **경보가 조용히 사라진다** — 이 레포에서 반복된 실패 방식이다.
+#
+#   그래서 **Logstash 로 보낸다**(webhook → http 입력 → Elasticsearch).
+#   외부 의존 없이 조회 가능하고 보존되는 실제 수신처다. Kibana 에서
+#   `alerts-*` 인덱스로 본다. 나중에 Slack·PagerDuty 가 생기면 receiver 를
+#   더하면 된다 — 그때도 이 경로는 감사 기록으로 남겨 두는 편이 낫다(§8-63).
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: alertmanager
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+
+    route:
+      receiver: logstash
+      # 같은 경보를 묶는 기준. alertname + 대상으로 묶어야 파드 하나가
+      # 흔들릴 때 수십 건이 쏟아지지 않는다.
+      group_by: ["alertname", "namespace", "job_name"]
+      group_wait: 30s
+      group_interval: 5m
+      # ★ 해소되지 않은 경보를 4시간마다 다시 보낸다. 밀어내는 경보가
+      #   없던 시절의 문제(아무도 안 보면 모른다)를 반복하지 않기 위해서다.
+      repeat_interval: 4h
+
+    receivers:
+      - name: logstash
+        webhook_configs:
+          # Logstash 의 http 입력. 여기서 Elasticsearch `alerts-*` 로 간다.
+          - url: http://logstash-headless:5142/
+            send_resolved: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: alertmanager}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: alertmanager
+        app.kubernetes.io/component: observability
+        app.kubernetes.io/part-of: oneinchmarket
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9093"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: alertmanager
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: alertmanager
+          image: quay.io/prometheus/alertmanager:v0.28.0
+          args:
+            - --config.file=/etc/alertmanager/alertmanager.yml
+            - --storage.path=/alertmanager
+            # 단일 인스턴스다. 클러스터 모드를 끄지 않으면 자기 자신을
+            # 찾느라 로그가 시끄럽다.
+            - --cluster.listen-address=
+          ports:
+            - {containerPort: 9093, name: http, protocol: TCP}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 20m, memory: 64Mi}
+            limits:   {cpu: 200m, memory: 192Mi}
+          livenessProbe:
+            httpGet: {path: /-/healthy, port: http}
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet: {path: /-/ready, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          volumeMounts:
+            - {name: config, mountPath: /etc/alertmanager}
+            - {name: data, mountPath: /alertmanager}
+      volumes:
+        - name: config
+          configMap: {name: alertmanager-config}
+        # ★ emptyDir 다. 알림 이력은 Elasticsearch 에 남으므로 여기 상태
+        #   (침묵·억제)는 재시작 시 잃어도 된다. PVC 를 하나 더 만들지 않는다.
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  clusterIP: None
+  ports:
+    - {name: http, port: 9093, targetPort: 9093, protocol: TCP}
+  selector: {app.kubernetes.io/name: alertmanager}

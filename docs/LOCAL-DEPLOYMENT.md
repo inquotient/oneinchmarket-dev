@@ -5616,6 +5616,134 @@ exporter 도, Prometheus 경보 규칙도 없다(실측). 없는 것을 있는 �
   카운트를 지켜봐야 한다 — **밀어내는 경보가 아니다.**
 - 요금제·구독·가격은 여전히 없다. 계량은 끝났고 **가격이 없다.**
 
+### 8-63. Alertmanager 도입 — 경보를 밀어내는 경로가 생겼다
+
+§8-62 의 "남은 것" 첫 줄이 그대로 이번 작업의 시작이다. 그때의 경보는
+Job 이 `exit 1` 하는 것뿐이었고, **누군가 `kubectl get job` 을 봐야만**
+알 수 있었다. 당기는 경보는 아무도 당기지 않으면 없는 것과 같다.
+
+#### 있는 줄 알았던 것들이 없었다
+
+먼저 조사부터 했다. 결과:
+
+| 구성요소 | 상태 |
+|---|---|
+| kube-state-metrics | **없음** — Job·Pod·Deployment 의 상태 지표 자체가 없었다 |
+| Alertmanager | **없음** |
+| Prometheus alerting rule | **0건** — `rule_files` 조차 없었다 |
+| Slack webhook | 값이 비어 있다(Falcosidekick 과 같은 상태, §8-35) |
+
+즉 Prometheus 는 **지표를 모으기만 하고 판단은 하지 않고 있었다.**
+대시보드는 있었으나 아무도 보지 않으면 조용하다.
+
+#### 경로 설계 — 빈 receiver 를 두지 않는다
+
+```
+kube-state-metrics ─▶ Prometheus ─▶ 규칙 ─▶ Alertmanager ─▶ webhook
+                                                              │
+                                              Logstash(http:5142)
+                                                              │
+                                                   Elasticsearch `alerts`
+```
+
+Slack·SMTP 가 없는 상태에서 흔히 하는 선택은 receiver 를 비워 두는
+것이다. **그러면 경보가 조용히 사라진다** — Alertmanager 는 성공적으로
+"아무 데도" 보내고 오류를 내지 않는다. 이 레포에서 같은 함정을 이미 두 번
+겪었다(Falcosidekick `Enabled Outputs: []` §8-35, Envoy ALS 수신 0건
+§8-55). 그래서 **이미 있는 것으로 받는다** — Logstash 는 이미 돌고 있고
+Elasticsearch·Kibana 도 있다. 나중에 Slack 이 생기면 receiver 를 하나
+더하면 되고, 그 사이에도 경보는 남는다.
+
+규칙 5개는 **실제로 겪은 실패 유형**에서 골랐다:
+
+| 규칙 | 근거 |
+|---|---|
+| `BillingDLQReplayFailing` | §8-62 — 재처리 실패는 **미청구**로 직결된다 |
+| `BillingComponentDown` | §8-58 — OpenMeter 가 죽으면 이벤트가 쌓이기만 한다 |
+| `PodCrashLooping` | §8-58 sink-worker, §8-59 등 반복 |
+| `JobFailed` | §8-52·§8-55 — 부트스트랩 Job 은 평소에 돌지 않아 늦게 드러난다 |
+| `AlertmanagerDown` | 경보 체계 자신이 죽는 경우. 이것만은 Prometheus 가 직접 본다 |
+
+#### 검증 — 합성 하나, 진짜 하나
+
+경로가 있다는 것과 경보가 도착한다는 것은 다르다. 두 단계로 봤다.
+
+**① 합성 경보로 배달 경로를 본다.** Alertmanager 의 `/api/v2/alerts` 에
+직접 넣었다. `group_wait: 30s` 뒤 `alerts` 인덱스가 **생성 시각
+07:57:02 로 새로 생겼다**(주입 07:56:30). 배달은 된다.
+
+그런데 문서를 열어 보니 셋이 잘못돼 있었다:
+
+- `event.original` 에 **split 이전의 alerts 배열 전체**가 문서마다 통째로
+  들어갔다. keyword 길이 한도를 넘겨 `_ignored` 에 걸려 있었다 —
+  **저장은 되고 검색은 안 되는 필드**다.
+- `@timestamp` 가 **수신 시각**이었다. Alertmanager 는 `group_wait`·
+  `group_interval`·`repeat_interval: 4h` 만큼 늦춰 보내고 같은 경보를
+  4시간마다 **다시** 보낸다. 수신 시각을 쓰면 재전송분이 전부 "새 경보"로
+  보여 발생 시점을 잃는다. `[alerts][startsAt]` 로 바꿨다.
+- `alertname`·`severity` 가 `alerts.labels.*` 아래 묻혀 있어 **경보 종류별
+  집계가 안 됐다.** 최상위로 올렸다.
+
+고친 뒤 두 번째 합성 경보:
+
+```
+"@timestamp"   : "2026-09-05T08:03:07.000Z"   ← startsAt(수신은 08:03:57)
+"alertname"    : "SyntheticFieldCheck"
+"severity"     : "critical"
+"alert_status" : "firing"
+"event"        : { "kind": "alert", "module": "alertmanager" }
+```
+
+`event.original`·`message` 는 사라졌고 `_ignored` 도 없다.
+
+**② 진짜 경보를 기다린다.** 규칙을 올리자마자 `JobFailed` 가 곧바로
+`pending` 이 됐다 — 만들어 낸 상황이 아니라 **§8-62 의 장애 시험 때 실제로
+죽은 Job 3개**가 아직 남아 있었다(`BackoffLimitExceeded`, 03:00~03:30 UTC —
+OpenMeter 를 0으로 내렸던 그 시각이다). `for: 15m` 을 채우고 발화했고,
+`group_wait` 뒤 Elasticsearch 에 3건이 들어왔다:
+
+```
+alertname     alert_status  job_name
+JobFailed     firing        openmeter-subscription-sync-29809620
+JobFailed     firing        openmeter-billing-advance-invoices-29809650
+JobFailed     firing        openmeter-billing-collect-invoices-29809650
+```
+
+`split` 을 넣은 이유가 여기서 드러난다 — webhook 페이로드는 3건을 한
+배열로 보낸다. 쪼개지 않으면 "몇 건이 울렸나"를 셀 수 없다. 종류별 집계가
+된다:
+
+```
+JobFailed 3 · SyntheticFieldCheck 2 · SyntheticPathCheck 1
+```
+
+Job 3개를 지우자 90초 안에 `JobFailed` 가 Prometheus 에서 사라졌다. 그러나 **해소 문서는 그때 오지 않았다** — `group_interval: 5m` 만큼 늦는다. 5분 뒤에 3건이 들어왔고 그제서야 firing 3 · resolved 3 으로 맞았다. 경보가 사라졌다고 곧바로 확인하면 “해소가 안 돌아간다” 로 오판한다.
+
+#### 곁다리로 클러스터가 green 이 됐다
+
+`alerts` 인덱스를 만들자마자 **yellow** 였다. Gotcha 14 와 정확히 같은
+함정이다 — Logstash 가 고정 이름으로 즉석 생성하는 인덱스는 템플릿이
+없어 ES 기본값인 **복제본 1** 이 붙고, 단일 노드에는 배정될 곳이 없다.
+그리고 yellow 면 **ECK 가 파드를 롤링하지 않는다.**
+
+`alerts`·`api-usage-dlq`·`api-usage-quarantine` 셋을
+`elasticsearch-ilm-setup` 에 넣었다. 템플릿은 **생성 시점에만** 적용되므로
+이미 만들어진 인덱스에는 `_settings` 를 한 번 더 밀어 넣는다.
+
+```
+"status" : "green",  "unassigned_shards" : 0
+```
+
+즉 §8-61·§8-62 에서 만든 DLQ·격리 인덱스 둘도 그동안 조용히 클러스터를
+yellow 로 묶고 있었다. 경보를 붙이려다 발견했다.
+
+#### 남은 것
+
+- **경보 수신처가 Elasticsearch 뿐이다.** 사람에게 밀어내려면 Slack 이나
+  메일이 필요하다. receiver 를 더하는 자리는 만들어 두었다.
+- 규칙 5개는 최소 집합이다. 디스크·메모리·Kafka consumer lag 은 아직 없다.
+- 요금제·구독·가격은 여전히 없다. **계량은 끝났고 가격이 없다.**
+
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용

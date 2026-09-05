@@ -24,6 +24,11 @@ spec:
       targetPort: zeek
       protocol: TCP
       name: zeek
+    # Alertmanager webhook
+    - port: 5142
+      targetPort: alerts
+      protocol: TCP
+      name: alerts
     - port: 9600
       targetPort: api
       protocol: TCP
