@@ -217,7 +217,7 @@ kubectl top pods -n local --sort-by=memory
 |:-:|---|---|---|
 | **W1** | `istio-cni-node: CreateContainerError`<br>`path "/var/run/netns" is mounted on "/" but it is not a shared or slave mount`<br>ztunnel: `failed to connect to the Istio CNI node agent over ztunnel.sock` | **WSL2 의 init 이 `/` 를 private 으로 둔다.** 일반 배포판은 systemd 가 부팅 시 `mount --make-rshared /` 를 한다. istio-cni 는 파드 netns 진입에 마운트 전파를 요구한다 | `local/mount-rshared.service` |
 | **W2** | Falco: `An error occurred in an event source, forcing termination`<br>`Error: Initialization issues during scap_init` | `/sys/kernel/debug`(debugfs) 미마운트 | `local/mount-debugfs.service` |
-| **W3** | W2 조치 후에도 Falco 동일 실패 | modern_ebpf 프로브가 WSL2 커널에서 기동 불가 | 로컬만 스케줄 불가 `nodeSelector` 로 비활성. **ADR-025 의 Tetragon 전환이 채택되면 소멸하는 제약** |
+| ~~**W3**~~ | ~~W2 조치 후에도 Falco 동일 실패~~ | ~~modern_ebpf 프로브가 WSL2 커널에서 기동 불가~~ | **소멸(§8-64, 2026-09-05).** 커널 탓이 아니라 이미지가 2024년판(`falco-no-driver` 0.39.2)이었다. 유지되는 저장소의 0.44.1 에서 modern_ebpf 가 정상 동작한다. **WSL2 고유 블로커는 이제 2건이다** |
 
 **W1 이 가장 파급이 컸다.** `istioctl install` 이 준비 대기에서 무한히 멈춰 그 뒤의 ECK·Kyverno·cert-manager 설치가 전부 막혔다. 원인이 Istio 가 아니라 WSL 마운트라는 점이 진단을 어렵게 한다.
 
@@ -313,7 +313,7 @@ vmstat si: 0                              ← 스왑인 없음
 | 계층 | 건수 | 대표 |
 |---|--:|---|
 | P0 블로커 | 5 | Secret · 오퍼레이터 · 부트스트랩 · SA · StorageClass |
-| WSL2 고유 | 3 | 마운트 전파 · debugfs · Falco |
+| WSL2 고유 | ~~3~~ → **2** | 마운트 전파 · debugfs (~~Falco~~ — §8-64 에서 소멸) |
 | 레포 기존 결함 | 14 | G23 · TODO-14 · SEC-512 · G13 · Apicurio 포트/경로 · Logstash·Apicurio startupProbe · PostgreSQL 락 · Kafka quorum · cmmn-api 프로퍼티 · ES ILM 대기 |
 | 작성 중 도입한 오류 | 10 | kubelet 플래그 2건 · 롤/DB 이름 2건 · `pg_isready` · SIGPIPE · NetworkPolicy · imagePullPolicy · Spark 버킷 경로 2건 |
 
@@ -5956,6 +5956,126 @@ ADR-068 이 **"7단계까지 모두 끝난 뒤 `v2` 로 합치고 `local` 은 �
   소유자라 이 Job 의 회전은 유지되지 않는다. "ECK 관리 사용자를 회전할 것인가,
   전용 사용자를 따로 둘 것인가" 를 정해야 한다. 지금은 실행돼도 실패해 피해가
   없으나, **고쳐서 동작하게 만드는 순간 ES 인증이 깨진다**
+
+## 10. Hyper-V 배포(ADR-051 A안) 재검토 — 2026-09-05 실측
+
+§8-31 에서 H5(Hyper-V 합성 NIC 의 Cilium eBPF)가 해소되어 **기술적 중단 사유는
+없다.** 그래서 남은 질문은 "되는가" 가 아니라 **"지금 이 호스트에 들어가는가,
+그리고 무엇을 얻는가"** 다. 오늘 실측으로 다시 계산했다.
+
+### 10-1. 예산 — `l0-lab/README.md` 의 산정이 낡았다
+
+그 문서는 워크로드 requests 를 **35.16 GiB** 로 잡는다. 그 뒤 과금 파이프라인
+(OpenMeter·ClickHouse·Redis)·경보 체계(kube-state-metrics·Alertmanager)·Falco 가
+들어왔다. 오늘 값은 다르다.
+
+```
+memory requests   38.9 GiB   (allocatable 41.1 GiB 의 94.6%)
+파드              107 / 110
+CPU requests      17.6 코어 / 24
+```
+
+이 값으로 다시 계산하면:
+
+| 구성 | VM 오버헤드 | 워크로드 | VM 합 | 호스트 잔여 | L0 랩(8.8) 뺀 Windows 몫 |
+|---|---:|---:|---:|---:|---:|
+| 현행 WSL2 단일 | 2.5 | 38.9 | **44.0**(캡) | 19.4 | **10.6 GiB** ✅ |
+| Hyper-V 2노드 | 9.5 | 38.9 | **48.4** | 15.0 | **6.2 GiB** ⚠ |
+| Hyper-V 3노드 | 13.5 | 38.9 | **52.4** | 11.0 | **2.2 GiB** ❌ |
+
+> 호스트 물리 63.4 GiB. L0 랩(OPNsense 6.0 + Target 2.8 = 8.8 GiB)은 ADR-031 의
+> 경계 통제라 끌 수 없다. Windows 데스크톱 실사용은 현재 여유가 8.6 GiB 다.
+
+**2노드는 들어가되 여유가 6.2 GiB 로 얇고, 3노드는 들어가지 않는다.**
+README 가 "메모리는 들어간다" 고 적은 것은 워크로드 35.16 GiB 기준이었고
+L0 랩 몫을 빼지 않았다. 지금은 둘 다 달라졌다.
+
+그리고 이 얇음은 **완충 장치가 없는 얇음**이다. H1 이 동적 메모리를 금지하므로
+VM 간 슬랙이 넘어가지 않는다. 지금은 41 GiB 한 풀이 어디서 터지든 흡수하고,
+그 위에 zram(32G, 현재 DATA 7.1G / COMPR 1.9G)이 한 겹 더 있다.
+
+### 10-2. Hyper-V 가 **유일하게** 푸는 것 — 파드 상한
+
+```
+파드 107 / 110      ← 남은 자리 3
+```
+
+k3s 노드 기본 상한이 110 이다. 실제로 §8-64 에서 Falco 를 넣을 때
+`0/1 nodes are available: 1 Too many pods` 로 스케줄이 막혔다. **메모리보다
+이쪽이 먼저 걸린다.** 노드를 늘리면 상한이 노드 수만큼 늘어난다 — 단일 노드에서는
+`--kubelet-arg=max-pods=` 로 올릴 수 있으나 그것은 한 커널에 부담을 몰아넣는 것이다.
+
+이것이 오늘 시점에서 A안의 **가장 실질적인 근거**다. 다른 이득(다중 노드 CNI
+데이터패스·HA 페일오버 검증)은 §1 의 "검증 불가" 목록 그대로이고 여전히 유효하나,
+지금 당장 막고 있는 것은 파드 수다.
+
+### 10-3. WSL2 쪽 근거는 **오늘 더 강해졌다**
+
+§8-1 의 WSL2 고유 블로커 3건 중 하나가 사라졌다.
+
+| # | 상태 |
+|:-:|---|
+| W1 마운트 전파 | 유닛 한 장(`mount-rshared.service`)으로 해소. 유지 |
+| W2 debugfs | 유닛 한 장(`mount-debugfs.service`)으로 해소. 유지 |
+| **W3 Falco 기동 불가** | **소멸(§8-64).** 커널 탓이 아니라 이미지가 2024년판이었다. 0.44.1 에서 modern_ebpf 가 정상 동작한다 |
+
+ADR-051 이 WSL2 를 기각한 근거 중 "런타임 탐지가 안 된다" 는 이제 사실이 아니다.
+
+### 10-4. 이설 비용 — 되돌릴 수 없는 쪽
+
+```
+PVC 27개 · 실사용 116 GB
+  (PostgreSQL · GitLab · Elasticsearch · MinIO · Kafka · ClickHouse …)
+```
+
+전부 `rancher.io/local-path` + `WaitForFirstConsumer` 라 **노드 로컬**이다. 이설은
+곧 재생성이고, 여기에는 이제 **과금 원장(ClickHouse·PostgreSQL)** 이 들어 있다.
+§8-58 이후의 계량 이력이 여기 있고, 청구는 소급 재해석이 불가능하다(Gotcha 15).
+§8-31 이 이설 전에 H5 를 먼저 본 이유가 그대로 유효하며, **그때보다 잃을 것이
+늘었다.**
+
+### 10-5. 진짜로 아쉬운 것 — L0 랩이 k3s 를 보호하지 못한다
+
+지금 구조의 가장 큰 충실도 결손은 메모리도 노드 수도 아니다.
+
+```
+suricata --syslog--> syslog-ng --> netsh portproxy --> WSL localhostForwarding
+  --> kubectl port-forward --> logstash
+```
+
+§8-34 가 적어 둔 그대로 **"검증용 경로"** 다. WSL2 의 k3s 는 Hyper-V VM 에서 직접
+보이지 않아 Windows 를 두 번 경유한다. 즉 **OPNsense 는 k3s 의 경로에 없다** —
+남–북 IDS·경계 통제가 랩 안에서만 성립하고 클러스터를 감싸지 않는다.
+
+k3s 를 `L0-LAN` 위의 Hyper-V VM 으로 옮기면 이것이 **실제 구성**이 된다.
+ADR-031 이 문서가 아니라 경로가 된다. 이것이 A안의 가장 정직한 값어치다.
+
+### 10-6. 판단
+
+**가능하다. 다만 지금은 아니다 — 그리고 이유는 기술이 아니라 순서다.**
+
+| | |
+|---|---|
+| 기술 위험 | 없다. H5 해소(§8-31, 12/12 PASS) |
+| 용량 | 2노드만 가능(여유 6.2 GiB, 완충 없음). 3노드 불가 |
+| 지금 얻는 것 | 파드 상한 해소, OPNsense 가 실제 경로에 들어옴, 다중 노드 검증 |
+| 지금 잃는 것 | PVC 27개 116 GB 재생성 — **과금 원장 포함**. 되돌릴 수 없다 |
+
+권고하는 순서:
+
+1. **먼저 §9-2(가격·인보이스)를 끝낸다.** 과금 줄기가 미완인 상태에서 원장을
+   날리는 것은 가장 나쁜 시점이다
+2. **파드 상한은 그 전에 따로 푼다** — `max-pods` 상향이 임시방편으로 충분하다.
+   이설을 파드 3자리 때문에 앞당기지 않는다
+3. **이설은 §9-4 의 `v2` 머지와 함께 계획한다.** 어차피 클러스터를 다시 세우는
+   시점이고, 그때는 PVC 재생성이 비용이 아니라 절차의 일부다
+4. 이설한다면 **2노드**다. 3노드는 이 호스트에서 성립하지 않는다 —
+   `DEPLOYMENT.md §4-3` 의 3-VM 할당안은 이 호스트 기준으로 갱신이 필요하다
+
+> **되짚어 둘 것** — ADR-051 의 상태는 여전히 `Proposed` 이고, 이 문서(§1)가
+> B안(WSL2)을 택한 근거는 "WSL2 커널이 요건을 충족한다" 였다. 그 근거는 오늘
+> 더 강해졌다(W3 소멸). A안으로 가는 이유는 이제 **커널 능력이 아니라
+> 토폴로지**다 — 노드 수와 경계 통제.
 
 ## 관련 문서
 
