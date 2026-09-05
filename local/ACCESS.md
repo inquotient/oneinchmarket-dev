@@ -141,131 +141,198 @@ $K port-forward deploy/api-openreplay      8097:8080   # 프런트가 부르는 
 
 ## 2. DBeaver 접속 정보
 
-**먼저 port-forward 를 띄운다.** 아래 로컬 포트는 원래 포트와 겹치지 않게
-`1`을 앞에 붙였다.
+> 2026-09-06 실측. **Windows 에서 실제로 붙여 확인했다** — ClickHouse `openmeter`
+> 로 `SELECT currentUser(), version()` 이 `openmeter / 26.8.2.7` 을 돌려주고,
+> PostgreSQL 은 `Test-NetConnection localhost:15432` 가 `True` 다.
+
+### 2-0. ★ DBeaver 에디션부터 확인할 것
+
+**Community Edition 은 관계형 DB 만 지원한다.** MongoDB·Redis·Elasticsearch 는
+**Enterprise/Ultimate 전용**이다. CE 에서 그 드라이버를 찾으면 없다.
+
+| DB | DBeaver CE | 대안(CE 사용자) |
+|---|:-:|---|
+| PostgreSQL · MariaDB · ClickHouse · Trino · Hive | ✅ | — |
+| **MongoDB** | ❌ EE 전용 | MongoDB Compass(무료) |
+| **Redis** | ❌ EE 전용 | RedisInsight(무료) · `redis-cli` |
+| **Elasticsearch** | ❌ EE 전용 | Kibana Dev Tools · `curl` |
+
+### 2-1. 먼저 port-forward
+
+**WSL 터미널을 열어 두고** 거기서 실행한다. 하나당 터미널 하나이거나 `tmux` 다.
 
 ```bash
-$K port-forward svc/postgresql-headless  15432:5432
-$K port-forward svc/mariadb-headless     13306:3306
-$K port-forward svc/mongodb-headless    17017:27017
-$K port-forward svc/redis-headless       16379:6379
-$K port-forward svc/clickhouse-headless  18123:8123   # HTTP
-$K port-forward svc/clickhouse-headless  19000:9000   # native
-$K port-forward svc/elasticsearch-es-http 19200:9200
-$K port-forward svc/hive-server-headless 10000:10000  # JDBC
-$K port-forward svc/trino-headless        8095:8080   # JDBC
+export K="sudo k3s kubectl -n local"
+pw() { $K get secret "$1" -o jsonpath="{.data.$2}" | base64 -d; echo; }
+
+$K port-forward svc/postgresql-headless   15432:5432
+$K port-forward svc/mariadb-headless      13306:3306
+$K port-forward svc/clickhouse-headless   18123:8123
+$K port-forward svc/trino-headless         8095:8080
+$K port-forward svc/hive-server-headless  10000:10000
+$K port-forward svc/mongodb-headless      17017:27017   # Compass 용
+$K port-forward svc/redis-headless        16379:6379    # RedisInsight 용
+$K port-forward svc/elasticsearch-es-http 19200:9200    # curl/Kibana 용
 ```
 
-### PostgreSQL
+---
 
-| | |
+### 2-2. PostgreSQL 18.6 — ★ 가장 중요한 것
+
+과금 원장·인증·메타데이터가 전부 여기 있다.
+
+| DBeaver 항목 | 값 |
 |---|---|
-| 드라이버 | PostgreSQL |
-| Host / Port | `localhost` / `15432` |
-| 사용자 | `postgres` (수퍼유저) |
-| 비밀번호 | `pw postgresql-secret postgres-password` |
-| SSL | 끔 |
+| 드라이버 | **PostgreSQL** |
+| Host | `localhost` |
+| Port | `15432` |
+| Database | `postgres` (접속 후 다른 DB 로 전환) |
+| Username | `postgres` |
+| Password | `pw postgresql-secret postgres-password` |
+| SSL | **끔** |
+| JDBC URL | `jdbc:postgresql://localhost:15432/postgres` |
 
-**데이터베이스 13개**(실측):
+> **Show all databases** 를 켜야 13개가 다 보인다 —
+> PostgreSQL 연결 설정 → *PostgreSQL* 탭 → `Show all databases` 체크.
 
-```
-apicurio · defectdojo · dependencytrack · gitlab · glitchtip · hive_metastore
-keycloak · oneinchmarket · openmeter · openreplay · postgres · ranger · safeline
-```
+**데이터베이스 13개**(실측)
 
-앱별 롤도 있다 — `apicurio` `defectdojo` `dependencytrack` `gitlab`
-`glitchtip` `hive` `keycloak` `openmeter` `openreplay` `ranger` `safeline`.
-각 비밀번호는 해당 앱의 시크릿에 있다(예: `pw keycloak-secret db-password`).
-
-> **과금 원장이 여기 있다** — `openmeter` DB 에 요금제·구독·인보이스가,
-> `oneinchmarket` 이 앱 기본 DB 다.
-
-### MariaDB
-
-| | |
+| DB | 무엇이 들어 있나 |
 |---|---|
-| 드라이버 | MariaDB |
+| **`openmeter`** | ★ **과금 원장** — 요금제·구독·인보이스·미터 정의 |
+| `oneinchmarket` | 앱 기본 DB |
+| `keycloak` | 인증·사용자·클라이언트 |
+| `gitlab` | GitLab |
+| `apicurio` | API 계약 레지스트리 |
+| `hive_metastore` | Hive 메타데이터(테이블·파티션) |
+| `openreplay` | 세션 리플레이 메타 |
+| `glitchtip` | 오류 추적 |
+| `defectdojo` · `dependencytrack` | 취약점 관리 |
+| `ranger` | 권한 정책 · ★ `x_auth_sess`(Gotcha 11 의 계정 잠금) |
+| `safeline` | WAF |
+| `postgres` | 관리용 |
+
+앱별 롤도 있다(`keycloak` `gitlab` `openmeter` …). 그 비밀번호는 각 앱
+시크릿의 `db-password` 다 — 예: `pw keycloak-secret db-password`.
+
+### 2-3. MariaDB 12.3
+
+| DBeaver 항목 | 값 |
+|---|---|
+| 드라이버 | **MariaDB** |
 | Host / Port | `localhost` / `13306` |
-| 사용자 | `root` |
-| 비밀번호 | `pw mariadb-secret root-password` |
-| 데이터베이스 | `cmmn` |
+| Database | `cmmn` |
+| Username | `root` |
+| Password | `pw mariadb-secret root-password` |
+| JDBC URL | `jdbc:mariadb://localhost:13306/cmmn` |
 
-사용자는 `root` · `cmmn` · `cmmn-api` 셋이다(실측).
+사용자 셋: `root` · `cmmn` · `cmmn-api`(앱용, `pw mariadb-secret app-password`).
 
-### MongoDB
+### 2-4. ClickHouse 26.8 — ★ 함정
 
-| | |
+| DBeaver 항목 | 값 |
 |---|---|
-| 드라이버 | MongoDB |
-| Host / Port | `localhost` / `17017` |
-| 사용자 | `root` |
-| 비밀번호 | `pw mongodb-secret root-password` |
-| **Authentication Database** | **`admin`** ← 빠뜨리면 인증 실패한다 |
+| 드라이버 | **ClickHouse** |
+| Host / Port | `localhost` / `18123` (HTTP) |
+| Database | `openmeter` 또는 `openreplay` |
+| Username | **`openmeter`** 또는 **`openreplay`** |
+| Password | `pw clickhouse-secret openmeter-password` / `pw clickhouse-secret password` |
+| JDBC URL | `jdbc:clickhouse://localhost:18123/openmeter` |
 
-### Redis
+> **★ `default` 사용자가 이 인스턴스에 없다**(Gotcha 27). DBeaver 는 기본으로
+> `default` 를 넣으므로 **반드시 지우고 위 둘 중 하나를 쓸 것.** 그대로 두면
+> `Code: 194 ... there is no user with such name` 이다(실측).
+>
+> `system.users` 에 있는 것은 **`openreplay` · `openmeter` 둘뿐**이다.
 
-| | |
-|---|---|
-| 드라이버 | Redis |
-| Host / Port | `localhost` / `16379` |
-| 비밀번호 | `pw redis-secret redis-password` |
-
-OpenMeter 의 **중복 제거 키**가 여기 있다 — 지우면 과다 청구가 된다(Gotcha 16).
-
-### ClickHouse — ★ 함정 있음
-
-| | |
-|---|---|
-| 드라이버 | ClickHouse |
-| Host / Port | `localhost` / `18123` (HTTP) 또는 `19000` (native) |
-| **사용자** | **`openmeter`** 또는 **`openreplay`** |
-| 비밀번호 | `pw clickhouse-secret openmeter-password` / `pw clickhouse-secret password` |
-
-> **★ `default` 사용자가 이 인스턴스에 없다**(Gotcha 27). DBeaver 기본값이
-> `default` 라 그대로 붙으면
-> `code: 516 ... there is no user with such name` 이 난다.
-> `system.users` 에 있는 것은 **`openreplay` · `openmeter` 둘뿐**이다(실측).
-
-데이터베이스: `openmeter`(과금 집계) · `openreplay` · `product_analytics` ·
+데이터베이스: `openmeter`(★ 과금 집계) · `openreplay` · `product_analytics` ·
 `experimental` · `system`.
 
-### Elasticsearch
+### 2-5. Trino 483
 
-| | |
+| DBeaver 항목 | 값 |
 |---|---|
-| 접속 | **https**://localhost:19200 |
-| 사용자 | `elastic` |
-| 비밀번호 | `pw elasticsearch-es-elastic-user elastic` |
-| 인증서 | 자체 서명 — **검증을 꺼야 한다** |
+| 드라이버 | **Trino** |
+| Host / Port | `localhost` / `8095` |
+| Username | 아무 값(예: `admin`) — 인증 없음 |
+| Password | 비움 |
+| JDBC URL | `jdbc:trino://localhost:8095/` |
 
-DBeaver 보다 브라우저나 `curl -k` 가 편하다.
+카탈로그는 `hive`(MinIO 의 Iceberg·Parquet)와 `system` 이다. 웹 UI 도 같은
+포트다 — http://localhost:8095
 
-```bash
-curl -sk -u "elastic:$(pw elasticsearch-es-elastic-user elastic)" \
-  https://localhost:19200/_cat/indices?v
+### 2-6. HiveServer2
+
+| DBeaver 항목 | 값 |
+|---|---|
+| 드라이버 | **Apache Hive** |
+| Host / Port | `localhost` / `10000` |
+| Database | `default` |
+| 인증 | 없음(NOSASL) — 사용자 아무 값 |
+| JDBC URL | `jdbc:hive2://localhost:10000/default` |
+
+> 테이블 목록만 보려면 **PostgreSQL 의 `hive_metastore` DB 를 직접 보는 편이
+> 훨씬 빠르다** — `TBLS` · `DBS` · `PARTITIONS` 테이블.
+
+---
+
+### 2-7. DBeaver CE 로는 안 되는 것 — 대안
+
+#### MongoDB 8.0 — MongoDB Compass
+
+```
+mongodb://root:<비밀번호>@localhost:17017/?authSource=admin
 ```
 
-> **수기 `elasticsearch-secret` 을 쓰지 말 것** — 낡아서 401 이다.
-> 권위 있는 소유자는 ECK 의 `elasticsearch-es-elastic-user` 다(§8-64).
+`pw mongodb-secret root-password` 로 비밀번호를 얻는다.
+**★ `authSource=admin` 을 빠뜨리면 인증 실패한다.**
 
-### Hive Metastore / HiveServer2
+#### Redis 8.10 — RedisInsight 또는 redis-cli
 
-| | |
+| 항목 | 값 |
 |---|---|
-| 드라이버 | Apache Hive |
-| JDBC | `jdbc:hive2://localhost:10000/default` |
-| 인증 | 없음(NOSASL) |
+| Host / Port | `localhost` / `16379` |
+| Username | 비움(ACL 미사용) |
+| Password | `pw redis-secret redis-password` |
 
-메타데이터 자체는 PostgreSQL 의 `hive_metastore` DB 에 있다 — 그쪽을 직접
-보는 편이 빠를 때가 많다.
+```bash
+# WSL 안에서
+redis-cli -h 127.0.0.1 -p 16379 -a "$(pw redis-secret redis-password)" --no-auth-warning INFO keyspace
+```
 
-### Trino
+> ★ OpenMeter 의 **중복 제거 키**가 여기 있다. `FLUSHALL` 을 치지 말 것 —
+> 지우면 이미 처리한 과금 이벤트가 다시 들어와 **과다 청구**가 된다(Gotcha 16).
 
-| | |
+#### Elasticsearch 9.5.2 — curl 또는 Kibana Dev Tools
+
+```bash
+curl -sk -u "elastic:$(pw elasticsearch-es-elastic-user elastic)"   https://localhost:19200/_cat/indices?v
+```
+
+| 항목 | 값 |
 |---|---|
-| 드라이버 | Trino |
-| JDBC | `jdbc:trino://localhost:8095/` |
-| 사용자 | 아무 값(인증 없음) |
+| URL | **https**://localhost:19200 |
+| Username | `elastic` |
+| Password | `pw elasticsearch-es-elastic-user elastic` |
+| 인증서 | 자체 서명 — 검증을 꺼야 한다(`-k`) |
+
+> **수기 `elasticsearch-secret` 을 쓰지 말 것 — 낡아서 401 이다.** 권위 있는
+> 소유자는 ECK 의 `elasticsearch-es-elastic-user` 다(§8-64 에서 이것 때문에
+> Falco 경보가 전부 버려지고 있었다).
+
+Kibana(https://localhost:5601) 의 **Dev Tools** 가 가장 편하다.
+
+#### 그 밖 — DBeaver 대상이 아닌 것
+
+| 대상 | 도구 |
+|---|---|
+| `ds389` LDAP 3389 / LDAPS 3636 | Apache Directory Studio · `ldapsearch` · LAM UI(8084). `pw ds389-secret dm-password` |
+| `kafka` 9092 | **AKHQ UI(8080)가 가장 편하다** · `kcat` |
+| `zookeeper` 2181 | `zkCli.sh` |
+| `minio` S3 9002 | `mc` · `s3cmd` · 콘솔 UI(9001) |
+| `spark-connect` 15002 | PySpark `SparkSession.builder.remote("sc://localhost:15002")` |
+| `hadoop-namenode` 8020 | `hdfs dfs` · UI(9870) |
+| `vault` 8200 | `vault` CLI · UI |
 
 ---
 
