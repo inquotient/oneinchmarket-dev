@@ -6269,6 +6269,101 @@ Galera 는 매니페스트를 새로 쓰는 일이지 replicas 숫자를 올리�
 3. 그 뒤에 노드 수를 늘린다. HA 의 **검증**이 목적이라면 3노드로 충분하고,
    HA 를 **가지는** 것은 이 호스트에서 성립하지 않는다
 
+## 12. 컴포넌트→노드 매핑과 용량 (Hyper-V 3노드) — 2026-09-05 실측
+
+§11 이 "전체 HA 는 안 된다" 로 끝났으므로, 다음은 **무엇을 어디까지 다중화하고
+어디에 놓을 것인가** 다. 88개 워크로드의 requests 를 실측해 계산했다.
+
+### 12-1. 컴포넌트 HA 등급
+
+다중화 가능 여부는 **복제 기구가 실제로 구성돼 있는가**로 갈린다. `replicas` 를
+올릴 수 있다는 것과 다중화된다는 것은 다르다(§11-3 이 그 반례다).
+
+| 등급 | 뜻 | 해당 컴포넌트 |
+|---|---|---|
+| **A** | 클러스터링이 **내장·구성돼 있다** | `kafka`(KRaft, RF≥2) · `elasticsearch`(ECK) · `zookeeper`(앙상블) |
+| **B** | 무상태 — 복제본만 늘리면 된다 | `ingress-istio` · `nginx` · `otel-gateway` · `openmeter-api`·`-sink-worker` · `istiod` · `coredns` · `admin` · `cmmn-api` · `waypoint` · `logstash` · OpenReplay 프런트 다수 |
+| **C** | **단일만 가능** — 복제 기구가 없거나 본질적 단일 | `postgresql`·`mariadb`·`mongodb`(★§11-3) · `gitlab` · `vault` · `prometheus`·`loki`·`tempo` · `jenkins` · `clickhouse` · `redis`(standalone) · `minio`(3노드로는 erasure 불가) · `hadoop-namenode` · `hbase-master` · `hive-metastore` · `safeline` · `trino`(코디네이터) |
+| **D** | DaemonSet — 노드마다 1개 | `falco` 256Mi · `otel-agent` 192 · `filebeat` 128 · `ztunnel` 128 · `tetragon` 128 · `istio-cni-node` 100 → **노드당 0.91 GiB** |
+
+> **C 등급이 압도적으로 많다.** 그리고 그 이유의 대부분은 ADR-015(스토리지)가
+> `Open` 이라는 한 가지다. 분산 스토리지가 생기면 C 의 상당수가 B 로 내려온다.
+
+### 12-2. 세 가지 시나리오
+
+```
+Σ VM 메모리 = 배치된 파드 requests + 노드당 DaemonSet 0.91 + 시스템 예약 1.9
+가용 = 63.4(물리) − 7.0(Windows) − 8.8(L0 랩) = 47.6 GiB
+                                  L0-Target 종료 시 50.4 GiB
+```
+
+| 시나리오 | 다중화 범위 | Σ VM | 판정 |
+|---|---|---:|---|
+| ① 완전 HA | A 전부 3중 + B 11종 2중 | **56.28** | ❌ 8.7 초과 |
+| **② 실용 HA** | **Kafka 3중 + 핵심 B 6종 2중** | **49.47** | **⚠ `L0-Target` 종료 시 들어감** |
+| ③ ② + requests 정정 | 〃 (requests −16%) | **41.55** | ✅ 여유 6.0 |
+
+①이 넘치는 주된 이유는 **Elasticsearch 3중(+4.0 GiB)** 과 `logstash` 2중(+1.5)이다.
+ES 를 3중으로 두는 것은 **단일 호스트에서는 가용성이 아니라 검증 가치**다 —
+샤드 배치·ILM 복제본·재배정을 시험할 수 있다. 그 값어치가 4 GiB 이상이라고
+보면 ①을, 아니면 ②를 택한다.
+
+③의 −16% 는 근거가 있다. **requests 38.9 GiB 대 실사용 29.5 GiB**(−24%)이고,
+2026-09-03 에 같은 작업으로 6.7 GiB 를 회수한 전례가 있다. −16% 는 보수적으로
+잡은 값이다.
+
+### 12-3. 권장안 ② 의 노드 매핑
+
+| | node-1 (server) | node-2 | node-3 |
+|---|---|---|---|
+| **VM 메모리** | 16.47 GiB | 16.50 GiB | 16.50 GiB |
+| 파드 requests | 13.66 | 13.69 | 13.69 |
+| 파드 수 | 42 | 42 | 36 |
+| CPU | 7.1 코어 | 7.2 | 6.7 |
+| **HA 배치** | kafka(1/3) · istiod(1/2) · otel-gateway(1/2) · openmeter-api(1/2) · ingress(1/2) · nginx(1/2) · coredns(1/2) | kafka(2/3) · istiod(2/2) · otel-gateway(2/2) · openmeter-api(2/2) · ingress(2/2) · nginx(2/2) · coredns(2/2) | kafka(3/3) |
+| **주요 단일** | gitlab 2304 · postgresql 1024 · loki 1024 · keycloak 640 · mariadb 512 · solr 512 | elasticsearch 2048 · logstash 1536 · hive-metastore 768 · wazuh-indexer 768 · minio 640 · clickhouse 512 · prometheus 512 | safeline 2368 · trino 2048 · kibana 768 · livy 768 · hadoop-namenode 512 · mongodb 512 · vault 128 |
+
+전 노드 공통: DaemonSet 6종 0.91 GiB.
+
+**단일(C 등급)의 배치는 메모리 균형으로 정했다** — 세 노드가 13.7 GiB 로 거의
+같다. 친화성(affinity)으로 묶지 않은 이유는 k8s 통신이 네트워크 투명하기
+때문이다. 다만 **장애 반경은 균형과 무관하게 갈린다**:
+
+| 잃는 노드 | 죽는 것 |
+|---|---|
+| node-1 | GitLab · **PostgreSQL**(Keycloak·Apicurio·Hive MS·OpenMeter 연쇄) · Loki |
+| node-2 | **Elasticsearch · Logstash**(SIEM 전체) · MinIO · ClickHouse(과금 집계) · Prometheus |
+| node-3 | SafeLine · Trino · Kibana · Vault · MongoDB |
+
+**어느 노드가 빠져도 무언가는 죽는다.** 이것이 §11-2 가 말한 것의 구체적 모습이다 —
+분산 스토리지가 없으면 노드를 늘려도 상태 있는 워크로드는 그 자리에 묶인다.
+`postgresql` 이 node-1 에 있는 한 node-1 은 사실상 단일 장애점이다.
+
+### 12-4. 파드 수와 CPU
+
+```
+파드   42 / 42 / 36   (노드 상한 110 → 여유 충분. 현재 단일 노드는 107/110)
+CPU    7.1 / 7.2 / 6.7 코어 = 21.0   (호스트 24 코어)
+```
+
+**파드 상한 문제는 이것으로 확실히 해소된다.** CPU 는 21.0 코어가 requests 이고
+실사용은 1.5 코어(6%)라 여유가 크다 — 다만 VM 에 vCPU 를 배정할 때 합이 24 를
+넘어도 된다(CPU 는 오버커밋이 정상이다). 메모리와 달리 H1 의 제약을 받지 않는다.
+
+### 12-5. 이 매핑이 주지 **않는** 것
+
+- **DB 이중화** — C 등급의 DB 3종은 여전히 단일이다. §11-3 을 고치기 전에는
+  `replicas` 를 올리면 안 된다
+- **스토리지 이동성** — PVC 는 노드에 고정된다. 노드가 죽으면 그 위의 PVC 파드는
+  다른 노드에서 뜨지 못한다
+- **호스트 장애 내성** — 물리 호스트·디스크·전원이 하나다
+- **etcd 3중화의 실익** — 구성은 하되 정족수는 같은 호스트 안에 있다
+
+주는 것은 **다중 노드 검증 환경**이다 — 노드 간 CNI 데이터패스, 안티어피니티,
+PDB, 스케줄링, `topologySpreadConstraints`, 노드 드레인. §1 의 "검증 불가" 목록
+대부분이 여기서 검증 가능으로 바뀐다. ADR-051 이 A안의 목적으로 적은 것이
+정확히 그것이다.
+
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용
