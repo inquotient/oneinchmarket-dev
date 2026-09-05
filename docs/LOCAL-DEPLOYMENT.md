@@ -6788,6 +6788,12 @@ HA-9·10 은 §14-4 의 GAP 목록에 **남겨 둔다.** 단일 노드에서 5~8
 
 ## 16. DB 밖의 컴포넌트는 어떻게 HA 로 만드는가 (2026-09-05)
 
+> **★ 이 절은 불완전하다 — §17 이 대신한다.** 손으로 30개쯤을 적고 완전한
+> 것처럼 보이게 두었다. 실제 컨트롤러는 **124개**이고 OpenReplay 17종,
+> OpenMeter 6종, 오퍼레이터 13종, SafeLine·DefectDojo 계열, CronJob 15종이
+> 통째로 빠져 있었다. 아래 내용 자체는 맞으나 목록으로 쓰지 말 것.
+
+
 §13 이 DB 를 다뤘고 §12-1 은 등급만 나눴다. 나머지를 컴포넌트별로 적는다.
 **일반론이 아니라 이 레포의 실제 매니페스트를 읽고 확인한 것이다.**
 
@@ -6892,6 +6898,199 @@ HA-9·10 은 §14-4 의 GAP 목록에 **남겨 둔다.** 단일 노드에서 5~8
 **1~4 는 합쳐 3 GiB 미만이고 대부분 설정 변경이다.** §15-3 의 자리 만들기
 (`max-pods` 상향 + requests 정정)만 하면 지금 단일 노드에서도 세워 시험할 수
 있다 — §15-1 의 "옮겨가는 것" 에 전부 해당한다.
+
+## 17. 전 컴포넌트 HA 등급표 — 124개 (2026-09-05)
+
+§16 은 손으로 적었고 30개쯤에서 멈췄다. **손으로 적은 목록은 반드시 빠진다.**
+그래서 이 표는 살아 있는 클러스터에서 생성한다.
+
+```
+python3 scripts/ha-verification/ha-classify.py --md
+```
+
+규칙에 없는 컴포넌트는 `미분류` 로 나온다 — **빠진 것이 조용히 사라지지 않게
+하는 것이 이 스크립트의 요점**이고, HA-4 가 GAP 을 세어 출력하는 것과 같은
+발상이다(§14-4). 워크로드가 늘면 다시 돌릴 것.
+
+### 17-1. 등급
+
+| 등급 | 뜻 | 무엇을 해야 하나 |
+|:-:|---|---|
+| **R** | 복제만 하면 됨 | 상태가 외부(DB·ES·오브젝트)에 있다. `replicas` + PDB + anti-affinity |
+| **C** | 클러스터링 구성 | 앱 고유 프로토콜이 필요 — RF·Raft·Galera·replSet·Infinispan·SolrCloud |
+| **S** | 상태를 먼저 옮겨야 | **로컬 디스크에 상태가 있다.** 외부 저장소 전환이 선행 |
+| **L** | 리더 선출 | 오퍼레이터·컨트롤러. `replicas 2` + leader election |
+| **D** | DaemonSet | 구조상 노드당 1 — 이미 그 형태다 |
+| **J** | Job/CronJob | HA 개념이 다르다. **멱등성·중복 실행 방지**가 관건 |
+| **X** | 실익 없음/불가 | 단일 전제 설계이거나 상용 기능 |
+
+### 17-2. 분포
+
+```
+합계 124 개 — R 53 · C 17 · S 6 · L 13 · D 8 · J 15 · X 12
+```
+
+읽는 법:
+
+- **R 53개가 가장 큰 덩어리다.** 절반 가까이가 `replicas` 만 올리면 된다 —
+  §16-7 의 우선순위 1~4 가 여기서 나온다. 다만 **R 이라고 공짜는 아니다**:
+  2대가 되면 `kube-state-metrics` 는 지표가 이중이 되고 `keycloak` 은 세션이
+  갈린다. 표의 "HA 구성 방법" 열에 그런 단서를 적어 두었다.
+- **S 6개가 가장 위험하다**(Grafana·Loki·Tempo·Pyroscope·Redis·
+  dependency-track-apiserver). 무상태처럼 생겼는데 로컬 상태가 있어
+  `replicas` 를 올리면 조용히 갈라진다 — §11-3 과 같은 부류다.
+- **J 15개는 지금까지 논의에서 통째로 빠져 있었다.** CronJob 에 HA 는
+  "여러 개 띄우기" 가 아니라 **"두 번 돌아도 안전한가"** 다. 과금 계열
+  (`openmeter-billing-*`·`-subscription-sync`·`-dlq-replay`)이 여기 있고
+  중복 실행은 곧 **중복 청구**다(Gotcha 16 과 같은 줄기).
+  실측해 보니 **15개 중 14개가 이미 `concurrencyPolicy: Forbid`** 다 —
+  과금 넷도 전부 포함된다. 예외는 `efs-cleaner`(`Allow`) 하나이고 정리
+  작업이라 중복이 무해하다. **이 축은 이미 갖춰져 있었다.**
+  남는 것은 노드가 늘 때 kube-controller-manager 가 단일 스케줄러라는
+  점인데, 그것은 제어평면 HA(§11-1)에 딸려 온다.
+- **L 13개**는 대부분 차트가 리더 선출을 이미 지원한다. 싸다.
+- **X 12개**는 손대지 않는다. GitLab·Jenkins·Trino 코디네이터처럼 구조상
+  불가한 것과, `defectdojo-celery-beat`·`ranger-usersync` 처럼 **단일이어야
+  옳은 것**이 섞여 있다. 후자를 늘리면 스케줄·동기화가 중복 발행된다.
+
+### 17-3. 전체 표
+
+| 등급 | 컴포넌트 | 종류 | 현재 | PVC | HA 구성 방법 |
+|:-:|---|---|:-:|:-:|---|
+| **R** | istiod `istio-system` | Deployment | 1 | - | replicas 2 |
+| **R** | coredns `kube-system` | Deployment | 1 | - | replicas 2 + anti-affinity. DNS 는 전부의 의존성이다 |
+| **R** | metrics-server `kube-system` | Deployment | 1 | - | 무상태 |
+| **R** | admin | StatefulSet | 1 | - | 상태는 MariaDB/Mongo 에 있다 |
+| **R** | akhq | StatefulSet | 1 | - | 무상태 UI |
+| **R** | alerts-openreplay | Deployment | 1 | - | OpenReplay 계층 — 대부분 무상태(상태는 PG·CH·Redis) |
+| **R** | api-openreplay | Deployment | 1 | - | OpenReplay 계층 — 대부분 무상태(상태는 PG·CH·Redis) |
+| **R** | apicurio-registry | StatefulSet | 1 | - | 상태는 PG 에 있다 |
+| **R** | apicurio-ui | Deployment | 1 | - | 무상태 UI |
+| **R** | assets-openreplay | Deployment | 1 | - | OpenReplay 계층 — 대부분 무상태(상태는 PG·CH·Redis) |
+| **R** | assist-openreplay | Deployment | 1 | - | OpenReplay 계층 — 대부분 무상태(상태는 PG·CH·Redis) |
+| **R** | canvases-openreplay | Deployment | 1 | - | OpenReplay 계층 — 대부분 무상태(상태는 PG·CH·Redis) |
+| **R** | chalice-openreplay | Deployment | 1 | - | OpenReplay 계층 — 대부분 무상태(상태는 PG·CH·Redis) |
+| **R** | cmmn-api | StatefulSet | 1 | - | 상태는 MariaDB/Mongo 에 있다 |
+| **R** | db-openreplay | Deployment | 1 | - | OpenReplay 계층 — 대부분 무상태(상태는 PG·CH·Redis) |
+| **R** | defectdojo-celery-worker | Deployment | 1 | Y | 큐 워커 |
+| **R** | defectdojo-django | Deployment | 1 | Y | 상태는 PG 에 있다 |
+| **R** | defectdojo-nginx | Deployment | 1 | - | 상태는 PG 에 있다 |
+| **R** | dependency-track-frontend | Deployment | 1 | - | 무상태 |
+| **R** | ender-openreplay | Deployment | 1 | - | OpenReplay 계층 — 대부분 무상태(상태는 PG·CH·Redis) |
+| **R** | falcosidekick | Deployment | 1 | - | 무상태 전달자 |
+| **R** | frontend-openreplay | Deployment | 1 | - | OpenReplay 계층 — 대부분 무상태(상태는 PG·CH·Redis) |
+| **R** | glitchtip-web | Deployment | 1 | - | 상태는 PG/Redis 에 있다 |
+| **R** | glitchtip-worker | Deployment | 1 | - | 큐 워커 — 늘리면 그대로 분산 |
+| **R** | hadoop-datanode | StatefulSet | 1 | Y | 데이터 노드는 늘리면 그대로 분산된다 |
+| **R** | hbase-regionserver | StatefulSet | 1 | - | 데이터 노드는 늘리면 그대로 분산된다 |
+| **R** | heuristics-openreplay | Deployment | 1 | - | OpenReplay 계층 — 대부분 무상태(상태는 PG·CH·Redis) |
+| **R** | hive-metastore | StatefulSet | 1 | - | 상태는 PG 에 있다 — 싸다 |
+| **R** | hive-server | StatefulSet | 1 | - | 메타스토어를 공유 |
+| **R** | http-openreplay | Deployment | 1 | - | OpenReplay 계층 — 대부분 무상태(상태는 PG·CH·Redis) |
+| **R** | images-openreplay | Deployment | 1 | - | OpenReplay 계층 — 대부분 무상태(상태는 PG·CH·Redis) |
+| **R** | ingress-istio | Deployment | 1 | - | replicas 2 |
+| **R** | integrations-openreplay | Deployment | 1 | - | OpenReplay 계층 — 대부분 무상태(상태는 PG·CH·Redis) |
+| **R** | kafka-bridge | Deployment | 1 | - | 무상태 |
+| **R** | kibana-kb | Deployment | 1 | - | 상태는 ES 에 있다 |
+| **R** | knox | Deployment | 1 | - | 무상태 게이트웨이 |
+| **R** | kube-state-metrics | Deployment | 1 | - | 무상태. 2대면 지표가 이중이 되므로 Prometheus 쪽에서 제거 |
+| **R** | lam | Deployment | 1 | - | 상태는 DS389 에 있다 |
+| **R** | logstash | StatefulSet | 1 | - | Kafka 컨슈머 그룹이 분배. replicas 2 |
+| **R** | nginx | Deployment | 1 | - | 무상태 |
+| **R** | openmeter-api | Deployment | 1 | - | 상태는 PG/CH/Redis. ★ 과금 진입점이라 우선순위 높음 |
+| **R** | openmeter-balance-worker | Deployment | 1 | - | Kafka 컨슈머 그룹이 분배 |
+| **R** | openmeter-billing-worker | Deployment | 1 | - | Kafka 컨슈머 그룹이 분배 |
+| **R** | openmeter-notification-service | Deployment | 1 | - | 무상태 |
+| **R** | openmeter-sink-worker | Deployment | 1 | - | Kafka 컨슈머 그룹이 분배 |
+| **R** | otel-gateway | Deployment | 1 | - | 무상태 수집기 |
+| **R** | prometheus | StatefulSet | 1 | Y | 동일 설정 2대 병렬(HA 쌍). 중복은 Alertmanager 가 제거 |
+| **R** | ranger-admin | StatefulSet | 1 | - | 상태는 DB 에 있다 |
+| **R** | sink-openreplay | Deployment | 1 | - | OpenReplay 계층 — 대부분 무상태(상태는 PG·CH·Redis) |
+| **R** | sourcemapreader-openreplay | Deployment | 1 | - | OpenReplay 계층 — 대부분 무상태(상태는 PG·CH·Redis) |
+| **R** | spot-openreplay | Deployment | 1 | - | OpenReplay 계층 — 대부분 무상태(상태는 PG·CH·Redis) |
+| **R** | storage-openreplay | Deployment | 1 | - | OpenReplay 계층 — 대부분 무상태(상태는 PG·CH·Redis) |
+| **R** | waypoint | Deployment | 1 | - | replicas 2 |
+| **C** | alertmanager | Deployment | 1 | - | 네이티브 gossip 클러스터. 현재 --cluster.listen-address= 로 꺼져 있다 |
+| **C** | clickhouse | StatefulSet | 1 | Y | ReplicatedMergeTree + Keeper 3 (§13-2) |
+| **C** | ds389 | StatefulSet | 1 | Y | multi-supplier 복제. 복제본만 늘리면 갈라진다 |
+| **C** | elasticsearch-es-default | StatefulSet | 1 | Y | ECK nodeSets 3 + 인덱스 복제본 >=1 |
+| **C** | hadoop-namenode | StatefulSet | 1 | Y | JournalNode 3 + ZKFC + standby NN — 큰 작업 |
+| **C** | hbase-master | StatefulSet | 1 | - | 마스터 여럿 + ZK 선출 |
+| **C** | kafka | StatefulSet | 1 | Y | 브로커 3 + 토픽 RF>=2 + min.insync.replicas=2 |
+| **C** | keycloak | StatefulSet | 1 | Y | 상태는 PG 에 있다. replicas 2 + JGroups DNS_PING(세션 복제) |
+| **C** | mariadb | StatefulSet | 1 | Y | Galera 3중 (§13-2) |
+| **C** | minio | StatefulSet | 1 | Y | 분산 모드는 엔드포인트 4개 이상. Loki·Tempo·Grafana·백업의 선행 |
+| **C** | mongodb | StatefulSet | 1 | Y | 네이티브 replica set (§13-2) |
+| **C** | postgresql | StatefulSet | 1 | Y | CloudNativePG — 스트리밍 복제 + 자동 페일오버 (§13-2) |
+| **C** | solr | StatefulSet | 1 | Y | SolrCloud 로 전환 + ZK 앙상블 |
+| **C** | vault | StatefulSet | 1 | Y | Raft 3노드. ★ auto-unseal 이 선행 — 없으면 무의미 |
+| **C** | wazuh-indexer | StatefulSet | 1 | Y | OpenSearch 클러스터 3노드 |
+| **C** | wazuh-manager | StatefulSet | 1 | Y | master/worker 클러스터 모드 — 매니페스트에 설정 없음 |
+| **C** | zookeeper | StatefulSet | 1 | Y | 앙상블 3 |
+| **S** | dependency-track-apiserver | Deployment | 1 | Y | PVC 를 쓴다 — 외부 저장소 전환 선행 |
+| **S** | grafana | Deployment | 1 | - | SQLite on PVC → PostgreSQL 로 옮긴 뒤 replicas 2 |
+| **S** | loki | StatefulSet | 1 | Y | filesystem → MinIO(S3) + 마이크로서비스 모드 |
+| **S** | pyroscope | StatefulSet | 1 | Y | 로컬 저장 → 오브젝트 스토리지 필요 |
+| **S** | redis | StatefulSet | 1 | Y | Sentinel 은 클라이언트 8곳이 미지원 → AOF 지속화만 (§13-2) |
+| **S** | tempo | StatefulSet | 1 | Y | backend local → MinIO |
+| **L** | cert-manager `cert-manager` | Deployment | 1 | - | replicas 2 + 리더 선출 |
+| **L** | cert-manager-cainjector `cert-manager` | Deployment | 1 | - | replicas 2 + 리더 선출 |
+| **L** | cert-manager-webhook `cert-manager` | Deployment | 1 | - | replicas 2 + 리더 선출 |
+| **L** | elastic-operator `elastic-system` | StatefulSet | 1 | - | 리더 선출. 오퍼레이터가 죽어도 기존 ES 는 계속 돈다 |
+| **L** | cilium-operator `kube-system` | Deployment | 1 | - | replicas 2 + 리더 선출. 죽어도 기존 데이터패스는 계속 돈다 |
+| **L** | local-path-provisioner `kube-system` | Deployment | 1 | - | 리더 선출. ★ 다만 볼륨은 노드 로컬이다(§11-2-b) |
+| **L** | kyverno-admission-controller `kyverno` | Deployment | 1 | - | replicas 2 + 리더 선출(차트 기본 지원) |
+| **L** | kyverno-background-controller `kyverno` | Deployment | 1 | - | replicas 2 + 리더 선출(차트 기본 지원) |
+| **L** | kyverno-cleanup-controller `kyverno` | Deployment | 1 | - | replicas 2 + 리더 선출(차트 기본 지원) |
+| **L** | kyverno-reports-controller `kyverno` | Deployment | 1 | - | replicas 2 + 리더 선출(차트 기본 지원) |
+| **L** | policy-reporter `policy-reporter` | Deployment | 1 | - | 리더 선출 |
+| **L** | tetragon-operator `tetragon` | Deployment | 1 | - | 리더 선출 |
+| **L** | trivy-operator `trivy-system` | Deployment | 1 | - | 리더 선출 |
+| **D** | istio-cni-node `istio-system` | DaemonSet | 1 | - | 구조상 노드당 1 — 이미 그 형태다 |
+| **D** | ztunnel `istio-system` | DaemonSet | 1 | - | 구조상 노드당 1 — 이미 그 형태다 |
+| **D** | cilium `kube-system` | DaemonSet | 1 | - | 구조상 노드당 1 — 이미 그 형태다 |
+| **D** | cilium-envoy `kube-system` | DaemonSet | 1 | - | 구조상 노드당 1 — 이미 그 형태다 |
+| **D** | falco | DaemonSet | 1 | - | 구조상 노드당 1 — 이미 그 형태다 |
+| **D** | filebeat | DaemonSet | 1 | - | 구조상 노드당 1 — 이미 그 형태다 |
+| **D** | otel-agent | DaemonSet | 1 | - | 구조상 노드당 1 — 이미 그 형태다 |
+| **D** | tetragon `tetragon` | DaemonSet | 1 | - | 구조상 노드당 1 — 이미 그 형태다 |
+| **J** | efs-cleaner | CronJob | - | - | HA 개념이 다르다 — 멱등성·중복 실행 방지가 관건 |
+| **J** | kubescape-scan | CronJob | - | - | HA 개념이 다르다 — 멱등성·중복 실행 방지가 관건 |
+| **J** | openmeter-billing-advance-invoices | CronJob | - | - | HA 개념이 다르다 — 멱등성·중복 실행 방지가 관건 |
+| **J** | openmeter-billing-collect-invoices | CronJob | - | - | HA 개념이 다르다 — 멱등성·중복 실행 방지가 관건 |
+| **J** | openmeter-dlq-replay | CronJob | - | - | HA 개념이 다르다 — 멱등성·중복 실행 방지가 관건 |
+| **J** | openmeter-subscription-sync | CronJob | - | - | HA 개념이 다르다 — 멱등성·중복 실행 방지가 관건 |
+| **J** | rotate-admin-passwords | CronJob | - | - | HA 개념이 다르다 — 멱등성·중복 실행 방지가 관건 |
+| **J** | rotate-elasticsearch-password | CronJob | - | - | HA 개념이 다르다 — 멱등성·중복 실행 방지가 관건 |
+| **J** | rotate-mariadb-password | CronJob | - | - | HA 개념이 다르다 — 멱등성·중복 실행 방지가 관건 |
+| **J** | rotate-minio-password | CronJob | - | - | HA 개념이 다르다 — 멱등성·중복 실행 방지가 관건 |
+| **J** | rotate-mongodb-password | CronJob | - | - | HA 개념이 다르다 — 멱등성·중복 실행 방지가 관건 |
+| **J** | rotate-postgresql-password | CronJob | - | - | HA 개념이 다르다 — 멱등성·중복 실행 방지가 관건 |
+| **J** | rotate-redis-password | CronJob | - | - | HA 개념이 다르다 — 멱등성·중복 실행 방지가 관건 |
+| **J** | rotation-git-sync | CronJob | - | - | HA 개념이 다르다 — 멱등성·중복 실행 방지가 관건 |
+| **J** | trivy-image-scan | CronJob | - | - | HA 개념이 다르다 — 멱등성·중복 실행 방지가 관건 |
+| **X** | caldera | Deployment | 1 | - | 랩 전용 단일 |
+| **X** | defectdojo-celery-beat | Deployment | 1 | - | ★ beat 는 단일이어야 한다 — 여럿이면 스케줄이 중복 발행된다 |
+| **X** | gitlab | StatefulSet | 1 | Y | Gitaly Cluster(Praefect) + Redis + 오브젝트 스토리지 필요 — 범위 밖 |
+| **X** | jenkins | StatefulSet | 1 | Y | 컨트롤러 HA 는 상용 기능. 에이전트 확장 + 백업 |
+| **X** | livy | StatefulSet | 1 | - | 단일 전제. 실익 작음 |
+| **X** | ranger-usersync | Deployment | 1 | - | 단일 동기화기 — 여럿 돌리면 중복 동기화 |
+| **X** | safeline | Deployment | 1 | Y | compose 태생 단일 |
+| **X** | safeline-fvm | Deployment | 1 | - | compose 태생 단일 |
+| **X** | safeline-luigi | Deployment | 1 | - | compose 태생 단일 |
+| **X** | spark-connect | StatefulSet | 1 | - | 단일 전제. 실익 작음 |
+| **X** | spark-history | StatefulSet | 1 | - | 단일 전제. 실익 작음 |
+| **X** | trino | StatefulSet | 1 | - | 코디네이터 HA 가 Trino 에 없다. 워커만 늘어난다 |
+
+### 17-4. 이 표로 무엇을 하나
+
+1. **R 등급부터 훑는다** — §15-3 의 자리(파드·메모리)를 만든 뒤 `replicas` 를
+   올리고 §14 의 HA-2 로 무중단을 확인한다. 53개 중 실익 있는 것부터
+   (CoreDNS·istiod·게이트웨이·openmeter-api·hive-metastore·kibana)
+2. **S 등급 6개는 저장소 전환이 먼저다.** 넷의 목적지가 MinIO 라 **MinIO
+   분산화가 선행**이다(§16-0)
+3. **J 등급 15개는 복제가 아니라 멱등성을 본다.** 과금 CronJob 넷이 우선
+4. **C 등급 17개**가 §13 과 §16-4 의 본체다. 가장 비싸고 가장 늦다
 
 ## 관련 문서
 
