@@ -5947,6 +5947,99 @@ readinessProbe:
 **지금은 §9 로 넘긴다.** Knox 가 프록시할 대상(HDFS·Hive)이 `lakehouse-local`
 전용이고, §19-5 ③ 의 프로파일 분리에서 **빼기로 한 묶음**이라 순서가 맞지 않는다.
 
+### 8-66. Knox 로 HDFS·Hive 를 뚫었다 — HBase 와 Ranger 는 남았다 (2026-09-06)
+
+§8-65 에서 "Knox 가 아무것도 프록시하지 않는다" 를 확인했으니 그 다음이다.
+
+#### 결과
+
+| 대상 | 상태 | 근거 |
+|---|---|---|
+| **HDFS(WebHDFS)** | ✅ **된다** | Knox 경유 `HTTP 200` + 실제 디렉터리 목록(hbase·tmp·user·warehouse) |
+| **Hive** | ⚠ **백엔드는 되고 TLS 이름이 막는다** | HS2 HTTP JDBC 직접 `show databases` 성공. Knox 경로도 열림. 다만 인증서 SAN 문제로 JDBC 클라이언트가 `knox-headless` 로 못 붙는다 |
+| **HBase** | ❌ 미착수 | REST 서버(Stargate)가 없고 **파드 상한 110/110** 이라 넣을 자리가 없다 |
+| **Ranger 권한 제어** | ❌ **작동하지 않는다** | 플러그인이 HDFS·Hive·HBase 어디에도 **설치돼 있지 않다** |
+
+#### 한 일
+
+**① 토폴로지 신설** — `knox-topology-configmap.yaml`. 인증은 DS389 를 직접
+본다(`KnoxLdapRealm` + `userDnTemplate`). **바인드 계정이 필요 없어** 매니페스트에
+비밀번호가 들어가지 않는다. 인증 동작을 네 갈래로 확인했다:
+
+```
+인증 없음        401
+틀린 비밀번호     401
+없는 사용자      401
+올바른 LDAP 자격  200  {"FileStatuses":... hbase, tmp, user, warehouse}
+```
+
+**② HiveServer2 를 HTTP transport 로** — Knox 의 HIVE 서비스는 binary 를
+지원하지 않는다. `transport.mode=http` · `thrift.http.port=10001` ·
+`thrift.http.path=cliservice` 로 바꿨다. **10000 을 쓰는 소비자가 하나도 없어**
+안전했다(Trino·Spark 는 HiveServer2 가 아니라 메타스토어 9083 을 직접 본다).
+
+**③ readiness probe 를 옮겼다** — 이것이 함정이었다. probe 가 `thrift`(10000)를
+보는데 HTTP 모드로 바꾸면 **그 포트가 더 이상 열리지 않는다.** 파드가 영원히
+`0/1` 이고 liveness 가 계속 죽인다. 포트를 `http-thrift`(10001)로 옮겨 해소했다.
+
+**④ Knox 의 probe 도 바꿨다** — `tcpSocket` → `httpGet /gateway/homepage/home`.
+§8-65 의 "포트만 열려 있으면 Ready" 를 없앤다. **`/gateway/oim/...` 를 찌르지
+않은 이유**는 그 경로가 인증을 요구해 401 이고 **kubelet 의 httpGet 은 2xx·3xx
+만 성공**으로 보기 때문이다 — 401 을 기대하는 probe 는 영원히 Ready 가 안 된다.
+
+**⑤ NetworkPolicy 두 곳에 Knox 를 넣었다** — `allow-hadoop-namenode-access` 와
+`allow-hive-server-access`(포트 10001 도 함께). 없으면 Knox 가 502 를 준다.
+
+#### ★ 남은 것 1 — Knox 의 TLS 신원
+
+이미지는 기동마다 자체 서명 인증서를 만들고 **SAN 에 파드 이름과 localhost 만**
+넣는다.
+
+```
+Certificate for <knox-headless> doesn't match any of the subject
+alternative names: [knox-6b66c4c4b5-lf7rw, localhost]
+```
+
+파드 이름은 재기동마다 바뀌므로 클라이언트가 고정할 수도 없다. cert-manager 로
+`knox-tls` 인증서를 발급하고(`gateway-ca` 재사용) `KNOX_CERT`/`KNOX_KEY` 를
+주었으나 **해결되지 않았다.**
+
+> **★ `KNOX_CERT`/`KNOX_KEY` 는 게이트웨이 TLS 신원이 아니다.** entrypoint 를
+> 읽어 보니 그 둘로 만든 PKCS12 를 **`keystore.jks` 에 별칭 `keystore` 로**
+> 넣는다 — 그것은 **서명용**(JWT·KnoxSSO)이다. 게이트웨이 TLS 는
+> `gateway.jks` 의 별칭 `gateway-identity` 에서 온다. 그래서 인증서를 주어도
+> 서빙되는 것은 여전히 `CN=localhost, OU=Test, O=Hadoop` 이다.
+> `knox-deployment.yaml` 주석이 "KNOX_CERT·KNOX_KEY 로 바꾼다" 고 적어 둔 것은
+> **추정이었고 틀렸다.**
+
+고치려면 `gateway.jks` 를 `gateway-identity` 별칭으로 직접 만들어 넣는
+initContainer 가 필요하다. **그 전까지 Hive JDBC 는 Knox 를 거치지 못한다** —
+HS2 에 직접 붙는 것은 된다.
+
+#### ★ 남은 것 2 — Ranger 가 권한을 제어하지 않는다
+
+요구된 확인의 답이다. **제어하지 않는다.**
+
+```
+ranger-.*-plugin · ranger.plugin · xasecure  →  레포 전체에서 0건
+```
+
+Ranger Admin 은 돌고 정책 UI 도 뜨지만, **정책을 강제하는 주체는 각 서비스에
+들어가는 플러그인**이다(HDFS NameNode·HiveServer2·HBase Master). 그것이 없으면
+Ranger 는 **정책을 저장만 하는 데이터베이스**다. 지금 HDFS 접근을 막는 것은
+POSIX 퍼미션뿐이고 Hive·HBase 는 사실상 무제한이다.
+
+플러그인 설치는 각 서비스 이미지에 jar 를 넣고 `ranger-*-security.xml`·
+`ranger-*-audit.xml` 을 배포한 뒤 서비스를 재기동하는 일이다. `docker/` 에
+로컬 빌드 이미지가 있어 불가능하지는 않으나 **작은 작업이 아니다.**
+
+#### ★ 남은 것 3 — HBase
+
+Knox 의 `WEBHBASE` 는 **HBase REST 서버(Stargate)** 를 요구한다. 16010 은 마스터
+UI, 16000 은 RPC 라 쓸 수 없다. REST 서버는 파드를 하나 더 쓰는데 **지금
+110/110** 이다 — 실제로 이 작업 중에 `hive-server-0` 이 `Too many pods` 로
+Pending 이 되어 9분을 멈췄다. §19-5 ③ 의 프로파일 분리가 선행되어야 한다.
+
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
 > **이 절은 "지금 하지 않기로 결정한 것" 의 목록이다.** §8 의 각 절 끝에

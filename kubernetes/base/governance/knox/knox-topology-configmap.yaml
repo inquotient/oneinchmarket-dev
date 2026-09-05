@@ -1,0 +1,108 @@
+# Knox 토폴로지 — 이 클러스터의 서비스를 가리킨다
+#
+# ★ 왜 필요한가 (§8-65)
+#   이 ConfigMap 이 없을 때 Knox 는 **이미지 기본 토폴로지**로 돌았다.
+#   `sandbox.xml` 이 `hdfs://localhost:8020` · `http://localhost:50070/webhdfs`
+#   (Hortonworks Sandbox 데모 주소)를 가리켜 **아무것도 프록시하지 않았다.**
+#   게다가 기본 토폴로지의 인증은 데모 LDAP 을 보는데 그 프로세스가 돌지
+#   않아 **모든 요청이 401** 이었다. 그런데 readinessProbe 가 tcpSocket 이라
+#   `1/1 Running` 으로 보였다.
+#
+# ★ 인증은 DS389 를 직접 본다
+#   `KnoxLdapRealm` + `userDnTemplate` 방식이라 **바인드 계정이 필요 없다** —
+#   Shiro 가 호출자 자격으로 직접 bind 한다. 그래서 이 파일에 비밀번호가
+#   들어가지 않는다.
+#   DS389 실측 구조: suffix `dc=oneinchmarket,dc=co,dc=kr`,
+#   사용자 `ou=people`, 그룹 `ou=groups`.
+#
+# ★ 담긴 서비스와 빠진 것
+#   WEBHDFS  — 그대로 붙는다(namenode:9870). 실측 200 확인
+#   HIVE     — Knox 는 **HTTP transport** 만 지원한다. 그래서 HiveServer2 를
+#              binary(10000) → http(10001, path=cliservice)로 바꿨다.
+#              10000 을 쓰는 소비자가 없어 안전했다(Trino·Spark 는 메타스토어
+#              9083 을 직접 본다)
+#   WEBHBASE — **HBase REST 서버(Stargate)** 가 필요한데 배포돼 있지 않다.
+#              16010 은 마스터 UI 이고 16000 은 RPC 라 Knox 가 쓸 수 없다.
+#              파드를 하나 더 써야 해서 분리했다 — LOCAL-DEPLOYMENT.md §8-66
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: knox-topology
+  labels:
+    app.kubernetes.io/name: knox
+    app.kubernetes.io/component: governance
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+data:
+  oim.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <topology>
+        <gateway>
+            <!-- 인증 — DS389 LDAP 에 직접 bind 한다 -->
+            <provider>
+                <role>authentication</role>
+                <name>ShiroProvider</name>
+                <enabled>true</enabled>
+                <param>
+                    <name>sessionTimeout</name>
+                    <value>30</value>
+                </param>
+                <param>
+                    <name>main.ldapContextFactory</name>
+                    <value>org.apache.knox.gateway.shirorealm.KnoxLdapContextFactory</value>
+                </param>
+                <param>
+                    <name>main.ldapRealm</name>
+                    <value>org.apache.knox.gateway.shirorealm.KnoxLdapRealm</value>
+                </param>
+                <param>
+                    <name>main.ldapRealm.contextFactory</name>
+                    <value>$ldapContextFactory</value>
+                </param>
+                <param>
+                    <name>main.ldapRealm.contextFactory.url</name>
+                    <value>ldap://ds389-headless:3389</value>
+                </param>
+                <param>
+                    <name>main.ldapRealm.contextFactory.authenticationMechanism</name>
+                    <value>simple</value>
+                </param>
+                <!-- 바인드 계정이 필요 없는 방식 — 호출자로 직접 bind 한다 -->
+                <param>
+                    <name>main.ldapRealm.userDnTemplate</name>
+                    <value>uid={0},ou=people,dc=oneinchmarket,dc=co,dc=kr</value>
+                </param>
+                <param>
+                    <name>urls./**</name>
+                    <value>authcBasic</value>
+                </param>
+            </provider>
+
+            <!-- 신원 전달 — 인증된 사용자 이름을 그대로 백엔드로 넘긴다.
+                 Ranger 플러그인이 붙으면 이 이름으로 정책이 평가된다. -->
+            <provider>
+                <role>identity-assertion</role>
+                <name>Default</name>
+                <enabled>true</enabled>
+            </provider>
+
+            <!-- ★ 인가는 여기서 하지 않는다.
+                 Knox 의 AclsAuthz 는 게이트웨이 수준의 거친 통제이고,
+                 요구된 것은 **Ranger 를 통한 제어**다. Ranger 는 각 서비스
+                 (HDFS NameNode·HiveServer2·HBase)에 플러그인으로 들어가야
+                 하며 현재 어디에도 설치돼 있지 않다 — §8-66. -->
+        </gateway>
+
+        <service>
+            <role>WEBHDFS</role>
+            <url>http://hadoop-namenode:9870/webhdfs</url>
+        </service>
+
+        <!-- HiveServer2 — HTTP transport 로 바꾼 뒤에야 붙는다.
+             JDBC: jdbc:hive2://<knox>:8443/;ssl=true;transportMode=http;
+                   httpPath=gateway/oim/hive -->
+        <service>
+            <role>HIVE</role>
+            <url>http://hive-server-headless:10001/cliservice</url>
+        </service>
+    </topology>

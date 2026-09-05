@@ -36,6 +36,18 @@ spec:
             - {name: IMPORT_LETS_ENCRYPT_STAGING_CERTS, value: "false"}
             - name: MASTER_SECRET
               valueFrom: {secretKeyRef: {name: knox-secret, key: master-secret}}
+            # ★ cert-manager 가 발급한 인증서를 쓴다. 없으면 이미지가 기동마다
+            #   자체 서명 인증서를 만들고 SAN 에 **파드 이름과 localhost 만**
+            #   넣어, `knox-headless` 로 붙는 JDBC 클라이언트가 전부 끊긴다
+            #   (SSLPeerUnverifiedException) — §8-66.
+            - {name: KNOX_CERT, value: /etc/knox/tls/tls.crt}
+            - {name: KNOX_KEY,  value: /etc/knox/tls/tls.key}
+            # ★ KNOX_CERT/KNOX_KEY 를 주면 entrypoint 가 그것으로 PKCS12 를
+            #   만드는데, 그때 `-passout file:${KEYSTORE_PASSWORD_FILE}` 을 쓴다.
+            #   이 변수를 안 주면 빈 경로가 되어 `Can't open file` →
+            #   `Error getting passwords` 로 **CrashLoop 한다**(실측).
+            #   MASTER_SECRET 과 같은 값을 파일로 마운트해 쓴다.
+            - {name: KEYSTORE_PASSWORD_FILE, value: /etc/knox/pw/master-secret}
           ports:
             - {containerPort: 8443, name: https, protocol: TCP}
           securityContext:
@@ -54,16 +66,55 @@ spec:
             timeoutSeconds: 10
             failureThreshold: 6
           readinessProbe:
-            tcpSocket: {port: https}
+            # ★ tcpSocket 이었다 — 포트만 열려 있으면 통과해서, 토폴로지가
+            #   아무것도 프록시하지 않는 4일 동안 1/1 Running 이었다(§8-65).
+            #   최소한 게이트웨이가 HTTP 로 응답하는지는 본다.
+            #
+            # ★ 왜 /gateway/oim/... 을 찌르지 않는가
+            #   그 경로는 인증이 걸려 있어 자격증명 없이는 **401** 이고,
+            #   kubelet 의 httpGet 은 **2xx·3xx 만 성공**으로 본다. 401 을
+            #   기대하는 probe 는 영원히 Ready 가 되지 않는다. 자격증명을
+            #   probe 에 넣는 것은 그 자체로 나쁘다.
+            #   homepage 는 인증 없이 301 을 돌려주므로 "게이트웨이가 토폴로지를
+            #   적재하고 서빙 중" 까지는 증명한다. oim 토폴로지 자체의 동작은
+            #   scripts/ 의 검증이나 §8-66 의 절차로 확인한다.
+            httpGet:
+              path: /gateway/homepage/home
+              port: https
+              scheme: HTTPS
             periodSeconds: 15
             timeoutSeconds: 10
           volumeMounts:
+            # ★ 토폴로지 — subPath 로 **파일 하나만** 넣는다. 디렉터리를 통째로
+            #   마운트하면 이미지 기본 토폴로지(homepage·admin·manager·knoxsso)가
+            #   가려져 Knox 자체 UI 와 관리 API 가 사라진다.
+            - name: tls
+              mountPath: /etc/knox/tls
+              readOnly: true
+            - name: keystore-pw
+              mountPath: /etc/knox/pw
+              readOnly: true
+            - name: topology
+              mountPath: /home/knox/knox/conf/topologies/oim.xml
+              subPath: oim.xml
+              readOnly: true
             # 기동 시 생성되는 키스토어·트러스트스토어. 파드 수명과 같이 간다.
             # 매 기동마다 자체 서명 인증서가 새로 생긴다 — 앞단에 실 인증서를
             # 둘 때(Gateway/Ingress 도입 시) KNOX_CERT·KNOX_KEY 로 바꾼다.
             - {name: keystores, mountPath: /home/knox/knox/data/security/keystores}
             - {name: logs, mountPath: /home/knox/knox/logs}
       volumes:
+        - name: tls
+          secret:
+            secretName: knox-tls
+        - name: keystore-pw
+          secret:
+            secretName: knox-secret
+            items:
+              - {key: master-secret, path: master-secret}
+        - name: topology
+          configMap:
+            name: knox-topology
         - name: keystores
           emptyDir: {}
         - name: logs

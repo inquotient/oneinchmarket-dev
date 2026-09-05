@@ -37,6 +37,12 @@ spec:
             - containerPort: 10000
               name: thrift
               protocol: TCP
+            # ★ HTTP transport 포트(§8-66). `hive.server2.transport.mode=http`
+            #   로 바꾸면 HiveServer2 는 **10000 을 더 이상 열지 않고** 이쪽만
+            #   연다. probe 도 함께 옮겨야 한다 — 안 그러면 영원히 0/1 이다.
+            - containerPort: 10001
+              name: http-thrift
+              protocol: TCP
             - containerPort: 10002
               name: web
               protocol: TCP
@@ -92,18 +98,18 @@ spec:
           # 메타스토어 접속 + Tez 초기화까지 2~3분 걸린다.
           startupProbe:
             tcpSocket:
-              port: thrift
+              port: http-thrift
             failureThreshold: 40
             periodSeconds: 10
           livenessProbe:
             tcpSocket:
-              port: thrift
+              port: http-thrift
             periodSeconds: 20
             timeoutSeconds: 10
             failureThreshold: 6
           readinessProbe:
             tcpSocket:
-              port: thrift
+              port: http-thrift
             periodSeconds: 15
             timeoutSeconds: 10
           volumeMounts:

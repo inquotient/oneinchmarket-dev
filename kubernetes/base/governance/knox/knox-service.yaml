@@ -14,3 +14,40 @@ spec:
   clusterIP: None
   ports: [{name: https, port: 8443, targetPort: 8443, protocol: TCP}]
   selector: {app.kubernetes.io/name: knox}
+---
+# ★ Knox 게이트웨이 TLS 인증서 (§8-66)
+#
+#   knox-deployment.yaml 주석이 예고한 그것이다 — 이미지는 기동할 때마다
+#   **자체 서명 인증서를 새로 만들고 SAN 에 파드 이름과 localhost 만 넣는다.**
+#   실측:
+#     Certificate for <knox-headless> doesn't match any of the subject
+#     alternative names: [knox-6b66c4c4b5-lf7rw, localhost]
+#   그래서 `jdbc:hive2://knox-headless:8443/...` 이 SSLPeerUnverifiedException
+#   으로 끊긴다. 파드 이름은 재기동마다 바뀌므로 클라이언트가 고정할 수도 없다.
+#
+#   ADR-071 이 세운 `gateway-ca` Issuer 를 재사용한다 — 클라이언트는 그 CA
+#   하나(`gateway-ca-cert` 의 `ca.crt`)만 신뢰하면 게이트웨이와 Knox 둘 다
+#   검증된다.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: knox-tls
+  labels: {app.kubernetes.io/name: knox, app.kubernetes.io/component: governance, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  secretName: knox-tls
+  duration: 8760h      # 1년
+  renewBefore: 720h    # 30일 전 갱신
+  commonName: knox-headless
+  dnsNames:
+    - knox-headless
+    - knox-headless.local.svc
+    - knox-headless.local.svc.cluster.local
+    - knox
+    - localhost
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    encoding: PKCS8
+  issuerRef:
+    name: gateway-ca
+    kind: Issuer

@@ -34,6 +34,9 @@ spec:
         - podSelector: {matchLabels: {app.kubernetes.io/name: spark-connect}}
         - podSelector: {matchLabels: {app.kubernetes.io/name: spark-history}}
         - podSelector: {matchLabels: {app.kubernetes.io/name: livy}}
+        # ★ Knox 가 WebHDFS 를 프록시한다(§8-66). 이 줄이 없으면
+        #   default-deny-ingress 에 막혀 Knox 가 502 를 돌려준다.
+        - podSelector: {matchLabels: {app.kubernetes.io/name: knox}}
         - podSelector: {matchLabels: {app.kubernetes.io/name: nginx}}
       ports:
         - { protocol: TCP, port: 8020 }
@@ -175,9 +178,17 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/component: application
+        # ★ Knox 가 HiveServer2 를 프록시한다(§8-66). governance 컴포넌트라
+        #   위의 data-lakehouse·application 셀렉터에 걸리지 않는다.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: knox
       ports:
         - protocol: TCP
           port: 10000
+        # ★ HTTP transport 포트. 이 줄이 없으면 Knox 가 502 를 돌려준다.
+        - protocol: TCP
+          port: 10001
         - protocol: TCP
           port: 10002
 ---

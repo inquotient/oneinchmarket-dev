@@ -91,6 +91,38 @@ data:
         <name>hive.server2.thrift.port</name>
         <value>10000</value>
       </property>
+      <!-- ★ HTTP transport — Knox 가 HiveServer2 를 프록시하려면 필수다.
+           Knox 의 HIVE 서비스는 thrift-over-HTTP 만 지원한다(binary 불가).
+           바꿔도 안전한 것을 확인했다: 이 클러스터에서 10000(binary)을 쓰는
+           소비자가 **하나도 없다**. Trino·Spark 는 HiveServer2 가 아니라
+           메타스토어(hive-metastore-headless:9083)를 직접 본다.
+           대가는 JDBC URL 이 바뀌는 것이다 —
+             전  jdbc:hive2://host:10000/default
+             후  jdbc:hive2://host:10001/default;transportMode=http;httpPath=cliservice
+           (local/ACCESS.md 를 함께 고쳤다) -->
+      <property>
+        <name>hive.server2.transport.mode</name>
+        <value>http</value>
+      </property>
+      <property>
+        <name>hive.server2.thrift.http.port</name>
+        <value>10001</value>
+      </property>
+      <property>
+        <name>hive.server2.thrift.http.path</name>
+        <value>cliservice</value>
+      </property>
+      <!-- ★ HTTP transport 에서 유효한 값은 NONE·LDAP·KERBEROS·PAM·CUSTOM
+           이다(NOSASL 은 binary 전용이라 HTTP 모드에서 쓰면 기동이 깨진다).
+           NONE 이어도 HTTP 모드는 **Basic 헤더 자체는 요구**하고 비밀번호를
+           검증하지 않는다 — 자격증명 없이 curl 하면 401 이 정상이다.
+           인증은 앞단의 Knox 가 DS389 LDAP 으로 하고, HiveServer2 는
+           NetworkPolicy 로 메시 안에서만 접근 가능하다. Knox↔HS2 구간까지
+           인증하려면 Kerberos 가 필요한데 이 클러스터는 simple 인증이다. -->
+      <property>
+        <name>hive.server2.authentication</name>
+        <value>NONE</value>
+      </property>
       <property>
         <name>hive.server2.webui.host</name>
         <value>0.0.0.0</value>

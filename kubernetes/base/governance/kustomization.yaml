@@ -31,6 +31,7 @@ resources:
   - ranger/ranger-usersync-configmap.yaml
   - ranger/ranger-usersync-deployment.yaml
   # Knox — 게이트웨이
+  - knox/knox-topology-configmap.yaml
   - knox/knox-service.yaml
   - knox/knox-deployment.yaml
 

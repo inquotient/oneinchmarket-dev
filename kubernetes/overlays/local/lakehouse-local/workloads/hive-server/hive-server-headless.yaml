@@ -14,6 +14,11 @@ spec:
       targetPort: thrift
       protocol: TCP
       name: thrift
+    # ★ HTTP transport 포트 — Knox 가 이쪽으로 붙는다.
+    - port: 10001
+      targetPort: 10001
+      protocol: TCP
+      name: http-thrift
     - port: 10002
       targetPort: web
       protocol: TCP
