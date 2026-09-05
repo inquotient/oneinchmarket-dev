@@ -7434,10 +7434,19 @@ requests 정정 없이도 풀린다 — 그리고 파드 40여 개가 함께 빠
 
 ### 20-1. 총계
 
+> **★ 첫 판은 불완전했다.** CronJob 15종과 requests 가 0인 컴포넌트 9종을
+> 건너뛰고 "전체" 라고 적었다. 값이 0이거나 성격이 달라도 **행은 남기고
+> 그렇게 표시하는 것**이 맞다 — §16→§17 에서 이미 한 번 같은 실수를 했다.
+> 아래는 **128행(기존 124 + 신규 4) 전부**다.
+
 ```
-비-DaemonSet  requests 74.0 GiB · limits 161.3 GiB · 현재실사용기준 38.7 GiB
-DaemonSet 노드당  requests 932Mi · limits 2688Mi  → 3노드 2.7 / 7.9 GiB
-3노드 합계    requests 76.7 GiB · limits 169.2 GiB
+행 수 128 (신규 4 포함)  · BestEffort(requests 없음) 9 종
+상시 비-DaemonSet   requests 74.0 GiB · limits 161.3 GiB
+DaemonSet 노드당    requests 932Mi · limits 2688Mi  → 3노드 2.7 / 7.9 GiB
+CronJob 전부 동시   requests 1.9 GiB · limits 6.3 GiB  (실제로는 겹치지 않는다)
+────────────────────────────────────────────────────────────────────────
+3노드 상시 합계     requests 76.7 GiB · limits 169.2 GiB
+  + CronJob 최악    requests 78.7 GiB
 ```
 
 ```
@@ -7445,7 +7454,11 @@ DaemonSet 노드당  requests 932Mi · limits 2688Mi  → 3노드 2.7 / 7.9 GiB
 호스트 소요      = 82.4 + Windows 7 + L0 랩 8.8 = 98.2 GiB
 ```
 
-현재 호스트 63.4 GiB 로는 불가하고, **256 GB 면 38%** 다(§18-5).
+현재 호스트 63.4 GiB 로는 불가하고 **256 GB 면 38%** 다(§18-5).
+
+**CronJob 15종은 1.9 GiB** 지만 상시가 아니다 — `concurrencyPolicy: Forbid`
+가 14종에 걸려 있어 같은 Job 이 겹치지 않고, 서로 다른 Job 이 동시에 뜨는
+경우만 더해진다. 최악(전부 동시)을 더하면 78.7 GiB 다.
 
 ### 20-2. ★ zram 이 닿지 않는 곳 — Guaranteed 8종
 
@@ -7501,121 +7514,139 @@ zram 이 실제로 하는 일은 **Burstable 96종의 순간 초과를 흡수해
 막는 것**이고, 그 덕에 §19-3 의 ① requests 정정을 더 과감하게 할 수 있다.
 **zram 의 값어치는 스케줄 공간이 아니라 정정의 안전마진이다.**
 
-### 20-5. 전체 표
+### 20-5. 전체 표 (128행)
 
-`D` 등급은 노드당 1개이므로 `×N` 으로 적었다(3노드면 3배).
+`D` 는 노드당 1개이므로 `×N`, `J`(CronJob)는 상시가 아니므로 괄호로 적었다.
+`BestEffort` 는 **requests 가 아예 없다**는 뜻이다(§18-3).
 
-| 등급 | 컴포넌트 | 파드당 req | 파드당 lim | 실사용 | QoS | HA 복제본 | **HA requests** | HA limits |
-|:-:|---|---:|---:|---:|:-:|:-:|---:|---:|
-| C | `elasticsearch-es-default` | 2048 | 2048 | 1671 | Guaranteed | 3 | **6144** | 6144 |
-| C | `kafka` | 1536 | 1536 | 410 | Guaranteed | 3 | **4608** | 4608 |
-| R | `logstash` | 1536 | 2048 | 1639 | Burstable | 2 | **3072** | 4096 |
-| C | `postgresql` | 1024 | 1024 | 348 | Guaranteed | 3 | **3072** | 3072 |
-| C | `minio` | 640 | 640 | 101 | Guaranteed | 4 | **2560** | 2560 |
-| X | `safeline` | 2368 | 5632 | 116 | Burstable | 1 | **2368** | 5632 |
-| X | `gitlab` | 2304 | 4096 | 2136 | Burstable | 1 | **2304** | 4096 |
-| C | `wazuh-indexer` | 768 | 1536 | 687 | Burstable | 3 | **2304** | 4608 |
-| S | `loki` | 1024 | 3072 | 156 | Burstable | 2 | **2048** | 6144 |
-| X | `trino` | 2048 | 2048 | 824 | Guaranteed | 1 | **2048** | 2048 |
-| R | `kibana-kb` | 768 | 1536 | 977 | Burstable | 2 | **1536** | 3072 |
-| R | `hive-metastore` | 768 | 1280 | 384 | Burstable | 2 | **1536** | 2560 |
-| C | `mariadb` | 512 | 512 | 104 | Guaranteed | 3 | **1536** | 1536 |
-| C | `mongodb` | 512 | 512 | 252 | Guaranteed | 3 | **1536** | 1536 |
-| C | `solr` | 512 | 1024 | 300 | Burstable | 3 | **1536** | 3072 |
-| R | `defectdojo-django` | 640 | 1536 | 412 | Burstable | 2 | **1280** | 3072 |
-| S | `dependency-track-apiserver` | 640 | 2048 | 343 | Burstable | 2 | **1280** | 4096 |
-| R | `hadoop-datanode` | 640 | 1536 | 310 | Burstable | 2 | **1280** | 3072 |
-| R | `hive-server` | 640 | 2560 | 476 | Burstable | 2 | **1280** | 5120 |
-| C | `keycloak` | 640 | 1536 | 479 | Burstable | 2 | **1280** | 3072 |
-| R | `ranger-admin` | 640 | 1536 | 683 | Burstable | 2 | **1280** | 3072 |
-| C | `clickhouse` | 512 | 2048 | 663 | Burstable | 2 | **1024** | 4096 |
-| C | `hadoop-namenode` | 512 | 1536 | 306 | Burstable | 2 | **1024** | 3072 |
-| R | `hbase-regionserver` | 512 | 1536 | 265 | Burstable | 2 | **1024** | 3072 |
-| R | `prometheus` | 512 | 1536 | 476 | Burstable | 2 | **1024** | 3072 |
-| C | `hbase-master` | 448 | 1280 | 206 | Burstable | 2 | **896** | 2560 |
-| X | `livy` | 768 | 1024 | 606 | Burstable | 1 | **768** | 1024 |
-| X | `spark-history` | 768 | 1024 | 630 | Burstable | 1 | **768** | 1024 |
-| C | `zookeeper` | 256 | 768 | 128 | Burstable | 3 | **768** | 2304 |
-| R | `defectdojo-celery-worker` | 320 | 1280 | 78 | Burstable | 2 | **640** | 2560 |
-| R | `knox` | 320 | 768 | 141 | Burstable | 2 | **640** | 1536 |
-| X | `spark-connect` | 640 | 2048 | 340 | Burstable | 1 | **640** | 2048 |
-| C | `wazuh-manager` | 320 | 1024 | 136 | Burstable | 2 | **640** | 2048 |
-| R | `istiod` | 256 | 0 | 63 | Burstable | 2 | **512** | 0 |
-| R | `api-openreplay` | 256 | 768 | 9 | Burstable | 2 | **512** | 1536 |
-| R | `assist-openreplay` | 256 | 768 | 85 | Burstable | 2 | **512** | 1536 |
-| R | `chalice-openreplay` | 256 | 768 | 57 | Burstable | 2 | **512** | 1536 |
-| R | `glitchtip-web` | 256 | 768 | 205 | Burstable | 2 | **512** | 1536 |
-| R | `glitchtip-worker` | 256 | 768 | 52 | Burstable | 2 | **512** | 1536 |
-| S | `grafana` | 256 | 768 | 221 | Burstable | 2 | **512** | 1536 |
-| R | `spot-openreplay` | 256 | 768 | 7 | Burstable | 2 | **512** | 1536 |
-| R | `admin` | 256 | 512 | 65 | Burstable | 2 | **512** | 1024 |
-| R | `akhq` | 256 | 768 | 104 | Burstable | 2 | **512** | 1536 |
-| R | `apicurio-registry` | 256 | 768 | 119 | Burstable | 2 | **512** | 1536 |
-| R | `cmmn-api` | 256 | 1024 | 725 | Burstable | 2 | **512** | 2048 |
-| C | `ds389` | 256 | 512 | 15 | Burstable | 2 | **512** | 1024 |
-| S | `tempo` | 256 | 768 | 28 | Burstable | 2 | **512** | 1536 |
-| X | `jenkins` | 448 | 1536 | 287 | Burstable | 1 | **448** | 1536 |
-| R | `kafka-bridge` | 192 | 512 | 117 | Burstable | 2 | **384** | 1024 |
-| R | `openmeter-api` | 192 | 512 | 58 | Burstable | 2 | **384** | 1024 |
-| R | `openmeter-balance-worker` | 192 | 512 | 31 | Burstable | 2 | **384** | 1024 |
-| R | `openmeter-billing-worker` | 192 | 512 | 28 | Burstable | 2 | **384** | 1024 |
-| R | `openmeter-notification-service` | 192 | 512 | 28 | Burstable | 2 | **384** | 1024 |
-| R | `openmeter-sink-worker` | 192 | 512 | 31 | Burstable | 2 | **384** | 1024 |
-| R | `otel-gateway` | 192 | 384 | 59 | Burstable | 2 | **384** | 768 |
-| S | `pyroscope` | 192 | 1536 | 81 | Burstable | 2 | **384** | 3072 |
-| C | `vault` | 128 | 512 | 58 | Burstable | 3 | **384** | 1536 |
-| L | `elastic-operator` | 150 | 1024 | 57 | Burstable | 2 | **300** | 2048 |
-| L | `kyverno-admission-controller` | 128 | 384 | 70 | Burstable | 2 | **256** | 768 |
-| R | `assets-openreplay` | 128 | 384 | 13 | Burstable | 2 | **256** | 768 |
-| R | `canvases-openreplay` | 128 | 384 | 7 | Burstable | 2 | **256** | 768 |
-| R | `db-openreplay` | 128 | 384 | 7 | Burstable | 2 | **256** | 768 |
-| R | `ender-openreplay` | 128 | 384 | 6 | Burstable | 2 | **256** | 768 |
-| R | `falcosidekick` | 128 | 256 | 15 | Burstable | 2 | **256** | 512 |
-| R | `frontend-openreplay` | 128 | 384 | 10 | Burstable | 2 | **256** | 768 |
-| R | `http-openreplay` | 128 | 384 | 22 | Burstable | 2 | **256** | 768 |
-| R | `images-openreplay` | 128 | 384 | 7 | Burstable | 2 | **256** | 768 |
-| R | `ingress-istio` | 128 | 1024 | 42 | Burstable | 2 | **256** | 2048 |
-| R | `integrations-openreplay` | 128 | 384 | 7 | Burstable | 2 | **256** | 768 |
-| R | `lam` | 128 | 384 | 12 | Burstable | 2 | **256** | 768 |
-| R | `nginx` | 128 | 256 | 9 | Burstable | 2 | **256** | 512 |
-| X | `ranger-usersync` | 256 | 768 | 128 | Burstable | 1 | **256** | 768 |
-| R | `sink-openreplay` | 128 | 384 | 6 | Burstable | 2 | **256** | 768 |
-| R | `storage-openreplay` | 128 | 384 | 12 | Burstable | 2 | **256** | 768 |
-| R | `waypoint` | 128 | 1024 | 58 | Burstable | 2 | **256** | 2048 |
-| S | `redis` | 256 | 256 | 34 | Guaranteed | 1 | **256** | 256 |
-| D | `falco` | 256 | 1024 | 232 | Burstable | 노드당 1 | 256×N | 1024×N |
-| C | `alertmanager` | 64 | 192 | 18 | Burstable | 3 | **192** | 576 |
-| X | `caldera` | 192 | 1536 | 26 | Burstable | 1 | **192** | 1536 |
-| X | `defectdojo-celery-beat` | 192 | 512 | 11 | Burstable | 1 | **192** | 512 |
-| D | `otel-agent` | 192 | 640 | 88 | Burstable | 노드당 1 | 192×N | 640×N |
-| R | `coredns` | 70 | 170 | 36 | Burstable | 2 | **140** | 340 |
-| R | `metrics-server` | 70 | 0 | 43 | Burstable | 2 | **140** | 0 |
-| L | `kyverno-background-controller` | 64 | 128 | 37 | Burstable | 2 | **128** | 256 |
-| L | `kyverno-cleanup-controller` | 64 | 128 | 39 | Burstable | 2 | **128** | 256 |
-| L | `kyverno-reports-controller` | 64 | 128 | 66 | Burstable | 2 | **128** | 256 |
-| R | `alerts-openreplay` | 64 | 192 | 29 | Burstable | 2 | **128** | 384 |
-| R | `apicurio-ui` | 64 | 192 | 12 | Burstable | 2 | **128** | 384 |
-| R | `defectdojo-nginx` | 64 | 192 | 7 | Burstable | 2 | **128** | 384 |
-| R | `dependency-track-frontend` | 64 | 192 | 8 | Burstable | 2 | **128** | 384 |
-| R | `heuristics-openreplay` | 64 | 192 | 16 | Burstable | 2 | **128** | 384 |
-| R | `kube-state-metrics` | 64 | 192 | 19 | Burstable | 2 | **128** | 384 |
-| X | `safeline-luigi` | 128 | 384 | 34 | Burstable | 1 | **128** | 384 |
-| R | `sourcemapreader-openreplay` | 64 | 192 | 32 | Burstable | 2 | **128** | 384 |
-| L | `tetragon-operator` | 64 | 128 | 14 | Burstable | 2 | **128** | 256 |
-| D | `ztunnel` | 128 | 0 | 85 | Burstable | 노드당 1 | 128×N | 0×N |
-| D | `filebeat` | 128 | 512 | 66 | Burstable | 노드당 1 | 128×N | 512×N |
-| D | `tetragon` | 128 | 512 | 103 | Burstable | 노드당 1 | 128×N | 512×N |
-| D | `istio-cni-node` | 100 | 0 | 84 | Burstable | 노드당 1 | 100×N | 0×N |
-| X | `safeline-fvm` | 64 | 256 | 47 | Burstable | 1 | **64** | 256 |
-| C | `cnpg-operator` (신규) | 200 | 400 | — | Burstable | 1 | **200** | 400 |
-| C | `clickhouse-keeper` (신규) | 128 | 256 | — | Burstable | 3 | **384** | 768 |
-| C | `hadoop-journalnode` (신규) | 256 | 512 | — | Burstable | 3 | **768** | 1536 |
-| C | `hadoop-zkfc` (신규) | 128 | 256 | — | Burstable | 2 | **256** | 512 |
+| 등급 | 컴포넌트 | 종류 | 파드당 req | 파드당 lim | 실사용 | QoS | HA 복제본 | **HA req** | HA lim |
+|:-:|---|:-:|---:|---:|---:|:-:|:-:|---:|---:|
+| C | `elasticsearch-es-default` | STS | 2048 | 2048 | 1667 | Guaranteed | 3 | **6144** | 6144 |
+| C | `kafka` | STS | 1536 | 1536 | 410 | Guaranteed | 3 | **4608** | 4608 |
+| C | `postgresql` | STS | 1024 | 1024 | 360 | Guaranteed | 3 | **3072** | 3072 |
+| C | `minio` | STS | 640 | 640 | 101 | Guaranteed | 4 | **2560** | 2560 |
+| C | `wazuh-indexer` | STS | 768 | 1536 | 681 | Burstable | 3 | **2304** | 4608 |
+| C | `mariadb` | STS | 512 | 512 | 103 | Guaranteed | 3 | **1536** | 1536 |
+| C | `mongodb` | STS | 512 | 512 | 252 | Guaranteed | 3 | **1536** | 1536 |
+| C | `solr` | STS | 512 | 1024 | 290 | Burstable | 3 | **1536** | 3072 |
+| C | `keycloak` | STS | 640 | 1536 | 477 | Burstable | 2 | **1280** | 3072 |
+| C | `clickhouse` | STS | 512 | 2048 | 680 | Burstable | 2 | **1024** | 4096 |
+| C | `hadoop-namenode` | STS | 512 | 1536 | 299 | Burstable | 2 | **1024** | 3072 |
+| C | `hbase-master` | STS | 448 | 1280 | 205 | Burstable | 2 | **896** | 2560 |
+| C | `zookeeper` | STS | 256 | 768 | 127 | Burstable | 3 | **768** | 2304 |
+| C | `wazuh-manager` | STS | 320 | 1024 | 135 | Burstable | 2 | **640** | 2048 |
+| C | `ds389` | STS | 256 | 512 | 15 | Burstable | 2 | **512** | 1024 |
+| C | `vault` | STS | 128 | 512 | 58 | Burstable | 3 | **384** | 1536 |
+| C | `alertmanager` | Dep | 64 | 192 | 20 | Burstable | 3 | **192** | 576 |
+| S | `loki` | STS | 1024 | 3072 | 172 | Burstable | 2 | **2048** | 6144 |
+| S | `dependency-track-apiserver` | Dep | 640 | 2048 | 343 | Burstable | 2 | **1280** | 4096 |
+| S | `grafana` | Dep | 256 | 768 | 217 | Burstable | 2 | **512** | 1536 |
+| S | `tempo` | STS | 256 | 768 | 28 | Burstable | 2 | **512** | 1536 |
+| S | `pyroscope` | STS | 192 | 1536 | 88 | Burstable | 2 | **384** | 3072 |
+| S | `redis` | STS | 256 | 256 | 32 | Guaranteed | 1 | **256** | 256 |
+| R | `logstash` | STS | 1536 | 2048 | 1639 | Burstable | 2 | **3072** | 4096 |
+| R | `kibana-kb` | Dep | 768 | 1536 | 972 | Burstable | 2 | **1536** | 3072 |
+| R | `hive-metastore` | STS | 768 | 1280 | 382 | Burstable | 2 | **1536** | 2560 |
+| R | `defectdojo-django` | Dep | 640 | 1536 | 411 | Burstable | 2 | **1280** | 3072 |
+| R | `hadoop-datanode` | STS | 640 | 1536 | 308 | Burstable | 2 | **1280** | 3072 |
+| R | `hive-server` | STS | 640 | 2560 | 477 | Burstable | 2 | **1280** | 5120 |
+| R | `ranger-admin` | STS | 640 | 1536 | 671 | Burstable | 2 | **1280** | 3072 |
+| R | `hbase-regionserver` | STS | 512 | 1536 | 266 | Burstable | 2 | **1024** | 3072 |
+| R | `prometheus` | STS | 512 | 1536 | 435 | Burstable | 2 | **1024** | 3072 |
+| R | `defectdojo-celery-worker` | Dep | 320 | 1280 | 74 | Burstable | 2 | **640** | 2560 |
+| R | `knox` | Dep | 320 | 768 | 140 | Burstable | 2 | **640** | 1536 |
+| R | `istiod` | Dep | 256 | 0 | 61 | Burstable | 2 | **512** | 0 |
+| R | `api-openreplay` | Dep | 256 | 768 | 9 | Burstable | 2 | **512** | 1536 |
+| R | `assist-openreplay` | Dep | 256 | 768 | 82 | Burstable | 2 | **512** | 1536 |
+| R | `chalice-openreplay` | Dep | 256 | 768 | 56 | Burstable | 2 | **512** | 1536 |
+| R | `glitchtip-web` | Dep | 256 | 768 | 205 | Burstable | 2 | **512** | 1536 |
+| R | `glitchtip-worker` | Dep | 256 | 768 | 50 | Burstable | 2 | **512** | 1536 |
+| R | `spot-openreplay` | Dep | 256 | 768 | 8 | Burstable | 2 | **512** | 1536 |
+| R | `admin` | STS | 256 | 512 | 64 | Burstable | 2 | **512** | 1024 |
+| R | `akhq` | STS | 256 | 768 | 103 | Burstable | 2 | **512** | 1536 |
+| R | `apicurio-registry` | STS | 256 | 768 | 119 | Burstable | 2 | **512** | 1536 |
+| R | `cmmn-api` | STS | 256 | 1024 | 724 | Burstable | 2 | **512** | 2048 |
+| R | `kafka-bridge` | Dep | 192 | 512 | 117 | Burstable | 2 | **384** | 1024 |
+| R | `openmeter-api` | Dep | 192 | 512 | 58 | Burstable | 2 | **384** | 1024 |
+| R | `openmeter-balance-worker` | Dep | 192 | 512 | 31 | Burstable | 2 | **384** | 1024 |
+| R | `openmeter-billing-worker` | Dep | 192 | 512 | 28 | Burstable | 2 | **384** | 1024 |
+| R | `openmeter-notification-service` | Dep | 192 | 512 | 28 | Burstable | 2 | **384** | 1024 |
+| R | `openmeter-sink-worker` | Dep | 192 | 512 | 31 | Burstable | 2 | **384** | 1024 |
+| R | `otel-gateway` | Dep | 192 | 384 | 52 | Burstable | 2 | **384** | 768 |
+| R | `assets-openreplay` | Dep | 128 | 384 | 13 | Burstable | 2 | **256** | 768 |
+| R | `canvases-openreplay` | Dep | 128 | 384 | 7 | Burstable | 2 | **256** | 768 |
+| R | `db-openreplay` | Dep | 128 | 384 | 7 | Burstable | 2 | **256** | 768 |
+| R | `ender-openreplay` | Dep | 128 | 384 | 7 | Burstable | 2 | **256** | 768 |
+| R | `falcosidekick` | Dep | 128 | 256 | 14 | Burstable | 2 | **256** | 512 |
+| R | `frontend-openreplay` | Dep | 128 | 384 | 10 | Burstable | 2 | **256** | 768 |
+| R | `http-openreplay` | Dep | 128 | 384 | 23 | Burstable | 2 | **256** | 768 |
+| R | `images-openreplay` | Dep | 128 | 384 | 8 | Burstable | 2 | **256** | 768 |
+| R | `ingress-istio` | Dep | 128 | 1024 | 38 | Burstable | 2 | **256** | 2048 |
+| R | `integrations-openreplay` | Dep | 128 | 384 | 7 | Burstable | 2 | **256** | 768 |
+| R | `lam` | Dep | 128 | 384 | 12 | Burstable | 2 | **256** | 768 |
+| R | `nginx` | Dep | 128 | 256 | 9 | Burstable | 2 | **256** | 512 |
+| R | `sink-openreplay` | Dep | 128 | 384 | 7 | Burstable | 2 | **256** | 768 |
+| R | `storage-openreplay` | Dep | 128 | 384 | 12 | Burstable | 2 | **256** | 768 |
+| R | `waypoint` | Dep | 128 | 1024 | 56 | Burstable | 2 | **256** | 2048 |
+| R | `coredns` | Dep | 70 | 170 | 35 | Burstable | 2 | **140** | 340 |
+| R | `metrics-server` | Dep | 70 | 0 | 42 | Burstable | 2 | **140** | 0 |
+| R | `alerts-openreplay` | Dep | 64 | 192 | 28 | Burstable | 2 | **128** | 384 |
+| R | `apicurio-ui` | Dep | 64 | 192 | 12 | Burstable | 2 | **128** | 384 |
+| R | `defectdojo-nginx` | Dep | 64 | 192 | 7 | Burstable | 2 | **128** | 384 |
+| R | `dependency-track-frontend` | Dep | 64 | 192 | 8 | Burstable | 2 | **128** | 384 |
+| R | `heuristics-openreplay` | Dep | 64 | 192 | 16 | Burstable | 2 | **128** | 384 |
+| R | `kube-state-metrics` | Dep | 64 | 192 | 18 | Burstable | 2 | **128** | 384 |
+| R | `sourcemapreader-openreplay` | Dep | 64 | 192 | 31 | Burstable | 2 | **128** | 384 |
+| L | `elastic-operator` | STS | 150 | 1024 | 57 | Burstable | 2 | **300** | 2048 |
+| L | `kyverno-admission-controller` | Dep | 128 | 384 | 70 | Burstable | 2 | **256** | 768 |
+| L | `kyverno-background-controller` | Dep | 64 | 128 | 37 | Burstable | 2 | **128** | 256 |
+| L | `kyverno-cleanup-controller` | Dep | 64 | 128 | 39 | Burstable | 2 | **128** | 256 |
+| L | `kyverno-reports-controller` | Dep | 64 | 128 | 63 | Burstable | 2 | **128** | 256 |
+| L | `tetragon-operator` | Dep | 64 | 128 | 14 | Burstable | 2 | **128** | 256 |
+| L | `cert-manager` | Dep | 0 | 0 | 38 | **BestEffort** | 2 | **0** | 0 |
+| L | `cert-manager-cainjector` | Dep | 0 | 0 | 53 | **BestEffort** | 2 | **0** | 0 |
+| L | `cert-manager-webhook` | Dep | 0 | 0 | 29 | **BestEffort** | 2 | **0** | 0 |
+| L | `cilium-operator` | Dep | 0 | 0 | 71 | **BestEffort** | 2 | **0** | 0 |
+| L | `local-path-provisioner` | Dep | 0 | 0 | 17 | **BestEffort** | 2 | **0** | 0 |
+| L | `policy-reporter` | Dep | 0 | 0 | 54 | **BestEffort** | 2 | **0** | 0 |
+| L | `trivy-operator` | Dep | 0 | 0 | 284 | **BestEffort** | 2 | **0** | 0 |
+| D | `falco` | DS | 256 | 1024 | 230 | Burstable | 노드당 1 | **256×N** | 1024×N |
+| D | `otel-agent` | DS | 192 | 640 | 91 | Burstable | 노드당 1 | **192×N** | 640×N |
+| D | `ztunnel` | DS | 128 | 0 | 83 | Burstable | 노드당 1 | **128×N** | 0×N |
+| D | `filebeat` | DS | 128 | 512 | 64 | Burstable | 노드당 1 | **128×N** | 512×N |
+| D | `tetragon` | DS | 128 | 512 | 104 | Burstable | 노드당 1 | **128×N** | 512×N |
+| D | `istio-cni-node` | DS | 100 | 0 | 81 | Burstable | 노드당 1 | **100×N** | 0×N |
+| D | `cilium` | DS | 0 | 0 | 153 | **BestEffort** | 노드당 1 | **0×N** | 0×N |
+| D | `cilium-envoy` | DS | 0 | 0 | 23 | **BestEffort** | 노드당 1 | **0×N** | 0×N |
+| J | `kubescape-scan` | CJ | 384 | 1024 | — | Burstable | 실행 시에만 | **(384)** | (1024) |
+| J | `trivy-image-scan` | CJ | 256 | 1024 | — | Burstable | 실행 시에만 | **(256)** | (1024) |
+| J | `openmeter-billing-advance-invoices` | CJ | 192 | 512 | — | Burstable | 실행 시에만 | **(192)** | (512) |
+| J | `openmeter-billing-collect-invoices` | CJ | 192 | 512 | — | Burstable | 실행 시에만 | **(192)** | (512) |
+| J | `openmeter-subscription-sync` | CJ | 192 | 512 | — | Burstable | 실행 시에만 | **(192)** | (512) |
+| J | `efs-cleaner` | CJ | 128 | 384 | — | Burstable | 실행 시에만 | **(128)** | (384) |
+| J | `rotation-git-sync` | CJ | 128 | 512 | — | Burstable | 실행 시에만 | **(128)** | (512) |
+| J | `openmeter-dlq-replay` | CJ | 64 | 192 | — | Burstable | 실행 시에만 | **(64)** | (192) |
+| J | `rotate-admin-passwords` | CJ | 64 | 256 | — | Burstable | 실행 시에만 | **(64)** | (256) |
+| J | `rotate-elasticsearch-password` | CJ | 64 | 256 | — | Burstable | 실행 시에만 | **(64)** | (256) |
+| J | `rotate-mariadb-password` | CJ | 64 | 256 | — | Burstable | 실행 시에만 | **(64)** | (256) |
+| J | `rotate-minio-password` | CJ | 64 | 256 | — | Burstable | 실행 시에만 | **(64)** | (256) |
+| J | `rotate-mongodb-password` | CJ | 64 | 256 | — | Burstable | 실행 시에만 | **(64)** | (256) |
+| J | `rotate-postgresql-password` | CJ | 64 | 256 | — | Burstable | 실행 시에만 | **(64)** | (256) |
+| J | `rotate-redis-password` | CJ | 64 | 256 | — | Burstable | 실행 시에만 | **(64)** | (256) |
+| X | `safeline` | Dep | 2368 | 5632 | 116 | Burstable | 1 | **2368** | 5632 |
+| X | `gitlab` | STS | 2304 | 4096 | 2110 | Burstable | 1 | **2304** | 4096 |
+| X | `trino` | STS | 2048 | 2048 | 824 | Guaranteed | 1 | **2048** | 2048 |
+| X | `livy` | STS | 768 | 1024 | 606 | Burstable | 1 | **768** | 1024 |
+| X | `spark-history` | STS | 768 | 1024 | 612 | Burstable | 1 | **768** | 1024 |
+| X | `spark-connect` | STS | 640 | 2048 | 338 | Burstable | 1 | **640** | 2048 |
+| X | `jenkins` | STS | 448 | 1536 | 280 | Burstable | 1 | **448** | 1536 |
+| X | `ranger-usersync` | Dep | 256 | 768 | 124 | Burstable | 1 | **256** | 768 |
+| X | `caldera` | Dep | 192 | 1536 | 26 | Burstable | 1 | **192** | 1536 |
+| X | `defectdojo-celery-beat` | Dep | 192 | 512 | 11 | Burstable | 1 | **192** | 512 |
+| X | `safeline-luigi` | Dep | 128 | 384 | 34 | Burstable | 1 | **128** | 384 |
+| X | `safeline-fvm` | Dep | 64 | 256 | 46 | Burstable | 1 | **64** | 256 |
+| C | `cnpg-operator` (신규) | STS | 200 | 400 | — | Burstable | 1 | **200** | 400 |
+| C | `clickhouse-keeper` (신규) | STS | 128 | 256 | — | Burstable | 3 | **384** | 768 |
+| C | `hadoop-journalnode` (신규) | STS | 256 | 512 | — | Burstable | 3 | **768** | 1536 |
+| C | `hadoop-zkfc` (신규) | STS | 128 | 256 | — | Burstable | 2 | **256** | 512 |
 
-## 관련 문서
-
-- [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용
-- [COMPONENTS.md](./COMPONENTS.md) — 구성요소별 메모리, 의존 관계
-- [ARCHITECTURE.md](./ARCHITECTURE.md) — 컴포넌트 경계, 갭(G1~G41), TODO
-- [APP-INTEGRATION.md](./APP-INTEGRATION.md) — **애플리케이션 연동 가이드.** 앱 개발 시 여기부터 볼 것
-- [ADR-CANDIDATES.md](./ADR-CANDIDATES.md) — ADR-051~053(로컬 타깃), ADR-066(FreeIPA 제거)
