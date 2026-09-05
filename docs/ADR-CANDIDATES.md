@@ -551,6 +551,44 @@ API 과금 계량이 OpenMeter 로 가면 ClickHouse 의 두 번째 용도가 �
 ADR-070 의 취지는 "ClickHouse 가 Trino/Iceberg·ES·Loki 를 **대체**하는 것을
 막자" 였다. ⓐ·ⓑ 어느 쪽도 대체가 아니므로 취지를 깨지 않는다 — 다만
 **개정 없이 슬쩍 넘어가지 않는다.**
+
+**배선 확인 완료 (2026-09-05) — ⓑ 가 가능하다**
+
+§8-56 에서 "그 배선은 아직 확인하지 않았다" 고 남긴 부분을 실측했다.
+
+차트의 `config:` 는 **자유 형식**이고 렌더된 ConfigMap 이 그대로 OpenMeter
+설정이 된다. ClickHouse 주소는 그냥 값이다:
+
+```yaml
+aggregation:
+  clickhouse:
+    address: clickhouse-headless:9000    # 기존 인스턴스를 가리킬 수 있다
+ingest:
+  kafka:
+    broker: kafka-headless:9092
+```
+
+번들된 Kafka·PostgreSQL·Redis·ClickHouse 는 차트 문서가 **"Not recommended
+for production environments"** 라고 스스로 명시한다. 개발 편의용이다.
+
+전부 끄고 기존 인프라를 가리킨 렌더:
+
+| | 기본값 | 기존 인프라 재사용 | + svix 끔 |
+|---|---|---|---|
+| Deployment | 7 | 6 | **5** |
+| StatefulSet | 4 | 0 | **0** |
+| CronJob | 3 | 3 | 3 |
+| 렌더 | 3,666줄 | 825줄 | **583줄** |
+
+★ `svix`(웹훅 서버)도 번들이며 역시 "운영 비권장" 이다. 알림이 필요 없으면
+끈다 — Deployment 가 하나 더 줄어든다.
+
+**결론** — ⓐ(인스턴스 2개)를 택할 이유가 없다. **ⓑ 로 간다면 ADR-070 을
+"ClickHouse 용도 2개(OpenReplay · API 과금 계량)" 로 개정**하면 되고,
+새로 세우는 것은 OpenMeter 자체 워크로드 8개(Deployment 5 + CronJob 3)뿐이다.
+
+**남은 결정** — ⓑ vs ⓒ(OpenMeter 미사용). 이것은 "청구 등급 계량을 직접
+만들 것인가" 의 문제이고 사용자 판단이 필요하다.
 ---
 
 ### ADR-074 — Envoy Rate Limit Service 는 계량 이후로 미룬다
