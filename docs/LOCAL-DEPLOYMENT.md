@@ -5890,6 +5890,63 @@ Tetragon 은 그대로 둔다 — ADR-025 는 전환을 제안했으나 지금 �
 Falco 하나를 살리자 401·정책 누락·소켓 오설정 셋이 한꺼번에 나왔다. 셋 다
 "설정은 있으나 한 번도 실행된 적이 없는" 코드였다.
 
+### 8-65. Knox 는 Ready 인데 아무것도 프록시하지 않는다 (2026-09-06)
+
+"Knox 를 통해 붙는 법" 을 적으려다 확인한 것이다. **붙을 수 없다.**
+파드는 `1/1 Running` 이고 8443 이 열려 있으나 **모든 요청이 401** 이다.
+
+```
+/                                      404
+/gateway/homepage/home                 301
+/gateway/admin/api/v1/topologies       401
+/gateway/sandbox/webhdfs/v1/?op=...    401
+```
+
+#### 원인 셋 — 전부 실측했다
+
+**① 토폴로지가 이 클러스터를 가리키지 않는다.**
+`knox/` 디렉터리에 ConfigMap 이 없어 **이미지 기본 토폴로지**로 돈다.
+`sandbox.xml` 이 가리키는 곳:
+
+```
+hdfs://localhost:8020 · http://localhost:50070/webhdfs
+rpc://localhost:8050   · http://localhost:11000/oozie
+```
+
+Hortonworks Sandbox 데모 주소다. 이 클러스터의 `hadoop-namenode:9870` ·
+`hive-server:10000` · `ranger-admin:6080` 어느 것도 아니다.
+
+**② 인증 원천이 없다.** 기본 토폴로지는 `ShiroProvider` + `KnoxLdapRealm` 로
+**데모 LDAP** 을 본다(`conf/users.ldif` 에 guest·admin·sam·tom). 그런데
+**그 데모 LDAP 프로세스가 돌지 않는다**(`ps` 로 0건). 엔트리포인트가 게이트웨이만
+띄운다. 그래서 어떤 계정으로도 401 이다.
+
+**③ 레포의 DS389·Keycloak 과 연결돼 있지 않다.** 이 클러스터에는 LDAP(DS389,
+3389)도 OIDC(Keycloak)도 있는데 Knox 는 둘 다 모른다.
+
+#### 왜 지금까지 안 드러났나 — probe 가 `tcpSocket` 이다
+
+```yaml
+readinessProbe:
+  tcpSocket: {port: https}
+```
+
+**포트가 열려 있으면 통과한다.** 프록시가 되는지는 보지 않는다. 그래서
+`1/1 Running` 으로 4일을 돌았다. §8-64 의 Falco·falcosidekick 과 같은
+부류다 — **설정은 있으나 한 번도 실행된 적이 없어 아무 증상도 내지 않는다.**
+
+#### 쓰려면 무엇이 필요한가
+
+| | 할 일 |
+|:-:|---|
+| 1 | **토폴로지 ConfigMap 신설** — 이 클러스터를 가리키는 `oim.xml`. WebHDFS(`hadoop-namenode:9870`) · HiveServer2(`hive-server:10000`) · Ranger(`ranger-admin:6080`) · Solr(`solr-headless:8983`) |
+| 2 | **인증 원천 결정** — ⓐ DS389 LDAP(3389)에 `KnoxLdapRealm` 을 붙이거나 ⓑ **Keycloak OIDC + KnoxSSO**(pac4j). 레포가 Keycloak 을 인증 원천으로 두고 있으므로 ⓑ 가 정합적이다 |
+| 3 | **readiness probe 를 실제 요청으로** — `tcpSocket` 대신 `httpGet: /gateway/homepage/home`. 그래야 "뜬 척" 이 안 된다 |
+| 4 | prod 이미지 다이제스트 핀 — 매니페스트 주석이 이미 지적하고 있다(`apache/knox:3.0` 은 가변 태그) |
+
+**지금은 §9 로 넘긴다.** Knox 가 프록시할 대상(HDFS·Hive)이 `lakehouse-local`
+전용이고, §19-5 ③ 의 프로파일 분리에서 **빼기로 한 묶음**이라 순서가 맞지 않는다.
+
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
 > **이 절은 "지금 하지 않기로 결정한 것" 의 목록이다.** §8 의 각 절 끝에
@@ -5945,6 +6002,10 @@ ADR-068 이 **"7단계까지 모두 끝난 뒤 `v2` 로 합치고 `local` 은 �
 
 ### 9-6. HA — 고치기 전까지 건드리면 안 되는 것
 
+- **Knox 가 아무것도 프록시하지 않는다**(§8-65). 이미지 기본 토폴로지로 돌아
+  `localhost:50070`(Hortonworks 데모)를 가리키고, 데모 LDAP 이 안 떠 모든
+  요청이 401 이다. `tcpSocket` probe 라 `1/1 Running` 으로 보인다.
+  토폴로지 ConfigMap + 인증 원천(Keycloak OIDC 권장) + probe 교체가 필요하다
 - **오퍼레이터 7종이 메모리 requests 없이 돈다**(§18-3) — cert-manager 3종·
   cilium-operator·local-path-provisioner·trivy-operator·policy-reporter.
   **BestEffort QoS 라 메모리 압박 시 가장 먼저 축출된다.** provisioner 가

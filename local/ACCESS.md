@@ -87,7 +87,7 @@ pw() { $K get secret "$1" -o jsonpath="{.data.$2}" | base64 -d; echo; }
 | **Vault** | `$K port-forward vault-0 8200:8200` | http://localhost:8200 | 토큰 | `pw vault-init root-token` |
 | **Ranger Admin** | `$K port-forward ranger-admin-0 6080:6080` | http://localhost:6080 | `admin` | `pw ranger-secret admin-password` |
 | **LAM**(LDAP 관리) | `$K port-forward deploy/lam 8084:80` | http://localhost:8084 | — | `pw lam-secret master-password` |
-| Knox | `$K port-forward svc/knox-headless 8443:8443` | https://localhost:8443 | — | `pw knox-secret master-secret` |
+| ~~Knox~~ | `$K port-forward svc/knox-headless 8443:8443` | https://localhost:8443 | — | ★ **지금은 못 쓴다 — §1-b 참조** |
 | **Wazuh Manager API** | `$K port-forward svc/wazuh-manager 55000:55000` | https://localhost:55000 | `pw wazuh-secret api-username` | `pw wazuh-secret api-password` |
 | Wazuh Indexer | `$K port-forward svc/wazuh-indexer 9201:9200` | https://localhost:9201 | `admin` | `pw wazuh-secret indexer-admin-password` |
 | **DefectDojo** | `$K port-forward svc/defectdojo 8085:8080` | http://localhost:8085 | `admin` | `pw defectdojo-secret admin-password` |
@@ -100,6 +100,34 @@ pw() { $K get secret "$1" -o jsonpath="{.data.$2}" | base64 -d; echo; }
 >
 > **★ Vault 는 재시작하면 다시 봉인된다.** `vault-0` 이 `0/1` 이면 대개
 > 이것이다 — `bash local/vault-init.sh unseal`.
+
+### 1-b. ★ Knox 게이트웨이는 지금 아무것도 프록시하지 않는다
+
+"Knox 를 통해 붙는 법" 을 확인하려다 나온 것이다(§8-65). 파드는
+`1/1 Running` 이지만 **모든 요청이 401** 이다 — 실측:
+
+```
+/                                      404
+/gateway/homepage/home                 301
+/gateway/admin/api/v1/topologies       401
+/gateway/sandbox/webhdfs/v1/?op=...    401
+```
+
+원인 셋:
+
+1. **토폴로지가 이 클러스터를 안 가리킨다.** ConfigMap 이 없어 이미지 기본
+   토폴로지로 돌고, `sandbox.xml` 이 `localhost:50070`·`localhost:8020`
+   (Hortonworks Sandbox 데모)을 가리킨다
+2. **인증 원천이 없다.** `ShiroProvider` + 데모 LDAP 을 보는데 **그 LDAP 이
+   안 돈다**(`ps` 0건). `users.ldif` 의 guest·admin 계정도 소용없다
+3. DS389(3389)·Keycloak 어느 쪽과도 연결돼 있지 않다
+
+> `readinessProbe` 가 `tcpSocket` 이라 **포트만 열려 있으면 Ready** 다.
+> 그래서 이 상태로 계속 떠 있었다 — §8-64 와 같은 부류다.
+
+**그래서 지금은 각 서비스에 직접 port-forward 하는 것이 유일한 길이다**
+(위 표 그대로). Knox 를 살리려면 토폴로지 ConfigMap + 인증 원천 + probe
+교체가 필요하고, 방법은 §8-65 에 적어 두었다.
 
 ### DevOps · 앱
 
