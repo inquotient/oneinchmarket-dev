@@ -1,0 +1,154 @@
+# 과금 다리의 DLQ 재처리 — 그리고 경보를 겸한다.
+#
+# ★ 왜 Job 이 경보를 겸하는가 — 이 클러스터에는 **경보 수단이 없다.**
+#   alertmanager 도, elasticsearch exporter 도, Prometheus 경보 규칙도 없다
+#   (실측). 없는 것을 있는 척하지 않고, **재처리 후에도 남은 건수가 임계를
+#   넘으면 Job 을 실패시킨다.** Job 실패는 `kubectl get job` 과 Ready 카운트에
+#   드러나므로 지금 이 환경에서 가장 확실한 신호다.
+#   경보 스택이 생기면 그때 제대로 된 규칙으로 옮길 것(§8-62).
+#
+# ★ 중복 재처리는 안전하다. OpenMeter 가 `id` 로 중복을 제거한다(§8-60 실측).
+#   그래서 "성공했는지 확실하지 않으면 다시 보낸다" 가 옳은 전략이다 —
+#   과금에서 유실은 매출 누락이지만 중복은 잡히기 때문이다.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: openmeter-dlq-replay
+  labels:
+    app.kubernetes.io/name: openmeter-dlq-replay
+    app.kubernetes.io/component: billing
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+automountServiceAccountToken: false
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: openmeter-dlq-replay
+  labels:
+    app.kubernetes.io/name: openmeter-dlq-replay
+    app.kubernetes.io/component: billing
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: openmeter-dlq-replay
+            app.kubernetes.io/component: billing
+            app.kubernetes.io/part-of: oneinchmarket
+        spec:
+          restartPolicy: Never
+          serviceAccountName: openmeter-dlq-replay
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: replay
+              image: python:3.12-alpine
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests: {cpu: 50m, memory: 64Mi}
+                limits:   {cpu: 300m, memory: 192Mi}
+              env:
+                - name: ES_URL
+                  value: "https://elasticsearch-es-http:9200"
+                - name: OM_URL
+                  value: "http://openmeter-api:80/api/v1/events"
+                - name: DLQ_INDEX
+                  value: "api-usage-dlq"
+                # ★ 이 수를 넘게 남으면 Job 이 실패한다 = 경보다.
+                #   0 으로 두면 한 건이라도 못 넣었을 때 즉시 드러난다.
+                - name: FAIL_THRESHOLD
+                  value: "0"
+                - name: ES_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: elasticsearch-es-elastic-user
+                      key: elastic
+              command: ["python3", "-c"]
+              args:
+                - |
+                  import base64, json, os, ssl, urllib.request as u
+
+                  ES, OM = os.environ["ES_URL"], os.environ["OM_URL"]
+                  IDX = os.environ["DLQ_INDEX"]
+                  TH = int(os.environ["FAIL_THRESHOLD"])
+                  # ES 는 자체 서명 인증서다(ECK). 검증을 끄되 클러스터
+                  # 내부 통신은 ambient mTLS 로 감싸진다.
+                  ctx = ssl.create_default_context()
+                  ctx.check_hostname = False
+                  ctx.verify_mode = ssl.CERT_NONE
+                  auth = base64.b64encode(
+                      f"elastic:{os.environ['ES_PASSWORD']}".encode()).decode()
+
+                  def call(url, data=None, method="GET", hdrs=None):
+                      r = u.Request(url, data=data, method=method,
+                                    headers=hdrs or {})
+                      try:
+                          with u.urlopen(r, context=ctx, timeout=30) as f:
+                              return f.status, f.read()
+                      except u.HTTPError as e:
+                          return e.code, e.read()
+                      except Exception as e:
+                          # ★ 연결 오류(reset·timeout·DNS)를 잡지 않으면
+                          #   예외가 그대로 올라가 스크립트가 죽는다.
+                          #   그러면 이미 재처리한 건의 삭제도 못 하고
+                          #   임계 판정 메시지도 남지 않는다 — 실측으로
+                          #   ConnectionResetError 에 물렸다(§8-62).
+                          return 0, str(e).encode()
+
+                  st, body = call(f"{ES}/{IDX}/_search?size=500",
+                                  hdrs={"Authorization": f"Basic {auth}"})
+                  if st == 404:
+                      print("[dlq-replay] DLQ 인덱스 없음 — 재처리할 것이 없다")
+                      raise SystemExit(0)
+                  hits = json.loads(body)["hits"]["hits"]
+                  print(f"[dlq-replay] DLQ {len(hits)}건")
+
+                  ok, fail = [], 0
+                  for h in hits:
+                      msg = h["_source"].get("message")
+                      if not msg:
+                          # ★ 원문이 없으면 재처리할 수 없다. 지우지 않고 남긴다 —
+                          #   왜 원문이 없었는지가 별개의 결함이다.
+                          print(f"[dlq-replay] 원문 없음, 건너뜀: {h['_id']}")
+                          fail += 1
+                          continue
+                      s, b = call(OM, data=msg.encode(), method="POST",
+                                  hdrs={"Content-Type": "application/cloudevents+json"})
+                      if 200 <= s < 300:
+                          ok.append(h["_id"])
+                      else:
+                          fail += 1
+                          print(f"[dlq-replay] 재전송 실패 {s}: {b[:120]}")
+
+                  if ok:
+                      bulk = "".join(
+                          json.dumps({"delete": {"_index": IDX, "_id": i}}) + "\n"
+                          for i in ok)
+                      call(f"{ES}/_bulk?refresh=true", data=bulk.encode(),
+                           method="POST",
+                           hdrs={"Authorization": f"Basic {auth}",
+                                 "Content-Type": "application/x-ndjson"})
+                  print(f"[dlq-replay] 재처리 성공 {len(ok)} · 실패 {fail}")
+
+                  if fail > TH:
+                      print(f"[dlq-replay] ★ 임계 초과({fail} > {TH}) — "
+                            f"과금 이벤트가 OpenMeter 에 들어가지 못하고 있다.",
+                            flush=True)
+                      raise SystemExit(1)

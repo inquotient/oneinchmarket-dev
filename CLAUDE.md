@@ -236,6 +236,8 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 
 31. **전달 실패를 분기하려면 `http` 출력이 아니라 `http` 필터를 쓸 것.** 출력 플러그인은 재시도 후 영구 실패 시 이벤트를 버리고 로그 한 줄만 남긴다 — 파이프라인에 실패를 돌려주지 않아 dead-letter 분기를 만들 수 없다. 과금처럼 유실이 곧 매출 누락인 경로에서는 필터로 POST 하고 `tag_on_request_failure` 태그로 분기해 DLQ 인덱스에 남길 것. **DLQ 는 재처리 가능한 원문(`message`)을 담아야 한다** — 담지 않으면 기록일 뿐 복구 수단이 아니다. 필터에는 `target_response_code`·`retryable_codes` 가 없다(후자는 출력 전용) — 쓰면 기동 실패한다 — §8-61
 
+32. **경보 수단이 없으면 Job 실패를 신호로 쓸 것 — 다만 그것이 밀어내는 경보가 아님을 알고 쓸 것.** 이 클러스터에는 alertmanager·elasticsearch exporter·Prometheus 경보 규칙이 **하나도 없다.** `openmeter-dlq-replay` CronJob 은 재처리 후 남은 건수가 임계를 넘으면 `exit 1` 해서 Job 실패로 드러낸다. ★ 그런 Job 을 짤 때는 **연결 오류를 반드시 잡을 것** — 미처리 예외로 죽으면 Job 은 실패하지만 이미 처리한 건의 정리도, 임계 판정 로그도 남지 않는다(실측: `ConnectionResetError`). 재처리 중복은 OpenMeter 의 `id` 기반 중복 제거가 잡으므로 **"확실하지 않으면 다시 보낸다" 가 옳다** — 유실은 매출 누락이지만 중복은 잡힌다 — §8-62
+
 ### 매니페스트 작업 시
 
 - `v1/` 매니페스트는 **배포 금지**. 단 CI가 이 경로의 Dockerfile을 참조한다는 모순이 있다

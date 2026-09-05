@@ -103,6 +103,10 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: elasticsearch-ilm-setup
+        # ★ DLQ 재처리 CronJob — 격리·실패 인덱스를 읽고 성공분을 지운다.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: openmeter-dlq-replay
         # ECK operator (elastic-system namespace) needs API access
         - namespaceSelector:
             matchLabels:
