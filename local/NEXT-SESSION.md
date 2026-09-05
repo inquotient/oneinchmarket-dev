@@ -1,6 +1,6 @@
 # 다음 세션 인수인계
 
-> 브랜치 `local` · 최종 갱신 2026-09-02 (5단계 완료 · local/dev/prod 분리)
+> 브랜치 `local` · 최종 갱신 **2026-09-05** (7·8단계 워크로드 전부 기동 · 과금 계량 완성 · 경보 체계 도입 · Falco 복구)
 
 ## ★ 브랜치 정책 — 결정됨 (ADR-068)
 
@@ -18,20 +18,25 @@ v2 를 실배포로 검증하는 작업 라인이며, **7단계까지 끝난 뒤
 3. **wave 순으로 분할 머지** — 오퍼레이터(ECK·Kyverno·cert-manager·Tetragon) →
    관측성 → 거버넌스 → 보안. 오퍼레이터가 로컬에서만 검증된 상태라 첫 단계가 관문이다
 
-**지금 상태** — `local` 은 `v2` 대비 116 앞 · **0 뒤**(fast-forward 유지).
+**지금 상태** — `local` 은 `v2` 대비 **179 앞** · **0 뒤**(fast-forward 유지).
 누가 `v2` 에 커밋하면 이 성질이 깨지므로 그때는 즉시 rebase 할 것.
 공유 수정 93건이 아직 dev/prod 에 미도달이다.
 
 ## 지금 상태
 
 ```
-전체 75 파드 · 미준비 0 · 미완 StatefulSet 0
+전체 106 파드 · 미준비 0 · 미완 StatefulSet 0        (2026-09-05 실측)
 
-requests  메모리 61% (33.2/54 GiB)   CPU 63% (15.0/23.6)
-limits    메모리 98%   ← 더 올리려면 .wslconfig memory 를 다시 봐야 한다
+requests  메모리 92% (38.9 GiB)   CPU 75% (17.6 코어)
+limits    메모리 210%             CPU 334%   ← 오버커밋. 게이트는 requests 다
 ```
 
-> 재시작 횟수가 전반적으로 5~20 이다. 대부분 **WSL2 VM 이 내려갔다 올라온** 흔적이다
+> ★ **파드 수가 실질 한계에 닿았다.** k3s 노드 기본 상한이 110 이고 지금 106 이다.
+> Falco 를 추가할 때 실제로 `0/1 nodes are available: 1 Too many pods` 로
+> 스케줄이 막혔다(옛 파드가 빠지기 전까지). 새 워크로드를 넣기 전에 파드 수를
+> 먼저 볼 것 — 메모리보다 이쪽이 먼저 걸린다.
+
+> 재시작 횟수가 전반적으로 20~47 이다(마지막 재시작은 대부분 하루 이상 전이다). 대부분 **WSL2 VM 이 내려갔다 올라온** 흔적이다
 > (아래 keep-alive 항목). 워크로드 결함이 아니다.
 
 | 계층 | 상태 |
@@ -41,7 +46,9 @@ limits    메모리 98%   ← 더 올리려면 .wslconfig memory 를 다시 봐�
 | observability | Elasticsearch·Kibana·Logstash·Filebeat 9.5.2 · Prometheus · Grafana · Loki · Tempo · OTel(agent·gateway) |
 | API 계약 | **Apicurio Registry 3.3.2 + Registry UI**(Studio 후계 편집 기능 활성, 전역 규칙 VALIDITY=FULL·COMPATIBILITY=BACKWARD) |
 | governance | DS389 3.1 · LAM 8.3 · Solr 10 · Ranger admin·usersync 2.9.0 · Knox 3.0 |
-| **security** | **Tetragon 1.7.1 · Trivy Operator v0.34.0 · Policy Reporter 3.10.0 · Vault 2.1.0 · Wazuh 4.14.7(manager·indexer, OpenSearch security 활성)** |
+| **security** | **Falco 0.44.1(§8-64 에서 복구 · modern_ebpf) · Tetragon 1.7.1 · Trivy Operator v0.34.0 · Policy Reporter 3.10.0 · Vault 2.1.0 · Wazuh 4.14.7(manager·indexer, OpenSearch security 활성)** |
+| **과금** | Istio Gateway(계량 지점) · OTel · Kafka `api-usage` · OpenMeter + ClickHouse·PostgreSQL·Redis · DLQ·격리·재처리 CronJob (§8-58~62). **가격은 없다** |
+| **경보** | kube-state-metrics · Prometheus 규칙 5종 · Alertmanager → Logstash(5142) → ES `alerts` (§8-63) |
 | data | Spark History · Spark Connect · Livy · ZooKeeper 3.9.5 · HDFS(NameNode·DataNode) · **HBase 2.6.6(master·regionserver) · HiveServer2 4.0.1** |
 | devops | GitLab 19.3.1-ee.0 |
 | 부트스트랩 | 9종 전부 Complete (hdfs-bootstrap 이 `/user/hive` 추가) |
@@ -112,24 +119,27 @@ auto-unseal 은 KMS 를 요구하는데 로컬에 없다. `vault-0` 이 0/1 이�
 
 **5단계로 목표 아키텍처의 구성요소는 전부 올라갔다.** 남은 것은 결정과 마감이다.
 
-### 0. 남은 단계 — 7단계 (머지의 전제)
+### 0. 머지 관문 (ADR-068) — **워크로드는 끝났고 선행 조건이 남았다**
 
-ADR-068 로 **7단계까지 끝낸 뒤 머지**하기로 정했다. 6단계는 완료했고(§8-20) 아래 하나가 남았다.
+7·8단계 워크로드는 **전부 떠 있다**(2026-09-05 실측). Dependency-Track ·
+DefectDojo · SafeLine · Kubescape · Caldera · 관측성 전체 · Falco 까지 기동한다.
+용량 우려도 실측으로 지나갔다 — requests 92%, 파드 106.
 
-| 단계 | 구성요소 | 신규 매니페스트 | 비고 |
-|:-:|---|--:|---|
-| 7 | security-full — SafeLine · Kubescape · Dependency-Track · DefectDojo · Caldera | ~25 | **zram 실측 지점** |
+**그러나 머지 선행 조건이 매니페스트에 반영돼 있지 않다.** 자세한 내용은
+[LOCAL-DEPLOYMENT.md §9-4](../docs/LOCAL-DEPLOYMENT.md).
 
-**용량이 실제 제약이다.** 6단계 완료 시점 실측:
+| 선행 조건 | 현재 |
+|---|---|
+| prod `targetRevision` 을 태그로 고정 | ❌ dev·prod 둘 다 `v2` |
+| dev `automated` 일시 해제 | ❌ 둘 다 `prune: true`·`selfHeal: true` |
+| wave 순 분할 머지 | 미착수 |
 
-```
-requests  34.2 / 54 GiB (64%)   ← 스케줄링을 막는 값. 여유 약 19 GiB
-limits    56.1 / 54 GiB (105%)  ← 오버커밋. 게이트는 아니지만 100% 를 넘었다
-파드 82 · zram DATA 240 MiB / COMPR 72.6 MiB (3.31배)
-```
+**그리고 과금 줄기가 남아 있다** — 계량은 끝났고 **가격이 없다**(§9-2).
+요금제·구독·가격 없이 인보이스를 낼 수 없다. 머지 시점은 그 뒤가 맞다.
 
-7단계(~25 매니페스트)는 §2 의 zram 설계가 처음으로 제대로 시험되는 지점이다.
-**착수 전에 requests 여유를 다시 볼 것** — limits 가 아니라 requests 가 한계다.
+> 미뤄 둔 일 전체는 [LOCAL-DEPLOYMENT.md §9](../docs/LOCAL-DEPLOYMENT.md) 에
+> 모아 두었다. **잊어서 미룬 것과 순서를 정해 미룬 것을 구분해 적었다** —
+> 새 작업을 시작하기 전에 그것부터 볼 것.
 
 
 ### 0-2. 관측성 — 정해진 것과 남은 것 (2026-09-03)

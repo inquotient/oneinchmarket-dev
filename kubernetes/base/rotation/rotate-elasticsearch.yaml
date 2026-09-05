@@ -32,6 +32,22 @@ spec:
             seccompProfile:
               type: RuntimeDefault
           containers:
+            # ★★ 이 Job 은 현재 구조상 성립하지 않는다 — §8-64 에서 확인했다.
+            #
+            #   ① **ECK 가 `elastic` 사용자의 소유자다.** 이 Job 이 ES API 로
+            #      비밀번호를 바꿔도 ECK 가 `elasticsearch-es-elastic-user` 기준으로
+            #      되돌린다. 즉 회전이 유지되지 않는다.
+            #   ② **바꾼 값을 ECK 시크릿에 반영하지 않는다.** 3단계가 수기
+            #      `elasticsearch-secret` 만 패치한다. 그 시크릿을 보던 소비자
+            #      (falcosidekick·trivy)와 ECK 를 보던 소비자가 갈라졌고,
+            #      실제로 falcosidekick 의 경보가 401 로 전부 버려지고 있었다.
+            #   ③ **이미지에 kubectl 이 없다.** `curlimages/curl` 로 3단계의
+            #      `kubectl patch` 를 실행할 수 없다.
+            #
+            #   지금은 ①·③ 때문에 **실행돼도 실패해서** 피해가 없다. 고치려면
+            #   "ECK 관리 사용자를 회전할 것인가, 전용 사용자를 따로 둘 것인가"
+            #   를 먼저 정해야 한다 — ADR 급 결정이라 여기서 임의로 바꾸지 않고
+            #   §9-4 에 남긴다.
             - name: rotate-elasticsearch
               image: curlimages/curl:latest
               command:

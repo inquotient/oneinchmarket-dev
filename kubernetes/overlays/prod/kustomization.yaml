@@ -136,8 +136,8 @@ images:
     newTag: "4.14.7"
   - name: wazuh/wazuh-indexer
     newTag: "4.14.7"
-  - name: falcosecurity/falco-no-driver
-    newTag: "0.39.2"
+  - name: falcosecurity/falco
+    newTag: "0.44.1-debian"
   - name: falcosecurity/falcosidekick
     newTag: "2.35.0"
 

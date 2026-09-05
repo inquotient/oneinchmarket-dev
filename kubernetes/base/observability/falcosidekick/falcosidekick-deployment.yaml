@@ -55,8 +55,11 @@ spec:
             - name: ELASTICSEARCH_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: elasticsearch-secret
-                  key: elastic-password
+                  # ★ ECK 가 `elastic` 사용자의 권위 있는 소유자다.
+                  #   수기 `elasticsearch-secret` 은 낡아 401 을 준다 —
+                  #   Falco 가 도는 순간 경보가 전부 거기서 버려졌다(§8-64).
+                  name: elasticsearch-es-elastic-user
+                  key: elastic
             - name: SLACK_WEBHOOKURL
               valueFrom:
                 secretKeyRef:

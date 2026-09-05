@@ -77,8 +77,10 @@ spec:
                 - name: ES_PASSWORD
                   valueFrom:
                     secretKeyRef:
-                      name: elasticsearch-secret
-                      key: elastic-password
+                      # ★ ECK 가 권위 있는 소유자다(§8-64).
+                      #   주 1회만 돌아 더 늦게 드러날 자리였다.
+                      name: elasticsearch-es-elastic-user
+                      key: elastic
               resources:
                 requests:
                   cpu: 200m

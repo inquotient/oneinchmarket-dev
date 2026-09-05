@@ -32,13 +32,11 @@ spec:
           operator: Exists
       containers:
         - name: falco
-          image: falcosecurity/falco-no-driver:latest
+          image: falcosecurity/falco:0.44.1-debian
           args:
             - /usr/bin/falco
             - -o
             - engine.kind=modern_ebpf
-            - -o
-            - container_engines.cri.sockets[]=/run/containerd/containerd.sock
           env:
             - name: FALCO_K8S_NODE_NAME
               valueFrom:
@@ -51,10 +49,10 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 128Mi
+              memory: 256Mi
             limits:
               cpu: 500m
-              memory: 256Mi
+              memory: 1Gi
           livenessProbe:
             httpGet:
               path: /healthz
@@ -78,8 +76,18 @@ spec:
               mountPath: /etc/falco/rules.d/custom-rules.yaml
               subPath: custom-rules.yaml
               readOnly: true
+            # ★ k3s 는 자기 containerd 를 /run/k3s/containerd 에 둔다.
+            #   호스트의 /run/containerd/containerd.sock 은 **다른**
+            #   데몬이고 k8s 컨테이너를 모른다(실측: 1개 vs 422개).
+            #   그것을 물리면 경보가 뜨긴 하나 컨테이너·파드·네임스페이스가
+            #   전부 <NA> 로 나온다 — 오류는 없다(§8-64).
             - name: containerd-sock
-              mountPath: /run/containerd/containerd.sock
+            #   ★ 그리고 마운트 지점은 **/host 아래**여야 한다. container
+            #     플러그인은 host_root(기본 /host)를 앞에 붙여 연다 —
+            #     로그가 '/host/run/k3s/...' 를 연다고 찍는다. 원래
+            #     매니페스트는 /proc·/dev·/boot 만 /host 아래 두고
+            #     소켓만 빠뜨려 규약이 어긋나 있었다.
+              mountPath: /host/run/k3s/containerd/containerd.sock
               readOnly: true
             - name: proc
               mountPath: /host/proc
@@ -96,7 +104,7 @@ spec:
             name: falco-config
         - name: containerd-sock
           hostPath:
-            path: /run/containerd/containerd.sock
+            path: /run/k3s/containerd/containerd.sock
         - name: proc
           hostPath:
             path: /proc

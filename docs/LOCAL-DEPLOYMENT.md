@@ -3172,6 +3172,13 @@ modern_ebpf 프로브가 `scap_init` 에 실패한다. ADR-025 가 Tetragon 전�
 
 ### 8-36. Falco 가 WSL2 에서 안 되는 진짜 이유 — sys_exit 프로그램의 attach 거부 (2026-09-04)
 
+> **★ 이 절의 결론은 §8-64 에서 뒤집혔다(2026-09-05).** 원인 규명(attach 단계
+> EINVAL, 버전 간 비호환)은 옳았으나 **"더 새 Falco 가 없다" 가 틀렸다** —
+> `falcosecurity/falco-no-driver` 는 버려진 저장소이고 유지되는 쪽
+> (`falcosecurity/falco`)에 0.44.1 이 있다. 그것으로 올리니 Falco 가 돈다.
+> 아래는 그 시점의 기록으로 남긴다.
+
+
 `overlays/local/patches/falco-local.yaml` 에 이렇게 적혀 있었다.
 
 > modern_ebpf 프로브가 WSL2 커널에서 요구 조건을 만족하지 못하는 **것으로 보인다**
@@ -5744,6 +5751,145 @@ yellow 로 묶고 있었다. 경보를 붙이려다 발견했다.
 - 규칙 5개는 최소 집합이다. 디스크·메모리·Kafka consumer lag 은 아직 없다.
 - 요금제·구독·가격은 여전히 없다. **계량은 끝났고 가격이 없다.**
 
+### 8-64. Falco 가 살아났다 — §8-36 의 결론이 **틀린 저장소를 본 것**이었다
+
+§8-36 은 원인 규명까지 훌륭했다. `sys_exit` 프로그램의 raw tracepoint attach 가
+EINVAL 로 거부되고 검증기는 통과한다는 것까지 특정했고, 커널 탓이 아니라
+**버전 간 비호환**이라고 바르게 결론지었다. 그런데 마지막 한 줄이 틀렸다.
+
+> **더 새 Falco 가 없다.** `falcosecurity/falco-no-driver` 의 최신 태그가 0.39.2 다
+
+`falco-no-driver` 의 최신이 0.39.2 인 것은 **맞다.** 다만 그 저장소가 버려진
+것이다.
+
+```
+falcosecurity/falco-no-driver   0.39.2      2024-11-21   ← 여기서 멈춤
+falcosecurity/falco             0.44.1      2026-06-11   ← 유지되는 쪽
+                                master      2026-09-04
+```
+
+**"최신 태그가 없다" 를 확인할 때 그 저장소가 아직 살아 있는지를 함께 봐야
+한다.** 2년째 갱신이 없다는 사실 자체가 이미 신호였는데, 그것을 "Falco 가
+멈췄다" 로 읽고 "저장소가 옮겨갔다" 를 의심하지 않았다.
+
+#### 0.44.1 로 올리니 attach 실패가 사라졌다
+
+§8-36 이 특정한 EINVAL 은 한 번도 나오지 않았다. 대신 **0.41 이후의 구조
+변경** 둘이 차례로 걸렸다.
+
+| 증상 | 원인 |
+|---|---|
+| `Plugin requirement not satisfied, must load one of: container (>= 0.4.0)` | 0.41 부터 컨테이너 메타데이터가 **플러그인**으로 분리됐다. `.so` 는 이미지 안에 있으나 `load_plugins`·`plugins` 를 써야 한다 |
+| `property could not be validated: 'grpc'` | `grpc` 절이 스키마에서 빠졌다 |
+
+옛 인자 `-o container_engines.cri.sockets[]=...` 도 없어졌다 — 엔진 설정이
+플러그인 `init_config` 로 옮겨갔다.
+
+#### 그리고 **Falco 가 돌지 않아 숨어 있던 결함 셋**이 한꺼번에 드러났다
+
+이것이 이번 작업에서 가장 값진 부분이다. 경보를 만드는 쪽이 죽어 있으면
+경보를 **받는** 쪽의 고장은 아무 증상도 내지 않는다.
+
+**① falcosidekick → Elasticsearch 가 401 이었다.**
+
+```
+unable to authenticate user [elastic] for REST request [/falco-alerts-.../_doc]
+```
+
+`elastic` 사용자의 권위 있는 소유자는 **ECK**(`elasticsearch-es-elastic-user`)인데
+falcosidekick 만 수기 `elasticsearch-secret` 을 보고 있었다. 확인해 보니 소비자가
+갈라져 있었다:
+
+```
+ECK 것을 본다   logstash · filebeat · grafana · ilm-setup · dlq-replay   → 200
+수기 것을 본다  falcosidekick · trivy-cronjob · rotate-elasticsearch      → 401
+```
+
+trivy 는 **주 1회**만 돌아 훨씬 늦게 드러났을 자리다. 둘 다 ECK 쪽으로 옮겼다.
+
+**② 그 드리프트를 만든 것은 `rotate-elasticsearch` 였다.** 이 CronJob 은
+ES API 로 비밀번호를 바꾸고 **수기 시크릿만** 패치한다. ECK 시크릿은 손대지
+않는다. 게다가 ⓐ ECK 가 그 사용자의 소유자라 바꿔도 되돌려지고
+ⓑ `curlimages/curl` 이미지에 `kubectl` 이 없어 3단계가 실행조차 안 된다.
+지금은 **실행돼도 실패해서** 피해가 없다. 고치려면 "ECK 관리 사용자를 회전할
+것인가, 전용 사용자를 둘 것인가" 를 먼저 정해야 해 §9-4 로 넘겼다.
+
+**③ falcosidekick → Kafka 가 거부되고 있었다.**
+
+```
+Kafka - read tcp 10.0.0.203:...->10.0.0.238:9092: read: connection reset by peer
+```
+
+`messaging-netpol`(NetworkPolicy)에는 falcosidekick 이 있는데
+`allow-messaging-access`(AuthorizationPolicy)에는 **없었다.** 두 계층이 어긋나면
+타임아웃이 아니라 **connection reset** 이다 — 정책 파일 머리말이 경고하는 바로
+그 형태다. §8-35 는 설정 미적재가 원인이라 이 지점까지 도달하지 못했다.
+
+#### 컨테이너 메타데이터가 전부 `<NA>` 였다 — 소켓 둘이 어긋나 있었다
+
+경보는 뜨는데 `container=<NA> image=<NA> pod=<NA> ns=<NA>` 였다. **오류는
+나지 않는다.**
+
+```
+/run/containerd/containerd.sock       k8s.io 컨테이너   1 개  ← 매니페스트가 물던 것
+/run/k3s/containerd/containerd.sock   k8s.io 컨테이너 422 개  ← k3s 의 진짜 소켓
+```
+
+고치고도 여전히 `<NA>` 였다. 로그가 답을 줬다:
+
+```
+container: * enabled container runtime socket at '/host/run/k3s/containerd/containerd.sock'
+```
+
+플러그인이 `host_root`(기본 `/host`)를 **앞에 붙인다.** 매니페스트는
+`/host/proc`·`/host/dev`·`/host/boot` 는 규약대로 두고 **소켓만** `/host` 밖에
+두고 있었다. 마운트 지점을 옮기니 채워졌다.
+
+```
+container=zookeeper image=docker.io/library/zookeeper pod=zookeeper-0 ns=local
+```
+
+#### 살려 놓고 보니 오탐이 대부분이었다
+
+5분에 388건. 그대로 두면 하루 11만 건이고, §8-37 에서 filebeat 가 ES 를
+93 GB 로 부풀린 전례가 있다. 그러나 더 큰 문제는 용량이 아니라 **진짜 경보가
+묻힌다**는 것이다.
+
+| 규칙 | 건수 | 실체 | 조치 |
+|---|---:|---|---|
+| Terminal shell in container | 260 | kubelet 의 readiness·liveness 프로브 | `proc.tty != 0` — "터미널" 쉘이면 tty 가 있어야 한다. 기존의 `proc.pname` 제외 목록으로는 안 잡힌다(프로브의 부모는 런타임 shim 이다) |
+| Unexpected outbound connection | 150 | **IPv6 루프백** `::1` | 기존 제외가 `fd.snet` 의 IPv4 사설 대역뿐이었다 |
+| 〃 (2차 관측) | 46 | Trivy 스캐너의 취약점 DB 내려받기 | 설계상 정상이라 제외. **의도한 사각지대다** — trivy 이미지로 위장한 egress 는 안 걸린다 |
+
+```
+388건/5분  →  59건/5분  →  3건/3분
+```
+
+탐지가 죽은 것이 아님을 확인했다. 일부러 ServiceAccount 토큰을 읽자 즉시 잡혔다:
+
+```
+Read sensitive Kubernetes files | K8s Secret 파일 접근
+  (file=/var/run/secrets/kubernetes.io/serviceaccount/token ...)
+```
+
+#### 정리
+
+`overlays/local/patches/falco-local.yaml` 을 지웠다. 노드 레이블 없이 스케줄된다.
+Tetragon 은 그대로 둔다 — ADR-025 는 전환을 제안했으나 지금 둘은 **대체재가
+아니라 병행**이다.
+
+#### 교훈
+
+§8-36 의 교훈("추정을 단정처럼 남기지 말 것")이 한 겹 더 필요하다.
+**부정형 결론("~가 없다")은 조사 범위가 곧 결론의 범위다.** §8-36 은
+`falco-no-driver` 안에서는 완벽하게 옳았고, 그 밖을 보지 않았다는 것만 적히지
+않았다. 없다고 적을 때는 **어디를 봤는지**를 함께 적어야 다음 사람이 그 경계를
+다시 볼 수 있다.
+
+그리고 **죽어 있는 구성요소는 그 하류 전체를 검증되지 않은 상태로 만든다.**
+Falco 하나를 살리자 401·정책 누락·소켓 오설정 셋이 한꺼번에 나왔다. 셋 다
+"설정은 있으나 한 번도 실행된 적이 없는" 코드였다.
+
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
 > **이 절은 "지금 하지 않기로 결정한 것" 의 목록이다.** §8 의 각 절 끝에
@@ -5781,6 +5927,35 @@ yellow 로 묶고 있었다. 경보를 붙이려다 발견했다.
 - **`default` SA 로 도는 워크로드** — `nginx`·`ds389-bootstrap`·
   `efs-cleaner`·`databases-migrate`(매니페스트는 고쳤고 파드가 낡은
   Complete 다). ambient 에서 SA 는 곧 신원이다(Gotcha 10)
+
+### 9-4. 머지 관문 (ADR-068) — `local` → `v2`
+
+ADR-068 이 **"7단계까지 모두 끝난 뒤 `v2` 로 합치고 `local` 은 소멸한다"** 로
+정해 두었다. 워크로드 기준으로는 7·8단계가 이미 다 떠 있으나, **머지 선행
+조건이 매니페스트에 반영돼 있지 않다.**
+
+| 선행 조건 | 현재 | 왜 먼저인가 |
+|---|---|---|
+| prod `targetRevision` 을 태그로 고정 | ❌ dev·prod **둘 다 `v2`** | 지금 머지하면 dev 만이 아니라 **prod 도 같이 맞는다.** `.gitlab-ci.yml` 의 prod `when: manual` 게이트가 `automated{selfHeal}` 로 **무력**하다 |
+| dev `automated` 일시 해제 | ❌ dev·prod 둘 다 `prune: true`·`selfHeal: true` | 머지 시 dev 오버레이가 98 → 234 오브젝트, 신규 워크로드 26종이 한 번에 뜬다 |
+| wave 순 분할 머지 | 미착수 | 오퍼레이터(ECK·Kyverno·cert-manager·Tetragon)가 로컬에서만 검증됐다. 첫 단계가 관문이다 |
+
+> `local` 은 `v2` 대비 **0 뒤처짐**이라 fast-forward 가 유지된다. 누가 `v2` 에
+> 커밋하면 이 성질이 깨지므로 그때는 즉시 rebase 할 것.
+
+### 9-5. 문서·결정 기록의 미정리
+
+- **ADR 번호가 충돌한다.** `ADR-071`·`ADR-072` 가 각각 **두 번** 쓰였다 —
+  2026-09-05 에 새로 추가하면서 파일 앞부분만 보고 번호를 매겼다. 참조가
+  양쪽으로 갈려 있어(`ADR-072` 19건 중 계량 계열은 새 것, 나머지는 옛 것)
+  기계적으로 못 바꾼다. **참조를 하나씩 판별해 새 쪽을 077·078 로 옮기는
+  방향**이 맞아 보인다
+- **Alertmanager 결정에 ADR 이 없다.** "빈 receiver 를 두지 않고 Logstash→ES 로
+  받는다"(§8-63)는 되돌리기 어려운 선택이다 — 경보 이력이 그 인덱스에 쌓인다
+- **`rotate-elasticsearch` 를 어떻게 할 것인가**(§8-64). ECK 가 `elastic` 사용자의
+  소유자라 이 Job 의 회전은 유지되지 않는다. "ECK 관리 사용자를 회전할 것인가,
+  전용 사용자를 따로 둘 것인가" 를 정해야 한다. 지금은 실행돼도 실패해 피해가
+  없으나, **고쳐서 동작하게 만드는 순간 ES 인증이 깨진다**
 
 ## 관련 문서
 

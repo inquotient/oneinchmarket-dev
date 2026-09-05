@@ -32,8 +32,49 @@ data:
       url: "http://falcosidekick:2801"
       keep_alive: true
 
-    grpc:
-      enabled: false
+    # ★ Falco 0.41 부터 컨테이너 메타데이터가 **플러그인**으로 분리되었다.
+    #   기본 규칙(falco_rules.yaml)이 `container (>= 0.4.0)` 를 요구하므로
+    #   이것이 없으면 기동 자체가 거부된다:
+    #     Error: Plugin requirement not satisfied, must load one of: container
+    #   `.so` 는 이미지 안(/usr/share/falco/plugins/libcontainer.so)에 있다.
+    #
+    # ★ 컨테이너 엔진 설정도 여기로 옮겨왔다. 예전의
+    #   `-o container_engines.cri.sockets[]=...` 인자는 0.44 에 없다.
+    load_plugins:
+      - container
+
+    plugins:
+      - name: container
+        library_path: libcontainer.so
+        init_config:
+          label_max_len: 100
+          with_size: false
+          hooks:
+            - create
+            - start
+          engines:
+            containerd:
+              enabled: true
+              sockets:
+                - /run/k3s/containerd/containerd.sock
+            cri:
+              enabled: true
+              sockets:
+                - /run/k3s/containerd/containerd.sock
+            docker:
+              enabled: false
+            podman:
+              enabled: false
+            lxc:
+              enabled: false
+            libvirt_lxc:
+              enabled: false
+            bpm:
+              enabled: false
+
+    # `grpc` 는 0.44 의 스키마에 없다 — 남겨 두면 기동 시
+    #   "Object contains a property that could not be validated ... 'grpc'"
+    # 경고가 뜬다. 쓰지 않으므로 지운다.
 
     webserver:
       enabled: true
@@ -42,12 +83,29 @@ data:
   custom-rules.yaml: |
     # OneinchMarket 커스텀 Falco 탐지 규칙
 
+    # ★ 두 규칙의 오탐 억제 — Falco 를 실제로 켠 뒤 실측하고 고쳤다(§8-64).
+    #   5분에 388건이 들어왔고 그 대부분이 탐지가 아니었다:
+    #     · 쉘 260건  = kubelet 의 readiness·liveness 프로브다.
+    #       "터미널 쉘" 이라면 tty 가 있어야 한다 → `proc.tty != 0`.
+    #       기존의 `proc.pname` 제외 목록으로는 잡히지 않는다(프로브의
+    #       부모는 런타임 shim 이다).
+    #     · 외부 연결 150건 = **IPv6 루프백** `::1`. 기존 제외는
+    #       `fd.snet` 의 IPv4 사설 대역뿐이라 `::1` 이 "외부" 로 잡혔다.
+    #     · Trivy 스캐너 46건 = 취약점 DB 를 받는 **정상 동작**이다.
+    #       규칙 의미로는 참이지만 운영상 기대된 행위라 제외한다.
+    #       ★ 이것은 의도한 사각지대다 — trivy 이미지로 위장한 egress 는
+    #       이 규칙에 걸리지 않는다. 이미지 출처는 Kyverno·서명 검증이
+    #       맡아야 할 몫이고 현재 서명 검증 정책은 없다.
+    #   오탐은 단순한 소음이 아니다 — §8-37 에서 ES 가 93 GB 로 부푼 적이
+    #   있고, 무엇보다 **진짜 경보가 묻힌다.**
+
     # 1. 컨테이너 내 쉘 실행 탐지
     - rule: Terminal shell in container
       desc: 컨테이너 내에서 터미널 쉘이 실행됨
       condition: >
         spawned_process and container and
         proc.name in (bash, sh, zsh, ash) and
+        proc.tty != 0 and
         not proc.pname in (healthcheck, node, java, python, python3, ruby)
       output: >
         쉘 실행 탐지
@@ -82,6 +140,8 @@ data:
       desc: 컨테이너에서 내부 네트워크 외부로 연결 시도
       condition: >
         outbound and container and
+        not fd.sip in ("127.0.0.1", "::1") and
+        not container.image.repository endswith "/trivy" and
         not fd.snet in (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) and
         not k8s.ns.name in (kube-system, istio-system)
       output: >

@@ -149,6 +149,14 @@ spec:
               #   `sa/default` 를 허용하면 셋 모두에게 Kafka 접근을 주게 된다 —
               #   신원 분리가 이 정책의 존재 이유이므로 그러지 않는다.
               - "*/sa/logstash"
+              # ★ falcosidekick 은 falco-alerts 토픽에 쓴다. NetworkPolicy
+              #   (messaging-netpol)에는 이미 있었으나 **여기에만 없었다** —
+              #   두 계층이 어긋나면 타임아웃이 아니라 connection reset 이다.
+              #   실측: `Kafka - read tcp ...: connection reset by peer`.
+              #   Falco 가 로컬에서 돌지 않아 이 경로가 한 번도 쓰이지 않았고
+              #   (§8-35 는 설정 미적재가 원인이라 여기까지 못 갔다),
+              #   Falco 를 살리자마자 드러났다(§8-64).
+              - "*/sa/falcosidekick"
               # OpenReplay 의 수집 계층이 Kafka 를 쓴다.
               - "*-openreplay"
               - "*/sa/admin"
