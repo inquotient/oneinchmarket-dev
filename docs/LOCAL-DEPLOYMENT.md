@@ -7427,6 +7427,191 @@ requests 정정 없이도 풀린다 — 그리고 파드 40여 개가 함께 빠
 **③만 해도 §15-3 의 두 제약(파드·메모리)이 동시에 풀린다.** 그리고 셋 다
 하드웨어를 사지 않는다.
 
+## 20. Hyper-V 풀 HA + zram — 컴포넌트별 메모리 표 (2026-09-05)
+
+§18 은 "증가분" 만 냈다. 여기서는 **HA 구성 후의 절대값**을 컴포넌트별로
+내고, zram 이 실제로 어디에 닿는지를 함께 표시한다.
+
+### 20-1. 총계
+
+```
+비-DaemonSet  requests 74.0 GiB · limits 161.3 GiB · 현재실사용기준 38.7 GiB
+DaemonSet 노드당  requests 932Mi · limits 2688Mi  → 3노드 2.7 / 7.9 GiB
+3노드 합계    requests 76.7 GiB · limits 169.2 GiB
+```
+
+```
+3노드 VM 메모리 = requests 76.7 + 노드 예약 1.9×3 = 82.4 GiB
+호스트 소요      = 82.4 + Windows 7 + L0 랩 8.8 = 98.2 GiB
+```
+
+현재 호스트 63.4 GiB 로는 불가하고, **256 GB 면 38%** 다(§18-5).
+
+### 20-2. ★ zram 이 닿지 않는 곳 — Guaranteed 8종
+
+§2-2 가 설계로 적어 둔 성질이 여기서 그대로 작동한다.
+
+> **`LimitedSwap` 은 Burstable QoS 파드에만 스왑을 준다.
+> Guaranteed(`requests == limits`)는 스왑을 0 받는다.**
+
+실측 QoS 분포는 **Burstable 96 · Guaranteed 8** 이다. 그런데 그 8종이
+하필 가장 큰 것들이다.
+
+| Guaranteed(스왑 불가) | 파드당 | HA 복제본 | HA requests |
+|---|---:|:-:|---:|
+| `elasticsearch-es-default` | 2048Mi | 3 | 6144Mi |
+| `kafka` | 1536 | 3 | 4608 |
+| `postgresql` | 1024 | 3 | 3072 |
+| `minio` | 640 | 4 | 2560 |
+| `trino` | 2048 | 1 | 2048 |
+| `mariadb` | 512 | 3 | 1536 |
+| `mongodb` | 512 | 3 | 1536 |
+| **합계** | | | **21.25 GiB** |
+
+**76.7 GiB 중 21.25 GiB(28%)는 zram 이 손댈 수 없는 실 RAM 이다.**
+나머지 55.5 GiB 만 Burstable 이고, 그쪽의 `limits − requests` 여유가
+zram 으로 흘러갈 수 있는 몫이다.
+
+> 이것은 결함이 아니라 **의도된 스위치**다 — 데이터 저장소를 스왑으로
+> 밀어내면 지연이 예측 불가해진다. 다만 **"zram 이 있으니 메모리가 덜
+> 든다" 는 계산이 큰 쪽에는 적용되지 않는다**는 것을 알고 써야 한다.
+
+### 20-3. 세 층으로 읽기
+
+| 층 | 값 | 뜻 |
+|---|---:|---|
+| **requests** | **76.7 GiB** | 스케줄러가 보는 값. **VM 메모리는 이것보다 커야 한다** |
+| limits | 169.2 GiB | 오버커밋. Burstable 의 초과분이 zram 으로 간다 |
+| 현재 실사용 기준 | 39.0 GiB | 지금 실사용을 HA 복제본 수로 곱한 값 |
+
+**requests 76.7 대 실사용 39.0** — §19 에서 본 45% 여백이 HA 로 늘리면
+그대로 두 배가 된다. §19-3 의 레버(프로파일 분리 · JVM 힙 · requests 정정)를
+먼저 쓰면 이 표 전체가 내려간다.
+
+### 20-4. zram 설정 권고
+
+```
+노드당 VM 메모리   27.5 GiB   (82.4 / 3)
+zram disksize      20 GiB     (§2 의 비율 32G/43GiB ≈ 74% 를 적용)
+압축률 실측        3.3~3.7x   (§8-26 3.31x · 현재 7.1G→1.9G = 3.7x)
+최악 물리 점유     약 6 GiB
+```
+
+zram 이 실제로 하는 일은 **Burstable 96종의 순간 초과를 흡수해 OOMKill 을
+막는 것**이고, 그 덕에 §19-3 의 ① requests 정정을 더 과감하게 할 수 있다.
+**zram 의 값어치는 스케줄 공간이 아니라 정정의 안전마진이다.**
+
+### 20-5. 전체 표
+
+`D` 등급은 노드당 1개이므로 `×N` 으로 적었다(3노드면 3배).
+
+| 등급 | 컴포넌트 | 파드당 req | 파드당 lim | 실사용 | QoS | HA 복제본 | **HA requests** | HA limits |
+|:-:|---|---:|---:|---:|:-:|:-:|---:|---:|
+| C | `elasticsearch-es-default` | 2048 | 2048 | 1671 | Guaranteed | 3 | **6144** | 6144 |
+| C | `kafka` | 1536 | 1536 | 410 | Guaranteed | 3 | **4608** | 4608 |
+| R | `logstash` | 1536 | 2048 | 1639 | Burstable | 2 | **3072** | 4096 |
+| C | `postgresql` | 1024 | 1024 | 348 | Guaranteed | 3 | **3072** | 3072 |
+| C | `minio` | 640 | 640 | 101 | Guaranteed | 4 | **2560** | 2560 |
+| X | `safeline` | 2368 | 5632 | 116 | Burstable | 1 | **2368** | 5632 |
+| X | `gitlab` | 2304 | 4096 | 2136 | Burstable | 1 | **2304** | 4096 |
+| C | `wazuh-indexer` | 768 | 1536 | 687 | Burstable | 3 | **2304** | 4608 |
+| S | `loki` | 1024 | 3072 | 156 | Burstable | 2 | **2048** | 6144 |
+| X | `trino` | 2048 | 2048 | 824 | Guaranteed | 1 | **2048** | 2048 |
+| R | `kibana-kb` | 768 | 1536 | 977 | Burstable | 2 | **1536** | 3072 |
+| R | `hive-metastore` | 768 | 1280 | 384 | Burstable | 2 | **1536** | 2560 |
+| C | `mariadb` | 512 | 512 | 104 | Guaranteed | 3 | **1536** | 1536 |
+| C | `mongodb` | 512 | 512 | 252 | Guaranteed | 3 | **1536** | 1536 |
+| C | `solr` | 512 | 1024 | 300 | Burstable | 3 | **1536** | 3072 |
+| R | `defectdojo-django` | 640 | 1536 | 412 | Burstable | 2 | **1280** | 3072 |
+| S | `dependency-track-apiserver` | 640 | 2048 | 343 | Burstable | 2 | **1280** | 4096 |
+| R | `hadoop-datanode` | 640 | 1536 | 310 | Burstable | 2 | **1280** | 3072 |
+| R | `hive-server` | 640 | 2560 | 476 | Burstable | 2 | **1280** | 5120 |
+| C | `keycloak` | 640 | 1536 | 479 | Burstable | 2 | **1280** | 3072 |
+| R | `ranger-admin` | 640 | 1536 | 683 | Burstable | 2 | **1280** | 3072 |
+| C | `clickhouse` | 512 | 2048 | 663 | Burstable | 2 | **1024** | 4096 |
+| C | `hadoop-namenode` | 512 | 1536 | 306 | Burstable | 2 | **1024** | 3072 |
+| R | `hbase-regionserver` | 512 | 1536 | 265 | Burstable | 2 | **1024** | 3072 |
+| R | `prometheus` | 512 | 1536 | 476 | Burstable | 2 | **1024** | 3072 |
+| C | `hbase-master` | 448 | 1280 | 206 | Burstable | 2 | **896** | 2560 |
+| X | `livy` | 768 | 1024 | 606 | Burstable | 1 | **768** | 1024 |
+| X | `spark-history` | 768 | 1024 | 630 | Burstable | 1 | **768** | 1024 |
+| C | `zookeeper` | 256 | 768 | 128 | Burstable | 3 | **768** | 2304 |
+| R | `defectdojo-celery-worker` | 320 | 1280 | 78 | Burstable | 2 | **640** | 2560 |
+| R | `knox` | 320 | 768 | 141 | Burstable | 2 | **640** | 1536 |
+| X | `spark-connect` | 640 | 2048 | 340 | Burstable | 1 | **640** | 2048 |
+| C | `wazuh-manager` | 320 | 1024 | 136 | Burstable | 2 | **640** | 2048 |
+| R | `istiod` | 256 | 0 | 63 | Burstable | 2 | **512** | 0 |
+| R | `api-openreplay` | 256 | 768 | 9 | Burstable | 2 | **512** | 1536 |
+| R | `assist-openreplay` | 256 | 768 | 85 | Burstable | 2 | **512** | 1536 |
+| R | `chalice-openreplay` | 256 | 768 | 57 | Burstable | 2 | **512** | 1536 |
+| R | `glitchtip-web` | 256 | 768 | 205 | Burstable | 2 | **512** | 1536 |
+| R | `glitchtip-worker` | 256 | 768 | 52 | Burstable | 2 | **512** | 1536 |
+| S | `grafana` | 256 | 768 | 221 | Burstable | 2 | **512** | 1536 |
+| R | `spot-openreplay` | 256 | 768 | 7 | Burstable | 2 | **512** | 1536 |
+| R | `admin` | 256 | 512 | 65 | Burstable | 2 | **512** | 1024 |
+| R | `akhq` | 256 | 768 | 104 | Burstable | 2 | **512** | 1536 |
+| R | `apicurio-registry` | 256 | 768 | 119 | Burstable | 2 | **512** | 1536 |
+| R | `cmmn-api` | 256 | 1024 | 725 | Burstable | 2 | **512** | 2048 |
+| C | `ds389` | 256 | 512 | 15 | Burstable | 2 | **512** | 1024 |
+| S | `tempo` | 256 | 768 | 28 | Burstable | 2 | **512** | 1536 |
+| X | `jenkins` | 448 | 1536 | 287 | Burstable | 1 | **448** | 1536 |
+| R | `kafka-bridge` | 192 | 512 | 117 | Burstable | 2 | **384** | 1024 |
+| R | `openmeter-api` | 192 | 512 | 58 | Burstable | 2 | **384** | 1024 |
+| R | `openmeter-balance-worker` | 192 | 512 | 31 | Burstable | 2 | **384** | 1024 |
+| R | `openmeter-billing-worker` | 192 | 512 | 28 | Burstable | 2 | **384** | 1024 |
+| R | `openmeter-notification-service` | 192 | 512 | 28 | Burstable | 2 | **384** | 1024 |
+| R | `openmeter-sink-worker` | 192 | 512 | 31 | Burstable | 2 | **384** | 1024 |
+| R | `otel-gateway` | 192 | 384 | 59 | Burstable | 2 | **384** | 768 |
+| S | `pyroscope` | 192 | 1536 | 81 | Burstable | 2 | **384** | 3072 |
+| C | `vault` | 128 | 512 | 58 | Burstable | 3 | **384** | 1536 |
+| L | `elastic-operator` | 150 | 1024 | 57 | Burstable | 2 | **300** | 2048 |
+| L | `kyverno-admission-controller` | 128 | 384 | 70 | Burstable | 2 | **256** | 768 |
+| R | `assets-openreplay` | 128 | 384 | 13 | Burstable | 2 | **256** | 768 |
+| R | `canvases-openreplay` | 128 | 384 | 7 | Burstable | 2 | **256** | 768 |
+| R | `db-openreplay` | 128 | 384 | 7 | Burstable | 2 | **256** | 768 |
+| R | `ender-openreplay` | 128 | 384 | 6 | Burstable | 2 | **256** | 768 |
+| R | `falcosidekick` | 128 | 256 | 15 | Burstable | 2 | **256** | 512 |
+| R | `frontend-openreplay` | 128 | 384 | 10 | Burstable | 2 | **256** | 768 |
+| R | `http-openreplay` | 128 | 384 | 22 | Burstable | 2 | **256** | 768 |
+| R | `images-openreplay` | 128 | 384 | 7 | Burstable | 2 | **256** | 768 |
+| R | `ingress-istio` | 128 | 1024 | 42 | Burstable | 2 | **256** | 2048 |
+| R | `integrations-openreplay` | 128 | 384 | 7 | Burstable | 2 | **256** | 768 |
+| R | `lam` | 128 | 384 | 12 | Burstable | 2 | **256** | 768 |
+| R | `nginx` | 128 | 256 | 9 | Burstable | 2 | **256** | 512 |
+| X | `ranger-usersync` | 256 | 768 | 128 | Burstable | 1 | **256** | 768 |
+| R | `sink-openreplay` | 128 | 384 | 6 | Burstable | 2 | **256** | 768 |
+| R | `storage-openreplay` | 128 | 384 | 12 | Burstable | 2 | **256** | 768 |
+| R | `waypoint` | 128 | 1024 | 58 | Burstable | 2 | **256** | 2048 |
+| S | `redis` | 256 | 256 | 34 | Guaranteed | 1 | **256** | 256 |
+| D | `falco` | 256 | 1024 | 232 | Burstable | 노드당 1 | 256×N | 1024×N |
+| C | `alertmanager` | 64 | 192 | 18 | Burstable | 3 | **192** | 576 |
+| X | `caldera` | 192 | 1536 | 26 | Burstable | 1 | **192** | 1536 |
+| X | `defectdojo-celery-beat` | 192 | 512 | 11 | Burstable | 1 | **192** | 512 |
+| D | `otel-agent` | 192 | 640 | 88 | Burstable | 노드당 1 | 192×N | 640×N |
+| R | `coredns` | 70 | 170 | 36 | Burstable | 2 | **140** | 340 |
+| R | `metrics-server` | 70 | 0 | 43 | Burstable | 2 | **140** | 0 |
+| L | `kyverno-background-controller` | 64 | 128 | 37 | Burstable | 2 | **128** | 256 |
+| L | `kyverno-cleanup-controller` | 64 | 128 | 39 | Burstable | 2 | **128** | 256 |
+| L | `kyverno-reports-controller` | 64 | 128 | 66 | Burstable | 2 | **128** | 256 |
+| R | `alerts-openreplay` | 64 | 192 | 29 | Burstable | 2 | **128** | 384 |
+| R | `apicurio-ui` | 64 | 192 | 12 | Burstable | 2 | **128** | 384 |
+| R | `defectdojo-nginx` | 64 | 192 | 7 | Burstable | 2 | **128** | 384 |
+| R | `dependency-track-frontend` | 64 | 192 | 8 | Burstable | 2 | **128** | 384 |
+| R | `heuristics-openreplay` | 64 | 192 | 16 | Burstable | 2 | **128** | 384 |
+| R | `kube-state-metrics` | 64 | 192 | 19 | Burstable | 2 | **128** | 384 |
+| X | `safeline-luigi` | 128 | 384 | 34 | Burstable | 1 | **128** | 384 |
+| R | `sourcemapreader-openreplay` | 64 | 192 | 32 | Burstable | 2 | **128** | 384 |
+| L | `tetragon-operator` | 64 | 128 | 14 | Burstable | 2 | **128** | 256 |
+| D | `ztunnel` | 128 | 0 | 85 | Burstable | 노드당 1 | 128×N | 0×N |
+| D | `filebeat` | 128 | 512 | 66 | Burstable | 노드당 1 | 128×N | 512×N |
+| D | `tetragon` | 128 | 512 | 103 | Burstable | 노드당 1 | 128×N | 512×N |
+| D | `istio-cni-node` | 100 | 0 | 84 | Burstable | 노드당 1 | 100×N | 0×N |
+| X | `safeline-fvm` | 64 | 256 | 47 | Burstable | 1 | **64** | 256 |
+| C | `cnpg-operator` (신규) | 200 | 400 | — | Burstable | 1 | **200** | 400 |
+| C | `clickhouse-keeper` (신규) | 128 | 256 | — | Burstable | 3 | **384** | 768 |
+| C | `hadoop-journalnode` (신규) | 256 | 512 | — | Burstable | 3 | **768** | 1536 |
+| C | `hadoop-zkfc` (신규) | 128 | 256 | — | Burstable | 2 | **256** | 512 |
+
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용
