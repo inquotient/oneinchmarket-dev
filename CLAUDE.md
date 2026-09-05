@@ -14,7 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | [docs/SECURITY.md](docs/SECURITY.md) | SEC-xxx 68건, 통제 인벤토리, 워크로드 커버리지 |
 | [docs/COMPONENTS.md](docs/COMPONENTS.md) | 구성요소 카탈로그, v1↔v2 대조, 의존 관계 |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | INFRA-xxx 56건, 배포 절차, 배포 블로커, 용량·비용 |
-| [docs/LOCAL-DEPLOYMENT.md](docs/LOCAL-DEPLOYMENT.md) | **브랜치 `local`.** WSL2 단일 노드 k3s + zram (B안). **§8 에 실배포 기록** — WSL2 고유 블로커 3건, 결함 32건 해소 |
+| [docs/LOCAL-DEPLOYMENT.md](docs/LOCAL-DEPLOYMENT.md) | **브랜치 `local`.** WSL2 단일 노드 k3s + zram (B안). **§8 에 실배포 기록** — WSL2 고유 블로커 3건, 결함 32건 해소. **§9 는 뒤로 미룬 일** — 지금 하지 않기로 **결정한** 목록이다(잊은 것이 아니다). 새 작업을 시작하기 전에 볼 것 |
 | [docs/APP-INTEGRATION.md](docs/APP-INTEGRATION.md) | **애플리케이션 연동 가이드.** 앱을 이 플랫폼에 붙이는 법 — OTel·GlitchTip·Pyroscope·Kafka·계약, 새 워크로드 규약, 지금 안 되는 것 |
 | [docs/ADR-CANDIDATES.md](docs/ADR-CANDIDATES.md) | 아키텍처 결정 기록 후보 60건 |
 | `v2-architecture-plan.md` | **2026-02 작성 계획서.** 목표를 기술하며 현재 상태와 다른 부분이 있다 |
@@ -96,7 +96,7 @@ cd scripts/security-verification && ./run-all.sh [namespace]
 0. **오퍼레이터 계층(ArgoCD 밖, `local/install-operators.sh`)** — Istio ambient · ECK · Kyverno · cert-manager · **Tetragon**(eBPF 런타임) · **Trivy Operator**(상시 취약점 스캔) · **Policy Reporter**(결과 집계). Tetragon 은 정적 매니페스트가 없어 `helm template | kubectl apply` 로 **렌더만** 한다 — 클러스터에 Helm 릴리스는 남지 않는다
 1. **Admission** — Kyverno 6정책 (disallow-root, disallow-latest, disallow-privilege-escalation, require-labels, require-probes, require-resources). base는 Audit, prod는 4종만 Enforce
 2. **Network** — default-deny **ingress**(egress 차단 없음) + allow 13종 + Istio AuthorizationPolicy 4종
-&(modern_ebpf) → Falcosidekick → Elasticsearch/Kafka. **L0 랩은 Suricata(인라인·ET Open 36,818 규칙) · Zeek(포트 미러링) · ntopng 셋을 동시에 돌린다** — Suricata 는 `suricata`, Zeek 는 `zeek` 인덱스로 들어온다(§8-51). **local 에서는 Falco 가 스케줄되지 않는다** — WSL2 커널에서 modern_ebpf 가 `scap_init` 에 실패해 `nodeSelector: oneinchmarket.local/falco-supported=true` 로 비활성했다(어떤 노드에도 그 레이블이 없다). 대신 Tetragon 이 돈다(ADR-025). Slack 출력은 webhook URL 이 비어 있어 켜지지 않는다. **Falcosidekick 은 `args: ["-c", "/etc/falcosidekick/config.yaml"]` 이 없으면 설정을 읽지 못해 출력이 0개가 된다** — 파드는 Ready 로 보이고 단서는 기동 로그의 `Enabled Outputs: []` 뿐이다(§8-35)
+3. **Runtime** — Falco DaemonSet(modern_ebpf) → Falcosidekick → Elasticsearch/Kafka. **L0 랩은 Suricata(인라인·ET Open 36,818 규칙) · Zeek(포트 미러링) · ntopng 셋을 동시에 돌린다** — Suricata 는 `suricata`, Zeek 는 `zeek` 인덱스로 들어온다(§8-51). **local 에서는 Falco 가 스케줄되지 않는다** — WSL2 커널에서 modern_ebpf 가 `scap_init` 에 실패해 `nodeSelector: oneinchmarket.local/falco-supported=true` 로 비활성했다(어떤 노드에도 그 레이블이 없다). 대신 Tetragon 이 돈다(ADR-025). Slack 출력은 webhook URL 이 비어 있어 켜지지 않는다. **Falcosidekick 은 `args: ["-c", "/etc/falcosidekick/config.yaml"]` 이 없으면 설정을 읽지 못해 출력이 0개가 된다** — 파드는 Ready 로 보이고 단서는 기동 로그의 `Enabled Outputs: []` 뿐이다(§8-35)
 4. **Supply Chain** — CI의 Trivy 3잡 + Cosign 서명. **서명 검증 정책은 없다**
 
 ## 환경별 차이
@@ -236,10 +236,10 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 
 31. **전달 실패를 분기하려면 `http` 출력이 아니라 `http` 필터를 쓸 것.** 출력 플러그인은 재시도 후 영구 실패 시 이벤트를 버리고 로그 한 줄만 남긴다 — 파이프라인에 실패를 돌려주지 않아 dead-letter 분기를 만들 수 없다. 과금처럼 유실이 곧 매출 누락인 경로에서는 필터로 POST 하고 `tag_on_request_failure` 태그로 분기해 DLQ 인덱스에 남길 것. **DLQ 는 재처리 가능한 원문(`message`)을 담아야 한다** — 담지 않으면 기록일 뿐 복구 수단이 아니다. 필터에는 `target_response_code`·`retryable_codes` 가 없다(후자는 출력 전용) — 쓰면 기동 실패한다 — §8-61
 
-32. **경보 수단이 없으면 Job 실패를 신호로 쓸 것 — 다만 그것이 밀어내는 경보가 아님을 알고 쓸 것.** 이 클러스터에는 alertmanager·elasticsearch exporter·Prometheus 경보 규칙이 **하나도 없다.** `openmeter-dlq-replay` CronJob 은 재처리 후 남은 건수가 임계를 넘으면 `exit 1` 해서 Job 실패로 드러낸다. ★ 그런 Job 을 짤 때는 **연결 오류를 반드시 잡을 것** — 미처리 예외로 죽으면 Job 은 실패하지만 이미 처리한 건의 정리도, 임계 판정 로그도 남지 않는다(실측: `ConnectionResetError`). 재처리 중복은 OpenMeter 의 `id` 기반 중복 제거가 잡으므로 **"확실하지 않으면 다시 보낸다" 가 옳다** — 유실은 매출 누락이지만 중복은 잡힌다 — §8-62
+32. **경보 수단이 없으면 Job 실패를 신호로 쓸 것 — 다만 그것이 밀어내는 경보가 아님을 알고 쓸 것.** ~~이 클러스터에는 alertmanager·Prometheus 경보 규칙이 하나도 없다~~ — **§8-63 에서 생겼다(Gotcha 33). 아래 서술은 그 이전 상태다.** elasticsearch exporter 는 여전히 없다. `openmeter-dlq-replay` CronJob 은 재처리 후 남은 건수가 임계를 넘으면 `exit 1` 해서 Job 실패로 드러낸다. ★ 그런 Job 을 짤 때는 **연결 오류를 반드시 잡을 것** — 미처리 예외로 죽으면 Job 은 실패하지만 이미 처리한 건의 정리도, 임계 판정 로그도 남지 않는다(실측: `ConnectionResetError`). 재처리 중복은 OpenMeter 의 `id` 기반 중복 제거가 잡으므로 **"확실하지 않으면 다시 보낸다" 가 옳다** — 유실은 매출 누락이지만 중복은 잡힌다 — §8-62
 
-23. **Alertmanager 는 receiver 가 비어 있어도 오류를 내지 않는다.** Slack·SMTP 가 없다고 receiver 를 비워 두면 경보가 **조용히 사라진다** — Falcosidekick `Enabled Outputs: []`(§8-35), Envoy ALS 수신 0건(§8-55)과 같은 부류다. 이 클러스터는 webhook 으로 Logstash(5142)를 거쳐 Elasticsearch `alerts` 인덱스에 남긴다. webhook 페이로드는 **alerts 배열**이므로 `split` 하지 않으면 "몇 건이 울렸나"를 셀 수 없다. 그리고 `@timestamp` 를 수신 시각으로 두지 말 것 — Alertmanager 는 `group_wait`·`group_interval` 만큼 늦춰 보내고 같은 경보를 `repeat_interval`(4h)마다 **다시** 보내므로 재전송분이 전부 "새 경보"로 보인다. `[alerts][startsAt]` 을 쓸 것 — §8-63
-24. **Logstash 가 즉석 생성하는 인덱스는 전부 클러스터를 yellow 로 묶는다.** Gotcha 14 의 반복이다 — 템플릿이 없으면 ES 기본값인 복제본 1 이 붙고 단일 노드에는 배정될 곳이 없다. yellow 면 **ECK 가 파드를 롤링하지 않는다.** 실측으로 `alerts`·`api-usage-dlq`·`api-usage-quarantine` 셋이 그랬다. 새 인덱스 이름을 쓸 때는 `elasticsearch-ilm-setup` 에 함께 넣을 것. **템플릿은 생성 시점에만 적용되므로** 이미 만들어진 인덱스에는 `_settings` 를 따로 한 번 더 밀어야 한다 — §8-63
+33. **Alertmanager 는 receiver 가 비어 있어도 오류를 내지 않는다.** Slack·SMTP 가 없다고 receiver 를 비워 두면 경보가 **조용히 사라진다** — Falcosidekick `Enabled Outputs: []`(§8-35), Envoy ALS 수신 0건(§8-55)과 같은 부류다. 이 클러스터는 webhook 으로 Logstash(5142)를 거쳐 Elasticsearch `alerts` 인덱스에 남긴다. webhook 페이로드는 **alerts 배열**이므로 `split` 하지 않으면 "몇 건이 울렸나"를 셀 수 없다. 그리고 `@timestamp` 를 수신 시각으로 두지 말 것 — Alertmanager 는 `group_wait`·`group_interval` 만큼 늦춰 보내고 같은 경보를 `repeat_interval`(4h)마다 **다시** 보내므로 재전송분이 전부 "새 경보"로 보인다. `[alerts][startsAt]` 을 쓸 것 — §8-63
+34. **Logstash 가 즉석 생성하는 인덱스는 전부 클러스터를 yellow 로 묶는다.** Gotcha 14 의 반복이다 — 템플릿이 없으면 ES 기본값인 복제본 1 이 붙고 단일 노드에는 배정될 곳이 없다. yellow 면 **ECK 가 파드를 롤링하지 않는다.** 실측으로 `alerts`·`api-usage-dlq`·`api-usage-quarantine` 셋이 그랬다. 새 인덱스 이름을 쓸 때는 `elasticsearch-ilm-setup` 에 함께 넣을 것. **템플릿은 생성 시점에만 적용되므로** 이미 만들어진 인덱스에는 `_settings` 를 따로 한 번 더 밀어야 한다 — §8-63
 
 ### 매니페스트 작업 시
 

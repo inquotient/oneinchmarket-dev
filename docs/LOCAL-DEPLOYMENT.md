@@ -5744,6 +5744,44 @@ yellow 로 묶고 있었다. 경보를 붙이려다 발견했다.
 - 규칙 5개는 최소 집합이다. 디스크·메모리·Kafka consumer lag 은 아직 없다.
 - 요금제·구독·가격은 여전히 없다. **계량은 끝났고 가격이 없다.**
 
+## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
+
+> **이 절은 "지금 하지 않기로 결정한 것" 의 목록이다.** §8 의 각 절 끝에
+> 달린 "남은 것" 이 여기로 모인다. 하나씩 처리하다 흐름이 끊기는 것보다
+> 본 줄기(계량 → 가격 → 인보이스)를 먼저 잇는 편이 낫다고 판단했다.
+> **잊어서 미룬 것이 아니라 순서를 정해 미룬 것이다** — 이 구분이 사라지면
+> 목록은 그냥 빚이 된다.
+
+### 9-1. 경보 (§8-63 에서 미룸)
+
+| 할 일 | 왜 미뤘나 | 지금 상태 |
+|---|---|---|
+| **사람에게 밀어내는 수신처** — Slack·메일 | webhook URL·SMTP 가 이 랩에 없다. 없는 것을 있는 척하면 경보가 조용히 사라진다(Gotcha 33) | Elasticsearch `alerts` 인덱스에는 남는다. Alertmanager 의 `receivers:` 에 한 항목 더하면 되도록 자리를 비워 뒀다 |
+| **규칙 확장** — 디스크·메모리·Kafka consumer lag | 지금 5개는 **실제로 겪은 실패**에서만 골랐다. 겪지 않은 실패에 규칙을 붙이면 임계값이 추측이 되고, 틀린 임계값은 경보를 무시하게 만든다 | `prometheus-rules.yaml` 에 그룹을 더하면 된다 |
+| **elasticsearch exporter** | Gotcha 32 가 지목한 셋 중 유일하게 아직 없는 것. ES 자체의 지표(힙·샤드·색인 지연)가 Prometheus 에 없다 | 미착수 |
+
+### 9-2. 과금 — 계량은 끝났고 **가격이 없다**
+
+이것이 인보이스 발행 전 마지막 조각이다. §8-58~§8-63 이 만든 것은
+**"얼마나 썼나"** 까지다. **"얼마인가"** 는 비어 있다.
+
+- 요금제(plan)·가격(price)·구독(subscription) 정의가 없다
+- OpenMeter 의 billing 쪽 CronJob 3종(`billing-advance-invoices`·
+  `billing-collect-invoices`·`subscription-sync`)은 **돌고는 있으나
+  대상이 없다** — §8-63 에서 경보를 띄운 그 Job 들이다
+- 계량 이벤트와 달리 가격은 **소급 적용이 가능하다**(청구 이력은 불가능,
+  Gotcha 15). 그래서 계량을 먼저 끝내고 가격을 뒤로 미룰 수 있었다
+
+### 9-3. 그 밖에 열려 있는 것
+
+- **로그 회전 내성 미검증** — §8-57 의 시험 방법이 틀렸다(Gotcha 25).
+  올바른 방법은 kubelet 의 실제 회전을 유도하는 것이고 아직 하지 않았다
+- **Kyverno 미충족** — `require-health-probes` 약 212건,
+  `disallow-privilege-escalation` 178건(prod 는 Enforce 다)
+- **`default` SA 로 도는 워크로드** — `nginx`·`ds389-bootstrap`·
+  `efs-cleaner`·`databases-migrate`(매니페스트는 고쳤고 파드가 낡은
+  Complete 다). ambient 에서 SA 는 곧 신원이다(Gotcha 10)
+
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용
