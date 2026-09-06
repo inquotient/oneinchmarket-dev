@@ -37,7 +37,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: pyroscope
-          image: grafana/pyroscope:latest
+          image: grafana/pyroscope:2.3.0
           # ★ v2 아키텍처(raft 메타스토어·memberlist·query-backend)를 쓰지 않는다.
           #   차트의 인자를 그대로 옮겼더니 단일 노드에서 세 번 연속 막혔다:
           #     ① kubernetes:/// 디스커버리가 SA 토큰을 요구 (SEC-202 위반)

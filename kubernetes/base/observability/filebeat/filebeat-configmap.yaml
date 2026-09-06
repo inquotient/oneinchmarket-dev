@@ -29,6 +29,18 @@ data:
               matchers:
                 - logs_path:
                     logs_path: /var/log/containers/
+    # ★★ filebeat 은 **자기 인덱스 템플릿을 스스로 설치**한다. 기본값이
+    #   복제본 1 이라 단일 노드에서는 배정될 곳이 없어 클러스터가 yellow 로
+    #   남고, yellow 면 **ECK 가 파드를 롤링하지 않는다**(Gotcha 14·34).
+    #   ★ 이것은 filebeat 버전을 올릴 때 드러난다 — 데이터스트림 이름에
+    #     버전이 들어가서(`filebeat-9.5.3`) **새 인덱스**가 만들어지기 때문이다.
+    #     실측: 9.5.2 -> 9.5.3 직후 `.ds-filebeat-9.5.3-...` 가 yellow 였다(§8-72).
+    #   elasticsearch-ilm-setup 의 템플릿 목록으로는 못 막는다 — 그 Job 은
+    #   filebeat 데이터스트림을 모르고, filebeat 이 나중에 자기 것을 덮어쓴다.
+    #   그러므로 **filebeat 쪽에서** 지정해야 한다.
+    setup.template.settings:
+      index.number_of_shards: 1
+      index.number_of_replicas: 0
     output.elasticsearch:
       hosts: ["${ELASTICSEARCH_HOST}"]
       username: "elastic"

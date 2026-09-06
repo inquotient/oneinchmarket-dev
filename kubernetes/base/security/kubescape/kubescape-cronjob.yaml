@@ -42,7 +42,7 @@ spec:
             #   PATH 에 바이너리가 없어 exec 자체가 실패한다(실측).
             #   두 이미지 모두 셸이 없으므로 command 를 덮지 않고 args 만 준다.
             - name: kubescape
-              image: quay.io/kubescape/kubescape-cli:latest
+              image: quay.io/kubescape/kubescape-cli:v4.0.13
               args:
                 - scan
                 - framework

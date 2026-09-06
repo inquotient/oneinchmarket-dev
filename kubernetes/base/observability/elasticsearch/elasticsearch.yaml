@@ -8,7 +8,7 @@ metadata:
     app.kubernetes.io/part-of: oneinchmarket
     app.kubernetes.io/managed-by: kustomize
 spec:
-  version: "9.5.2"
+  version: "9.5.3"
   nodeSets:
     - name: default
       count: 3

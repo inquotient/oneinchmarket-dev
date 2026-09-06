@@ -32,7 +32,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: akhq
-          image: tchiotludo/akhq:latest
+          image: tchiotludo/akhq:0.28.0
           ports:
             - containerPort: 8080
               name: http

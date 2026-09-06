@@ -34,7 +34,7 @@ spec:
               type: RuntimeDefault
           containers:
             - name: trivy
-              image: aquasec/trivy:latest
+              image: aquasec/trivy:0.74.0
               command:
                 - /bin/sh
                 - -c

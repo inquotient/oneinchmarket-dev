@@ -34,7 +34,8 @@ spec:
           type: RuntimeDefault
       containers:
         - name: frontend
-          image: dependencytrack/frontend:latest
+          # apiserver 와 같은 버전으로 맞춘다(4.x 에 머무는 사유는 그쪽 주석).
+          image: dependencytrack/frontend:4.14.3
           ports:
             - containerPort: 8080
               name: http

@@ -32,7 +32,10 @@ spec:
           type: RuntimeDefault
       containers:
         - name: mongodb
-          image: percona/percona-server-mongodb:latest
+          # ★ `latest` 가 가리키는 것은 8.3.x 가 아니라 **8.0 LTS** 다.
+          #   지금 도는 것도 8.0.29-13 이므로 그대로 고정한다 —
+          #   8.3 으로 올리는 것은 메이저 이동이라 별도 작업이다.
+          image: percona/percona-server-mongodb:8.0.29-13
           ports:
             - containerPort: 27017
               name: mongodb

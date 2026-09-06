@@ -104,7 +104,7 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: kube-state-metrics
-          image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.13.0
+          image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.20.0
           args:
             - --port=8080
             - --telemetry-port=8081

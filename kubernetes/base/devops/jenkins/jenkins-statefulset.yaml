@@ -37,7 +37,7 @@ spec:
           # 관리자 계정을 선언할 수 없다(= 인증 없는 Jenkins). 상세는
           # docker/jenkins/Dockerfile 주석과 TODO-50.
           # 베이스는 `jenkins/jenkins:lts` 다 — latest 는 주간 릴리스다.
-          image: oneinch/jenkins:latest
+          image: oneinch/jenkins:2.568.3-lts
           # 레지스트리에 없다. containerd 로 직접 반입하므로 Always 면
           # ImagePullBackOff 가 난다(§8-2).
           imagePullPolicy: IfNotPresent

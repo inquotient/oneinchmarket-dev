@@ -25,7 +25,7 @@ spec:
       # 그대로 실패하고 컨테이너가 죽는다. 여기서 막는다.
       initContainers:
         - name: wait-deps
-          image: busybox:1.36
+          image: busybox:1.38.0
           command: ["/bin/sh","-c"]
           args:
             - |

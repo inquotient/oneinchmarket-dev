@@ -63,7 +63,9 @@ spec:
             - {name: ranger-plugin, mountPath: /ranger}
       containers:
         - name: hive-server
-          image: apache/hive:4.2.1
+          # ★★ 4.2.1 = sha256:b19bb5bd… — 다이제스트로 고정한다(§8-72).
+          #   메타스토어·schematool 과 **같은 다이제스트**여야 한다.
+          image: apache/hive@sha256:b19bb5bd01f233a3f99d941ebf08acaff68c55911dd5fa42ea03928e51860b91
           ports:
             - containerPort: 10000
               name: thrift
@@ -113,7 +115,7 @@ spec:
             #   **하위 디렉터리를 포함하지 않으므로** impl 디렉터리를 따로
             #   적어야 한다 — HDFS 에서 이것을 빠뜨려 NameNode 가 죽었다(§8-67).
             - name: HADOOP_CLASSPATH
-              value: /opt/hadoop/share/hadoop/tools/lib/hadoop-aws-3.3.6.jar:/opt/hadoop/share/hadoop/tools/lib/aws-java-sdk-bundle-1.12.367.jar:/ranger/*:/ranger/ranger-hive-plugin-impl/*
+              value: /opt/hadoop/share/hadoop/tools/lib/hadoop-aws-3.4.1.jar:/opt/hadoop/share/hadoop/tools/lib/bundle-2.24.6.jar:/ranger/*:/ranger/ranger-hive-plugin-impl/*
             # Tez 로컬 모드는 DAG 를 이 JVM 안에서 돌린다. entrypoint 가
             # HADOOP_CLIENT_OPTS 에 -Xmx1G 를 먼저 붙이므로 여기서 늘린다.
             - name: SERVICE_OPTS

@@ -95,16 +95,21 @@ log "oneinch/jenkins 빌드"
 # configuration-as-code 플러그인이 필요하고, 런타임에 받으면 SEC-512 다.
 # 상세는 docker/jenkins/Dockerfile 주석.
 sudo podman build --format docker --network host \
-  -t oneinch/jenkins:latest -t oneinch/jenkins:lts \
+  -t oneinch/jenkins:latest -t oneinch/jenkins:2.568.3-lts \
   "${REPO_ROOT}/docker/jenkins"
 
 log "k3s containerd 로 반입 (namespace k8s.io)"
 # ★ 매니페스트가 참조하는 **정확한 태그**를 반입해야 한다. :latest 만 넣으면
 #   버전 태그를 쓰는 워크로드가 ImagePullBackOff 로 멈춘다 —
 #   ranger-hdfs-plugin 이 실제로 그랬다(hadoop-namenode 가 10분 Init 대기).
-for img in oneinch/spark-iceberg:latest oneinch/livy:latest oneinch/ranger-usersync:latest \
+#   ★★ 2026-09-06 부터 매니페스트는 **전부 버전 태그**를 쓴다(§8-72).
+#     :latest 만 반입하던 세 개(spark-iceberg·livy·ranger-usersync)가 그대로
+#     남아 있었다면 같은 증상이 났을 것이다. 목록을 매니페스트와 맞춰 둔다.
+for img in oneinch/spark-iceberg:latest oneinch/spark-iceberg:3.5.6 \
+           oneinch/livy:latest oneinch/livy:0.9.0-incubating \
+           oneinch/ranger-usersync:latest oneinch/ranger-usersync:2.9.0 \
            oneinch/hbase:latest oneinch/hbase:3.0.0 \
-           oneinch/jenkins:latest \
+           oneinch/jenkins:latest oneinch/jenkins:2.568.3-lts \
            oneinch/ranger-hdfs-plugin:latest oneinch/ranger-hdfs-plugin:2.9.0-jersey2 \
            oneinch/ranger-hbase-plugin:latest oneinch/ranger-hbase-plugin:2.9.0-hbase3 \
            oneinch/ranger-hive-plugin:latest oneinch/ranger-hive-plugin:2.9.0-hive4; do

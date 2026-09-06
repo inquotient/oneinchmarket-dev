@@ -32,9 +32,10 @@ spec:
           type: RuntimeDefault
       containers:
         - name: livy
-          image: oneinch/livy:latest
-          # 레지스트리에 없는 로컬 빌드 이미지다. :latest 는 기본 정책을
-          # Always 로 만들어 containerd 에 반입된 이미지를 무시한다.
+          image: oneinch/livy:0.9.0-incubating
+          # 레지스트리에 없는 로컬 빌드 이미지다(local/build-images.sh).
+          # 버전 태그면 기본 정책이 IfNotPresent 지만, 반입 이미지를 쓰는 것이
+          # 이 워크로드의 전제이므로 명시해 둔다.
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8998

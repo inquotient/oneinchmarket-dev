@@ -35,7 +35,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: fvm
-          image: chaitin/safeline-fvm:latest
+          image: chaitin/safeline-fvm:9.4.1
           ports:
             - containerPort: 80
               name: http
@@ -98,7 +98,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: luigi
-          image: chaitin/safeline-luigi:latest
+          image: chaitin/safeline-luigi:9.4.1
           env:
             - name: SAFELINE_DB_PASSWORD
               valueFrom: { secretKeyRef: { name: safeline-secret, key: db-password } }

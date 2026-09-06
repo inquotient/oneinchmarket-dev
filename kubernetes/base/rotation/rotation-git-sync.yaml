@@ -33,7 +33,7 @@ spec:
               type: RuntimeDefault
           containers:
             - name: git-sync
-              image: alpine/git:latest
+              image: alpine/git:2.54.0
               command:
                 - /bin/sh
                 - -c

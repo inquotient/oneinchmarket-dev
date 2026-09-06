@@ -34,7 +34,7 @@ spec:
         - name: postgresql
           # 공식 이미지. bitnami 는 2025-08 무료 카탈로그 축소로 버전 태그가
           # 사라져 재현 가능한 핀이 불가능해졌다.
-          image: postgres:latest
+          image: postgres:18.6
           # GitLab 은 structure.sql(6만 줄)을 단일 트랜잭션으로 적재한다.
           # 기본 max_locks_per_transaction=64 로는 out of shared memory 가 난다.
           # 공식 이미지에는 EXTRA_FLAGS 류 환경변수가 없어 args 로 넘긴다.

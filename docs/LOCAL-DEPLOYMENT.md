@@ -6977,6 +6977,15 @@ HDFS·HBase 도 함께 확인했다(플러그인을 건드리지 않았으므로
 메타스토어 스키마는 **4.2.0**, 컴파일 대상 아티팩트도 4.2.0, 런타임 이미지는
 4.2.1 이다 — 이 셋이 다른 것은 ① 때문이며 의도된 것이다.
 
+> ★★ **정정(§8-72).** 이 절은 "`HADOOP_CLASSPATH` 가 가리키는
+> `hadoop-aws-3.3.6.jar`·`aws-java-sdk-bundle-1.12.367.jar` 이 4.2.1 에도
+> 그대로 있으므로 S3A 는 안전하다" 로 확인했다. **몇 시간 뒤 그것이 거짓이
+> 되었다** — `apache/hive:4.2.1` 태그의 내용이 바뀌어(Hadoop 3.3.6 -> 3.4.1,
+> AWS SDK v1 -> v2) 그 파일들이 사라졌고 S3A 가 `ClassNotFoundException` 으로
+> 깨졌다. 확인이 틀렸던 것이 아니라 **확인 대상이 움직였다.**
+> 지금은 셋 모두 `apache/hive@sha256:b19bb5bd…` 다이제스트로 고정되어 있다.
+> 버전 태그를 신뢰한 것이 결함이었다 — 상세는 §8-72 ④.
+
 #### 남는 것
 
 - **감사(audit)는 여전히 세 플러그인 모두 꺼져 있다** — §8-70 의 목록 그대로다
@@ -6986,6 +6995,178 @@ HDFS·HBase 도 함께 확인했다(플러그인을 건드리지 않았으므로
   ⓐ 해당 플러그인 이미지의 컴파일 대상 버전, ⓑ 빌드 JDK, ⓒ (Hive 라면)
   메타스토어 스키마까지 셋이 함께 움직인다. Ranger 3.0.0 이 나오면 ⓐⓑ 는
   HDFS·Hive 에서 사라진다
+
+### 8-72. 이미지 태그를 전부 고정했다 — 그 과정에서 드러난 것들 (2026-09-06)
+
+"다른 컨테이너 이미지들도 최신인지" 를 확인하는 일로 시작했다. 확인 자체는
+레지스트리 API 로 끝났지만, **더 큰 문제가 버전이 아니라 태그였다.**
+
+렌더된 고유 이미지 92개 중 **65개 참조가 `:latest`·`:stable`·`:slim`·`:lts`**
+였다. 그 상태에서는 "최신인가" 를 물을 수 없다 — 파드를 다시 만들 때마다
+다른 것이 내려올 수 있고, **재현성이 없다.**
+
+#### 핀의 원천이 둘이었고, 실제로 어긋나 있었다
+
+`overlays/prod/kustomization.yaml` 의 `images:` 블록이 약 40종을 핀하고
+base 매니페스트는 `:latest` 였다. 두 값이 갈린 것을 실측으로 셋 찾았다:
+
+| 이미지 | prod 가 핀한 것 | 실제로 도는 것 |
+|---|---|---|
+| `clickhouse/clickhouse-server` | `25.9-alpine` | **26.8**(비-alpine) — 버전뿐 아니라 **계열이 다르다** |
+| `percona/percona-server-mongodb` | `8.3.8` | **8.0.29-13** — `latest` 가 가리키는 것은 8.3 이 아니라 **8.0 LTS** 다 |
+| `apache/knox` | 다이제스트 | `3.0`(RC 추종 가변 태그) — local·dev 는 **다른 바이너리**를 돌리고 있었다 |
+
+게다가 base 의 65곳 중 prod 블록이 덮는 것은 일부뿐이라, 나머지는 prod 에서
+Enforce 인 Kyverno `disallow-latest` 에 걸려 **배포가 거부된다.**
+
+→ **핀은 base 매니페스트가 소유한다.** prod 의 `images:` 블록은 제거했다.
+세 환경이 같은 바이너리를 쓰고, 버전을 바꿀 자리가 하나이며, 값과 사유가
+같은 곳에 있다. prod 전용 오버라이드가 필요해지면 그때 되살린다.
+
+#### 핀 값을 고르는 규칙 — "최신" 이 항상 정답은 아니다
+
+| 부류 | 규칙 | 예 |
+|---|---|---|
+| 데이터 보유 | **지금 도는 버전**으로 고정 | PostgreSQL 18.6 · MariaDB 12.3.3 · Redis 8.10.1 · ClickHouse 26.8 · MongoDB 8.0.29-13 |
+| 무상태 | 레지스트리 최신 | nginx 1.31.5 · Grafana 13.2.1 · OTel 0.160.0 · curl 8.22.0 |
+| 버전 태그가 없는 것 | **다이제스트** | `inquotient/admin` · `inquotient/cmmn-api` · `apache/knox` · `apache/hive` |
+| 베이스 이미지에 묶인 것 | **올리면 안 된다** | `hadoop-aws` · `aws-java-sdk-bundle`(아래) |
+
+★ 마지막 줄이 중요하다. `docker/spark-iceberg` 의 `HADOOP_AWS_VERSION=3.3.4` 는
+낡아 보이지만 **최신으로 올리면 깨진다** — `apache/spark:3.5.6` 이 번들한 것이
+`hadoop-client-api-3.3.4.jar` 이고 hadoop-aws 는 같은 계열을 전제한다. AWS SDK
+계열(v1/v2)도 hadoop-aws 가 정한다. **상한을 정하는 것은 레지스트리가 아니라
+베이스 이미지다.** Iceberg 만 1.7.1 -> **1.11.0** 으로 올렸다.
+
+#### 적용하며 드러난 것 — 여섯 건
+
+**① 네 개의 StatefulSet 은 애초에 어떤 변경도 받을 수 없었다.**
+`gitlab`·`jenkins`·`keycloak`·`pyroscope` 가 apply 를 거부했다:
+
+```
+StatefulSet.apps "gitlab" is invalid: spec: Forbidden: updates to statefulset spec
+for fields other than 'replicas', 'ordinals', 'template', ... are forbidden
+```
+
+원인은 이미지가 아니다 — 라이브의 `volumeClaimTemplates.storageClassName` 이
+**비어 있고** 렌더 결과는 `standard` 다. `standard` StorageClass 를 도입하기
+전(Gotcha 5)에 만들어진 넷이고, 그 이후로 **매니페스트 변경이 한 번도 반영된
+적이 없다.** 오류는 apply 할 때만 나오고 평소에는 아무 증상이 없다.
+
+해소는 `kubectl delete sts <name> --cascade=orphan` 후 재적용이다 — 파드와
+PVC 는 그대로 남고 새 StatefulSet 이 그것을 입양한다. PVC 4개와 파드 4개가
+모두 유지되는 것을 확인한 뒤 진행했다.
+
+★ **`kubectl apply` 의 오류를 `head` 로 자르지 말 것.** 첫 적용에서
+`grep -iE "error|warning: " | head -10` 이 경고 10줄로 채워져 **오류가
+잘려 나갔고**, 나는 "오류 0" 으로 읽었다. Gotcha 12 의 반복이다.
+
+**② 완료된 Job 5건은 `spec.template` 이 불변이라 거부된다.** 정상이다.
+`databases-migrate`·`defectdojo-initializer`·`elasticsearch-ilm-setup`·
+`hive-schematool`·`keycloak-realm-bootstrap` — 새 이미지를 반영하려면 지워서
+다시 돌려야 한다. 즉 **매니페스트와 클러스터가 그때까지 갈라져 있다.**
+
+**③ Dependency-Track 의 `latest` 는 4.x 였다.** 5.1.0 으로 핀하자 기동 즉시:
+
+```
+IllegalStateException: Legacy Dependency-Track v4 configuration properties are
+no longer supported: [alpine.database.username, alpine.data.directory, ...]
+```
+
+v5 는 설정 키를 `alpine.*` -> `dt.*` 로 바꾼 **메이저**다. PostgreSQL 스키마
+이관도 따라온다. 별도 작업이므로 4.x 계열 최신(**4.14.3**)에 머문다.
+★ "`latest` 를 그 시점의 최신 버전으로 바꾼다" 가 **무해하지 않다**는 실례다.
+
+**④ `apache/hive:4.2.1` 은 같은 태그로 내용이 바뀌었다.** 이번 세션 안에서다.
+
+```
+이전 : hadoop-aws-3.3.6.jar   aws-java-sdk-bundle-1.12.367.jar   (Hadoop 3.3.6 · AWS SDK v1)
+이후 : hadoop-aws-3.4.1.jar   bundle-2.24.6.jar                  (Hadoop 3.4.1 · AWS SDK v2)
+```
+
+매니페스트의 `HADOOP_CLASSPATH` 가 **jar 파일명을 하드코딩**하고 있어 그
+순간 S3A 가 깨졌다:
+
+```
+Error: FAILED: RuntimeException java.lang.ClassNotFoundException:
+       Class org.apache.hadoop.fs.s3a.S3AFileSystem not found
+```
+
+★ 증상이 나오는 곳이 원인과 멀다 — 파드는 `1/1 Running` 이고(probe 가 TCP다)
+DDL 을 실행해야 비로소 드러난다. 메타스토어도 같은 하드코딩이라 함께 깨져
+있었으나 **아무 오류도 내지 않았다.**
+
+★★ 고친 방식이 요점이다. jar 이름을 3.4.1 판으로 고치는 것만으로는 다음
+번에 또 깨진다. **이미지를 다이제스트로 고정해야 비로소 파일명 하드코딩이
+안전해진다** — 셋(`hive-schematool`·`hive-metastore`·`hive-server`)을 모두
+`apache/hive@sha256:b19bb5bd…` 로 바꿨다. 셋은 반드시 같은 다이제스트여야
+한다(스키마 도구와 서버의 버전이 갈리면 스키마 검사가 어긋난다).
+
+**⑤ filebeat 을 올리면 Elasticsearch 가 yellow 가 된다.** 9.5.2 -> 9.5.3 직후:
+
+```
+yellow  .ds-filebeat-9.5.3-2026.09.06-000001  rep=1
+```
+
+filebeat 의 데이터스트림 이름에는 **버전이 들어간다.** 즉 버전을 올릴 때마다
+**새 인덱스**가 생기고, filebeat 이 스스로 설치하는 템플릿의 기본값이 복제본
+1 이라 단일 노드에서 배정될 곳이 없다. yellow 면 **ECK 가 파드를 롤링하지
+않는다**(Gotcha 14·34).
+
+`elasticsearch-ilm-setup` 의 템플릿 목록으로는 막지 못한다 — 그 Job 은
+filebeat 데이터스트림을 모르고, filebeat 이 나중에 자기 것을 덮어쓴다.
+**filebeat 설정에 넣어야 한다:**
+
+```yaml
+setup.template.settings:
+  index.number_of_shards: 1
+  index.number_of_replicas: 0
+```
+
+템플릿은 생성 시점에만 적용되므로 이미 만들어진 인덱스에는 `_settings` 를
+한 번 더 밀었다. 그 뒤 green.
+
+**⑥ 대량 재시작은 OTel 게이트웨이의 4MB gRPC 한계를 넘긴다.**
+
+```
+Exporting failed. Dropping data. ... ResourceExhausted: grpc: received message
+after decompression larger than max 4194304   dropped_items=1081
+```
+
+117개 파드를 한꺼번에 재시작하면 에이전트가 밀린 로그를 한꺼번에 읽어 배치가
+커진다. **일시적이다** — 재시작이 끝난 뒤 3분간 오류 0건이었다. 다만 과금
+경로(§8-55)가 이 구간에서 유실될 수 있다는 뜻이므로 기록해 둔다.
+
+★ Vault 가 `0/1` 이 된 것은 회귀가 아니다 — **재시작하면 봉인되는 것이 설계**고
+문서에 이미 있다(`local/vault-init.sh unseal`). 대량 재시작을 하면 반드시
+따라온다는 것만 기억하면 된다.
+
+#### 검증
+
+| 항목 | 결과 |
+|---|---|
+| 렌더 결과의 가변 태그 | **0건**(local·dev·prod 3개 오버레이 합집합) |
+| 세 오버레이 렌더 | 전부 성공 — 456 / 333 / 341 객체 |
+| 파드 | 117개, 비정상 0 · Ready 아님 0 |
+| Elasticsearch · Kibana | **green** (9.5.3) |
+| Ranger 인가 회귀 | HDFS `정책 10` · HBase `정책 5` · Hive 허용/거부 전환 재확인 |
+
+Hive 는 §8-71 과 같은 기준으로 다시 증명했다 — `oimtest` 는
+`No rows selected`, 대조군 `oimother` 는
+`HiveAccessControlException Permission denied ... [SELECT] on default/rangerhive/*`.
+
+#### 남는 것
+
+- **Dependency-Track v5 이관** — `alpine.*` -> `dt.*` 설정 이관 + PostgreSQL
+  스키마. 지금은 4.14.3 에 머문다
+- **Istio 1.24.2 -> 1.31.0 · k3s v1.31.4 -> v1.36.4** — 오퍼레이터 계층이라
+  `local/install-operators.sh` 소관이다. Istio 는 이 클러스터의 인가가 ztunnel
+  에 얹혀 있어(Gotcha 9·13) 마지막에 해야 한다
+- **OpenReplay 17종 v1.27.x -> v1.28.0**, 그리고 그 번들의
+  `clickhouse 25.9-alpine`·`postgres 17`·`alpine/git 2.52.0` — 업스트림
+  벤더링본이라 별도 판단이 필요하다
+- **불변 필드 드리프트를 찾는 수단이 없다.** ①은 apply 를 해봐야 드러났다.
+  `kubectl diff -k` 를 정기적으로 돌리는 것이 답이다
 
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 

@@ -32,7 +32,7 @@ spec:
           type: RuntimeDefault
       initContainers:
         - name: download-postgres-driver
-          image: busybox:1.36
+          image: busybox:1.38.0
           command:
             - /bin/sh
             - -c
@@ -48,7 +48,12 @@ spec:
               mountPath: /driver
       containers:
         - name: hive-metastore
-          image: apache/hive:4.2.1
+          # ★★ 4.2.1 = sha256:b19bb5bd… — 다이제스트로 고정한다(§8-72).
+          #   태그 `4.2.1` 은 **같은 이름으로 내용이 바뀌었다**: 번들 Hadoop 이
+          #   3.3.6 -> 3.4.1, AWS SDK 가 v1 -> v2. 아래 HADOOP_CLASSPATH 가
+          #   jar 파일명을 적고 있으므로 그 순간 S3A 가 조용히 깨진다.
+          #   **다이제스트로 고정해야 비로소 파일명 하드코딩이 안전해진다.**
+          image: apache/hive@sha256:b19bb5bd01f233a3f99d941ebf08acaff68c55911dd5fa42ea03928e51860b91
           ports:
             - containerPort: 9083
               name: thrift
@@ -94,7 +99,7 @@ spec:
             #   와일드카드 대신 두 jar 만 지정한다 — tools/lib 전체는 azure·gcs 등
             #   쓰지 않는 커넥터와 중복 SDK 를 함께 끌어온다.
             - name: HADOOP_CLASSPATH
-              value: /opt/hadoop/share/hadoop/tools/lib/hadoop-aws-3.3.6.jar:/opt/hadoop/share/hadoop/tools/lib/aws-java-sdk-bundle-1.12.367.jar
+              value: /opt/hadoop/share/hadoop/tools/lib/hadoop-aws-3.4.1.jar:/opt/hadoop/share/hadoop/tools/lib/bundle-2.24.6.jar
             # ★ 힙만 따로 뺀 이유 — SERVICE_OPTS 는 JDBC 접속 문자열까지 담고 있어
             #   오버레이가 힙만 바꾸려면 전체를 복제해야 한다(드리프트). 힙을 별도
             #   키로 두고 $(HIVE_HEAP) 로 참조하면 오버레이는 이 한 줄만 덮는다.

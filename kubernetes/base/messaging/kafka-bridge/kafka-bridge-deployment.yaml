@@ -41,7 +41,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: kafka-bridge
-          image: quay.io/strimzi/kafka-bridge:latest
+          image: quay.io/strimzi/kafka-bridge:1.1.0
           # 이미지에 entrypoint 가 없고 Cmd 만 있다. 인자를 주려면 command 와
           # args 를 모두 명시해야 한다 — args 만 주면 Cmd 를 덮어써 버린다.
           command: ["/opt/strimzi/bin/kafka_bridge_run.sh"]

@@ -25,7 +25,7 @@ spec:
       # 않는다 — 로컬에서 매니저를 이중화할 이유가 없다.
       initContainers:
         - name: wait-indexer
-          image: busybox:1.36
+          image: busybox:1.38.0
           command: ["/bin/sh","-c"]
           args:
             - |

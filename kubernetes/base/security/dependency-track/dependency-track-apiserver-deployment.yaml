@@ -39,7 +39,15 @@ spec:
           type: RuntimeDefault
       containers:
         - name: apiserver
-          image: dependencytrack/apiserver:latest
+          # ★★ 5.x 로 올리지 말 것 — **설정 스키마가 바뀐 메이저**다.
+          #   실측: `dependencytrack/apiserver:5.1.0` 은 기동 즉시 죽는다 —
+          #     IllegalStateException: Legacy Dependency-Track v4 configuration
+          #     properties are no longer supported: [alpine.database.username,
+          #     alpine.data.directory, alpine.database.url, alpine.database.password]
+          #   아래 ALPINE_* 환경변수를 DT_* 로 옮기고 PostgreSQL 스키마도 함께
+          #   이관해야 한다(v5.0.0-rc.2 업그레이드 가이드). 별도 작업이다 — §9.
+          #   그때까지 4.x 계열 최신에 머문다.
+          image: dependencytrack/apiserver:4.14.3
           ports:
             - containerPort: 8080
               name: http

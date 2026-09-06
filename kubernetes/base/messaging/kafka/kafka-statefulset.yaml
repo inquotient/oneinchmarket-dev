@@ -32,7 +32,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: kafka
-          image: apache/kafka:latest
+          image: apache/kafka:4.3.1
           command:
             - /bin/bash
             - -c

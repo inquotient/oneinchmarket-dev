@@ -10,11 +10,15 @@
 #   필요하고, 그것을 런타임에 받으면 SEC-512(런타임 외부 의존)가 된다.
 #   → 빌드 시점에 굽는다. TODO-50 이 여기서 해소된다.
 #
-# 베이스 태그는 `lts` 다. `latest` 는 주간 릴리스라 파괴적 변경이 예고 없이
-# 들어온다. (docker/ 의 다른 이미지와 마찬가지로 podman `--network host` 로
+# 베이스는 LTS 계열이다. `latest` 는 주간 릴리스라 파괴적 변경이 예고 없이
+# 들어온다. ★ 그렇다고 `lts` 를 쓰면 **그것도 가변 태그**다 — LTS 가 올라갈
+# 때마다 같은 Dockerfile 이 다른 바이너리를 만든다. 구체 버전으로 고정한다.
+# 올릴 때는 이 값과 build-images.sh 의 태그, 그리고
+# base/devops/jenkins/jenkins-statefulset.yaml 의 image 를 **함께** 바꿀 것.
+# (docker/ 의 다른 이미지와 마찬가지로 podman `--network host` 로
 # 빌드한다 — 빌드 컨테이너가 cilium 네트워크를 잡으면 밖으로 못 나간다.)
 # ─────────────────────────────────────────────────────────────────────────
-FROM docker.io/jenkins/jenkins:lts
+FROM docker.io/jenkins/jenkins:2.568.3-lts
 
 # jenkins-plugin-cli 는 이미지에 이미 있다. `--latest false` 로 코어와
 # 호환되는 안정 버전을 고르게 한다(무조건 최신을 받지 않는다).

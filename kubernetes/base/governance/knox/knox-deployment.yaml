@@ -36,7 +36,8 @@ spec:
         #   그래서 cert-manager 인증서로 `gateway.jks` 를 직접 만들어 둔다.
         #   Knox 는 이미 있는 것을 그대로 쓴다.
         - name: gateway-identity
-          image: apache/knox:3.0
+          # 아래 본 컨테이너와 같은 다이제스트여야 한다(keytool 버전 일치).
+          image: apache/knox@sha256:5f90c6b5b36dd2b2afffbcb358689b9fe87ecf413ae7aa53f208610872cb1ac5
           command: ["/bin/bash","-c"]
           args:
             - |
@@ -67,8 +68,11 @@ spec:
           #   2.1.0 이 최신이고 3.0.0 은 downloads.apache.org 에 없다.
           #   즉 "공식 이미지"와 "정식 릴리스"가 배타적이다.
           #   로컬 검증 환경이므로 공식 이미지(미릴리스 3.0.0)를 택했다.
-          #   prod 는 태그가 가변이므로 다이제스트로 핀한다.
-          image: apache/knox:3.0
+          # ★ `3.0` 은 **가변 태그**다 — RC 빌드를 따라간다. 재현 가능한 핀은
+          #   다이제스트뿐이므로 전 환경에서 다이제스트를 쓴다.
+          #   (예전에는 prod 오버레이만 다이제스트였다 — 그래서 local·dev 는
+          #    같은 매니페스트로 다른 바이너리를 돌리고 있었다.)
+          image: apache/knox@sha256:5f90c6b5b36dd2b2afffbcb358689b9fe87ecf413ae7aa53f208610872cb1ac5
           env:
             # ★ 기본값이 true 다. 켜져 있으면 기동 시 Let's Encrypt 스테이징
             #   루트 CA 를 인터넷에서 내려받는다. 폐쇄망·egress 정책 아래에서는

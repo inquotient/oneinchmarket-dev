@@ -8,9 +8,18 @@ FROM docker.io/apache/spark:3.5.6
 
 USER root
 
-ARG ICEBERG_VERSION=1.7.1
+ARG ICEBERG_VERSION=1.11.0
 ARG SCALA_VERSION=2.12
 ARG SPARK_VERSION=3.5.6
+
+# ★★ 아래 둘은 **최신으로 올리지 말 것.** 여기서 "최신" 은 오답이다.
+#   apache/spark:3.5.6 이 번들하는 것은 `hadoop-client-api-3.3.4.jar` 이고,
+#   hadoop-aws 는 같은 계열의 hadoop-common 을 전제한다. 3.5.0 을 넣으면
+#   런타임에 NoSuchMethodError 로 깨진다 — 빌드는 성공하므로 드러나지 않는다.
+#   그리고 AWS SDK 계열도 hadoop-aws 가 정한다: 3.3.x 는 **v1**
+#   (`aws-java-sdk-bundle`), 3.4+ 는 v2(`bundle`)다. 즉 SDK v1 이 EOL 계열임에도
+#   여기서 v2 로 바꿀 수 없다 — 바꾸려면 Spark 자체를 올려야 한다.
+#   ★ 이 값들의 상한을 정하는 것은 레지스트리가 아니라 **베이스 이미지**다.
 ARG HADOOP_AWS_VERSION=3.3.4
 ARG AWS_SDK_VERSION=1.12.767
 

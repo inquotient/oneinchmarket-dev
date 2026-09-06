@@ -37,7 +37,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: initializer
-          image: defectdojo/defectdojo-django:latest
+          image: defectdojo/defectdojo-django:3.2.400
           command: ["/entrypoint-initializer.sh"]
           env:
             - name: DD_DATABASE_PASSWORD

@@ -2915,7 +2915,8 @@ spec:
           restartPolicy: Never
           containers:
           - name: efs-cleaner
-            image: debian:stable-slim
+            # `stable-slim` 은 Debian 메이저가 바뀌면 조용히 따라간다 — 고정한다.
+            image: debian:13.6-slim
             command:
             - /bin/sh
             - -c

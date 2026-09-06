@@ -32,9 +32,9 @@ spec:
           type: RuntimeDefault
       containers:
         - name: spark-connect
-          image: oneinch/spark-iceberg:latest
-          # 레지스트리에 없는 로컬 빌드 이미지다. :latest 는 기본 정책을
-          # Always 로 만들어 containerd 에 반입된 이미지를 무시한다.
+          image: oneinch/spark-iceberg:3.5.6
+          # 레지스트리에 없는 로컬 빌드 이미지다(local/build-images.sh).
+          # 반입 이미지를 쓰는 것이 전제이므로 pull 정책을 명시한다.
           imagePullPolicy: IfNotPresent
           # Connect Server 자체가 driver 역할을 하므로 client 모드로 뜬다.
           # 수동 spark-submit 은 primary resource 해석에서 실패한다

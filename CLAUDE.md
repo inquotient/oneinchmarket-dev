@@ -64,7 +64,7 @@ cd scripts/security-verification && ./run-all.sh [namespace]
 - `scripts/security-verification/` — 보안 검증 9종
 - `contracts/` — **API 계약 원천**(계약 우선, ADR-067). `openapi/`·`asyncapi/`·`schemas/`. CI 가 Spectral 로 린트하고 Apicurio 에 게시한다
 - `.spectral.yaml` — 계약 스타일·거버넌스 룰셋
-- `docker/` — 로컬 빌드 이미지 8종(`spark-iceberg`·`livy`·`ranger-usersync`·`hbase`·`jenkins`·`ranger-hdfs-plugin`·`ranger-hbase-plugin`·`ranger-hive-plugin`). `local/build-images.sh` 가 podman 으로 빌드해 k3s containerd 로 반입한다. 레지스트리에 없으므로 클러스터 재구축 시 먼저 돌려야 한다
+- `docker/` — 로컬 빌드 이미지 8종(`spark-iceberg`·`livy`·`ranger-usersync`·`hbase`·`jenkins`·`ranger-hdfs-plugin`·`ranger-hbase-plugin`·`ranger-hive-plugin`). `local/build-images.sh` 가 podman 으로 빌드해 k3s containerd 로 반입한다. 레지스트리에 없으므로 클러스터 재구축 시 먼저 돌려야 한다. **매니페스트가 참조하는 버전 태그를 반입 목록에 반드시 넣을 것** — `:latest` 만 넣으면 ImagePullBackOff 다(§8-72)
 - `v1/` — 레거시 매니페스트. **배포 금지.** 단 CI가 이 경로의 Dockerfile을 참조한다(존재하지 않음)
 
 ### ArgoCD Sync Wave (실제 값)
@@ -106,7 +106,7 @@ cd scripts/security-verification && ./run-all.sh [namespace]
 |---|---|---|
 | Namespace | `dev` | `prod` |
 | Replicas | Kafka 1, Redis 1 (**ES는 3 그대로**) | PostgreSQL 2, MariaDB 2, MongoDB 3, Keycloak 2, Logstash 2, nginx 2 |
-| 이미지 태그 | `latest` | 핀닝 17종 (`overlays/prod/kustomization.yaml` `images:`) |
+| 이미지 태그 | **차이 없음 — base 매니페스트가 전부 고정한다**(§8-72). `overlays/prod` 의 `images:` 블록은 제거했다 | 동일 |
 | Kyverno | 전부 Audit | disallow-root · disallow-latest · disallow-privilege-escalation · require-resources만 Enforce |
 | PSS | **`enforce: privileged`** | `enforce: restricted` |
 | Istio ambient | **비활성** (주석 처리) | 활성 |
@@ -260,6 +260,9 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 
 43. **컴포넌트 버전을 올리면 플러그인의 "컴파일 대상"과 "빌드 JDK"가 함께 움직인다 — 그리고 후자는 오류 메시지가 거짓말을 한다.** Hive 4.0.1 -> 4.2.1 에서 `RangerHiveAuthorizer.java:[44,36] error: cannot access FileUtils` 가 났다. "클래스가 없다" 로 읽히지만 실제로는 **읽을 수 없는 클래스 파일 버전**이고, `maven-compiler-plugin 3.3` 이 **사유 줄을 삼켜** 원인이 드러나지 않는다(HBase 3 에서 61 로 겪은 것과 같다, Gotcha 41). **추측하지 말고 바이트코드에 물을 것** — `javap -verbose <class> | grep major` (52=8 · 55=11 · 61=17 · 65=21). Hive 4.0.1 은 52 였고 4.2 는 **65(Java 21)** 다. ★ 그리고 §8-69 에서 세운 "agents-common 은 Nashorn 때문에 JDK 15+ 에서 컴파일되지 않는다" 는 **Hive 경로에서는 성립하지 않았다** — JDK 21 이 `-am` 으로 상위 10개 모듈을 전부 통과시켰다. 같은 모양의 2단계 빌드라도 **같은 이유는 아니다**(HBase 는 필수, Hive 는 캐시 이득뿐). ★ 이미지 태그와 Maven 아티팩트가 어긋날 수 있다 — `apache/hive:4.2.1` 은 있으나 **Central 에 4.2.1 아티팩트가 없어** 4.2.0 으로 컴파일해 4.2.1 위에서 돌린다 — §8-71
 44. **Hive 메타스토어 스키마는 세 갈래로 다뤄야 하고, "최신에 도달한 것" 자체가 새 실패 모드다.** ① `schematool -info` 의 실패를 "스키마가 없다" 로 읽지 말 것 — **스키마가 바이너리보다 낡아도 실패한다.** 그대로 `-initSchema` 를 걸면 데이터가 든 메타스토어를 덮는다. 실패 출력에서 버전을 읽어냈는지로 갈라 `-upgradeSchema` 를 태울 것(hive 이미지에는 psql 이 없어 DB 로 가를 수 없다). ② **`apache/hive` 엔트리포인트의 `-initOrUpgradeSchema` 는 스키마가 이미 최신이면 실패한다**(`Unknown version specified for upgrade 4.2.0` -> `Schema initialization failed!`). 4.0.1 처럼 스키마가 낮을 때는 드러나지 않고 **업그레이드를 성공시킨 순간** 메타스토어가 CrashLoop 한다. 스키마 소유자는 부트스트랩 Job 이므로 메타스토어·HiveServer2 에서는 각각 `SKIP_SCHEMA_INIT=true`·`IS_RESUME=true` 로 끌 것. ③ 업그레이드는 **되돌릴 수 없다** — 실행 전에 `pg_dump` 를 뜰 것 — §8-71
+
+45. **버전 태그는 불변이 아니다 — `apache/hive:4.2.1` 이 한 세션 안에서 내용이 바뀌었다.** 번들 Hadoop 이 3.3.6 -> 3.4.1, AWS SDK 가 v1 -> v2 로 갈렸고, 매니페스트의 `HADOOP_CLASSPATH` 가 **jar 파일명을 하드코딩**하고 있어 S3A 가 `ClassNotFoundException: S3AFileSystem` 으로 깨졌다. ★ 증상이 원인과 멀다 — probe 가 TCP 라 파드는 `1/1 Running` 이고 **DDL 을 실행해야 비로소** 드러난다(메타스토어는 같은 결함을 안고도 아무 오류를 내지 않았다). ★★ 처방은 파일명을 새 버전으로 고치는 것이 **아니다** — 그러면 다음에 또 깨진다. **이미지를 다이제스트로 고정해야 비로소 파일명 하드코딩이 안전해진다.** 같은 이유로 `apache/knox:3.0`(RC 추종)·`inquotient/*`(버전 태그 없음)도 다이제스트다. Hive 는 `hive-schematool`·`hive-metastore`·`hive-server` 셋이 **같은 다이제스트**여야 한다 — 갈리면 스키마 검사가 어긋난다 — §8-72
+46. **`:latest` 를 "그 시점의 최신 버전" 으로 바꾸는 것은 무해하지 않고, 그 반대도 참이다.** ① Dependency-Track 의 `latest` 는 **4.x** 였다 — 5.1.0 으로 핀하자 `IllegalStateException: Legacy Dependency-Track v4 configuration properties are no longer supported` 로 기동조차 못 했다(v5 는 `alpine.*` -> `dt.*` 이관 + DB 스키마 변경). ② 반대로 **올리면 안 되는 것**이 있다 — `docker/spark-iceberg` 의 `hadoop-aws`·`aws-java-sdk-bundle` 은 베이스 이미지(`apache/spark:3.5.6`)가 번들한 `hadoop-client-api-3.3.4` 가 상한을 정한다. **상한을 정하는 것은 레지스트리가 아니라 베이스 이미지다.** ③ 데이터 보유 워크로드는 **지금 도는 버전**으로 고정할 것 — `percona/percona-server-mongodb:latest` 가 가리키는 것은 8.3 이 아니라 **8.0 LTS** 였고, prod 가 핀한 8.3.8 은 메이저가 다른 값이었다. ④ 불변 필드 드리프트는 apply 를 해봐야 드러난다 — `gitlab`·`jenkins`·`keycloak`·`pyroscope` 는 `volumeClaimTemplates.storageClassName` 이 비어 있어 **어떤 매니페스트 변경도 반영된 적이 없었다**(해소: `kubectl delete sts --cascade=orphan` 후 재적용, 파드·PVC 유지). `kubectl diff -k` 를 정기적으로 돌릴 것 — §8-72
 
 ### 매니페스트 작업 시
 
