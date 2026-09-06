@@ -44,6 +44,15 @@ RULES = [
     (r"^ranger-admin$", 6080, "UI", 6080, "admin / `pw ranger-secret admin-password` · ★ 반복 실패 금지(Gotcha 11)"),
     (r"^ranger-solr$", 8983, "UI", 8984, "Ranger 감사 색인"),
     (r"^ranger-db$", 5432, "DB", 15433, "PostgreSQL 별칭 — 같은 인스턴스다"),
+    # ── 관계형 DB 접근 계층 (§8-75·§8-76) ──────────────────────────
+    # ★ 둘 다 **소비자가 없다.** 기존 postgresql-headless·mariadb-headless 와
+    #   나란히 서 있고, 접속 문자열은 아직 아무도 이쪽을 보지 않는다.
+    #   여기 적는 것은 "프록시가 실제로 통하는지 직접 확인하는" 용도다.
+    # ★ 인스턴스당 프런트엔드 프로토콜이 하나라 둘로 나뉜다.
+    (r"^shardingsphere$", 3307, "DB", 13307,
+     "**PostgreSQL 와이어** · `proxyadmin` / `pw shardingsphere-secret proxy-password` · DB 이름은 `oim`"),
+    (r"^proxysql$", 6033, "DB", 16033,
+     "**MySQL 와이어** · `cmmn-api` / `pw cmmn-api-secret db-password` · 관리(6032)는 파드 안에서만"),
     (r"^solr-headless$", 8983, "UI", 8983, "거버넌스 Solr"),
     (r"^lam-headless$", 80, "UI", 8084, "`pw lam-secret master-password`"),
     (r"^knox-headless$", 8443, "UI", 8443, "https · `pw knox-secret master-secret`"),

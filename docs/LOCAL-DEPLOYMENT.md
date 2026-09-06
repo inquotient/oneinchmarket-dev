@@ -7858,6 +7858,109 @@ Hyper-V 랩 주소일 수 있다. **그런데 mirrored 후의 주소는 바꿔 �
 HTTPRoute 를 함께 뽑으면 §8-74 처럼 **문서와 실제가 어긋나는 일**을 구조적으로
 막는다. 지금은 호스트가 붙은 HTTPRoute 가 `api.oneinchmarket.local` 하나뿐이다.
 
+
+### 8-78. 메시가 절반만 서 있었다 — ztunnel 은 파드를 스스로 되찾지 않는다 (2026-09-07)
+
+§8-77 의 mirrored 롤백 뒤 "클러스터가 아직 불안정하다" 로 보였고, 실제로는
+**서로 다른 두 결함**이 겹쳐 있었다. 둘 다 증상이 원인과 멀다.
+
+#### ① 배포판이 매 명령마다 재부팅되고 있었다 — Gotcha 6 의 재발
+
+증상은 "k3s 가 계속 재시작한다" 였다. 그런데 systemd 는 이렇게 말한다:
+
+```
+NRestarts=0
+ActiveEnterTimestamp=Mon 2026-09-07 04:31:02 KST   ← 방금
+```
+
+**재시작이 0회인데 방금 기동했다** — 서비스가 재시작한 것이 아니라 **호스트가
+새로 부팅된 것**이다. 결정적 단서는 PID 다: 연속된 확인에서 `k3s[335]` →
+`k3s[326]` 으로 **번호가 줄었다.** 300번대는 부팅 직후에만 나오는 번호다.
+
+원인은 `local/keepalive.ps1` 이 떠 있지 않은 것이었다(Gotcha 6). 붙은 프로세스가
+없으면 WSL 이 배포판을 종료하므로, **`wsl.exe -- <명령>` 하나하나가 콜드 부팅**이
+된다. 그래서 진단하려고 명령을 넣을 때마다 클러스터가 처음부터 다시 떴고,
+"kubelet 이 10250 을 열지 않는다"·"ztunnel 이 워크로드를 2개만 들고 있다" 같은
+관측이 전부 **"방금 떴기 때문"** 이었다. ★ 이 상태에서는 진단 자체가 원인을
+재생산한다 — **관측값이 이상하면 관측 행위부터 의심할 것**(Gotcha 25 와 같은 부류).
+
+판정:
+
+```bash
+uptime -p                                       # 몇 분이면 의심
+systemctl show k3s -p NRestarts -p ActiveEnterTimestamp
+sudo journalctl -u k3s -n1 -o json | jq ._PID   # 300번대면 부팅 직후
+```
+
+처방은 `powershell -File local\keepalive.ps1` 한 줄이고, 그 뒤로 배포판이 계속
+살아 있으면 kubelet(10250)·Kyverno 웹훅·Cilium 이 **10분 안에 스스로** 회복했다.
+
+#### ② ztunnel 을 재시작하면 기존 파드가 메시에서 빠진다
+
+①을 고친 뒤에도 ProxySQL 접속이 되지 않았다. 그런데 증상이 이상했다 —
+
+```
+1) TCP proxysql:6033       → TCP OK
+3) 직접 MariaDB (대조군)   → ERROR 2013: Lost connection ... reading initial communication packet
+4) ProxySQL 경유            → ERROR 2013: (같음)
+```
+
+**대조군이 같이 실패한다.** ProxySQL 문제가 아니라는 뜻이다. 그리고 TCP 는
+열리는데 프로토콜 핸드셰이크에서 끊긴다 — ztunnel 이 연결을 받아 주고 나서
+목적지로 잇지 못하는 모양이다. ztunnel 로그가 정확히 그렇게 말한다:
+
+```
+src.identity="spiffe://.../sa/cmmn-api"  dst.addr=10.0.0.101:15008
+dst.hbone_addr=10.0.0.101:3306  direction="outbound"
+error="io error: Connection refused (os error 111)"
+```
+
+★ **정책 거부가 아니다**(그러면 `policy rejection: allow policies exist, but none
+allowed` 가 나온다, §8-76). 신원도 정상이다. 거부당한 것은 **목적지 파드의
+HBONE 15008** 이다 — 즉 그 파드에는 ztunnel 의 inbound 프록시가 서 있지 않다.
+
+앰비언트에서 파드를 메시에 넣는 것은 ztunnel 이 아니라 **istio-cni** 다. CNI 가
+파드 netns 를 ztunnel 에 넘겨야(`sending pod add to ztunnel`) 비로소 프록시가
+선다. 그런데 istio-cni 는 **CNI 이벤트가 있을 때만** 그 일을 한다 — 즉 새로
+뜨는 파드만 등록한다. ztunnel 이 재시작하면 **이미 떠 있던 파드는 아무도 다시
+넣어 주지 않는다.**
+
+실측이 그대로다:
+
+```
+ztunnel 이 프록시를 시작한 파드 수: 49     ← 실제 파드는 138
+mariadb-0 등록 여부: (없음)
+```
+
+★★ **`istioctl ztunnel-config workload` 는 116 을 보고했다.** 그것은 xDS 로 받은
+**워크로드 목록**이지 프록시가 선 파드가 아니다. 두 수가 다르다는 것이 이
+결함의 전부이며, 그래서 "ztunnel 이 정상 동기화됐다" 로 오판하기 쉽다.
+**판정은 xDS 건수가 아니라 로그의 `pod received, starting proxy` 건수로 한다.**
+
+처방:
+
+```bash
+kubectl rollout restart -n istio-system ds/istio-cni-node
+# 기동 시 앰비언트 파드를 전부 다시 열거해 ztunnel 로 보낸다
+```
+
+결과 **49 → 138**, `mariadb-0`·`proxysql`·`postgresql-0`·`shardingsphere` 가 모두
+등록되고 접속이 즉시 통했다.
+
+> ★ 이것이 §8-73 의 관찰("Istio 업그레이드는 ztunnel 재시작으로 장기 TCP 연결을
+> 끊는다")보다 한 단계 나쁜 이야기다. 그때는 **연결이 끊겼을 뿐 다시 붙었다.**
+> 여기서는 **파드가 메시 밖으로 나가 다시 들어오지 않았다.** ztunnel 을
+> 재시작할 일이 있으면 **istio-cni 도 함께 재시작할 것.**
+
+#### 이번 소동에서 확인된 접속 정보
+
+`local/ACCESS.md` §2-7 에 적은 두 프록시의 값이 실제로 동작한다:
+
+| 프록시 | 확인 방법 | 결과 |
+|---|---|---|
+| ProxySQL (6033) | `cmmn-api` 로 `SELECT VERSION(), @@hostname` | `12.3.3-MariaDB-ubu2404` · `mariadb-0` — 직접 접속과 **같은 백엔드** |
+| ShardingSphere (3307) | `proxyadmin` 으로 논리 DB `oim` | `oneinchmarket` · PostgreSQL 18.6, `SHOW STORAGE UNITS` 가 `postgresql-headless:5432` |
+
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
 > **이 절은 "지금 하지 않기로 결정한 것" 의 목록이다.** §8 의 각 절 끝에

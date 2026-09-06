@@ -205,6 +205,11 @@ $K port-forward svc/hive-server-headless  10000:10000
 $K port-forward svc/mongodb-headless      17017:27017   # Compass 용
 $K port-forward svc/redis-headless        16379:6379    # RedisInsight 용
 $K port-forward svc/elasticsearch-es-http 19200:9200    # curl/Kibana 용
+
+# 관계형 DB 접근 계층 (§8-75·§8-76) — 아직 소비자가 없다. 프록시가 실제로
+# 통하는지 직접 확인할 때만 쓴다. 평소 작업은 위의 직접 접속을 쓸 것.
+$K port-forward svc/shardingsphere        13307:3307    # PostgreSQL 와이어
+$K port-forward svc/proxysql              16033:6033    # MySQL 와이어
 ```
 
 ---
@@ -308,7 +313,86 @@ $K port-forward svc/elasticsearch-es-http 19200:9200    # curl/Kibana 용
 
 ---
 
-### 2-7. DBeaver CE 로는 안 되는 것 — 대안
+### 2-7. 관계형 DB 접근 계층 — ShardingSphere · ProxySQL
+
+> **★ 아직 소비자가 없다.** 두 프록시는 기존 `postgresql-headless`·
+> `mariadb-headless` 와 **나란히** 서 있고, 어떤 워크로드도 이쪽으로 붙지
+> 않는다(§8-75·§8-76). 평소 DB 작업은 위의 §2-2·§2-3 을 쓸 것.
+> 여기는 **프록시가 실제로 통하는지 직접 확인할 때** 쓴다.
+>
+> 인스턴스당 프런트엔드 프로토콜이 하나라 둘로 나뉜다 — ShardingSphere 가
+> PostgreSQL 와이어, ProxySQL 이 MySQL 와이어다.
+
+**ShardingSphere-Proxy 5.5.3** — PostgreSQL 와이어
+
+| DBeaver 항목 | 값 |
+|---|---|
+| 드라이버 | **PostgreSQL** |
+| Host / Port | `localhost` / `13307` |
+| Database | `oim` ← ★ 논리 DB 이름이다. 뒤쪽 실제 DB 는 `oneinchmarket` |
+| Username | `proxyadmin` |
+| Password | `pw shardingsphere-secret proxy-password` |
+| JDBC URL | `jdbc:postgresql://localhost:13307/oim` |
+
+확인용 질의 — 스토리지 유닛이 보이면 프록시가 백엔드를 물고 있는 것이다:
+
+```sql
+SHOW STORAGE UNITS FROM oim;
+SELECT current_database(), version();   -- → oneinchmarket / PostgreSQL 18.6
+```
+
+**ProxySQL 4.0.11** — MySQL 와이어
+
+| DBeaver 항목 | 값 |
+|---|---|
+| 드라이버 | **MariaDB** |
+| Host / Port | `localhost` / `16033` |
+| Database | `cmmn` |
+| Username | `cmmn-api` |
+| Password | `pw cmmn-api-secret db-password` |
+| JDBC URL | `jdbc:mariadb://localhost:16033/cmmn` |
+
+```sql
+SELECT VERSION(), @@hostname;   -- → 12.3.3-MariaDB-ubu2404 / mariadb-0
+```
+
+★ ProxySQL 의 **관리 인터페이스(6032)는 Service 로 노출하지 않는다.** 런타임
+설정을 바꾸는 문이라 `mysql_ifaces` 가 `127.0.0.1` 로만 바인딩한다. 필요하면
+파드 안에서:
+
+```bash
+$K exec -it deploy/proxysql -- mysql -h127.0.0.1 -P6032 -uadmin \
+  -p"$(pw proxysql-secret admin-password)" -e "SELECT * FROM mysql_servers;"
+```
+
+★ ProxySQL 은 `.cnf` 를 **첫 기동에만** 읽는다(그 뒤에는 datadir 의 SQLite 가
+권위를 갖는다). 이 레포는 datadir 이 emptyDir 이라 매 기동이 새것이다 —
+설정을 바꾸려면 ConfigMap 을 고치고 파드를 재시작하면 된다.
+
+★★ **둘 다 클러스터 안에서 실제 질의로 확인했다(2026-09-07).** ProxySQL 은
+프록시 경유와 직접 접속이 **같은 백엔드**(`mariadb-0` · 12.3.3)를 돌려주고,
+ShardingSphere 는 논리 DB `oim` 이 `postgresql-headless:5432` 를 물고 있다.
+
+★ **여기서 접속이 안 되면 프록시를 먼저 의심하지 말 것.** 증상이
+`ERROR 2013 ... reading initial communication packet`(MySQL) 이나
+`EOFException`(PostgreSQL) 이면 **앰비언트 메시가 그 파드를 놓친 것**일 수
+있다 — ztunnel 을 재시작하면 기존 파드가 메시에서 빠지고 아무도 다시 넣어
+주지 않는다(Gotcha 50 · §8-78). 판정은 **대조군**이다:
+
+```bash
+# 프록시를 거치지 않는 직접 접속. 같이 실패하면 프록시 문제가 아니다.
+$K run t --rm -it --image=mariadb:12.3.3 --restart=Never \
+  --overrides='{"spec":{"serviceAccountName":"cmmn-api"}}' -- \
+  mariadb -h mariadb-headless -u cmmn-api -p"$(pw cmmn-api-secret db-password)" -e "SELECT 1;"
+
+# 메시가 절반만 서 있는지 — 두 수가 크게 다르면 그렇다
+$K logs -n istio-system ds/ztunnel | grep -c "pod received, starting proxy"
+$K get pods -A --no-headers | wc -l
+# 처방
+$K rollout restart -n istio-system ds/istio-cni-node
+```
+
+### 2-8. DBeaver CE 로는 안 되는 것 — 대안
 
 #### MongoDB 8.0 — MongoDB Compass
 
