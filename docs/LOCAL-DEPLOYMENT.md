@@ -7157,8 +7157,8 @@ Hive 는 §8-71 과 같은 기준으로 다시 증명했다 — `oimtest` 는
 
 #### 남는 것
 
-- **Dependency-Track v5 이관** — `alpine.*` -> `dt.*` 설정 이관 + PostgreSQL
-  스키마. 지금은 4.14.3 에 머문다
+- ~~**Dependency-Track v5 이관**~~ — **§8-74 에서 해소됐다.** 옮길 데이터가
+  0건이라 마이그레이션하지 않고 5.1.0 을 새로 세웠다
 - **Istio 1.24.2 -> 1.31.0 · k3s v1.31.4 -> v1.36.4** — 오퍼레이터 계층이라
   `local/install-operators.sh` 소관이다. Istio 는 이 클러스터의 인가가 ztunnel
   에 얹혀 있어(Gotcha 9·13) 마지막에 해야 한다
@@ -7298,7 +7298,167 @@ istioctl ztunnel-config policy | grep local     -> 6건 (매 단계 동일)
 - **오퍼레이터 나머지** — ECK · Kyverno · cert-manager · Tetragon ·
   Trivy Operator · Policy Reporter 는 이번에 손대지 않았다. k8s 1.36 에서
   지원되는지 각각 확인이 필요하다
-- **Dependency-Track v5 이관**(§8-72) 은 그대로 남아 있다
+- ~~**Dependency-Track v5 이관**(§8-72)~~ — **§8-74 에서 해소됐다**
+
+### 8-74. Dependency-Track v5 — 마이그레이션하지 않고 새로 세웠다 (2026-09-06)
+
+§8-72 가 "별도 작업" 으로 미뤄 둔 것이다. `:latest` 를 그 시점 최신으로 바꾸는
+것이 무해하지 않다는 실례이기도 했다 — `dependencytrack/apiserver:latest` 는
+**4.x** 였고, 5.1.0 으로 핀하자 기동 즉시 죽었다:
+
+```
+IllegalStateException: Legacy Dependency-Track v4 configuration properties are
+no longer supported: [alpine.database.username, alpine.data.directory,
+alpine.database.url, alpine.database.password]
+```
+
+#### 먼저 물어야 할 것 — 옮길 데이터가 있는가
+
+공식 마이그레이션 경로는 무겁다. `v4-migrator` CLI 로 extract → transform →
+load 3단계를 돌리고, v5 쪽 Postgres 안에 스테이징 스키마(`dt_v4_migration`)를
+만들며, **v4 는 전 과정 동안 정지**해야 한다. 게다가 가이드에
+"Lossy and non-obvious changes" 절이 통째로 있다 — 팀·OIDC 그룹·태그 중복 제거,
+프로젝트 중복 제거, EPSS 값, 알림 규칙 설정, 저장소·분석기 **자격증명**,
+암호화된 속성 값… 일부는 유실된다.
+
+그래서 먼저 셌다:
+
+```
+PROJECT 0 · COMPONENT 0 · BOM 0 · FINDINGATTRIBUTION 0 · POLICYVIOLATION 0
+MANAGEDUSER 1  (기본 admin 뿐)
+```
+
+**한 번도 SBOM 을 받은 적이 없었다.** DB 1.78 GB 중 1.76 GB(99%)가 NVD 미러다:
+
+| 테이블 | 행 수 | 크기 |
+|---|---:|---:|
+| `AFFECTEDVERSIONATTRIBUTION` | 2,563,199 | 787 MB |
+| `VULNERABILITY` | 387,338 | 551 MB |
+| `VULNERABLESOFTWARE` | 497,851 | 258 MB |
+
+PVC `/data` 3.0 GB 도 같은 성격이다. 둘 다 v5 가 다시 받는다.
+그리고 CI·스크립트 어디에도 **SBOM 을 올리는 연동이 없다** — `.gitlab-ci.yml`
+의 Trivy 3잡은 결과를 DT 로 보내지 않는다. 즉 떠 있기만 하고 파이프라인에
+연결된 적이 없다.
+
+→ **마이그레이션할 것이 없다. 새로 세운다.**
+
+#### 설정 이름은 추측하지 않았다
+
+v5 는 키를 `alpine.*` -> `dt.*` 로 갈았고, 5.0.0-rc.2 에서 **약 100개를 한 번 더**
+kebab-case 로 개명했다. 호환 shim 이 없어 하나만 틀려도 기동을 거부한다.
+그래서 두 원천에 대조했다:
+
+1. 공식 설정 레퍼런스 `docs/next/reference/configuration/properties/`
+2. 공식 Helm 차트 **2.3.0**(앱 5.1.0)을 `helm template` 으로 렌더
+
+★ 이 레포는 **No Helm** 이다. 차트는 **읽기 위해서만** 썼다 — Tetragon 과 같은
+방식이다(CLAUDE.md 0번 계층). 클러스터에 Helm 릴리스는 남지 않는다.
+
+내 첫 추측은 틀렸다. `DT_DATABASE_*` 가 아니라 **`DT_DATASOURCE_*`** 다:
+
+| v4 | v5 |
+|---|---|
+| `ALPINE_DATABASE_URL` | `DT_DATASOURCE_URL` (+ `?reWriteBatchedInserts=true`) |
+| `ALPINE_DATABASE_USERNAME` | `DT_DATASOURCE_USERNAME` |
+| `ALPINE_DATABASE_PASSWORD` | `DT_DATASOURCE_PASSWORD` |
+| `ALPINE_DATABASE_MODE`·`_DRIVER` | **없어짐** (v5 는 PostgreSQL 전용) |
+| `ALPINE_DATA_DIRECTORY` | `DT_FILE_STORAGE_LOCAL_DIRECTORY` (+ `DT_FILE_STORAGE_PROVIDER`) |
+| — | **`DT_SECRET_MANAGEMENT_PROVIDER` · `DT_SECRET_MANAGEMENT_DATABASE_KEK`** |
+| — | `DT_MANAGEMENT_PORT` · `DT_METRICS_ENABLED` |
+
+★★ **KEK 는 v4 에 없던 필수 항목이다.** v5 는 저장소·분석기 자격증명을 DB 에
+암호화해 넣고 그 키를 KEK 로 감싼다(v4 는 데이터 디렉터리의 `secret.key`
+파일이었다). **32바이트 난수의 base64** 여야 한다 —
+`local/create-secrets.sh` 의 `gen()` 은 hex 라 쓸 수 없어 `openssl rand -base64 32`
+를 따로 쓴다. **이 값을 잃으면 저장된 자격증명을 복호화할 수 없다.**
+
+#### 포트와 프로브가 바뀌었다
+
+v5 는 **관리 포트 9000** 이 생겼다. 헬스체크와 Prometheus 지표가 모두 그쪽이다.
+
+```
+v4 :  startup/liveness/readiness  ->  GET /api/version           (8080)
+v5 :  startup   -> GET /health/started  (9000)
+      liveness  -> GET /health/live     (9000)
+      readiness -> GET /health/ready    (9000)
+```
+
+v4 경로를 그대로 두면 8080 은 살아 있으므로 **프로브는 통과하는데 준비 판정이
+틀린다** — 조용히 어긋나는 부류다.
+
+#### 전환 절차
+
+되돌릴 수 있게 했다. `DROP DATABASE` 대신 **이름을 바꿔 보관**한다:
+
+```sql
+ALTER DATABASE dependencytrack RENAME TO dependencytrack_v4_20260906;
+CREATE DATABASE dependencytrack OWNER dependencytrack;
+```
+
+그다음 KEK 를 시크릿에 추가하고, PVC 를 지우고(3 GB NVD 캐시는 v5 에 무의미),
+적용한다. v5 는 `DT_INIT_TASK_DATABASE_MIGRATION_ENABLED`·`_SEEDING_ENABLED`
+로 **스스로 스키마를 만들고 시드한다** — 별도 초기화 Job 이 필요 없다.
+
+#### ★★ 그 과정에서 드러난 것 — 결함 둘이 서로를 가리고 있었다
+
+**① 프런트의 `API_BASE_URL` 이 처음부터 무시되고 있었다.**
+프런트 엔트리포인트(`30-oidc-configuration.sh`)는 **자기 static 디렉터리의
+`config.json` 을 제자리에서 고쳐** 환경변수를 넣는다:
+
+```sh
+if ! touch ./static/config.json 2>/dev/null; then
+  entrypoint_log "$ME: info: can not modify config.json - ENV configuration will be ignored"
+```
+
+우리는 `readOnlyRootFilesystem: true` 였고 그 경로에 쓰기 볼륨이 없다. 그래서
+`touch` 가 실패하고 **환경변수가 통째로 버려졌다.** 실측으로
+`/static/config.json` 이 `"API_BASE_URL": ""` 였다.
+
+★ 알아채기 어려운 이유가 셋이다 — 실패 로그가 **`info` 한 줄**이고, 파드는
+**Ready** 이며, 프로브가 `/` 였다(그 경로는 config 와 무관하게 200 을 준다).
+★★ **v4 이미지에 같은 스크립트가 있다.** 즉 이 결함은 v5 가 만든 것이 아니라
+**계속 있었고**, 아무도 UI 를 쓰지 않아 드러나지 않았다.
+
+고친 방법은 업스트림 차트와 같다 — 이 컨테이너만
+`readOnlyRootFilesystem: false`. ConfigMap 으로 `config.json` 을 주입하는 대안도
+있으나 **버전이 올라가며 키가 늘면 조용히 어긋난다** — §8-72 ④(하드코딩한
+jar 이름)와 같은 실패 유형이라 택하지 않았다. 프로브도
+`/static/config.json` 으로 바꿔 **설정이 실제로 써졌는지**를 보게 했다.
+
+**② ①을 고치자 두 번째 불일치가 드러났다.** `API_BASE_URL` 이
+`http://localhost:8081` 인데 `local/access-gen.py` 와 `ACCESS.md` 는 API
+port-forward 를 **8087** 로 안내한다. ①이 값을 통째로 버리고 있었기 때문에
+이 불일치가 여태 보이지 않았다. **결함 하나가 다른 결함을 가리고 있었던 것이다.**
+8087 로 맞췄다.
+
+#### 검증
+
+| 항목 | 결과 |
+|---|---|
+| 파드 | apiserver · frontend 둘 다 `1/1 Running` |
+| `/health/ready` (9000) | `{"status":"UP","checks":[{"name":"dataSources","status":"UP",...}]}` |
+| `/api/version` (8080) | `"application":"Dependency-Track"` · `5.1.0` |
+| 스키마 자동 생성 | 새 DB 에 **103개 테이블** |
+| 미러링 | NVD·EPSS·KEV 진행 — `VULNERABILITY` 79,500행 / 248 MB (계속 증가) |
+| 프런트 설정 | `"API_BASE_URL": "http://localhost:8087"` — 엔트리포인트가 `effective config` 출력 |
+| 서비스 경유 | apiserver -> `dependency-track:8080` · frontend -> `dependency-track-api:8080` 양방향 확인 |
+
+★ `/api/version` 의 `framework.name` 은 여전히 **`Alpine`** 이다(버전만 5.1.0).
+v5 가 Alpine 프레임워크를 걷어낸 것이 아니라 **설정 네임스페이스를 옮긴 것**이다
+— 이 절을 쓰며 처음에 "프레임워크를 걷어냈다" 로 잘못 적었다가 바로잡았다.
+
+#### 남는 것
+
+- **파이프라인 연동이 없다.** v5 든 v4 든 SBOM 을 받지 않으면 빈 껍데기다.
+  CI 의 Trivy 3잡이 CycloneDX SBOM 을 만들어 `/api/v1/bom` 으로 올리게 하는 것이
+  이 컴포넌트를 실제로 쓰는 유일한 길이다. **버전 올리기보다 이쪽이 먼저다**
+- **`dependencytrack_v4_20260906`(1.78 GB)를 언젠가 지울 것.** 되돌릴 필요가
+  없다고 확신이 서면 `DROP DATABASE`
+- **파일 저장소를 MinIO 로 옮길 수 있다.** v5 는 `DT_FILE_STORAGE_PROVIDER=s3`
+  를 지원한다 — PVC 대신 이미 있는 MinIO 를 쓰면 RWO 제약이 사라진다
+- **관리 포트 9000 의 지표를 Prometheus 가 긁게 할 것.** Service 에 포트는
+  열어 두었으나 scrape 설정과 NetworkPolicy 는 아직 없다
 
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 

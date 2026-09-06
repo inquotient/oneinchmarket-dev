@@ -30,6 +30,13 @@ spec:
       targetPort: http
       protocol: TCP
       name: http
+    # ★ v5 의 관리 포트. 헬스체크(/health/*)와 Prometheus 지표가 여기다(§8-74).
+    #   v4 에는 없던 포트다. 아직 Prometheus scrape 설정은 붙이지 않았다 —
+    #   붙일 때 network-policies 도 함께 열어야 한다.
+    - port: 9000
+      targetPort: management
+      protocol: TCP
+      name: management
   selector:
     app.kubernetes.io/name: dependency-track
     app.kubernetes.io/instance: apiserver

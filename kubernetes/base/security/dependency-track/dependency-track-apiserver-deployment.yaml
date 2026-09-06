@@ -39,42 +39,69 @@ spec:
           type: RuntimeDefault
       containers:
         - name: apiserver
-          # ★★ 5.x 로 올리지 말 것 — **설정 스키마가 바뀐 메이저**다.
-          #   실측: `dependencytrack/apiserver:5.1.0` 은 기동 즉시 죽는다 —
+          # ★★ v5 는 v4 와 **설정 키 체계와 DB 스키마가 모두 다른** 메이저다(§8-74).
+          #   v4 는 Alpine 프레임워크 위에 있어 키가 `alpine.*` 였고, v5 는 그것을
+          #   걷어내며 `dt.*` 로 갈았다. 호환 shim 이 없어서 옛 키가 하나라도
+          #   남아 있으면 **기동을 거부한다**:
           #     IllegalStateException: Legacy Dependency-Track v4 configuration
-          #     properties are no longer supported: [alpine.database.username,
-          #     alpine.data.directory, alpine.database.url, alpine.database.password]
-          #   아래 ALPINE_* 환경변수를 DT_* 로 옮기고 PostgreSQL 스키마도 함께
-          #   이관해야 한다(v5.0.0-rc.2 업그레이드 가이드). 별도 작업이다 — §9.
-          #   그때까지 4.x 계열 최신에 머문다.
-          image: dependencytrack/apiserver:4.14.3
+          #     properties are no longer supported: [alpine.database.username, ...]
+          #   ★ 아래 이름은 추측이 아니다 — 공식 설정 레퍼런스
+          #     (docs/next/reference/configuration/properties/)와 공식 Helm 차트
+          #     2.3.0 을 `helm template` 으로 렌더해 대조했다. 이 레포는 No Helm
+          #     이므로 차트는 **읽기 위해서만** 썼다(Tetragon 과 같은 방식).
+          image: dependencytrack/apiserver:5.1.0
           ports:
             - containerPort: 8080
               name: http
               protocol: TCP
+            # ★ v5 는 관리 포트가 분리됐다. 헬스체크와 Prometheus 지표가 모두
+            #   이쪽이다 — v4 의 `/api/version`(8080) 을 그대로 쓰면 안 된다.
+            - containerPort: 9000
+              name: management
+              protocol: TCP
           env:
-            - name: DTRACK_DB_PASSWORD
-              valueFrom:
-                secretKeyRef: { name: dependency-track-secret, key: db-password }
+            # ── 데이터소스 ────────────────────────────────────────────
             # 공용 PostgreSQL 18.6 을 쓴다. 전용 인스턴스를 두지 않는 이유는
             # ADR-071 과 같다 — 세 환경에 인스턴스를 하나씩 더 늘리게 된다.
-            - name: ALPINE_DATABASE_MODE
-              value: external
-            - name: ALPINE_DATABASE_DRIVER
-              value: org.postgresql.Driver
-            - name: ALPINE_DATABASE_URL
-              value: jdbc:postgresql://postgresql-headless:5432/dependencytrack
-            - name: ALPINE_DATABASE_USERNAME
+            # ★ v5 는 **PostgreSQL 전용**이다(v4 는 MSSQL 도 지원했다).
+            # ★ reWriteBatchedInserts=true 는 공식 차트의 기본값이다 — 대량
+            #   INSERT 성능이 걸린 값이라 빼지 말 것.
+            - name: DT_DATASOURCE_URL
+              value: jdbc:postgresql://postgresql-headless:5432/dependencytrack?reWriteBatchedInserts=true
+            - name: DT_DATASOURCE_USERNAME
               value: dependencytrack
-            - name: ALPINE_DATABASE_PASSWORD
-              value: $(DTRACK_DB_PASSWORD)
+            - name: DT_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: dependency-track-secret, key: db-password }
+            # ── 비밀 관리 (v4 에 없던 필수 항목) ──────────────────────
+            # ★★ v5 는 저장소·분석기 자격증명을 DB 에 암호화해 넣고, 그 키를
+            #   **KEK(Key Encryption Key)** 로 감싼다. v4 는 데이터 디렉터리의
+            #   secret.key 파일이었다. KEK 가 없으면 기동하지 않는다.
+            #   생성: openssl rand -base64 32   (local/create-secrets.sh 가 만든다)
+            #   ★ 이 값을 잃으면 저장된 자격증명을 **복호화할 수 없다.**
+            - name: DT_SECRET_MANAGEMENT_PROVIDER
+              value: database
+            - name: DT_SECRET_MANAGEMENT_DATABASE_KEK
+              valueFrom:
+                secretKeyRef: { name: dependency-track-secret, key: kek }
+            # ── 파일 저장소 ──────────────────────────────────────────
+            # v5 는 업로드된 BOM 등을 파일 저장소 추상화에 넣는다. local 과 s3 를
+            # 고를 수 있다 — MinIO 로 옮기는 것은 별개 작업이다(§8-74 남는 것).
+            - name: DT_FILE_STORAGE_PROVIDER
+              value: local
+            - name: DT_FILE_STORAGE_LOCAL_DIRECTORY
+              value: /data
+            # ── 관리 포트 · 지표 ─────────────────────────────────────
+            - name: DT_MANAGEMENT_PORT
+              value: "9000"
+            - name: DT_METRICS_ENABLED
+              value: "true"
             # ★ 힙을 컨테이너 limit 아래로 명시한다. hive-metastore 가 limit
             #   512Mi 에 힙 1G 로 39회 재시작한 전례가 있다(§8 기록).
+            #   이미지 기본값(-XX:MaxRAMPercentage=80.0)과 같은 값이지만
+            #   limit 을 바꿀 때 함께 보이도록 명시해 둔다.
             - name: EXTRA_JAVA_OPTIONS
               value: "-Xmx1600m -XX:MaxMetaspaceSize=256m"
-            # 취약점 분석기. OSS Index 와 NVD 만 켠다 — 나머지는 외부 계정이 필요하다.
-            - name: ALPINE_DATA_DIRECTORY
-              value: /data
           volumeMounts:
             - name: data
               mountPath: /data
@@ -92,19 +119,20 @@ spec:
             limits:
               cpu: "2"
               memory: 2Gi
-          # ★ 첫 기동에서 NVD 피드를 내려받아 인덱싱한다. 수십 분이 걸린다.
-          #   startupProbe 예산을 크게 잡지 않으면 준비 전에 죽는다.
+          # ★ 첫 기동에서 스키마 마이그레이션·시드를 돌리고 NVD 를 내려받는다.
+          #   수십 분이 걸리므로 startupProbe 예산을 크게 잡는다.
+          #   경로는 v4 의 /api/version 이 아니라 **관리 포트의 /health/*** 다.
           startupProbe:
-            httpGet: { path: /api/version, port: http }
+            httpGet: { path: /health/started, port: management }
             failureThreshold: 120
             periodSeconds: 15
           livenessProbe:
-            httpGet: { path: /api/version, port: http }
+            httpGet: { path: /health/live, port: management }
             periodSeconds: 30
             timeoutSeconds: 5
             failureThreshold: 5
           readinessProbe:
-            httpGet: { path: /api/version, port: http }
+            httpGet: { path: /health/ready, port: management }
             periodSeconds: 20
             timeoutSeconds: 5
       volumes:

@@ -103,7 +103,14 @@ mk wazuh-secret   "api-username=wazuh-wui" \
 # ── 7단계 security-full ───────────────────────────────────────────
 # Dependency-Track — 공용 PG 롤 비밀번호. 관리자 초기 비밀번호는 제품이
 # admin/admin 으로 강제 생성하고 첫 로그인에서 변경을 요구한다.
-mk dependency-track-secret "db-password=$(gen)"
+#   ★★ kek 는 v5 가 새로 요구하는 것이다(v4 에는 없었다, §8-74). 저장소·분석기
+#     자격증명을 DB 에 암호화해 넣고 그 키를 이 KEK 로 감싼다. 없으면 apiserver
+#     가 아예 기동하지 않는다. **32바이트 난수의 base64** 여야 한다 —
+#     gen() 은 hex 라 여기 쓸 수 없다.
+#     ★ 이 값을 잃으면 저장된 자격증명을 복호화할 수 없다. DefectDojo 의
+#       credential-aes-256-key 와 같은 성격이다.
+mk dependency-track-secret "db-password=$(gen)" \
+                           "kek=$(openssl rand -base64 32)"
 
 # SafeLine WAF — 공용 PG 롤 비밀번호. 관리자 계정은 mgt 가 첫 기동에
 # 생성하고 로그에 1회만 출력한다.

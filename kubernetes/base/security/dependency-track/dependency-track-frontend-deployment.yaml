@@ -34,8 +34,8 @@ spec:
           type: RuntimeDefault
       containers:
         - name: frontend
-          # apiserver 와 같은 버전으로 맞춘다(4.x 에 머무는 사유는 그쪽 주석).
-          image: dependencytrack/frontend:4.14.3
+          # apiserver 와 같은 버전으로 맞춘다(§8-74).
+          image: dependencytrack/frontend:5.1.0
           ports:
             - containerPort: 8080
               name: http
@@ -44,8 +44,12 @@ spec:
             # ★ 브라우저가 부르는 주소다. 클러스터 내부 DNS 가 아니라 사용자
             #   기준 주소여야 한다. Apicurio UI 에서 같은 함정을 겪었다
             #   (patches/apicurio-ui-local.yaml). 로컬은 port-forward 주소다.
+            # ★ 값은 local/access-gen.py 가 정하는 API port-forward 포트와
+            #   **반드시 같아야 한다**(현재 8087). 오래 8081 로 적혀 있었으나
+            #   위 readOnlyRootFilesystem 결함 때문에 그 값이 애초에 반영되지
+            #   않아 불일치가 드러나지 않았다 — 결함 둘이 서로를 가렸다(§8-74).
             - name: API_BASE_URL
-              value: "http://localhost:8081"
+              value: "http://localhost:8087"
           volumeMounts:
             # ★ nginx 엔트리포인트가 envsubst 결과를 conf.d 에 쓴다. 이 경로를
             #   열지 않으면 "can't create /etc/nginx/conf.d/default.conf:
@@ -60,7 +64,23 @@ spec:
               mountPath: /tmp
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
+            # ★★ **의도된 예외.** 이 컨테이너만 rootfs 를 쓸 수 있어야 한다.
+            #   엔트리포인트의 30-oidc-configuration.sh 가 **자기 static 디렉터리의
+            #   config.json 을 제자리에서 고쳐** API_BASE_URL·OIDC_* 를 넣는다:
+            #     if ! touch ./static/config.json 2>/dev/null; then
+            #       entrypoint_log "... ENV configuration will be ignored"
+            #   (WORKDIR=/opt/owasp/dependency-track-frontend/)
+            #   ★ 실패해도 **로그가 `info` 한 줄이고 파드는 Ready 다.** 실측:
+            #     readOnlyRootFilesystem: true 에서 API_BASE_URL 을 넣어도
+            #     /static/config.json 이 `"API_BASE_URL": ""` 로 남아 있었다 —
+            #     **v4 시절부터 계속 그랬다**(같은 스크립트다). 아무도 UI 를 쓰지
+            #     않아 드러나지 않았을 뿐이다(§8-74).
+            #   ★ ConfigMap 으로 config.json 을 주입하는 방법도 있으나, 버전이
+            #     올라가며 키가 늘면 조용히 어긋난다. 업스트림 Helm 차트도
+            #     이 컨테이너만 readOnlyRootFilesystem: false 로 둔다.
+            #   위험은 낮다 — 정적 파일만 서빙하는 nginx 이고 uid 101 비-root,
+            #   capability 전부 드롭, seccomp RuntimeDefault 다.
+            readOnlyRootFilesystem: false
             capabilities:
               drop: ["ALL"]
           resources:
@@ -70,16 +90,19 @@ spec:
             limits:
               cpu: 500m
               memory: 192Mi
+          # ★ `/` 가 아니라 `/static/config.json` 을 본다(업스트림 차트와 동일).
+          #   엔트리포인트가 envsubst 로 그 파일을 **써야** 프런트가 API 주소를
+          #   알 수 있다. `/` 는 그 전에도 200 을 주므로 준비 판정이 이르다.
           startupProbe:
-            httpGet: { path: /, port: http }
+            httpGet: { path: /static/config.json, port: http }
             failureThreshold: 30
             periodSeconds: 5
           livenessProbe:
-            httpGet: { path: /, port: http }
+            httpGet: { path: /static/config.json, port: http }
             periodSeconds: 30
             timeoutSeconds: 5
           readinessProbe:
-            httpGet: { path: /, port: http }
+            httpGet: { path: /static/config.json, port: http }
             periodSeconds: 20
             timeoutSeconds: 5
       volumes:
