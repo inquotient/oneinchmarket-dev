@@ -7952,6 +7952,61 @@ kubectl rollout restart -n istio-system ds/istio-cni-node
 > 여기서는 **파드가 메시 밖으로 나가 다시 들어오지 않았다.** ztunnel 을
 > 재시작할 일이 있으면 **istio-cni 도 함께 재시작할 것.**
 
+#### ③ 곁가지로 드러난 것 — `openmeter-dlq-replay` 가 트레이스백으로 죽고 있었다
+
+장애가 남긴 실패 Job 을 정리하다 **사유가 둘로 갈린다**는 것을 알았다.
+
+| CronJob | 실패 사유 | 성격 |
+|---|---|---|
+| `billing-advance-invoices` · `billing-collect-invoices` · `subscription-sync` (23건) | ClickHouse 핸드셰이크 `connection reset by peer` | ①②의 부수 피해. 메시 복구와 함께 스스로 해소됐다 |
+| `openmeter-dlq-replay` (8건) | **`json.decoder.JSONDecodeError: Expecting value: line 1 column 1`** | **별개의 결함이다** |
+
+dlq-replay 의 `call()` 은 §8-62 의 교훈대로 연결 오류를 잡아 `(0, 오류문자열)` 을
+돌려주도록 돼 있었다. 그런데 **호출부가 그 상태 코드를 읽지 않았다:**
+
+```python
+if st == 404:                                  # 404 만 본다
+    ...
+hits = json.loads(body)["hits"]["hits"]        # st==0 이면 여기서 죽는다
+```
+
+ES 에 닿지 못하면 `body` 가 JSON 이 아닌 오류 문자열이라 그대로 파싱에 들어가
+미처리 예외로 죽는다. 그러면 §8-62 가 막으려던 것이 **그대로 다시 일어난다** —
+이미 재처리한 건의 삭제도 못 하고, 임계 판정 메시지도 남지 않고, 로그에는
+파이썬 트레이스백만 남아 **"과금 이벤트가 밀렸다" 인지 "ES 에 못 닿았다" 인지
+구분할 수 없다.** 둘은 원인도 처방도 다르다.
+
+★ **교훈은 좁고 분명하다 — 잡은 오류는 반드시 읽어야 한다.** 예외를 잡아
+상태 코드로 바꿔 놓고 그 코드를 검사하지 않으면, 잡지 않은 것과 결과가 같고
+**단서만 더 나빠진다**(원래 예외 자리가 아니라 엉뚱한 곳에서 터진다).
+
+처방(`kubernetes/overlays/local/openmeter/dlq-replay.yaml`):
+
+- `st != 200` 이면 **임계 초과와 구분되는 메시지**로 남기고 `exit 1`.
+  종료 코드는 그대로 1 이 맞다 — 이 Job 의 실패가 곧 경보이고(§8-62),
+  ES 에 못 닿아 DLQ 를 비우지 못한 것도 드러나야 할 사건이다
+- `json.loads`·`["hits"]["hits"]` 를 `try` 로 감싼다(200 인데 형태가 다른 경우)
+- `_bulk` 삭제 응답도 검사한다. 삭제 실패 자체는 치명적이지 않지만
+  (다음 회차에 재전송되고 OpenMeter 가 `id` 로 중복을 제거한다, §8-60)
+  조용히 넘기면 **"DLQ 가 왜 안 줄어드는가" 를 알 수 없다**
+
+검증은 정상·오류 두 갈래로 했다 — 오류 경로를 실제로 밟게 하지 않으면
+고쳤는지 알 수 없기 때문이다(`ES_URL` 을 닿지 않는 이름으로 바꾼 일회성 Job):
+
+```
+A) 정상 : [dlq-replay] DLQ 0건                       → 완료
+B) 오류 : [dlq-replay] ★ ES 조회 실패(status=0) — DLQ 를 비우지 못했다.
+          임계 초과와는 다른 사유다: b'<urlopen error [Errno -2] Name does not resolve>'
+          종료 코드 1
+```
+
+★ 남은 것 하나 — **Trivy Operator 가 `oneinch/*` 로컬 빌드 이미지를 스캔하지
+못한다.** `unable to find the specified image "oneinch/spark-iceberg:3.5.6" in
+["docker" "containerd" "podman" "remote"]` 로 4가지 경로 전부 실패한다(스캔
+Job 은 containerd 소켓에 닿지 못하고, 그 이미지는 레지스트리에 없다). `docker/`
+9종 전부가 그렇다. 이번 장애와 무관한 **구조적 공백**이고, 레지스트리를 세우거나
+스캔 Job 에 containerd 소켓을 열어 주는 선택이 필요하다 — §9 로 미룬다.
+
 #### 이번 소동에서 확인된 접속 정보
 
 `local/ACCESS.md` §2-7 에 적은 두 프록시의 값이 실제로 동작한다:

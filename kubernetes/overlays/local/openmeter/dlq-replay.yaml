@@ -117,7 +117,26 @@ spec:
                   if st == 404:
                       print("[dlq-replay] DLQ 인덱스 없음 — 재처리할 것이 없다")
                       raise SystemExit(0)
-                  hits = json.loads(body)["hits"]["hits"]
+                  # 2026-09-07 — call() 은 연결 오류를 잡아 (0, 오류문자열) 을
+                  #   돌려주는데 **여기서 st 를 보지 않아** 그 문자열이 그대로
+                  #   json.loads 로 들어갔다. JSONDecodeError 로 죽으면서
+                  #   사유가 파이썬 트레이스백으로만 남았다(실측 8건, §8-78).
+                  #   §8-62 의 교훈이 call() 안에만 적용되고 바깥에는 빠져
+                  #   있었던 것이다 — **잡은 오류는 반드시 읽어야 한다.**
+                  #   ★ 종료 코드는 1 이 맞다(이 Job 의 실패가 곧 경보다).
+                  #     다만 메시지를 임계 초과와 **구분**해야 한다 — 원인이
+                  #     다르고 처방도 다르다.
+                  if st != 200:
+                      print(f"[dlq-replay] ★ ES 조회 실패(status={st}) — DLQ 를 "
+                            f"비우지 못했다. 임계 초과와는 다른 사유다: "
+                            f"{body[:200]!r}", flush=True)
+                      raise SystemExit(1)
+                  try:
+                      hits = json.loads(body)["hits"]["hits"]
+                  except (ValueError, KeyError, TypeError) as e:
+                      print(f"[dlq-replay] ★ ES 응답을 해석하지 못했다: {e} — "
+                            f"{body[:200]!r}", flush=True)
+                      raise SystemExit(1)
                   print(f"[dlq-replay] DLQ {len(hits)}건")
 
                   ok, fail = [], 0
@@ -141,10 +160,18 @@ spec:
                       bulk = "".join(
                           json.dumps({"delete": {"_index": IDX, "_id": i}}) + "\n"
                           for i in ok)
-                      call(f"{ES}/_bulk?refresh=true", data=bulk.encode(),
-                           method="POST",
-                           hdrs={"Authorization": f"Basic {auth}",
-                                 "Content-Type": "application/x-ndjson"})
+                      ds, db = call(f"{ES}/_bulk?refresh=true",
+                                    data=bulk.encode(), method="POST",
+                                    hdrs={"Authorization": f"Basic {auth}",
+                                          "Content-Type": "application/x-ndjson"})
+                      # ★ 삭제 실패 자체는 치명적이지 않다 — 다음 회차에 다시
+                      #   재전송되고 OpenMeter 가 id 로 중복을 제거한다(§8-60).
+                      #   다만 조용히 넘기면 "DLQ 가 왜 안 줄어드는가" 를
+                      #   알 수 없으므로 반드시 남긴다.
+                      if ds != 200:
+                          print(f"[dlq-replay] 삭제 실패(status={ds}) — "
+                                f"{len(ok)}건이 DLQ 에 남는다(다음 회차 재시도): "
+                                f"{db[:200]!r}", flush=True)
                   print(f"[dlq-replay] 재처리 성공 {len(ok)} · 실패 {fail}")
 
                   if fail > TH:
