@@ -2,6 +2,10 @@
 # OneinchMarket v2 로컬 k3s 호스트
 # 호스트 기준: 63.4 GB RAM / 24 코어. 자세한 산정은 docs/LOCAL-DEPLOYMENT.md
 
+# ★★ `networkingMode=mirrored` 를 넣지 말 것 — 이 호스트에서 클러스터가
+#   통째로 무너진다(§8-77, Gotcha 49). Windows 의 Up 어댑터 6개가 전부
+#   미러링되고, k3s 가 --node-ip 미설정이라 Hyper-V L0 랩 주소를 노드 IP 로
+#   골라 apiserver 가 kubelet 에 닿지 못한다 → Cilium·CoreDNS·Kyverno 연쇄 붕괴.
 [wsl2]
 # ★ 48GB → 56GB (2026-09-02, 5단계 착수)
 #   4단계 종료 시점에 노드 메모리 limits 가 94~98% 였다. 5단계는

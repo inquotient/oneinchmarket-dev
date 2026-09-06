@@ -7731,6 +7731,133 @@ error="connection closed due to policy rejection: allow policies exist, but none
   이번 검증은 `cmmn-api` 로 통과했으므로 앱 경로는 살아 있으나, **부트스트랩이
   만드는 계정과 앱이 쓰는 계정이 다른 것 자체가 정리 대상이다**
 
+### 8-77. WSL2 `networkingMode=mirrored` 를 시도했고 되돌렸다 (2026-09-07)
+
+윈도우에서 컴포넌트에 **도메인으로** 접속하려던 작업이다. 결론부터 —
+**mirrored 는 이 환경에서 클러스터를 통째로 무너뜨린다. 쓰지 말 것.**
+
+#### 왜 시도했나 — port-forward 가 구조적으로 부족하다
+
+`local/ACCESS.md` 는 port-forward 40여 개를 전제한다. 이 세션에서 그 방식이
+두 번 물렸다:
+
+- **Gotcha 12** — 파드를 재생성하면 port-forward 가 죽고 **14시간 조용히**
+  끊겨 있었다. 오류가 나지 않는다
+- **§8-74** — Dependency-Track 의 `API_BASE_URL` 이 `localhost:8081` 인데
+  `ACCESS.md` 는 8087 을 안내하고 있었다. **앱이 자기 외부 주소를 알아야 하는데
+  port-forward 포트는 그 주소가 될 수 없다.** Apicurio UI 도 같은 함정이었다
+
+Keycloak redirect URI · OIDC · 쿠키 도메인 · CORS 가 전부 같은 문제다.
+
+#### 막고 있던 것 두 가지 — 클러스터 문제가 아니었다
+
+Gateway 는 이미 서 있다(`PROGRAMMED=True`, NodePort **443→30727 · 80→31938**).
+그런데 Windows 에서 닿지 않았고, 원인은 둘이었다:
+
+**① NodePort 는 리스닝 소켓을 만들지 않는다.** kube-proxy 의 iptables DNAT 다
+(`KubeProxyReplacement: False`). `ss -lntp` 에 아무것도 안 나온다. WSL2 의
+`localhostForwarding` 은 **실제 소켓만** 잡으므로 이 포트를 보지 못한다.
+
+**② Hyper-V 방화벽이 인바운드 TCP 를 막는다.** 어댑터 이름이
+`vEthernet (WSL (Hyper-V firewall))` 이고 실측이 이렇다:
+
+```
+Test-NetConnection 172.25.102.72 -Port 31938
+  PingSucceeded    = True      ← 라우팅은 된다
+  TcpTestSucceeded = False     ← TCP 만 막힌다
+```
+
+WSL 안에서는 `127.0.0.1:31938` 도 `172.25.102.72:31938` 도 **404 를 응답한다**
+— 게이트웨이는 멀쩡했다.
+
+#### ★★ 시도 결과 — 노드 IP 자동 감지가 무너뜨린다
+
+`.wslconfig` 에 `networkingMode=mirrored`(+`dnsTunneling=false`·`autoProxy=false`)
+를 넣고 `wsl --shutdown` 했다. 사전에 알고 들어간 위험이 그대로 일어났다:
+
+```
+전:  hostname -I → 172.25.102.72
+후:  hostname -I → 10.77.0.190  192.168.1.222  172.17.0.1  (+IPv6 4개)
+```
+
+mirrored 는 **Windows 의 Up 어댑터를 전부 미러링한다.** 이 호스트에는 6개가
+있었다 — Wi-Fi · 네트워크 브리지 · `vEthernet (L0-WAN)` · `(L0-LAN)` ·
+`(Default Switch)` · `(WSL)`. 그중 **L0-LAN(Hyper-V 랩)의 `10.77.0.190`** 이
+첫 주소가 됐고, k3s 는 `--node-ip` 가 **미설정**이라 그것을 노드 IP 로 골랐다.
+
+그 결과:
+
+```
+kubectl logs -n kube-system ds/cilium
+  Error from server: Get "https://10.77.0.190:10250/containerLogs/..."
+  proxy error from 127.0.0.1:6443 while dialing 10.77.0.190:10250,
+  code 502: 502 Bad Gateway
+```
+
+**apiserver 가 kubelet 에 닿지 못한다.** 연쇄가 즉시 따라왔다:
+
+| 계층 | 상태 |
+|---|---|
+| Cilium (CNI) | `0/1`, 재시작 64~65회 |
+| CoreDNS | `Completed` — 죽어 있다 |
+| Kyverno webhook | `no endpoints available for service "kyverno-svc"` → **파드 생성 자체가 거부된다** |
+| 워크로드 | OpenReplay 8종 · DefectDojo · kube-state-metrics 등 CrashLoopBackOff |
+| ingress 게이트웨이 | 기동 후 37초 만에 `exitCode 0` 로 종료 반복 |
+
+★ 게이트웨이 로그가 특히 헷갈린다 — 인증서를 정상으로 받고
+`Envoy aborted normally` 로 **깨끗하게** 끝난다. 크래시가 아니라 종료 신호를
+받는 것이라 게이트웨이 자체 문제로 읽힌다. 진짜 원인은 두 계층 아래에 있었다.
+
+#### 되돌리기
+
+`.wslconfig` 에서 세 줄을 지우고 `wsl --shutdown` 하면 끝이다. 즉시
+`172.25.102.72` 로 복귀했고 Cilium·CoreDNS 가 `1/1` 로 돌아왔다.
+
+복구 검증(약 10분 소요):
+
+| 항목 | 결과 |
+|---|---|
+| 노드 | `Ready` · `v1.36.4+k3s1` · IP `172.25.102.72` |
+| Cilium · CoreDNS | `1/1 Running` |
+| ztunnel 정책 | **6건** — 시작 시점과 동일 |
+| HBase 인가 | `Switched policy engine to [7]` |
+| Hive 인가 | `oimtest` → `No rows selected` · `oimother` → `Permission denied ... [SELECT] on default/rangerhive/*` |
+| 프록시 2종 | ShardingSphere · ProxySQL 둘 다 `1/1` |
+
+★ Vault 는 재시작하면 봉인된다 — 설계다(`local/vault-init.sh unseal`).
+
+#### 배운 것
+
+**① mirrored 를 쓰려면 노드 IP 를 먼저 고정해야 한다.** `--node-ip` 와
+`--tls-san` 이 없으면 k3s 가 6개 어댑터 중 하나를 자동으로 고르고, 그 선택이
+Hyper-V 랩 주소일 수 있다. **그런데 mirrored 후의 주소는 바꿔 봐야 알 수 있어
+닭과 달걀이다** — 굳이 한다면 두 단계로 나눠야 한다.
+
+**② 이 호스트에서는 mirrored 의 이점이 뒤집힌다.** 원래 NAT 의 단점이
+"WSL IP 가 재시작마다 바뀐다" 였는데, mirrored 로 가면 노드 IP 가 **Wi-Fi DHCP
+주소나 Hyper-V 랩 주소**에 묶인다. 랩톱이라 네트워크를 옮기면 또 바뀐다.
+**더 불안정해진다.**
+
+**③ Hyper-V L0 랩이 돌고 있으면 어댑터가 2개 더 늘어난다**(`L0-WAN`·`L0-LAN`).
+`L0-OPNsense`·`L0-Target` 이 Running 이었고 그 주소가 선택됐다.
+
+#### 그래서 남는 경로 — B
+
+도메인 접속은 여전히 필요하고, 남은 방법은 **NAT 유지 + Hyper-V 방화벽 규칙**
+이다. 변경 범위가 작고 클러스터 네트워킹을 건드리지 않는다:
+
+```
+1. Hyper-V 방화벽 인바운드 허용 (30727 · 31938 또는 전체)
+2. Windows hosts 파일 → WSL IP  (재시작마다 바뀌므로 keepalive.ps1 이 갱신)
+3. HTTPRoute 40여 개 생성 — access-gen.py 의 매핑 116개를 재사용
+4. netsh portproxy 443→30727 (URL 에서 포트를 없애려면)
+5. cert-manager 자체 서명 CA 를 Windows 가 신뢰하도록
+```
+
+★ 3번이 핵심이다. `access-gen.py` 를 **단일 원천**으로 삼아 `ACCESS.md` 와
+HTTPRoute 를 함께 뽑으면 §8-74 처럼 **문서와 실제가 어긋나는 일**을 구조적으로
+막는다. 지금은 호스트가 붙은 HTTPRoute 가 `api.oneinchmarket.local` 하나뿐이다.
+
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
 > **이 절은 "지금 하지 않기로 결정한 것" 의 목록이다.** §8 의 각 절 끝에
@@ -7843,6 +7970,34 @@ Dependency-Track 은 5.1.0 으로 새로 섰지만(§8-74) **파이프라인에 
 컴포넌트는 버전을 올려도 아무것도 나아지지 않는다 — v5 로 올리는 동안 드러난
 결함 둘(§8-74 의 `API_BASE_URL`)도 **아무도 UI 를 쓰지 않아** 그때까지 숨어
 있던 것이다.
+
+### 9-8. 윈도우에서 도메인으로 접속하기 (§8-77 에서 미룸)
+
+`ACCESS.md` 의 port-forward 40여 개는 구조적으로 부족하다 — 파드를 재생성하면
+조용히 끊기고(Gotcha 12), **앱이 자기 외부 주소를 알아야 하는 경우**를 감당하지
+못한다(§8-74 의 `API_BASE_URL`, Apicurio UI). Keycloak redirect URI·OIDC·쿠키
+도메인·CORS 가 전부 같은 문제다.
+
+`networkingMode=mirrored` 로 풀려다 클러스터가 무너져 되돌렸다(§8-77).
+**남은 경로는 NAT 유지 + Hyper-V 방화벽 규칙이다:**
+
+| 단계 | 내용 |
+|---|---|
+| 1 | Hyper-V 방화벽 인바운드 허용 — 실측 `PingSucceeded=True` / `TcpTestSucceeded=False` 였다 |
+| 2 | Windows hosts 파일 → WSL IP. **재시작마다 바뀌므로** `keepalive.ps1` 이 갱신하게 한다 |
+| 3 | **HTTPRoute 40여 개** — 지금은 `api.oneinchmarket.local` 하나뿐이다 |
+| 4 | `netsh portproxy` 443→30727 (URL 에서 `:30727` 을 없애려면) |
+| 5 | cert-manager 자체 서명 CA 를 Windows 가 신뢰하도록 |
+
+★★ 3번이 핵심이고, **`access-gen.py` 를 단일 원천으로 삼는 것**이 요점이다.
+그 파일에 컴포넌트 매핑 116개(서비스명·포트·계정)가 이미 있다. 거기서
+`ACCESS.md` 와 HTTPRoute 를 **함께** 뽑으면 §8-74 처럼 문서와 실제가 어긋나는
+일을 구조적으로 막는다 — 그때는 매니페스트가 8081, 문서가 8087 이었고 둘 다
+반영되지 않아 아무도 몰랐다.
+
+★ NodePort 는 **리스닝 소켓을 만들지 않는다**(kube-proxy iptables DNAT).
+`ss -lntp` 로 확인하려 하면 없다고 나오지만 정상이다 — WSL2 의
+`localhostForwarding` 이 이 포트를 못 잡는 이유이기도 하다.
 
 ## 10. Hyper-V 배포(ADR-051 A안) 재검토 — 2026-09-05 실측
 
