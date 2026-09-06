@@ -7168,6 +7168,138 @@ Hive 는 §8-71 과 같은 기준으로 다시 증명했다 — `oimtest` 는
 - **불변 필드 드리프트를 찾는 수단이 없다.** ①은 apply 를 해봐야 드러났다.
   `kubectl diff -k` 를 정기적으로 돌리는 것이 답이다
 
+### 8-73. Istio 1.24.2 -> 1.31.0 · k3s 1.31.4 -> 1.36.4 — 12단계 교차 업그레이드 (2026-09-06)
+
+§8-72 의 "남는 것" 에 적어 둔 플랫폼 계층이다. 오퍼레이터 계층이라 매니페스트가
+아니라 `local/install-operators.sh`·`local/bootstrap-wsl-k3s.sh` 소관이고,
+이 클러스터의 인가가 ztunnel 에 얹혀 있어(Gotcha 9·13) 가장 위험한 작업이다.
+
+#### 순서를 잘못 계획했다 — 한쪽을 먼저 끝낼 수 없다
+
+처음에는 "k3s 를 먼저 올리고 그다음 Istio" 로 계획했다. **틀렸다.**
+Istio 공식 지원 표(`istio.io` 의 `data/compatibility/supportStatus.yml`)를
+받아 보니 배타적이었다:
+
+| Istio | 지원 Kubernetes |
+|---|---|
+| **1.24**(출발점) | 1.28 – **1.31** |
+| 1.25 | 1.29 – 1.32 |
+| 1.26 · 1.27 | 1.29 – 1.33 |
+| 1.28 | 1.30 – 1.34 |
+| 1.29 | **1.31** – 1.35 |
+| 1.30 · **1.31**(목표) | **1.32** – 1.36 |
+
+k3s 를 1.32 로 올리는 순간 Istio 1.24 가 지원 밖으로 나가고, Istio 1.31 은
+k8s 1.32 미만에서 돌지 않는다. **겹치는 구간을 밟으며 번갈아 올려야 한다.**
+
+★ 이 표는 **추측하지 말고 받아 볼 것.** 문서 페이지의 표는 shortcode 로
+렌더되므로 페이지를 긁어도 값이 없다. 원천은
+`https://raw.githubusercontent.com/istio/istio.io/master/data/compatibility/supportStatus.yml`
+이고 `k8sVersions` 필드가 그것이다.
+
+#### 실행한 12단계
+
+| # | 대상 | 버전 | 그때의 상대 |
+|:--:|---|---|---|
+| 1–5 | Istio | 1.24.2 -> 1.25.5 -> 1.26.8 -> 1.27.9 -> 1.28.10 -> **1.29.7** | k8s 1.31.4 |
+| 6–9 | k3s | 1.31.4 -> 1.32.13 -> 1.33.13 -> 1.34.11 -> **1.35.8** | Istio 1.29.7 |
+| 10–11 | Istio | 1.29.7 -> 1.30.4 -> **1.31.0** | k8s 1.35.8 |
+| 12 | k3s | 1.35.8 -> **1.36.4** | Istio 1.31.0 |
+
+**마이너를 하나도 건너뛰지 않았다.** Istio·Kubernetes 모두 한 단계씩만
+지원한다. 건너뛰면 ztunnel 이 AuthorizationPolicy 를 어떻게 해석하는지가
+함께 흔들릴 수 있고, 이 레포는 접미 매칭 규칙 26곳이 거기 얹혀 있다(§8-47).
+
+#### 방법
+
+**Istio** — 설치가 `istioctl install --set profile=ambient` 였으므로 같은
+프로파일·리소스 오버라이드로 in-place 업그레이드한다. 오버라이드를 빠뜨리면
+istiod 2Gi·ztunnel 512Mi 기본값이 돌아와 단일 노드에서 스케줄되지 않는다.
+
+```bash
+istioctl x precheck                    # ★ 매 단계 먼저
+istioctl install --set profile=ambient -y \
+  --set values.pilot.resources.requests.memory=256Mi \
+  --set values.pilot.resources.requests.cpu=100m \
+  --set values.ztunnel.resources.requests.memory=128Mi \
+  --set values.ztunnel.resources.requests.cpu=50m
+```
+
+**k3s** — 공식 설치 스크립트를 **같은 서버 인자로** 다시 실행한다. 인자를
+빠뜨리면 스크립트가 systemd 유닛을 새로 쓰면서 `--flannel-backend=none` 등이
+사라지고 Cilium 과 충돌한다.
+
+```bash
+curl -sfL https://get.k3s.io -o /tmp/k3s-install.sh && chmod +x /tmp/k3s-install.sh
+sudo INSTALL_K3S_VERSION="v1.3X.Y+k3sZ" /tmp/k3s-install.sh server \
+  --write-kubeconfig-mode 644 --disable traefik --disable servicelb \
+  --flannel-backend=none --disable-network-policy \
+  --kubelet-arg=config=/etc/rancher/k3s/kubelet-config.yaml
+```
+
+★ 데이터스토어는 **sqlite** 다(etcd 아님). 백업은 k3s 를 멈추고
+`/var/lib/rancher/k3s/server/db/state.db`(+`-wal`)를 복사하면 된다 —
+k3s 를 멈춰도 containerd 가 파드를 유지하므로 워크로드는 계속 돈다.
+실행 전에 떠 두었다: `C:\Users\darka\iso\backup\k3s-state-preupgrade-20260906-1826.db`
+
+#### 관찰한 것
+
+**① k3s 업그레이드는 워크로드를 건드리지 않는다.** 5회 모두 파드 117개가
+재시작 없이 유지됐고 istio-system 세 파드의 AGE 도 그대로였다. API 서버만
+잠깐 내려간다 — 그 사이에 실행된 CronJob 하나(`openmeter-billing-collect-invoices`)
+가 `Error` 로 끝났고 다음 스케줄에 정상 실행됐다.
+
+**② Istio 업그레이드는 ztunnel 을 재시작하므로 장기 TCP 연결이 끊긴다.**
+매 단계마다 OpenReplay 의 `canvases`·`images`·`sink` 가 CrashLoop 에 들어갔다:
+
+```
+2026/09/06 10:09:39 pgConn.Ping() error: unexpected EOF
+```
+
+재연결을 하지 않는 애플리케이션의 문제이고 **자가 복구된다**(90초 내). 다만
+ztunnel 을 롤링할 때마다 반복되므로, 연결을 오래 붙들고 있는 워크로드가
+있으면 예상해 둘 것.
+
+**③ waypoint 와 게이트웨이는 스스로 교체된다.** 교체 중 이전 파드가 잠깐
+`Error`·`Terminating` 으로 보이는데 정상이다 — 새 파드가 뜨면 사라진다.
+
+**④ `istioctl x precheck` 는 12회 전부 통과했다.** 실제로 문제를 잡아 준 적은
+없지만, 통과하지 못했다면 그 단계에서 멈췄을 것이므로 계속 넣는 것이 맞다.
+
+#### 검증
+
+각 단계마다 같은 기준으로 확인했다 — **정책이 실제로 적재되어 있는가**가
+핵심이다. 파드가 `1/1 Running` 인 것으로는 아무것도 증명되지 않는다.
+
+```
+istioctl ztunnel-config policy | grep local     -> 6건 (매 단계 동일)
+  allow-database-access · allow-datalakehouse-access · allow-messaging-access
+  allow-observability-access · api-require-jwt · spark-connect-authz
+```
+
+최종 상태:
+
+| 항목 | 결과 |
+|---|---|
+| 노드 | `v1.36.4+k3s1` |
+| Istio | istiod · ztunnel · istio-cni 전부 `1.31.0-distroless` |
+| ztunnel 정책 | **6건** — 시작 시점과 동일 |
+| 파드 | 117개, Ready 아닌 것 **0** |
+| Elasticsearch · Kibana | **green** (9.5.3) |
+| HDFS 인가 | `Switched policy engine to [10]` |
+| HBase 인가 | `Switched policy engine to [5]` |
+| Hive 인가 | `oimtest` -> `No rows selected` · `oimother` -> `HiveAccessControlException Permission denied ... [SELECT] on default/rangerhive/*` |
+
+#### 남는 것
+
+- **`envoyOtelAls` 를 다시 시험해 볼 것.** Gotcha 21 은 "Istio 1.24.2 +
+  수집기 0.160 에서 gRPC 스트림이 `upstream reset: protocol error` 로 끊긴다"
+  였다. 1.31.0 에서도 같은지 확인하지 않았다 — 지금이 그 전제가 바뀐 시점이다
+- **오퍼레이터 나머지** — ECK · Kyverno · cert-manager · Tetragon ·
+  Trivy Operator · Policy Reporter 는 이번에 손대지 않았다. k8s 1.36 에서
+  지원되는지 각각 확인이 필요하다
+- **Dependency-Track v5 이관**(§8-72) 은 그대로 남아 있다
+
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
 > **이 절은 "지금 하지 않기로 결정한 것" 의 목록이다.** §8 의 각 절 끝에

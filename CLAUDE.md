@@ -87,7 +87,7 @@ cd scripts/security-verification && ./run-all.sh [namespace]
 
 - **No Helm** — 전부 수기 YAML + Kustomize
 - **Kafka KRaft** — ZooKeeper 없음. 단 `KAFKA_LOG_DIRS` 미설정으로 마운트한 PVC를 쓰지 않는다
-- **Istio Ambient** — ztunnel + waypoint. **현재 dev에서 비활성이고 mTLS는 `PERMISSIVE`다**
+- **Istio Ambient** — ztunnel + waypoint. **현재 dev에서 비활성이고 mTLS는 `PERMISSIVE`다**. local 은 **1.31.0**, k3s 는 **v1.36.4+k3s1** 이다 — 이 둘은 **짝이 맞아야 한다**(§8-73, Gotcha 47)
 - **ECK operator** — Elasticsearch/Kibana가 `elasticsearch.k8s.elastic.co/v1` CRD 사용. **설치 스크립트는 없다**
 - **Redis** — **공식 `redis`** standalone 6 레플리카. 클러스터가 아니다
 - **Multi-provider IaC** — `infra/modules/`가 count로 분기. **Vultr만 완성**
@@ -263,6 +263,8 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 
 45. **버전 태그는 불변이 아니다 — `apache/hive:4.2.1` 이 한 세션 안에서 내용이 바뀌었다.** 번들 Hadoop 이 3.3.6 -> 3.4.1, AWS SDK 가 v1 -> v2 로 갈렸고, 매니페스트의 `HADOOP_CLASSPATH` 가 **jar 파일명을 하드코딩**하고 있어 S3A 가 `ClassNotFoundException: S3AFileSystem` 으로 깨졌다. ★ 증상이 원인과 멀다 — probe 가 TCP 라 파드는 `1/1 Running` 이고 **DDL 을 실행해야 비로소** 드러난다(메타스토어는 같은 결함을 안고도 아무 오류를 내지 않았다). ★★ 처방은 파일명을 새 버전으로 고치는 것이 **아니다** — 그러면 다음에 또 깨진다. **이미지를 다이제스트로 고정해야 비로소 파일명 하드코딩이 안전해진다.** 같은 이유로 `apache/knox:3.0`(RC 추종)·`inquotient/*`(버전 태그 없음)도 다이제스트다. Hive 는 `hive-schematool`·`hive-metastore`·`hive-server` 셋이 **같은 다이제스트**여야 한다 — 갈리면 스키마 검사가 어긋난다 — §8-72
 46. **`:latest` 를 "그 시점의 최신 버전" 으로 바꾸는 것은 무해하지 않고, 그 반대도 참이다.** ① Dependency-Track 의 `latest` 는 **4.x** 였다 — 5.1.0 으로 핀하자 `IllegalStateException: Legacy Dependency-Track v4 configuration properties are no longer supported` 로 기동조차 못 했다(v5 는 `alpine.*` -> `dt.*` 이관 + DB 스키마 변경). ② 반대로 **올리면 안 되는 것**이 있다 — `docker/spark-iceberg` 의 `hadoop-aws`·`aws-java-sdk-bundle` 은 베이스 이미지(`apache/spark:3.5.6`)가 번들한 `hadoop-client-api-3.3.4` 가 상한을 정한다. **상한을 정하는 것은 레지스트리가 아니라 베이스 이미지다.** ③ 데이터 보유 워크로드는 **지금 도는 버전**으로 고정할 것 — `percona/percona-server-mongodb:latest` 가 가리키는 것은 8.3 이 아니라 **8.0 LTS** 였고, prod 가 핀한 8.3.8 은 메이저가 다른 값이었다. ④ 불변 필드 드리프트는 apply 를 해봐야 드러난다 — `gitlab`·`jenkins`·`keycloak`·`pyroscope` 는 `volumeClaimTemplates.storageClassName` 이 비어 있어 **어떤 매니페스트 변경도 반영된 적이 없었다**(해소: `kubectl delete sts --cascade=orphan` 후 재적용, 파드·PVC 유지). `kubectl diff -k` 를 정기적으로 돌릴 것 — §8-72
+
+47. **Istio 와 Kubernetes 는 서로 상한·하한을 걸어서, 한쪽을 먼저 끝까지 올릴 수 없다.** 실측 출발점이 Istio 1.24.2 + k8s 1.31.4 였는데 **Istio 1.24 는 k8s ≤1.31, Istio 1.31 은 k8s ≥1.32** 다. k3s 를 먼저 올리면 그 순간 메시가 지원 밖으로 나가고, Istio 를 먼저 올리면 1.30 부터 막힌다. **겹치는 구간을 밟으며 번갈아 올려야 한다** — 실제로 12단계였다(Istio 1.24→1.29, k3s 1.31→1.35, Istio 1.29→1.31, k3s 1.35→1.36). 마이너는 **하나도 건너뛰지 말 것** — 둘 다 한 단계씩만 지원하고, 이 레포는 접미 매칭 AuthorizationPolicy 26곳이 ztunnel 해석에 얹혀 있다(§8-47). ★ 지원 표를 **추측하지 말 것** — 문서 페이지의 표는 shortcode 로 렌더돼 긁어도 값이 없다. 원천은 `istio.io` 의 `data/compatibility/supportStatus.yml` 의 `k8sVersions` 필드다. ★ `istioctl install` 은 **기존과 같은 프로파일·리소스 오버라이드**로 재실행할 것(빠뜨리면 istiod 2Gi·ztunnel 512Mi 기본값이 돌아와 단일 노드에서 스케줄되지 않는다). k3s 는 설치 스크립트를 **같은 서버 인자**로 재실행할 것(빠뜨리면 systemd 유닛이 새로 쓰이며 `--flannel-backend=none` 이 사라져 Cilium 과 충돌한다). ★ 관찰: **k3s 업그레이드는 파드를 재시작시키지 않지만**(API 만 잠깐 내려가 그 사이 CronJob 이 실패한다), **Istio 업그레이드는 ztunnel 재시작으로 장기 TCP 연결을 끊어** 재연결하지 않는 앱이 CrashLoop 에 들어간다(`pgConn.Ping() error: unexpected EOF`, 90초 내 자가 복구). 판정은 파드 상태가 아니라 **`istioctl ztunnel-config policy` 의 건수가 유지되는지**로 한다 — §8-73
 
 ### 매니페스트 작업 시
 

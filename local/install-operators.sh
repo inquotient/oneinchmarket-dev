@@ -7,7 +7,11 @@ set -Eeuo pipefail
 trap 'echo "[operators][ERROR] line $LINENO: $BASH_COMMAND" >&2' ERR
 export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/config}"
 
-ISTIO_VERSION="${ISTIO_VERSION:-1.24.2}"
+# ★★ Istio 와 k3s 는 **짝이 맞아야 한다.** Istio 지원 표(§8-73):
+#   1.24 -> k8s 1.28~1.31 · 1.29 -> 1.31~1.35 · 1.30·1.31 -> **1.32~1.36**
+#   즉 이 값을 올릴 때는 bootstrap-wsl-k3s.sh 의 K3S_VERSION 도 함께 봐야 한다.
+#   1.31 은 k8s 1.32 미만에서 돌지 않는다.
+ISTIO_VERSION="${ISTIO_VERSION:-1.31.0}"
 ECK_VERSION="${ECK_VERSION:-3.2.0}"           # v1 이 쓰던 버전 (COMPONENTS.md §1-3)
 KYVERNO_VERSION="${KYVERNO_VERSION:-v1.13.2}"
 CERT_MANAGER_VERSION="${CERT_MANAGER_VERSION:-v1.16.2}"

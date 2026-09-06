@@ -10,7 +10,10 @@
 set -Eeuo pipefail
 trap 'echo "[bootstrap][ERROR] line $LINENO: $BASH_COMMAND" >&2' ERR
 
-K3S_VERSION="${K3S_VERSION:-v1.31.4+k3s1}"
+# ★★ install-operators.sh 의 ISTIO_VERSION 과 짝이 맞아야 한다(§8-73).
+#   Istio 1.31 은 k8s **1.32~1.36** 만 지원한다 — 이 값을 1.32 미만으로
+#   내리면 메시가 뜨지 않는다.
+K3S_VERSION="${K3S_VERSION:-v1.36.4+k3s1}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 log() { echo "[bootstrap] $*"; }
