@@ -38,7 +38,7 @@ spec:
             limits:   {cpu: 100m, memory: 64Mi}
       containers:
         - name: hadoop-datanode
-          image: apache/hadoop:3.4.3
+          image: apache/hadoop:3.5.0
           command: ["hdfs", "datanode"]
           env:
             - {name: HADOOP_CONF_DIR, value: /opt/hadoop/etc/hadoop}

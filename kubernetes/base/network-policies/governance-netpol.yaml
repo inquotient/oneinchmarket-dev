@@ -69,7 +69,20 @@ spec:
         # usersync 가 동기화 결과를 REST 로 밀어 넣는다.
         - podSelector: {matchLabels: {app.kubernetes.io/name: ranger-usersync}}
         # 플러그인을 붙인 워크로드가 정책을 내려받는다(6080).
-        # Trino·Hive·Kafka 는 아직 플러그인이 없다. 붙일 때 여기에 더한다.
+        # HDFS NameNode 가 첫 사례다 — §8-67.
+        - podSelector: {matchLabels: {app.kubernetes.io/name: hadoop-namenode}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: hive-server}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: hbase-master}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: hbase-regionserver}}
+        # Trino·Kafka 는 아직 플러그인이 없다. 붙일 때 여기에 더한다.
+        #
+        # ★ 이 규칙은 지금 실질적인 통제가 아니다. local 네임스페이스가
+        #   ambient 라 트래픽이 15008(HBONE)로 흐르고, `allow-istio-hbone` 이
+        #   15008 을 넓게 열어 두기 때문에 6080 규칙은 우회된다(Gotcha 13).
+        #   실제 인가는 ztunnel 의 AuthorizationPolicy 가 해야 하는데
+        #   ranger-admin 을 선택하는 정책이 아직 없다. 그래도 여기에 적어 둔다 —
+        #   ambient 를 끄면 이것이 유일한 통제가 되고, 빠져 있으면 그때
+        #   NameNode 가 정책을 못 받아 **모든 HDFS 접근이 거부**된다.
       ports: [{protocol: TCP, port: 6080}]
 ---
 apiVersion: networking.k8s.io/v1

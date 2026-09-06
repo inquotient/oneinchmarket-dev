@@ -21,8 +21,51 @@ spec:
         fsGroup: 1000
         seccompProfile: {type: RuntimeDefault}
       initContainers:
+        # ★ Ranger HDFS 플러그인 내려받기 (§8-67)
+        #
+        #   이미지(apache/hadoop:3.5.0)에 플러그인이 없다. 이미지를 다시 굽는
+        #   대신 여기서 받아 공유 emptyDir 에 푼다 — 파드에서 egress 가 되는
+        #   것을 확인했다(archive.apache.org 200).
+        #
+        #   ★ 클래스로더 구조: `ranger-hdfs-plugin-shim` 과
+        #     `ranger-plugin-classloader` 가 클래스패스에 있고, 실제 구현은
+        #     **같은 디렉터리의 `ranger-hdfs-plugin-impl/`** 에서 로드된다.
+        #     둘의 상대 위치가 깨지면 ClassNotFound 로 NameNode 가 죽는다.
+        - name: fetch-ranger-plugin
+          # ★ 자체 빌드 이미지다 — local/build-images.sh 가 만든다.
+          #   docker/ranger-hdfs-plugin/Dockerfile 이 Ranger 2.9.0 소스를 받아
+          #   REST 클라이언트를 **Jersey 2 로 포팅해** 빌드한 뒤 /plugin 에 담는다.
+          #   Hadoop 3.5 가 Jersey 1 구현을 걷어냈기 때문이다 — §8-68.
+          #
+          #   ★ 런타임에 Jersey jar 를 보충하는 우회를 되살리지 말 것.
+          #     두 번 실패했다: jsr311-api 를 넣으면 javax.ws.rs 가 두 벌이 되어
+          #     LinkageError, 구현만 넣으면 기동은 하는데 provider 초기화가 깨져
+          #     정책 버전이 -1 에 머문다. 후자는 add-hadoop-authorization 폴백
+          #     때문에 HDFS 가 멀쩡히 돌아 **인가만 조용히 사라진다.**
+          #     판정은 파드 상태가 아니라 `Switched policy engine to [N]` 으로.
+          image: oneinch/ranger-hdfs-plugin:2.9.0-jersey2
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh","-c"]
+          args:
+            - |
+              set -eu
+              # 예전에는 여기서 archive.apache.org 의 tarball 을 받았다. 이제
+              # 이미지에 들어 있다 — 기동이 빨라지고 외부 의존이 사라진다.
+              cp -r /plugin/. /ranger/
+              echo "[ranger] 플러그인 배치 완료:"
+              ls /ranger/
+              # fail-closed: 포팅된 jar 가 실제로 들어왔는지 본다.
+              test -f /ranger/ranger-hdfs-plugin-impl/ranger-plugins-common-2.9.0.jar
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 50m, memory: 32Mi}
+            limits:   {cpu: 200m, memory: 128Mi}
+          volumeMounts:
+            - {name: ranger-plugin, mountPath: /ranger}
         - name: format-namenode
-          image: apache/hadoop:3.4.3
+          image: apache/hadoop:3.5.0
           command: ["/bin/bash","-c"]
           args:
             - |
@@ -49,12 +92,26 @@ spec:
             - {name: config, mountPath: /opt/hadoop/etc/hadoop/hdfs-site.xml, subPath: hdfs-site.xml}
       containers:
         - name: hadoop-namenode
-          image: apache/hadoop:3.4.3
+          image: apache/hadoop:3.5.0
           command: ["hdfs", "namenode"]
           env:
             - {name: HADOOP_CONF_DIR, value: /opt/hadoop/etc/hadoop}
             - {name: HADOOP_LOG_DIR, value: /tmp/hadoop-logs}
             - {name: HDFS_NAMENODE_OPTS, value: "-Xms512m -Xmx512m"}
+            # ★ 플러그인 jar 를 NameNode 클래스패스에 넣는다. 이것이 없으면
+            #   hdfs-site.xml 의 authorizer 클래스를 못 찾아 NameNode 가
+            #   ClassNotFoundException 으로 기동하지 못한다.
+            #
+            # ★★ `/ranger/*` 만으로는 부족하다 — 실측으로 NameNode 가 70분간
+            #   CrashLoop 했다:
+            #     Failed to instantiate audit destination
+            #       org.apache.ranger.audit.destination.Log4JAuditDestination
+            #     java.lang.ClassNotFoundException
+            #   `*` 는 **그 디렉터리의 jar 만** 잡고 하위 디렉터리는 안 본다.
+            #   구현체 23개가 `ranger-hdfs-plugin-impl/` 안에 있으므로 그쪽도
+            #   함께 넣어야 한다. shim 만 올라가면 authorizer 는 적재되는데
+            #   감사(audit) 초기화에서 죽는다 — 절반만 되는 상태라 더 헷갈린다.
+            - {name: HADOOP_CLASSPATH, value: "/ranger/*:/ranger/ranger-hdfs-plugin-impl/*"}
           ports:
             - {containerPort: 8020, name: rpc, protocol: TCP}
             - {containerPort: 9870, name: http, protocol: TCP}
@@ -83,9 +140,17 @@ spec:
             - {name: data, mountPath: /hadoop/dfs}
             - {name: config, mountPath: /opt/hadoop/etc/hadoop/core-site.xml, subPath: core-site.xml}
             - {name: config, mountPath: /opt/hadoop/etc/hadoop/hdfs-site.xml, subPath: hdfs-site.xml}
+            - {name: ranger-plugin, mountPath: /ranger}
+            - {name: ranger-config, mountPath: /opt/hadoop/etc/hadoop/ranger-hdfs-security.xml, subPath: ranger-hdfs-security.xml}
+            - {name: ranger-config, mountPath: /opt/hadoop/etc/hadoop/ranger-hdfs-audit.xml, subPath: ranger-hdfs-audit.xml}
       volumes:
         - name: config
           configMap: {name: hadoop-config}
+        - name: ranger-config
+          configMap: {name: ranger-hdfs-config}
+        # 플러그인 jar. 파드 수명과 같이 가며 재기동 때마다 다시 받는다.
+        - name: ranger-plugin
+          emptyDir: {}
   volumeClaimTemplates:
     - metadata: {name: data}
       spec:

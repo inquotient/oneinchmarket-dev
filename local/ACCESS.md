@@ -87,7 +87,7 @@ pw() { $K get secret "$1" -o jsonpath="{.data.$2}" | base64 -d; echo; }
 | **Vault** | `$K port-forward vault-0 8200:8200` | http://localhost:8200 | 토큰 | `pw vault-init root-token` |
 | **Ranger Admin** | `$K port-forward ranger-admin-0 6080:6080` | http://localhost:6080 | `admin` | `pw ranger-secret admin-password` |
 | **LAM**(LDAP 관리) | `$K port-forward deploy/lam 8084:80` | http://localhost:8084 | — | `pw lam-secret master-password` |
-| ~~Knox~~ | `$K port-forward svc/knox-headless 8443:8443` | https://localhost:8443 | — | ★ **지금은 못 쓴다 — §1-b 참조** |
+| **Knox**(게이트웨이) | `$K port-forward svc/knox-headless 8443:8443` | https://localhost:8443/gateway/oim/ | DS389 사용자 | ★ **§1-b 참조** — WEBHDFS·HIVE·WEBHBASE 를 프록시한다 |
 | **Wazuh Manager API** | `$K port-forward svc/wazuh-manager 55000:55000` | https://localhost:55000 | `pw wazuh-secret api-username` | `pw wazuh-secret api-password` |
 | Wazuh Indexer | `$K port-forward svc/wazuh-indexer 9201:9200` | https://localhost:9201 | `admin` | `pw wazuh-secret indexer-admin-password` |
 | **DefectDojo** | `$K port-forward svc/defectdojo 8085:8080` | http://localhost:8085 | `admin` | `pw defectdojo-secret admin-password` |

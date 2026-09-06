@@ -93,4 +93,17 @@ data:
         <name>dfs.client.use.datanode.hostname</name>
         <value>true</value>
       </property>
+      <!-- ★ Ranger 인가자 (§8-67)
+           이 한 줄이 없으면 플러그인 jar 가 클래스패스에 있어도
+           **아무 일도 일어나지 않는다** — NameNode 가 호출하지 않는다.
+           dfs.permissions.enabled 가 false 면 인가 자체를 건너뛰므로
+           그것도 함께 켠다. -->
+      <property>
+        <name>dfs.permissions.enabled</name>
+        <value>true</value>
+      </property>
+      <property>
+        <name>dfs.namenode.inode.attributes.provider.class</name>
+        <value>org.apache.ranger.authorization.hadoop.RangerHdfsAuthorizer</value>
+      </property>
     </configuration>

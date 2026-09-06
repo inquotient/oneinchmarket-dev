@@ -26,9 +26,21 @@
 #   (ranger-usersync 에서 이미 겪은 것이다).
 FROM docker.io/library/eclipse-temurin:17-jre-noble
 
-ARG HBASE_VERSION=2.6.6
-# https://dlcdn.apache.org/hbase/2.6.6/hbase-2.6.6-bin.tar.gz.sha512
-ARG HBASE_SHA512=7724703971a397f7b78aa82bef97eae6b5fd2fc83a2039d42b4c9ce02f67b192c502cb6cfbf3a0f205f1384871456087aa54b282469e22cabf715ae594076a5d
+# ★★ 3.0.0 은 **Ranger 플러그인을 이식해야만** 쓸 수 있다 (§8-69)
+#   업스트림 Ranger 2.9 플러그인을 그대로 쓰면 마스터가 ABORT 한다:
+#     NoClassDefFoundError: org/apache/hadoop/hbase/protobuf/generated/
+#                           AccessControlProtos$AccessControlService$Interface
+#     ***** ABORTING master ... *****
+#   HBase 3 이 구 protobuf 패키지를 걷어냈고 Ranger 코프로세서가 그것을 쓴다.
+#   ★ 그리고 이것은 Hadoop 3.5 의 Jersey 건(§8-68)과 달리 **백포트가 아니다** —
+#     Ranger master 조차 <hbase.version>2.6.0</hbase.version> 이라 대조할
+#     upstream 구현이 없다. 우리가 이식했다: docker/ranger-hbase-plugin.
+#   ★★ 따라서 이 버전을 올리거나 내릴 때는 **반드시 그 이미지를 함께 손봐야
+#     한다.** 매니페스트의 initContainer 가 그 이미지에서 플러그인을 가져오고,
+#     짝이 어긋나면 HBase 가 통째로 기동하지 못한다.
+ARG HBASE_VERSION=3.0.0
+# https://dlcdn.apache.org/hbase/3.0.0/hbase-3.0.0-bin.tar.gz.sha512
+ARG HBASE_SHA512=8290bc3cece084d36f7f47aae726268c7332e4828c6e8599df1343b03348e93f91165fad03ac6107bfbf0d8535e72024fa5d19217890d2848d013d8418a584ed
 
 USER root
 

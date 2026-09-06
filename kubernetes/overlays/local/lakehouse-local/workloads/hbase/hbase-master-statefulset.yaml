@@ -40,9 +40,37 @@ spec:
           resources:
             requests: {cpu: 10m, memory: 16Mi}
             limits:   {cpu: 100m, memory: 64Mi}
+        # ★ Ranger HBase 플러그인 내려받기 (§8-67)
+        #   HDFS 판과 같은 방식이다. regionserver 에도 **똑같이** 있어야 한다 —
+        #   코프로세서는 양쪽 프로세스에 로드되고, 없으면 그쪽이 기동하지 못한다.
+        - name: fetch-ranger-plugin
+          # ★ 자체 빌드 이미지다 — local/build-images.sh 가 만든다.
+          #   docker/ranger-hbase-plugin/Dockerfile 이 Ranger 2.9.0 소스를
+          #   **HBase 3 API 로 이식해** 빌드한 뒤 /plugin 에 담는다 — §8-69.
+          #   업스트림 tarball 을 그대로 쓰면 마스터가 ABORT 한다:
+          #     NoClassDefFoundError: .../AccessControlProtos$AccessControlService$Interface
+          image: oneinch/ranger-hbase-plugin:2.9.0-hbase3
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh","-c"]
+          args:
+            - |
+              set -eu
+              cp -r /plugin/. /ranger/
+              echo "[ranger] 플러그인 배치 완료:"
+              ls /ranger/
+              # fail-closed: 이식된 jar 가 실제로 들어왔는지 본다.
+              test -f /ranger/ranger-hbase-plugin-impl/ranger-hbase-plugin-2.9.0.jar
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits:   {cpu: "1", memory: 768Mi}
+          volumeMounts:
+            - {name: ranger-plugin, mountPath: /ranger}
       containers:
         - name: hbase-master
-          image: oneinch/hbase:2.6.6
+          image: oneinch/hbase:3.0.0
           imagePullPolicy: IfNotPresent
           # foreground 로 띄운다. `hbase master start` 는 데몬화하지 않으므로
           # 컨테이너 수명과 프로세스 수명이 일치한다.
@@ -53,6 +81,10 @@ spec:
             #   hbase shell 같은 보조 명령까지 같은 힙을 잡는다.
             - {name: HBASE_HEAPSIZE, value: "768m"}
             - {name: HBASE_MASTER_OPTS, value: "-XX:+UseContainerSupport"}
+            # ★ Ranger 코프로세서 클래스패스 (§8-67). Java 의 `dir/*` 는
+            #   **하위 디렉터리를 포함하지 않으므로** impl 을 따로 적어야 한다 —
+            #   HDFS 에서 이것을 빠뜨려 NameNode 가 죽었다.
+            - {name: HBASE_CLASSPATH, value: "/ranger/*:/ranger/ranger-hbase-plugin-impl/*"}
           ports:
             - {containerPort: 16000, name: rpc, protocol: TCP}
             - {containerPort: 16010, name: info, protocol: TCP}
@@ -82,10 +114,20 @@ spec:
             - {name: hadoop-config, mountPath: /opt/hbase/conf/core-site.xml, subPath: core-site.xml}
             - {name: hadoop-config, mountPath: /opt/hbase/conf/hdfs-site.xml, subPath: hdfs-site.xml}
             - {name: tmp, mountPath: /opt/hbase/tmp}
+            # Ranger 플러그인 jar 와 설정 (§8-67)
+            - {name: ranger-plugin, mountPath: /ranger}
+            - {name: ranger-config, mountPath: /opt/hbase/conf/ranger-hbase-security.xml, subPath: ranger-hbase-security.xml}
+            - {name: ranger-config, mountPath: /opt/hbase/conf/ranger-hbase-audit.xml, subPath: ranger-hbase-audit.xml}
       volumes:
         - name: hbase-config
           configMap: {name: hbase-config}
         - name: hadoop-config
           configMap: {name: hadoop-config}
+        - name: ranger-config
+          configMap: {name: ranger-hbase-config}
+        # initContainer 가 받아 채운다. 이미지 재빌드를 피하려는 것이고,
+        # 파드가 죽으면 다시 받는다.
+        - name: ranger-plugin
+          emptyDir: {}
         - name: tmp
           emptyDir: {}

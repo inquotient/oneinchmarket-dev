@@ -59,7 +59,7 @@ spec:
             limits:   {cpu: 100m, memory: 64Mi}
       containers:
         - name: hbase-rest
-          image: oneinch/hbase:2.6.6
+          image: oneinch/hbase:3.0.0
           imagePullPolicy: IfNotPresent
           # foreground 로 띄운다 — 마스터와 같은 이유다.
           # ★ --infoport 를 반드시 함께 준다.

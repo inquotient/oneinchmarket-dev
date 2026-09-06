@@ -1,0 +1,124 @@
+# Ranger HDFS 플러그인 설정 (§8-67)
+#
+# ★ 왜 필요한가
+#   §8-66 에서 확인한 것 — Ranger Admin 은 돌지만 **권한을 제어하지 않는다.**
+#   정책을 강제하는 주체는 각 서비스에 들어가는 플러그인이고, 그것이 어디에도
+#   없었다(`ranger-*-plugin`·`xasecure` 레포 전체 0건).
+#
+# ★ 속성 이름은 추측이 아니다
+#   플러그인 tarball 에 동봉된
+#   `install/conf.templates/enable/ranger-hdfs-security.xml` 을 읽어 그대로 썼다.
+#   Ranger 는 서비스마다 접두가 다르고(`ranger.plugin.hdfs.*`) 틀리면 조용히
+#   무시된다 — 오류 없이 정책이 적용되지 않는다.
+#
+# ★ 감사(audit) 는 꺼 두었다
+#   목적지를 **하나도** 켜지 않는다. log4j 목적지는 Ranger 2.9 에 존재하지
+#   않는다 — 근거는 아래 ranger-hdfs-audit.xml 의 주석에 있다.
+#   감사 저장소(Solr 또는 HDFS)를 세우는 것은 별개 작업이고, 지금 확인하려는
+#   것은 **인가가 실제로 걸리는지**다.
+#
+# ★ 여기에 REST 자격을 적지 않는 이유
+#   `ranger.plugin.hdfs.policy.rest.client.username`·`.password` 는 실제로
+#   존재하는 속성이다(jar 에서 확인했다). 그런데 **써도 소용이 없다.**
+#   정책 다운로드 경로는 Ranger 의 security-applicationContext.xml 이
+#   `security="none"` 으로 빼 두어 Spring Security 가 아예 돌지 않는다 —
+#   자격을 보내도 UserSession 이 만들어지지 않고, 그 null 을 검사하는
+#   failUnauthenticatedDownloadIfNotAllowed() 가 무조건 400 을 낸다.
+#   실측: **admin 의 올바른 자격으로도** 같은 400 이다.
+#   그래서 서버 쪽 스위치로 풀었다 — ranger-admin-statefulset.yaml 참조.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ranger-hdfs-config
+  labels:
+    app.kubernetes.io/name: hadoop-namenode
+    app.kubernetes.io/component: data-lakehouse
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+data:
+  ranger-hdfs-security.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+    <configuration>
+      <!-- Ranger Admin 에 등록한 리포지토리 이름과 **정확히** 같아야 한다.
+           다르면 플러그인이 빈 정책을 받아 판단이 통째로 달라진다. -->
+      <property>
+        <name>ranger.plugin.hdfs.service.name</name>
+        <value>oim-hdfs</value>
+      </property>
+      <property>
+        <name>ranger.plugin.hdfs.policy.source.impl</name>
+        <value>org.apache.ranger.admin.client.RangerAdminRESTClient</value>
+      </property>
+      <property>
+        <name>ranger.plugin.hdfs.policy.rest.url</name>
+        <value>http://ranger-admin:6080</value>
+      </property>
+      <property>
+        <name>ranger.plugin.hdfs.policy.pollIntervalMs</name>
+        <value>30000</value>
+      </property>
+      <!-- 정책 캐시. Ranger 가 죽어도 마지막 정책으로 계속 판단한다 —
+           이것이 없으면 Admin 장애가 곧 데이터 접근 장애가 된다. -->
+      <property>
+        <name>ranger.plugin.hdfs.policy.cache.dir</name>
+        <value>/tmp/ranger/hdfs/policycache</value>
+      </property>
+      <property>
+        <name>ranger.plugin.hdfs.policy.rest.client.connection.timeoutMs</name>
+        <value>120000</value>
+      </property>
+      <property>
+        <name>ranger.plugin.hdfs.policy.rest.client.read.timeoutMs</name>
+        <value>30000</value>
+      </property>
+      <!-- true 면 Ranger 정책에서 허용되지 않아도 **HDFS POSIX 퍼미션으로 한 번
+           더** 본다(둘 중 하나라도 허용하면 통과). false 면 Ranger 가 유일한
+           판단자다. 시험 단계에서는 true 로 두어 기존 접근을 깨지 않는다. -->
+      <property>
+        <name>xasecure.add-hadoop-authorization</name>
+        <value>true</value>
+      </property>
+      <property>
+        <name>xasecure.auditlog.xasecureAcl.name</name>
+        <value>ranger-acl</value>
+      </property>
+      <property>
+        <name>xasecure.auditlog.hadoopAcl.name</name>
+        <value>hadoop-acl</value>
+      </property>
+    </configuration>
+  ranger-hdfs-audit.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+    <configuration>
+      <!-- ★★ 감사를 끈다 — Ranger 2.9 에는 log4j 감사 목적지가 **없다.**
+           처음에 `xasecure.audit.destination.log4j=true` 로 두었더니
+           NameNode 가 70분간 CrashLoop 했다:
+             Failed to instantiate audit destination
+               org.apache.ranger.audit.destination.Log4JAuditDestination
+             java.lang.ClassNotFoundException
+           플러그인 tarball 의 jar 23개를 전수 검색해도 그 클래스가 없다.
+           2.9 는 감사를 `ranger-audit-dest-hdfs`·`ranger-audit-dest-solr` 로
+           쪼갰고 log4j 목적지는 빠졌다.
+           **없는 목적지를 켜면 NameNode 자체가 기동하지 못한다** — 감사 설정
+           오류가 인가 기능이 아니라 스토리지 전체를 내린다.
+           감사 저장소(Solr 또는 HDFS)를 세우는 것은 별개 작업이므로 지금은
+           끄고, 확인하려는 것(인가가 실제로 걸리는가)에 집중한다. -->
+      <property>
+        <name>xasecure.audit.is.enabled</name>
+        <value>false</value>
+      </property>
+      <property>
+        <name>xasecure.audit.destination.solr</name>
+        <value>false</value>
+      </property>
+      <property>
+        <name>xasecure.audit.destination.hdfs</name>
+        <value>false</value>
+      </property>
+      <property>
+        <name>xasecure.audit.destination.elasticsearch</name>
+        <value>false</value>
+      </property>
+    </configuration>

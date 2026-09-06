@@ -67,4 +67,47 @@ data:
         <name>hbase.master.wait.on.regionservers.mintostart</name>
         <value>1</value>
       </property>
+
+      <!-- ★★ HBase 3 은 클라이언트의 접속점 탐색 기본값을 바꿨다 (§8-69)
+           2.x 는 ZooKeeper 로 마스터를 찾았지만 3.0 은 RpcConnectionRegistry 가
+           기본이고, 부트스트랩 주소를 주지 않으면 클라이언트가 **자기 자신**을
+           마스터로 여겨 붙으려 한다. 실측 — hbase-rest 가 이랬다:
+             Connection refused: hbase-rest-64cc979f9f-bbxq9/10.0.0.19:16000
+           마스터·리전서버는 멀쩡한데 **클라이언트만** 못 붙어서, HBase 는
+           정상인데 REST 만 Ready 가 안 되는 형태로 나타난다. -->
+      <property>
+        <name>hbase.masters</name>
+        <value>hbase-master:16000</value>
+      </property>
+      <property>
+        <name>hbase.client.bootstrap.servers</name>
+        <value>hbase-master:16000</value>
+      </property>
+
+      <!-- ── Ranger 인가 (§8-67) ──────────────────────────────────
+           HDFS 는 NameNode 의 INode attribute provider 로 걸었지만 HBase 의
+           강제 지점은 **코프로세서**다. master 와 regionserver 양쪽에
+           로드되며, 클래스를 못 찾으면 **그 프로세스가 기동하지 못한다** —
+           즉 jar 를 한쪽에만 넣으면 HBase 가 통째로 내려간다.
+           이 ConfigMap 은 hbase-rest 도 함께 마운트하므로 영향 범위는
+           master·regionserver·rest 셋이다.
+
+           ★ regionserver.classes 까지 세 자리를 모두 채운다. region 만
+             채우면 RegionServer 수준 작업이 통제 밖에 남는다. -->
+      <property>
+        <name>hbase.security.authorization</name>
+        <value>true</value>
+      </property>
+      <property>
+        <name>hbase.coprocessor.master.classes</name>
+        <value>org.apache.ranger.authorization.hbase.RangerAuthorizationCoprocessor</value>
+      </property>
+      <property>
+        <name>hbase.coprocessor.region.classes</name>
+        <value>org.apache.ranger.authorization.hbase.RangerAuthorizationCoprocessor</value>
+      </property>
+      <property>
+        <name>hbase.coprocessor.regionserver.classes</name>
+        <value>org.apache.ranger.authorization.hbase.RangerAuthorizationCoprocessor</value>
+      </property>
     </configuration>

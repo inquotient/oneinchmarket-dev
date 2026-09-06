@@ -99,6 +99,88 @@ spec:
                 }
               done
               echo "[ranger-admin] 자격 분리 적용 완료 (4건)"
+              # ★★ 이미지의 데모 서비스 부트스트랩을 끈다 — 이것이 admin 을
+              #    잠가 왔다 (§8-67)
+              #
+              #   create-ranger-services.py 의 5번째 줄이 관리자 자격을
+              #   **하드코딩**한다:
+              #     RangerClient('http://localhost:6080', ('admin', 'rangerR0cks!'))
+              #   우리는 위에서 자격을 분리해 실제 비밀번호를 쓰므로 이 스크립트의
+              #   서비스 등록 9건이 **전부 401** 이고, 그 연속 실패가
+              #   **admin 계정을 영구히 잠근다**(Gotcha 11 · §8-48).
+              #
+              #   ★ 그리고 이것은 1회성 사고가 아니다. `.setupDone` 이 PVC 에
+              #     없으므로 setup 은 **파드를 새로 만들 때마다** 돈다. 즉
+              #     재기동할 때마다 관리자가 다시 잠겼다. 실측(x_auth_sess):
+              #     한 번의 기동에서 auth_status=2 가 연달아 쌓인 뒤 4(잠김)로
+              #     바뀌었고, 잠금은 DB 에 남아 파드를 다시 띄워도 풀리지 않는다.
+              #
+              #   만드는 것도 dev_hdfs·dev_knox 같은 데모 서비스이고 자격이
+              #   hdfs/hdfs 따위라 이 클러스터에 쓸모가 없다. 통째로 끈다.
+              sed -i 's|^  python3 ${RANGER_SCRIPTS}/create-ranger-services.py|  echo "[ranger-admin] 데모 서비스 부트스트랩은 끈다 — admin 을 잠근다(§8-67)"|' "$S"
+              if grep -q "create-ranger-services" "$S"; then
+                echo "[ranger-admin] 데모 부트스트랩 제거 실패." >&2
+                echo "[ranger-admin] 이대로 기동하면 admin 계정이 영구히 잠긴다." >&2
+                echo "[ranger-admin] 엔트리포인트가 바뀌었을 수 있다. 기동하지 않는다." >&2
+                exit 1
+              fi
+              echo "[ranger-admin] 데모 서비스 부트스트랩 제거 완료"
+              # ★★ 정책 다운로드를 열어 준다 (§8-67)
+              #
+              #   플러그인이 정책을 못 받는 원인은 자격이 아니었다. 실측:
+              #   **admin 의 올바른 자격으로도** 같은 400 이 난다.
+              #     {"statusCode":400,"msgDesc":"Unauthenticated access not allowed"}
+              #   반면 같은 자격으로 /service/xusers/users/... 는 200 이다.
+              #
+              #   security-applicationContext.xml 이 그 경로만 통째로 뺀다:
+              #     <security:http pattern="/service/plugins/policies/download/*"
+              #                    security="none"/>
+              #   Spring Security 가 아예 돌지 않으니 UserSession 이 만들어지지
+              #   않고, RangerBizUtil.failUnauthenticatedDownloadIfNotAllowed()
+              #   는 **세션이 null 이면** 무조건 던진다(바이트코드로 확인했다).
+              #   즉 basic auth 로는 절대 통과할 수 없는 경로다 — 원래 이 자리는
+              #   Kerberos SPNEGO 가 막게 되어 있고 이 클러스터는 비-Kerberos 다.
+              #   남는 유일한 스위치가 이 속성이다.
+              #
+              #   ★ 무엇이 열리는가 — **읽기 전용 다운로드 3종**뿐이다
+              #     (/service/plugins/policies/download · /service/tags/download ·
+              #      /service/roles/download). 정책 생성·수정·삭제와 관리 API 는
+              #     그대로 인증을 요구한다.
+              #   ★ 무엇을 막지 못하는가 — ambient 편입 때문에 실제 트래픽은
+              #     15008(HBONE)로 흐르고 6080 NetworkPolicy 는 우회된다
+              #     (Gotcha 13). ranger-admin 을 선택하는 AuthorizationPolicy 도
+              #     없다. 그래서 지금은 **메시 안의 아무 워크로드나 정책 전문을
+              #     읽을 수 있다.** 여기에 ALLOW 정책을 다는 것은 별개 작업이다 —
+              #     달면 신원이 없는 kubectl port-forward 경로가 함께 끊겨
+              #     Ranger UI 접근(ACCESS.md)이 죽는다. Gotcha 10 과 같은 함정이다.
+              #   ★ 고쳐야 하는 것은 conf/ 가 아니라 **conf.dist/** 다.
+              #     `conf/` 는 setup.sh 가 conf.dist 를 복사해야 비로소 생기고,
+              #     이 훅은 setup 보다 먼저 돈다. 실측으로 conf/ 를 고치려다
+              #     `No such file or directory` 가 났고 가드가 기동을 막았다 —
+              #     가드가 제 일을 한 것이다. 재기동이나 PVC 도입으로 conf/ 가
+              #     이미 있는 경우도 있으므로 있으면 함께 고친다.
+              W=/opt/ranger/admin/ews/webapp/WEB-INF/classes
+              for F in "$W/conf.dist/ranger-admin-default-site.xml" \
+                       "$W/conf/ranger-admin-default-site.xml"; do
+                [ -f "$F" ] || continue
+                awk '/ranger[.]admin[.]allow[.]unauthenticated[.]download[.]access/{h=1} h && /<value>false<\/value>/ && !d {sub(/<value>false<\/value>/,"<value>true</value>"); d=1; h=0} {print}' \
+                  "$F" > "$F.new" && mv "$F.new" "$F"
+                grep -A1 'ranger[.]admin[.]allow[.]unauthenticated[.]download[.]access' "$F" \
+                  | grep -q '<value>true</value>' || {
+                  echo "[ranger-admin] 정책 다운로드 허용 적용 실패: $F" >&2
+                  echo "[ranger-admin] 이 값이 false 면 플러그인이 정책을 한 건도 받지" >&2
+                  echo "[ranger-admin] 못하고, 그 상태의 플러그인은 **모든 접근을 거부**한다." >&2
+                  echo "[ranger-admin] 조용히 뜨지 않는다." >&2
+                  exit 1
+                }
+                echo "[ranger-admin] 정책 다운로드 허용 적용: $F"
+                APPLIED=1
+              done
+              [ "${APPLIED:-0}" = "1" ] || {
+                echo "[ranger-admin] ranger-admin-default-site.xml 을 어디서도 찾지 못했다." >&2
+                echo "[ranger-admin] 이미지 레이아웃이 바뀌었을 수 있다. 기동하지 않는다." >&2
+                exit 1
+              }
               exec /bin/bash "$S"
           env:
             - name: POSTGRES_PASSWORD          # db_root_password. setup.sh 가 스키마를 만든다

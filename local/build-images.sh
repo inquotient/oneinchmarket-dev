@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 커스텀 이미지 5종 빌드 후 k3s containerd 로 직접 반입한다.
+# 커스텀 이미지 8종 빌드 후 k3s containerd 로 직접 반입한다.
 # 레지스트리(registry.oneinchmarket.co.kr)를 참조하는 매니페스트가 없고
 # imagePullSecrets 도 없으므로, 로컬에서는 import 가 정답이다.
 #
@@ -56,8 +56,37 @@ log "oneinch/hbase 빌드"
 # HBase 는 공식 이미지가 없다(Docker Hub 에 apache/hbase 저장소가 없음).
 # v1/hbase/Dockerfile 을 고쳐 docker/hbase 로 옮겼다 — 상세는 그 파일 주석.
 sudo podman build --format docker --network host \
-  -t oneinch/hbase:latest -t oneinch/hbase:2.6.6 \
+  -t oneinch/hbase:latest -t oneinch/hbase:3.0.0 \
   "${REPO_ROOT}/docker/hbase"
+
+log "oneinch/ranger-hdfs-plugin 빌드"
+# Ranger 2.9 의 REST 클라이언트는 Jersey 1 을 쓰는데 Hadoop 3.5 가 그것을
+# 걷어냈다. upstream 이 master 에서 이미 Jersey 2 로 옮겼고, 그 수정을 2.9.0 에
+# 백포트해 빌드한다 — 상세와 실패했던 우회들은
+# docker/ranger-hdfs-plugin/Dockerfile 주석과 §8-68 에 있다.
+# Ranger 3.0.0 이 릴리스되면 이 이미지는 지운다.
+# ★ 오래 걸린다 — Maven 이 Ranger 부모 모듈 의존성을 받는다.
+sudo podman build --format docker --network host \
+  -t oneinch/ranger-hdfs-plugin:latest -t oneinch/ranger-hdfs-plugin:2.9.0-jersey2 \
+  "${REPO_ROOT}/docker/ranger-hdfs-plugin"
+
+log "oneinch/ranger-hbase-plugin 빌드"
+# HBase 3 이 구 protobuf 패키지를 걷어내 Ranger 2.9 코프로세서가 적재되지
+# 못한다(마스터 ABORT). ★ 이것은 §8-68 의 Jersey 건과 달리 **백포트가 아니다** —
+# Ranger master 조차 hbase 2.6.0 을 겨냥해 대조할 구현이 없다. 우리가 이식했다.
+# 상세는 docker/ranger-hbase-plugin/Dockerfile 주석과 §8-69.
+# ★ docker/hbase 의 HBASE_VERSION 과 **짝이 맞아야 한다.**
+# ★ 오래 걸린다 — JDK 8/17 두 단계로 Ranger 를 빌드한다.
+sudo podman build --format docker --network host \
+  -t oneinch/ranger-hbase-plugin:latest -t oneinch/ranger-hbase-plugin:2.9.0-hbase3 \
+  "${REPO_ROOT}/docker/ranger-hbase-plugin"
+
+log "oneinch/ranger-hive-plugin 빌드"
+# Hive 4 가 HiveConf.ConfVars 상수를 개명하고 인덱스 연산을 걷어내 Ranger 2.9
+# Hive 플러그인이 기동하지 못한다(NoSuchFieldError: PREEXECHOOKS).
+# ★ 이것은 §8-69 의 HBase 와 달리 **백포트**다 — upstream master 가 Hive 4 를
+# 겨냥한다. 상세는 docker/ranger-hive-plugin/Dockerfile 주석과 §8-70.
+sudo podman build --format docker --network host \n  -t oneinch/ranger-hive-plugin:latest -t oneinch/ranger-hive-plugin:2.9.0-hive4 \n  "${REPO_ROOT}/docker/ranger-hive-plugin"
 
 log "oneinch/jenkins 빌드"
 # 공식 이미지에는 플러그인이 없다. JCasC 로 관리자 계정을 선언하려면
@@ -68,7 +97,14 @@ sudo podman build --format docker --network host \
   "${REPO_ROOT}/docker/jenkins"
 
 log "k3s containerd 로 반입 (namespace k8s.io)"
-for img in oneinch/spark-iceberg:latest oneinch/livy:latest oneinch/ranger-usersync:latest oneinch/hbase:latest oneinch/jenkins:latest; do
+# ★ 매니페스트가 참조하는 **정확한 태그**를 반입해야 한다. :latest 만 넣으면
+#   버전 태그를 쓰는 워크로드가 ImagePullBackOff 로 멈춘다 —
+#   ranger-hdfs-plugin 이 실제로 그랬다(hadoop-namenode 가 10분 Init 대기).
+for img in oneinch/spark-iceberg:latest oneinch/livy:latest oneinch/ranger-usersync:latest \
+           oneinch/hbase:latest oneinch/hbase:3.0.0 \
+           oneinch/jenkins:latest \
+           oneinch/ranger-hdfs-plugin:latest oneinch/ranger-hdfs-plugin:2.9.0-jersey2 \
+           oneinch/ranger-hbase-plugin:latest oneinch/ranger-hbase-plugin:2.9.0-hbase3 \n           oneinch/ranger-hive-plugin:latest oneinch/ranger-hive-plugin:2.9.0-hive4; do
   sudo podman save --format docker-archive "localhost/$img" \
     | sudo k3s ctr -n k8s.io images import --base-name "docker.io/$img" -
   # ★ --base-name 이 항상 docker.io 이름을 만들어 주지는 않는다.

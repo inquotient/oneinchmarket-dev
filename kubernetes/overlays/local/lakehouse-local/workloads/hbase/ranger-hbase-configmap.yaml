@@ -1,0 +1,91 @@
+# Ranger HBase 플러그인 설정 (§8-67)
+#
+# ★ HDFS 판(hadoop/ranger-hdfs-configmap.yaml)과 같은 구조다. 다른 점만 적는다.
+#
+# ★ 접두가 다르다 — `ranger.plugin.hbase.*`
+#   Ranger 는 서비스마다 property 접두가 다르다. HDFS 값을 복사해 놓고
+#   접두를 안 고치면 **오류 없이 조용히 무시**되어 정책이 적용되지 않는다.
+#
+# ★ 강제 지점이 다르다
+#   HDFS 는 NameNode 의 INode attribute provider 였지만 HBase 는
+#   **코프로세서**다(hbase-configmap.yaml 참조). 즉 master 와 regionserver
+#   **양쪽**에 jar 가 있어야 한다. 한쪽만 넣으면 그쪽 프로세스가 기동하지
+#   못한다.
+#
+# ★ 감사는 꺼 둔다
+#   Ranger 2.9 에 log4j 감사 목적지가 없다 — HDFS 에서 이것을 켰다가
+#   NameNode 가 70분간 CrashLoop 했다(§8-67 · Gotcha 37).
+#
+# ★ 자격을 적지 않는다
+#   정책 다운로드 경로는 `security="none"` 이라 자격으로 통과할 수 없다.
+#   서버 쪽 스위치로 열려 있다 — ranger-admin-statefulset.yaml 참조.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ranger-hbase-config
+  labels:
+    app.kubernetes.io/name: hbase
+    app.kubernetes.io/component: data-lakehouse
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+data:
+  ranger-hbase-security.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+    <configuration>
+      <!-- Ranger Admin 에 등록한 리포지토리 이름과 **정확히** 같아야 한다.
+           다르면 플러그인이 빈 정책을 받아 판단이 통째로 달라진다. -->
+      <property>
+        <name>ranger.plugin.hbase.service.name</name>
+        <value>oim-hbase</value>
+      </property>
+      <property>
+        <name>ranger.plugin.hbase.policy.source.impl</name>
+        <value>org.apache.ranger.admin.client.RangerAdminRESTClient</value>
+      </property>
+      <property>
+        <name>ranger.plugin.hbase.policy.rest.url</name>
+        <value>http://ranger-admin:6080</value>
+      </property>
+      <property>
+        <name>ranger.plugin.hbase.policy.pollIntervalMs</name>
+        <value>30000</value>
+      </property>
+      <!-- 정책 캐시. Ranger 가 죽어도 마지막 정책으로 계속 판단한다 —
+           이것이 없으면 Admin 장애가 곧 데이터 접근 장애가 된다. -->
+      <property>
+        <name>ranger.plugin.hbase.policy.cache.dir</name>
+        <value>/opt/hbase/tmp/ranger/hbase/policycache</value>
+      </property>
+      <property>
+        <name>ranger.plugin.hbase.policy.rest.client.connection.timeoutMs</name>
+        <value>120000</value>
+      </property>
+      <property>
+        <name>ranger.plugin.hbase.policy.rest.client.read.timeoutMs</name>
+        <value>30000</value>
+      </property>
+    </configuration>
+  ranger-hbase-audit.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+    <configuration>
+      <!-- ★★ 감사를 끈다. Ranger 2.9 에는 log4j 감사 목적지가 **없다.**
+           없는 목적지를 켜면 프로세스가 기동하지 못한다 — §8-67. -->
+      <property>
+        <name>xasecure.audit.is.enabled</name>
+        <value>false</value>
+      </property>
+      <property>
+        <name>xasecure.audit.destination.solr</name>
+        <value>false</value>
+      </property>
+      <property>
+        <name>xasecure.audit.destination.hdfs</name>
+        <value>false</value>
+      </property>
+      <property>
+        <name>xasecure.audit.destination.elasticsearch</name>
+        <value>false</value>
+      </property>
+    </configuration>

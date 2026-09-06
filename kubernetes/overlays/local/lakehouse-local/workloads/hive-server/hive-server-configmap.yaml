@@ -143,6 +143,41 @@ data:
         <value>false</value>
       </property>
 
+      <!-- ── Ranger 인가 (§8-70) ──────────────────────────────────
+           §8-66 의 "Ranger 는 권한을 제어하지 않는다" 를 HDFS·HBase 에 이어
+           Hive 에서도 거짓으로 만든다. 플러그인은 Hive 4 로 백포트한 것을
+           쓴다(docker/ranger-hive-plugin) — 업스트림 2.9 판은 Hive 4 에서
+           NoSuchFieldError: PREEXECHOOKS 로 HiveServer2 가 기동하지 못한다.
+
+           ★ doAs=false 와 함께 쓰는 것이 맞다. 판단 주체는 실행 OS 사용자
+             (항상 hive)가 아니라 **접속한 세션 사용자**다. Knox 가
+             identity-assertion 으로 넘긴 이름이 그 값이 된다 —
+             Knox → HiveServer2 → Ranger 가 한 줄로 이어진다.
+
+           ★ authenticator 를 SessionState 판으로 두어야 세션 사용자가
+             인가자에게 전달된다. 기본값(HadoopDefaultAuthenticator)이면
+             항상 프로세스 사용자(hive)로 평가되어 **정책이 사실상 무의미**
+             해진다 — 그리고 오류는 나지 않는다. -->
+      <property>
+        <name>hive.security.authorization.enabled</name>
+        <value>true</value>
+      </property>
+      <property>
+        <name>hive.security.authorization.manager</name>
+        <value>org.apache.ranger.authorization.hive.authorizer.RangerHiveAuthorizerFactory</value>
+      </property>
+      <property>
+        <name>hive.security.authenticator.manager</name>
+        <value>org.apache.hadoop.hive.ql.security.SessionStateUserAuthenticator</value>
+      </property>
+      <!-- 클라이언트가 세션에서 인가 설정을 되돌리지 못하게 잠근다.
+           이것이 없으면 `set hive.security.authorization.enabled=false` 한 줄로
+           통제가 사라진다. -->
+      <property>
+        <name>hive.conf.restricted.list</name>
+        <value>hive.security.authorization.enabled,hive.security.authorization.manager,hive.security.authenticator.manager,hive.users.in.admin.role</value>
+      </property>
+
       <!-- ── 실행 엔진 : Tez 로컬 모드 ──
            YARN(ResourceManager/NodeManager)을 띄우지 않는다. DAG 를
            HiveServer2 JVM 안에서 실행한다. 스모크·소규모 질의용이며,

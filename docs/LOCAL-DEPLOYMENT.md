@@ -6078,6 +6078,697 @@ Caused by: java.net.BindException: Address already in use
 이 작업 중 실제로 `hive-server-0` 이 `Too many pods` 로 9분 Pending 이었고,
 올린 뒤 그동안 눌려 있던 trivy 스캔 파드들도 함께 떴다.
 
+### 8-67. Ranger HDFS 플러그인 — 인가가 실제로 걸리게 만든다 (2026-09-06)
+
+§8-66 의 결론은 **"Ranger 는 권한을 제어하지 않는다"** 였다. 정책을 강제하는
+주체는 Admin 이 아니라 각 서비스에 들어가는 **플러그인**인데 그것이 레포
+어디에도 없었다(`ranger-*-plugin`·`xasecure` 전체 0건). 이 절은 그 문장을
+거짓으로 만드는 작업이다. **아직 끝나지 않았다** — 마지막 절을 볼 것.
+
+#### 플러그인을 넣는다
+
+이미지(`apache/hadoop:3.4.3`)에 플러그인이 없다. 이미지를 다시 굽는 대신
+initContainer 가 `ranger-2.9.0-hdfs-plugin.tar.gz` 를 받아 공유 emptyDir 에
+푼다. NameNode 쪽 `hdfs-site.xml` 에 인가자를 꽂는다:
+
+```xml
+<name>dfs.namenode.inode.attributes.provider.class</name>
+<value>org.apache.ranger.authorization.hadoop.RangerHdfsAuthorizer</value>
+```
+
+**★ 함정 1 — 클래스패스.** Java 의 `dir/*` 는 **하위 디렉터리를 포함하지
+않는다.** 구현체 23개가 `ranger-hdfs-plugin-impl/` 안에 있으므로
+`/ranger/*` 만으로는 `ClassNotFoundException` 이다. 둘 다 적어야 한다:
+
+```yaml
+- {name: HADOOP_CLASSPATH, value: "/ranger/*:/ranger/ranger-hdfs-plugin-impl/*"}
+```
+
+**★ 함정 2 — Ranger 2.9 에는 log4j 감사 목적지가 없다.** 관례대로
+`xasecure.audit.destination.log4j=true` 를 켰더니 NameNode 가 **70분간
+CrashLoop** 했다:
+
+```
+ERROR AuditProviderFactory:394 - Failed to instantiate audit destination
+  org.apache.ranger.audit.destination.Log4JAuditDestination
+java.lang.ClassNotFoundException
+```
+
+tarball 의 jar 23개를 전수 검색해도 그 클래스가 없다. 2.9 는 감사를
+`ranger-audit-dest-hdfs`·`ranger-audit-dest-solr` 로 쪼갰고 log4j 목적지는
+빠졌다. **없는 감사 목적지를 켜면 스토리지 전체가 내려간다** — 인가 기능의
+부수 설정 하나가 HDFS 를 죽이고, HBase master·REST 까지 함께 무너졌다.
+감사는 전부 끄고(`xasecure.audit.is.enabled=false`) 인가 확인에 집중했다.
+감사 저장소를 세우는 것은 별개 작업이다.
+
+그러자 NameNode 가 떴고 플러그인도 붙었다:
+
+```
+INFO FSNamesystem:1056 - Using INode attribute provider:
+  org.apache.ranger.authorization.hadoop.RangerHdfsAuthorizer
+INFO RangerBasePlugin:317 - Created PolicyRefresher Thread(PolicyRefresher(serviceName=oim-hdfs)-69)
+```
+
+#### 그런데 정책을 한 건도 받지 못한다 — 그리고 원인은 자격이 아니었다
+
+```
+WARN RangerAdminRESTClient:183 - Error getting policies. secureMode=false,
+  response={"httpStatusCode":400,"statusCode":400,"msgDesc":"Unauthenticated access not allowed"}
+```
+
+메시지가 "Unauthenticated" 라 자격 문제로 읽힌다. 그래서 전용 사용자
+`hdfsplugin` 을 만들고 자격을 붙이려 했는데, **그 전에 대조군을 넣은 것이
+결정적이었다.**
+
+| 호출자 | 경로 | 결과 |
+|---|---|---|
+| `admin` (올바른 자격) | `/service/xusers/users/userName/...` | **200** |
+| `admin` (올바른 자격) | `/service/plugins/policies/download/oim-hdfs` | **400** |
+| `hdfsplugin` (올바른 자격) | `/service/xusers/users/userName/...` | **200** |
+| `hdfsplugin` (올바른 자격) | `/service/plugins/policies/download/oim-hdfs` | **400** |
+| 자격 없음 | `/service/plugins/policies/download/oim-hdfs` | **400** |
+
+**올바른 관리자 자격으로도 같은 400 이다.** 자격을 아무리 잘 넣어도 통과할 수
+없는 경로라는 뜻이다. 근거를 바이트코드에서 확인했다:
+
+```xml
+<!-- security-applicationContext.xml -->
+<security:http pattern="/service/plugins/policies/download/*" security="none"/>
+```
+
+```
+// RangerBizUtil.failUnauthenticatedDownloadIfNotAllowed()
+ContextUtil.getCurrentUserSession() 가 null 이고
+allowUnauthenticatedDownloadAccessInSecureEnvironment 가 false 면 → 무조건 throw
+```
+
+경로가 `security="none"` 이라 **Spring Security 자체가 돌지 않는다.** 그래서
+basic auth 를 보내도 `UserSession` 이 만들어지지 않고, 그 null 을 검사하는
+위 메서드가 항상 던진다. 원래 이 자리는 **Kerberos SPNEGO** 가 막게 되어
+있고 이 클러스터는 비-Kerberos 다. 남는 스위치는 하나뿐이다:
+
+```
+ranger.admin.allow.unauthenticated.download.access = true
+```
+
+`ranger-admin-site.xml` 은 setup 이 매 기동마다 다시 만들지만
+`ranger-admin-default-site.xml` 은 이미지의 정적 파일이라 건드리지 않는다.
+그래서 STS 의 기동 래퍼가 후자를 awk 로 고치고, **고쳐지지 않으면 기동하지
+않는다**(값이 false 인 채로 뜨면 플러그인이 정책을 0건 받고, 그 상태의
+플러그인은 **모든 접근을 거부**한다 — 조용히 뜨면 안 되는 종류의 실패다).
+
+**★ 이 스위치가 여는 범위와 열지 않는 범위.**
+여는 것은 **읽기 전용 다운로드 3종**뿐이다(`policies/download`·
+`tags/download`·`roles/download`). 정책 생성·수정·삭제와 관리 API 는 그대로
+인증을 요구한다. 열리는 것은 "정책 전문을 읽을 수 있다" 이지 "정책을 바꿀 수
+있다" 가 아니다.
+
+**★ 그래서 지금 무엇이 막고 있나 — 정직하게 말하면 거의 없다.**
+`allow-ranger-admin-access` 가 6080 을 제한하지만, local 이 ambient 라 실제
+트래픽은 15008(HBONE)로 흐르고 그 포트는 넓게 열려 있다(Gotcha 13). 게다가
+**`ranger-admin` 을 선택하는 AuthorizationPolicy 가 없다.** 즉 메시 안의 아무
+워크로드나 정책 전문을 읽을 수 있다. 여기에 ALLOW 정책을 다는 것은 별개
+작업이며 **간단하지 않다** — 달면 신원이 없는 `kubectl port-forward` 경로가
+함께 끊겨 Ranger UI 접근(`local/ACCESS.md`)이 죽는다. ECK 오퍼레이터가 같은
+방식으로 무너졌던 Gotcha 10 과 정확히 같은 함정이다. §9 에 남긴다.
+
+**★ 고칠 파일은 `conf/` 가 아니라 `conf.dist/` 다.** 첫 시도는 `conf/` 를
+겨냥했는데 그 디렉터리는 **setup.sh 가 conf.dist 를 복사해야 생긴다.** 훅은
+setup 보다 먼저 도니 파일이 아직 없다:
+
+```
+/bin/bash: .../conf/ranger-admin-default-site.xml.new: No such file or directory
+[ranger-admin] 정책 다운로드 허용 적용 실패.
+```
+
+가드가 제 일을 해서 **기동을 거부했다.** 값이 false 인 채 떠 버렸다면 플러그인이
+정책을 0건 받고 그 상태로 조용히 돌았을 것이다.
+
+#### 그리고 더 큰 것이 나왔다 — 이미지가 매 기동마다 admin 을 잠그고 있었다
+
+파드를 새로 만든 뒤 admin 자격이 **401** 이 됐다. 내 호출 때문이 아니었다 —
+Ranger **자신의 부트스트랩**도 같은 401 을 내고 있었다:
+
+```
+An exception occured: GET service/public/v2/api/service/name/dev_hdfs failed:
+  expected_status=200, status=401, message=Authentication Failed
+  ... dev_yarn, dev_hive, dev_hbase, dev_kafka, dev_knox, dev_kms, dev_trino, dev_ozone
+```
+
+`x_auth_sess` 가 원인을 그대로 보여 준다(`auth_status` 2=비번틀림, 4=잠김):
+
+```
+admin|4|... 20:30:12
+admin|4|... 20:27:06   ← 2 가 연달아 쌓인 직후 4 로 바뀐다
+admin|2|... 20:27:06
+```
+
+범인은 이미지의 `create-ranger-services.py` **5번째 줄**이다:
+
+```python
+ranger_client = RangerClient('http://localhost:6080', ('admin', 'rangerR0cks!'))
+```
+
+관리자 비밀번호가 **하드코딩**돼 있다. 우리는 §8-44 에서 자격을 분리해 실제
+비밀번호를 쓰므로 서비스 등록 9건이 전부 실패하고, 그 연속 실패가
+**admin 을 영구히 잠근다.**
+
+**★ 그리고 이것은 1회성이 아니다.** `.setupDone` 이 PVC 에 없으므로 setup 은
+**파드를 새로 만들 때마다** 돈다 — 즉 `ranger-admin` 을 재기동할 때마다
+관리자가 다시 잠겨 왔다. 잠금은 DB 에 남아 파드를 다시 띄워도 풀리지 않고
+(Gotcha 11), 증상은 그냥 401 이라 비밀번호가 틀렸다고 오해하게 된다.
+만드는 것도 `dev_hdfs`·`dev_knox` 같은 데모 서비스에 `hdfs/hdfs` 따위 자격이라
+이 클러스터에 쓸모가 없다. **기동 래퍼에서 통째로 껐다**(끄지 못하면 기동하지
+않는다). 이미 걸린 잠금은 §8-48 대로 `x_auth_sess` 의 2·4 행을 지워 풀었다.
+
+#### 인가가 실제로 걸린다 — 양방향으로 증명했다
+
+`/rangertest` 아래 두 디렉터리를 만들고 **POSIX 권한은 고정한 채 Ranger 정책만**
+걸었다. 시험 주체는 `oimtest`, 대조군은 정책이 하나도 없는 `oimother` 다.
+
+| 경로 | POSIX | Ranger 정책 | `oimtest` | `oimother`(대조군) |
+|---|---|---|---|---|
+| `/rangertest/open` | `777` = 누구나 허용 | **DENY** | **거부** | 허용 |
+| `/rangertest/closed` | `700` = 소유자만 | **ALLOW** | **허용** | 거부 |
+
+두 칸이 **정책만으로 뒤집혔다.** 거부의 성격도 다르다 — Ranger 거부는 예외
+클래스가 Ranger 다:
+
+```
+cat: org.apache.ranger.authorization.hadoop.exceptions.RangerAccessControlException:
+     Permission denied: user=oimtest, access=EXECUTE, inode="/rangertest/open/f.txt"
+```
+
+POSIX 거부는 inode 의 소유자·모드를 찍는다:
+
+```
+cat: Permission denied: user=oimother, access=EXECUTE,
+     inode="/rangertest/closed":hadoop:supergroup:drwx------
+```
+
+대조군이 예전 그대로라는 것이 중요하다 — 바뀐 것은 "Ranger 가 판단하기
+시작했다" 이지 "전부 잠겼다" 가 아니다.
+
+**이로써 §8-66 의 "Ranger 는 권한을 제어하지 않는다" 는 HDFS 에 한해 거짓이
+되었다.** 시험 자산(`/rangertest`, 사용자 `oimtest`, 정책 2건)은 재확인용으로
+남겨 둔다 — 지우면 다음에 같은 것을 처음부터 다시 만들어야 한다.
+
+#### HBase — 같은 절차로 통했다. 강제 지점만 다르다
+
+HDFS 는 NameNode 의 INode attribute provider 였지만 HBase 는 **코프로세서**다.
+`hbase.coprocessor.master.classes`·`region.classes`·`regionserver.classes` 셋에
+`RangerAuthorizationCoprocessor` 를 걸고 jar 를 **master 와 regionserver 양쪽**에
+넣었다. 한쪽만 넣으면 그쪽 프로세스가 기동하지 못한다.
+
+**★ HBase 에는 POSIX 폴백이 없다.** HDFS 는 `xasecure.add-hadoop-authorization=true`
+덕분에 정책 0건이어도 기존 접근이 살아 있었지만, HBase 는 켜는 순간 **정책이
+유일한 판단자**가 된다. 다행히 Ranger 가 서비스 등록 시 만드는 기본 정책
+`all - table, column-family, column` 이 `hbase` 사용자에게 전권을 주고 컨테이너
+사용자가 `hbase` 라 기존 접근이 끊기지 않았다 — **운이 좋았던 것이지 설계된
+것이 아니다.** 다른 사용자로 도는 워크로드가 있었다면 그 순간 끊겼다.
+
+증명은 HDFS 와 같은 모양이다:
+
+| 주체 | 정책 | `scan 'rangertest'` |
+|---|---|---|
+| `oimtest` | 없음 → **ALLOW 추가** | 거부 → **허용** |
+| `oimother`(대조군) | 없음 | 거부 그대로 |
+
+```
+org.apache.hadoop.hbase.security.AccessDeniedException:
+  Insufficient permissions for user 'oimtest', action: scannerOpen,
+  tableName:rangertest, family:cf.
+```
+
+정책을 넣고 30초(폴링 주기) 뒤 `Switched policy engine to [4]` 가 찍히며 같은
+명령이 통과했다.
+
+참고로 기동 중 `ClassNotFoundException: org.graalvm.polyglot.HostAccess` 가
+보이는데 **WARN 이고 무해하다** — Ranger 가 스크립트 조건 평가용 엔진을 여러 개
+시도하다 GraalVM 이 없어 다음 것으로 넘어가는 것이다. 그 뒤 정책 엔진은
+정상적으로 전환된다.
+
+#### Hive 는 막혔다 — Ranger 2.9 플러그인이 Hive 4 와 바이너리 비호환이다
+
+같은 절차를 Hive 에도 적용했다. 플러그인은 적재되고 **정책까지 내려받았다**
+(`Switched policy engine to [11]`). 그런데 그 직후 HiveServer2 가 기동에
+실패한다:
+
+```
+WARN server.HiveServer2: Error starting HiveServer2 on attempt 1, will retry in 60000ms
+java.lang.NoSuchFieldError: PREEXECHOOKS
+  at org.apache.ranger.authorization.hive.authorizer.RangerHiveAuthorizerBase
+       .applyAuthorizationConfigPolicy(RangerHiveAuthorizerBase.java:103)
+       ~[ranger-hive-plugin-2.9.0.jar:2.9.0]
+```
+
+`NoSuchFieldError` 는 설정 오류가 아니라 **바이너리 비호환**이다 — 컴파일 시점에
+있던 필드가 런타임 클래스에 없다는 뜻이다. Hive 4 가 `HiveConf.ConfVars` 의
+상수 이름을 바꿨고, Ranger 2.9 의 hive 플러그인은 Hive 3 API 로 빌드돼 있다.
+`archive.apache.org` 의 Ranger 배포판은 **2.9.0 이 최신**이므로 더 새 플러그인도
+없다.
+
+**★ 이 증상은 진단하기 어렵다.** HiveServer2 는 예외를 stdout 에 내지 않고
+`/tmp/hive/hive.log` 에만 쓴다. `kubectl logs` 에는 `Hive Session ID = ...` 만
+반복해서 찍히고, 파드는 startupProbe 예산(400초)을 넘겨 조용히 kill 된다.
+**로그가 비어 보이면 파일 로그를 볼 것.**
+
+되돌렸다 — hive-site.xml 의 인가 설정, 플러그인 initContainer, 클래스패스,
+ConfigMap 을 전부 원복하고 Ranger 의 `oim-hive` 리포지토리도 지웠다.
+**강제하는 플러그인이 없는 리포지토리는 "Hive 가 통제되고 있다" 는 착각만
+남긴다** — 이 레포가 반복해서 겪은 "설정은 있으나 아무것도 하지 않는" 부류다.
+선택지는 둘뿐이다: Hive 를 3.1.x 로 내리거나, Ranger 가 Hive 4 를 지원하는
+판을 낼 때까지 기다리는 것. 둘 다 이 작업의 범위를 넘는다.
+
+#### 결산
+
+| 대상 | Knox 프록시 | Ranger 강제 | 증명 |
+|---|:---:|:---:|---|
+| HDFS | ○ (§8-66) | **○** | 양방향(DENY·ALLOW) + 대조군 |
+| HBase | ○ (§8-66) | **○** | ALLOW 전환 + 대조군 |
+| Hive | ○ (§8-66) | ✕ | 플러그인 비호환 — 위 참조 |
+
+§8-66 의 "Ranger 는 권한을 제어하지 않는다" 는 **HDFS·HBase 에 대해 거짓이
+되었고 Hive 에 대해서는 여전히 참이다.**
+
+> **★ 나중 정정 —** 위 문장의 Hive 부분은 **§8-70 에서 거짓이 되었다.**
+> 아래 "Ranger 2.9 ↔ Hive 4 비호환" 도 **릴리스에 한해서만** 맞다. 수정은
+> upstream master 에 있었고, 그것을 2.9.0 으로 백포트해 해결했다.
+> 지금은 HDFS·HBase·Hive 셋 다 Ranger 가 제어한다.
+
+#### 남은 일
+
+- ~~**Hive** — Ranger 2.9 ↔ Hive 4.0.1 비호환~~ → **§8-70 에서 해결**
+  (`docker/ranger-hive-plugin` 백포트).
+- **감사(audit)가 꺼져 있다.** 누가 무엇을 거부당했는지 남지 않는다. 지금은
+  거부가 클라이언트 예외로만 드러난다. 목적지(Solr 또는 HDFS)를 세우는 것은
+  별개 작업이다.
+- **`ranger-admin` 을 선택하는 AuthorizationPolicy 가 없다** — 메시 안에서는
+  정책 전문을 누구나 읽을 수 있다. 위의 경고 참조. §9 에 남긴다.
+- **HBase 기본 정책 의존.** 지금 기존 접근이 사는 이유는 컨테이너 사용자가
+  마침 `hbase` 라서다. 워크로드 사용자가 바뀌면 즉시 끊긴다.
+- 시험 자산은 재확인용으로 남겨 둔다 — HDFS `/rangertest`(정책 2건),
+  HBase 테이블 `rangertest`(정책 1건), Ranger 사용자 `oimtest`.
+
+### 8-68. 버전 천장은 Ranger 플러그인의 ABI 가 정한다 (2026-09-06)
+
+"Hadoop·HBase·Hive 가 최신이 아니다" 에서 출발해 올려 보다가, 이 스택의
+버전 상한을 무엇이 정하는지가 드러났다. **최신인지가 아니라 Ranger
+플러그인이 무엇으로 빌드됐는지**다.
+
+`apache-ranger-2.9.0` 의 최상위 pom:
+
+| Ranger 2.9.0 이 빌드된 버전 | 우리 배포 | 결과 |
+|---|---|---|
+| `hadoop.version` **3.4.2** | 3.4.3 | 같은 마이너 → **동작** |
+| `hbase.version` **2.6.0** | 2.6.6 | 같은 마이너 → **동작** |
+| `hive.version` **3.1.3** | 4.0.1 | 메이저 차이 → **깨짐**(§8-67) |
+
+즉 Hadoop·HBase 는 우연이 아니라 **정확히 천장에 맞춰져 있었다.**
+`overlays/prod/kustomization.yaml` 의 `apache/hadoop` 옆 주석
+("3.5 는 새 마이너다. Hive/HBase 클라이언트와 같은 계열을 유지한다")은
+이제 추측이 아니라 측정된 근거를 갖는다.
+
+#### Hadoop 3.5.0 을 올려 봤다 — Jersey 세대가 갈렸다
+
+3.5.0 은 **Jersey 1.19.4 를 걷어내고 `org.glassfish.jersey` 2.46 으로
+이관**했다. Ranger 2.9 의 `RangerAdminRESTClient` 는 `com.sun.jersey`(Jersey 1)
+를 쓰므로 NameNode 가 기동하지 못한다:
+
+```
+java.lang.NoClassDefFoundError: com/sun/jersey/api/client/ClientHandlerException
+  at RangerAdminRESTClient.init(RangerAdminRESTClient.java:772)
+  ... at FSNamesystem.startCommonServices(...)
+```
+
+`INodeAttributeProvider` 자체는 멀쩡했다 — 인가자는 생성됐고 `start()` 까지
+갔다. **ABI 가 아니라 의존성 문제였다.**
+
+**★ 시도 1 — Jersey 1 을 통째로 보충: 실패.** `jersey-client`·`jersey-core`
+와 함께 `jsr311-api`(JAX-RS 1.1 API)까지 넣었더니:
+
+```
+LinkageError: ClassCastException: attempting to cast
+  jakarta.ws.rs-api-2.1.6.jar!/javax/ws/rs/ext/RuntimeDelegate.class
+  to jsr311-api-1.1.1.jar!/javax/ws/rs/ext/RuntimeDelegate.class
+```
+
+플러그인 클래스로더가 `javax.*` 는 부모에 위임하므로 격리되지 않는다.
+**빠진 것은 API 가 아니라 구현이었다** — 3.5.0 은 `jakarta.ws.rs-api-2.1.6`
+으로 `javax.ws.rs` 를 이미 제공한다.
+
+**★ 시도 2 — 구현 2개만 보충: 절반만 성공, 그래서 더 위험.**
+NameNode 는 정상 기동한다. 그런데 정책 갱신이 실패한다:
+
+```
+com.sun.jersey.spi.inject.Errors$ErrorMessagesException
+  at com.sun.jersey.api.client.Client.create(Client.java:683)
+  at RangerRESTClient.buildClient(...)
+```
+
+결과는 **정책 버전 -1**. 그리고 `xasecure.add-hadoop-authorization=true` 의
+POSIX 폴백 때문에 HDFS 는 아무 문제 없이 돈다 — 즉 **인가만 조용히
+사라진다.** 파드는 `1/1 Running`, 오류 배너도 없다. 실측으로 이 상태에서
+§8-67 의 DENY 정책이 적용되지 않았다(`/rangertest/open` 이 다시 읽혔다).
+
+> **판정 기준을 파드 상태에 두지 말 것.** 이 플러그인이 살아 있다는 증거는
+> 로그의 `Switched policy engine to [N]` 한 줄뿐이다.
+
+**★ 함정 — 되돌릴 때 보충 블록을 같이 걷어내야 한다.** 이미지만 3.4.3 으로
+되돌리고 jersey 보충을 남겨 두면, 3.4.3 은 Jersey 1 을 이미 갖고 있으므로
+같은 클래스가 두 클래스로더에 걸쳐 **똑같은 -1 상태**가 된다. 실제로 그렇게
+한 번 더 빠졌다.
+
+#### 그러면 Ranger 2.9 가 Jersey 2 를 쓰게 할 수 있나
+
+**설정으로는 불가능하다.** Jersey 1 의 `com.sun.jersey.api.client.Client` 와
+Jersey 2 의 `javax.ws.rs.client.Client` 는 **다른 API** 다. jar 를 갈아끼우는
+관계가 아니다.
+
+**재빌드로는 가능해 보인다.** 그리고 그것은 upstream 이 이미 한 일이다 —
+master(`3.0.0-SNAPSHOT`)의 `RangerRESTClient` 는 이미
+`javax.ws.rs.client.*` · `org.glassfish.jersey.client.ClientConfig` 를 쓴다.
+2.9.0 전체에서 `com.sun.jersey` 를 import 하는 파일은 **5개뿐**이고 전부
+`agents-common` 안에 있다:
+
+| 파일 | jersey import | 줄 수 |
+|---|---:|---:|
+| `RangerRESTClient.java` | 10 | 922 |
+| `RangerAdminRESTClient.java` | 1 | 1027 |
+| `RangerUserStoreRefresher.java` | 1 | 435 |
+| `RESTResponse.java` | 1 | 212 |
+| `PasswordUtils.java` | 1 | 350 |
+
+바꾸는 것은 **플러그인 jar 뿐이다.** Ranger Admin 은 Docker Hub 의
+`apache/ranger:2.9.0` 를 그대로 쓴다 — Admin 은 자기 Tomcat 안에서 돌아
+Hadoop 클래스패스와 무관하므로 이 문제의 영향을 받지 않는다.
+
+#### Ranger 3.0.0 은 없다
+
+`archive.apache.org` · `downloads.apache.org` 모두 **2.9.0 이 최신**이고,
+master 의 프로젝트 버전이 `3.0.0-SNAPSHOT` 이다. 즉 오늘 부딪힌 세 가지
+(Hive 4 의 `PREEXECHOOKS`, Hive 4 가 삭제한 인덱스 연산 상수, Hadoop 3.5 의
+Jersey 이관)가 **전부 미출시 코드에만 고쳐져 있다.** 미출시 Ranger 를 보안
+통제면에 올리는 것은 채택하지 않기로 했다.
+
+#### 백포트를 만들었다 — Hadoop 3.5.0 이 인가와 함께 동작한다
+
+"Ranger 2.9 가 Jersey 2 를 쓰게 할 수 없나" 가 옳은 질문이었다. 설정으로는
+불가능하지만 **재빌드로는 된다.**
+
+**★ 1차 시도 실패 — master 를 통째로 가져오면 3.0 이 딸려 온다.**
+5개 파일을 master 판으로 바꿨더니 컴파일이 이렇게 막혔다:
+
+```
+error: package org.apache.ranger.plugin.authn does not exist
+  cannot find symbol: class JwtProvider
+  cannot find symbol: class ServiceGdsInfo          <- GDS, 898줄짜리 3.0 기능
+  cannot find symbol: class RangerSupportedCryptoAlgo
+  cannot find symbol: variable RangerJersey2ClientBuilder
+```
+
+**★ 2차 — 좁은 경로로 성공.** 진짜 재작성이 필요한 것은 `RangerRESTClient`
+하나뿐이다. 나머지 4개는 2.9.0 원본을 유지하고 Jersey 1 사용처만 기계적으로
+옮기면 GDS·crypto 가 따라오지 않는다:
+
+| 파일 | 처리 |
+|---|---|
+| `RangerRESTClient` | master 판 사용 (+ `RangerJersey2ClientBuilder` 371줄, `JwtProvider` 24줄) |
+| `RangerAdminRESTClient`·`RESTResponse`·`RangerUserStoreRefresher` | `ClientResponse`→`Response`, `getEntity(X.class)`→`readEntity(X.class)` |
+| `PasswordUtils` | jersey `Base64` → commons-codec (`encode`/`decode` 가 byte[] 라 짝이 맞다) |
+
+**마지막 컴파일 오류는 한 줄이었다** — Jersey 1 의 `getCookies()` 는 `List` 지만
+JAX-RS 2 는 **`Map`** 이라 for-each 가 안 된다:
+
+```
+RangerAdminRESTClient.java:[1006,48] error: for-each not applicable to expression type
+  for (NewCookie cookie : response.getCookies())      // -> .getCookies().values()
+```
+
+결과 — **Hadoop 3.5.0 · Ranger 2.9 · 인가 전부 동작**:
+
+```
+STARTUP_MSG: version = 3.5.0
+INFO FSNamesystem - Using INode attribute provider: RangerHdfsAuthorizer
+INFO RangerBasePlugin - Switched policy engine to [9]     <- Admin 의 policyVersion 과 일치
+```
+
+| 검증 | 결과 |
+|---|---|
+| `/rangertest/open` (POSIX 777) + Ranger **DENY** | **거부** — `RangerAccessControlException` |
+| `/rangertest/closed` (POSIX 700) + Ranger **ALLOW** | **허용** |
+| HBase 인가(원본 2.9 플러그인, 영향 없음) | `oimtest` 통과 / `oimother` 거부 |
+| HDFS 데이터 | 그대로 — 레이아웃 업그레이드 불필요했다 |
+
+#### 어떻게 넣었나
+
+`docker/ranger-hdfs-plugin/Dockerfile` 이 소스에서 포팅·빌드한다.
+**빌드된 jar 는 커밋하지 않는다** — 무엇을 바꿨는지가 Dockerfile 에 남아야
+한다. Jersey 1 참조가 하나라도 남으면 `! grep` 으로 빌드를 거부한다(남은 채
+빌드되면 런타임에 위의 "조용한 -1" 이 된다). initContainer 는 이제 이 이미지에서
+복사만 하므로 런타임 다운로드도 사라졌다.
+
+**★ 반입 함정.** `local/build-images.sh` 의 반입 루프가 `:latest` 만 넣어서
+매니페스트가 참조하는 `:2.9.0-jersey2` 가 없었고, NameNode 가 10분간
+`Init:ImagePullBackOff` 였다. 루프에 **매니페스트가 쓰는 정확한 태그**를
+넣어야 한다.
+
+**★ 한시적이다.** Ranger 3.0.0 이 릴리스되면 이 이미지도 이 절도 지운다.
+Dockerfile·`build-images.sh` 양쪽에 그렇게 적어 두었다.
+
+#### 남는 것
+
+- **HBase·Hive 플러그인은 아직 원본 2.9 다.** HBase 는 자체 이미지가 Hadoop
+  클라이언트를 번들해 Jersey 1 을 갖고 있으므로 지금은 문제가 없다. HBase 를
+  3.0.0 으로 올리면 같은 포팅이 필요할 수 있다.
+- Hive 는 Jersey 와 무관한 별개 문제로 여전히 막혀 있다(§8-67).
+
+### 8-69. HBase 3.0.0 — Ranger 플러그인을 직접 이식했다 (2026-09-06)
+
+§8-68 에서 Hadoop 3.5 를 성공시킨 방식은 **업스트림이 이미 한 수정의 백포트**였다.
+HBase 3 은 그 방식이 통하지 않는다 — 그리고 그것이 이 절의 요지다.
+
+#### 먼저 부딪힌 것
+
+HBase 2.6.6 은 이미 2.6 라인의 최신이라 올릴 곳은 3.0.0(메이저)뿐이다.
+이미지를 3.0.0 으로 빌드해 올렸더니 마스터가 죽는다:
+
+```
+ERROR coprocessor.CoprocessorHost: The coprocessor
+  org.apache.ranger.authorization.hbase.RangerAuthorizationCoprocessor threw
+  java.lang.NoClassDefFoundError:
+    org/apache/hadoop/hbase/protobuf/generated/AccessControlProtos$AccessControlService$Interface
+ERROR master.HMaster: ***** ABORTING master ... *****
+```
+
+**HBase 는 코프로세서를 못 붙이면 아예 뜨지 않는다.**
+
+#### §8-68 과 무엇이 다른가 — 판단의 핵심
+
+| | Hadoop 3.5 / Jersey (§8-68) | HBase 3.0 / 코프로세서 |
+|---|---|---|
+| 깨진 것 | **라이브러리**(Jersey 1 → 2) | **HBase 자신의 API** |
+| upstream 이 고쳤나 | **예** — master 의 `RangerRESTClient` 는 이미 Jersey 2 | **아니오** |
+| 근거 | master pom `hive.version 4.0.1`, Jersey 2 import | master pom **`<hbase.version>2.6.0</hbase.version>`**, 코프로세서가 여전히 구 protobuf import |
+| 성격 | upstream 수정 **백포트** — 기계적, 대조 가능 | **원본 이식** — 대조할 구현이 없다 |
+
+즉 이 이식은 **우리가 만든 것이고 검증도 우리 몫이다.** 그래서 "컴파일이
+통과했다"를 완료로 보지 않고 DDL 단위까지 시험했다.
+
+#### 인가 공백부터 확인했다 — 컴파일보다 먼저
+
+훅을 하나라도 조용히 떨어뜨리면 그 연산이 통제 밖으로 나간다. 그래서
+컴파일을 시도하기 **전에** HBase 3 의 Observer 인터페이스를 `javap` 로 읽어
+Ranger 가 구현한 훅과 대조했다.
+
+- Ranger 가 구현한 훅 **53개 중 52개가 HBase 3 에 존재**한다
+- `prePrepareBulkLoad`·`preCleanupBulkLoad` 는 **사라진 것이 아니라**
+  `BulkLoadObserver` 라는 다른 인터페이스에 있었다(첫 조사가 인터페이스 3개만
+  봐서 놓쳤다). 대량적재는 `preBulkLoadHFile` 로도 덮인다
+- **진짜 공백은 `preEndpointInvocation` 하나** — 코프로세서 엔드포인트 호출
+  인가다. HBase 3 에 대체 훅이 없다. **이것은 남는 공백이다**
+
+#### 이식 내역 — 벽 여섯 개
+
+| # | 벽 | 처리 |
+|---|---|---|
+| ① | 코프로세서 클래스가 **세 곳**(agent 구현·shim 위임자·레거시 별칭) | 셋 다 |
+| ② | protobuf 좌표 이동 | `shaded.protobuf.generated.*`, `org.apache.hbase.thirdparty.com.google.protobuf.*` |
+| ③ | `ObserverContext` 와일드카드가 **메서드마다 다름** | `javap` 로 실제 시그니처를 읽어 **규칙 생성** |
+| ④ | 인자 목록이 바뀐 8개 | `+currentDesc`·`+currentNs`·`-force`, `preModifyTable` 은 반환형까지 |
+| ⑤ | 개명·제거 API 4종 | `filterKeyValue→filterCell`, `addColumnFamily→setColumnFamily`, `HBaseAdmin` 제거, 도달 불가 `catch` |
+| ⑥ | **JDK 8 ↔ 17 배타** | 2단계 빌드 |
+
+**★ ③ 이 가장 헷갈렸다.** RegionObserver 는 `<? extends E>` 인데 MasterObserver 는
+대체로 `<E>` 다(`postCreateReplicationEndPoint` 같은 예외까지 있다). 일괄
+치환했더니 멀쩡한 메서드까지 깨져 **오류가 166개**로 늘었다. `javap` 출력에서
+규칙을 생성하도록 바꾸자 한 번에 정리됐다. **추측하지 말고 바이너리에게 물을 것.**
+
+**★ ⑥ 이 가장 근본적이었다.** HBase 3 은 **Java 17 로 컴파일**돼 있어
+(`class file has wrong version 61.0, should be 52.0`) JDK 8 은 그 클래스 파일을
+읽지 못한다. 그런데 Ranger 2.9 의 `agents-common` 은 Nashorn(`jdk.nashorn.*`)을
+써서 **JDK 15+ 에서 컴파일되지 않는다.** 서로 배타적이라 Ranger 코드를 건드리지
+않기 위해 **agents-common 은 JDK 8 로 install, HBase 모듈만 JDK 17 로 컴파일**
+하는 2단계 빌드로 풀었다.
+
+#### ★ 같은 증상, 반대 처방 — JAX-RS
+
+컴파일을 통과하고 배포했더니 코프로세서는 적재되는데 그다음에서 죽었다:
+
+```
+NoClassDefFoundError: javax/ws/rs/core/Cookie
+  at PolicyRefresher.<init>
+```
+
+§8-68 에서 본 것과 같은 부류인데 **처방이 반대다**:
+
+| | Hadoop 3.5 | HBase 3.0 |
+|---|---|---|
+| 클래스패스에 이미 있는 것 | `jakarta.ws.rs-api 2.1`(평문 `javax.ws.rs` **있음**) | `hbase-shaded-jersey`(평문 `javax.ws.rs` **없음**) |
+| Jersey 1 jar 를 넣으면 | 같은 패키지 두 벌 → `LinkageError` | 중복 없음 → **동작** |
+| 그래서 | 소스를 Jersey 2 로 **이식**해야 했다 | **jar 보충으로 충분**하다 |
+
+**같은 오류 메시지라도 클래스패스에 무엇이 이미 있는지에 따라 답이 달라진다.**
+
+#### 검증 — 세 판정 모두 통과
+
+| 판정 | 결과 |
+|---|---|
+| ① 정책 엔진 | `Switched policy engine to [4]` = Admin 의 `policyVersion 4` |
+| ② 데이터 접근 | `oimtest`(ALLOW) 통과 / `oimother`(정책 없음) `Insufficient permissions` |
+| ③ **DDL** (시그니처를 바꾼 경로) | `oimother` 의 `create`·`disable` 이 **`AccessDeniedException: Insufficient permissions for user 'oimother' (action=create)`** / 전권 사용자는 `Created table` |
+
+③ 이 이번 이식의 핵심 위험이었다 — 인자 목록을 바꾼 8개가 전부 DDL 훅이라,
+잘못 고쳤으면 **테이블 생성·삭제가 조용히 통제 밖으로 나갔을** 것이다.
+"컴파일 통과" 로 끝냈으면 확인하지 못했다.
+
+#### 곁다리 — HBase 3 은 클라이언트 접속점 탐색도 바꿨다
+
+마스터·리전서버는 멀쩡한데 `hbase-rest` 만 Ready 가 되지 않았다:
+
+```
+Connection refused: hbase-rest-64cc979f9f-bbxq9/10.0.0.19:16000
+```
+
+**클라이언트가 자기 자신을 마스터로 여겨 붙으려 한다.** 2.x 는 ZooKeeper 로
+마스터를 찾았지만 3.0 은 `RpcConnectionRegistry` 가 기본이고 부트스트랩 주소가
+없으면 이렇게 된다. `hbase.masters`·`hbase.client.bootstrap.servers` 를 주어
+해결했다. HBase 자체는 정상인데 **클라이언트만** 못 붙는 형태라 원인을 엉뚱한
+곳에서 찾기 쉽다.
+
+#### 지금 상태
+
+| 항목 | 값 |
+|---|---|
+| Hadoop | **3.5.0** (§8-68 의 Jersey 2 백포트) |
+| HBase | **3.0.0** (이 절의 이식) |
+| Ranger | 2.9.0 — Admin 은 업스트림 이미지 그대로 |
+| HDFS 인가 | DENY→`RangerAccessControlException`, ALLOW→통과 |
+| HBase 인가 | scan·DDL 모두 정책대로 |
+| 비정상 파드 | 없음 |
+
+**남는 공백은 `preEndpointInvocation` 하나** — 코프로세서 엔드포인트 호출은
+Ranger 가 검사하지 못한다. HBase 3 에 대체 훅이 없어서다.
+
+**★ 유지보수 부담을 분명히 해 둔다.** `docker/ranger-hbase-plugin` 은 우리가
+만든 이식본이고 upstream 대조본이 없다. `docker/hbase` 의 `HBASE_VERSION` 을
+바꾸면 **반드시 이 이미지도 함께 손봐야 한다** — 짝이 어긋나면 HBase 가 통째로
+기동하지 못한다. Ranger 가 HBase 3 을 정식 지원하면 이 이미지를 지운다.
+
+### 8-70. Hive 4 — Ranger 플러그인을 백포트했다. 세 컴포넌트 모두 통제된다 (2026-09-06)
+
+§8-67 이 남긴 마지막 조각이다. 그때 결론은 "Ranger 2.9 의 Hive 플러그인은
+Hive 4 와 바이너리 비호환이고 2.9.0 이 최신 릴리스라 방법이 없다" 였다.
+**그 결론은 절반만 맞았다** — 릴리스에는 없지만 **upstream master 에는 있다.**
+
+#### 왜 백포트가 성립하는가 (HBase 와의 대비)
+
+| | Hive 4 (이 절) | HBase 3 (§8-69) |
+|---|---|---|
+| master 의 pom | **`<hive.version>4.0.1</hive.version>`** | `<hbase.version>2.6.0</hbase.version>` |
+| upstream 이 지원하나 | **예** | 아니오 |
+| 성격 | **백포트** | 원본 이식 |
+
+#### ★ 그런데 "master 파일을 떼어 온다" 는 실패한다
+
+§8-69 에서 통했던 방식(master 판 파일로 교체)을 먼저 시도했고 막혔다:
+
+```
+no suitable constructor found for RangerHiveAccessRequest   24건
+incompatible types                                          48건
+incomparable types                                          17건
+```
+
+master 의 `RangerHiveAuthorizer` 는 master 의 `RangerHiveAccessRequest`·
+`RangerHiveResource`·`HiveAccessType` 과 **함께 진화했다.** 게다가 2.9.0 은
+`HiveObjectType`·`HiveAccessType` 을 `RangerHiveAuthorizer.java` 맨 아래에
+**패키지 전용 top-level enum** 으로 선언해 두어, 그 파일을 갈아끼우면 같은
+패키지의 다른 파일들이 타입을 잃는다(`package HiveAccessType does not exist`).
+
+**→ 여기서는 2.9.0 자체 코드를 고치는 쪽이 오히려 좁다.**
+HBase 와 정반대 판단이고, 기준은 하나다 — **어느 쪽 변경 표면이 좁은가.**
+
+#### 고친 것은 두 가지뿐
+
+**① `PREEXECHOOKS`** — Hive 4 가 `HiveConf.ConfVars` 상수를 개명했다.
+upstream master 의 수정을 그대로 쓴다. 컴파일 시점 enum 상수 대신 **런타임
+키 조회**라서 버전 중립적이다:
+
+```java
+hiveConf.getVar(ConfVars.PREEXECHOOKS)
+  -> hiveConf.getVar(HiveConf.getConfVars("hive.exec.pre.hooks"))
+```
+
+설정 키 이름 `hive.exec.pre.hooks` 는 Hive 3·4 가 같다.
+
+**② 인덱스 연산 case 라벨** — Hive 4 가 인덱스 기능을 통째로 걷어내
+`HiveOperationType` 에서 `CREATEINDEX`·`DROPINDEX`·`ALTERINDEX_*`·
+`SHOWINDEXES` 가 사라졌고 `DROPVIEW_PROPERTIES` 도 없다.
+
+> **지워도 인가 공백이 아니다.** 그 연산 자체가 Hive 4 에 존재하지 않는다.
+> `DROPVIEW_PROPERTIES` 는 같은 case 그룹의 `ALTERVIEW_PROPERTIES` 가 덮으며
+> 둘 다 `HiveAccessType.ALTER` 로 간다(2.9.0 소스에서 확인).
+
+**★ `CREATEINDEX` 는 두 곳에 있다.** 하나는 혼자 있는 블록이라 라벨만 지우면
+문장이 고아가 되고, 다른 하나는 라벨 줄만 지우면 된다. 한쪽만 처리했다가
+나머지가 남아 한 번 더 막혔다.
+
+#### 검증 — 세 판정
+
+| 판정 | 결과 |
+|---|---|
+| ① 정책 엔진 | `Switched policy engine to [12]` = Admin 의 `policyVersion 12` |
+| ② 거부 | `HiveAccessControlException Permission denied: user [oimtest] does not have [SELECT] privilege on [default/rangerhive]` |
+| ③ 정책으로 뒤집기 | ALLOW 추가 후 같은 질의 통과. **대조군 `oimother` 는 그대로 거부** |
+
+**★ 이 실패는 알아보기 어렵다.** HiveServer2 는 예외를 stdout 에 내지 않고
+`/tmp/hive/hive.log` 에만 쓴다. `kubectl logs` 에는 `Hive Session ID = ...` 만
+반복되고 파드는 startupProbe 예산을 넘겨 **조용히 kill** 된다. 로그가 비어
+보이면 파일 로그를 볼 것.
+
+#### 결산 — §8-66 의 문장은 이제 완전히 거짓이다
+
+§8-66 은 "Knox 로는 뚫었지만 **Ranger 는 권한을 제어하지 않는다**" 로 끝났다.
+지금은 셋 다 제어한다:
+
+| 대상 | 버전 | 플러그인 | 인가 증명 |
+|---|---|---|---|
+| **HDFS** | Hadoop 3.5.0 | `docker/ranger-hdfs-plugin` (Jersey 2 백포트, §8-68) | DENY·ALLOW 양방향 + 대조군 |
+| **HBase** | 3.0.0 | `docker/ranger-hbase-plugin` (**이식**, §8-69) | scan + **DDL** + 대조군 |
+| **Hive** | 4.0.1 | `docker/ranger-hive-plugin` (백포트, 이 절) | 거부 → 정책 → 허용 + 대조군 |
+
+전부 Ranger **2.9.0** 하나로 돌고, Admin 은 업스트림 이미지 그대로다.
+
+#### 남는 것
+
+- **감사(audit)가 세 플러그인 모두 꺼져 있다.** 누가 무엇을 거부당했는지
+  남지 않는다 — 지금은 거부가 클라이언트 예외로만 드러난다. 목적지(Solr 또는
+  HDFS)를 세우는 것은 별개 작업이다
+- **`preEndpointInvocation`**(HBase) — 대체 훅이 없어 남는 공백(§8-69)
+- **이식본 세 개의 유지보수 부담.** Hadoop·HBase·Hive 버전을 움직이면
+  해당 플러그인 이미지를 함께 손봐야 한다. Ranger 3.0.0 이 릴리스되면
+  HDFS·Hive 것은 지울 수 있다(HBase 는 upstream 이 아직 지원하지 않는다)
+
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
 > **이 절은 "지금 하지 않기로 결정한 것" 의 목록이다.** §8 의 각 절 끝에
