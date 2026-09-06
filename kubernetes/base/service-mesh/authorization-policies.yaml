@@ -53,6 +53,10 @@ spec:
               #   통과하므로 DB 문제로 오해하기 쉽다. Gotcha 19 · §8-71
               - "*/sa/hive-schematool"
               - "*/sa/apicurio"
+              # ★ ShardingSphere-Proxy 는 **소비자가 아니라 프록시**다 —
+              #   자기 뒤의 PostgreSQL 에 붙어야 하므로 여기 있어야 한다.
+              #   전용 SA 가 없으면 이 한 줄을 쓸 수 없다(Gotcha 10). §8-75
+              - "*/sa/shardingsphere"
               - "*/sa/ranger-admin"
               - "*/sa/glitchtip"
               - "*/sa/dependency-track"
@@ -69,6 +73,35 @@ spec:
       to:
         - operation:
             ports: ["5432"]
+    # → ShardingSphere-Proxy (PostgreSQL 와이어, 3307) — §8-75
+    #   ★★ 이 규칙이 **반드시 있어야 한다.** ShardingSphere 에
+    #     `component: database` 라벨이 있어 이 ALLOW 정책이 그 워크로드를
+    #     선택하는데, 규칙에 3307 이 없으면 **매칭되지 않은 전부가 거부**된다
+    #     (Gotcha 9). 실측: `connection closed due to policy rejection:
+    #     allow policies exist, but none allowed` — 파드는 1/1 Running 이고
+    #     백엔드 풀도 정상이라 프록시 자체 문제로 오해하기 쉽다.
+    #   ★ 원칙은 "PostgreSQL 에 직접 닿을 수 있는 것은 프록시를 통해서도
+    #     닿을 수 있다" 다. 위 5432 목록과 같은 집합을 유지할 것 —
+    #     한쪽만 고치면 프록시로 옮긴 소비자가 조용히 끊긴다.
+    - from:
+        - source:
+            principals:
+              - "*/sa/keycloak"
+              - "*/sa/gitlab"
+              - "*/sa/hive-metastore"
+              - "*/sa/hive-schematool"
+              - "*/sa/apicurio"
+              - "*/sa/shardingsphere"
+              - "*/sa/ranger-admin"
+              - "*/sa/glitchtip"
+              - "*/sa/dependency-track"
+              - "*/sa/defectdojo"
+              - "*/sa/safeline"
+              - "*/sa/openmeter"
+              - "*-openreplay"
+      to:
+        - operation:
+            ports: ["3307"]
     # → MariaDB
     - from:
         - source:

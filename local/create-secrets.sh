@@ -45,6 +45,9 @@ mk postgresql-secret  "postgresql-password=$PG"      "postgres-password=$PG"
 mk mariadb-secret     "root-password=$MARIA_ROOT"    "mariadb-root-password=$MARIA_ROOT" "app-password=$MARIA_APP"
 mk mongodb-secret     "root-password=$MONGO"         "mongodb-root-password=$MONGO"
 mk redis-secret       "redis-password=$REDIS"
+# ShardingSphere-Proxy 의 프록시 사용자(proxyadmin). 뒤쪽 PostgreSQL 자격과
+# **별개**여야 한다 — 프록시 자격이 새도 DB 자격은 지켜진다(§8-44 와 같은 이유).
+mk shardingsphere-secret "proxy-password=$(gen)"
 mk minio-secret       "root-user=oimadmin"           "root-password=$MINIO_PW" \
                       "minio-access-key=oimadmin"    "minio-secret-key=$MINIO_PW"
 

@@ -1,0 +1,177 @@
+# ShardingSphere-Proxy — 관계형 DB 접근 계층 (§8-75)
+#
+# ★★ **지금은 소비자가 없다.** 기존 `postgresql-headless` 와 나란히 서고,
+#   접속 문자열 14곳은 그대로 둔다. 도입 목적이 "나중에 필요할 능력을 미리
+#   세워 두는 것" 이기 때문이다 — 지금 앞단에 끼워 넣으면 돌고 있는 것에
+#   SPOF 만 추가된다. 소비자 이설은 건별로 판단한다.
+#
+# ★ 도입 근거와 보류했던 이유는 §8-75 에 있다. 요약하면 ShardingSphere 가
+#   ProxySQL·Envoy·CNPG 대비 유일하게 앞서는 축이 **암호화·마스킹·샤딩·
+#   분산 트랜잭션**이고, 그것이 필요해질 때 프록시를 새로 도입하는 것보다
+#   미리 세워 두는 편이 낫다는 판단이다.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: shardingsphere
+  labels:
+    app.kubernetes.io/name: shardingsphere
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shardingsphere
+  labels:
+    app.kubernetes.io/name: shardingsphere
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  # ★ 1 을 넘기지 말 것. Standalone 모드는 인스턴스마다 설정이 갈린다 —
+  #   늘리려면 global.yaml 을 Cluster 모드(ZooKeeper/etcd)로 먼저 바꿔야 한다.
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: shardingsphere
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: shardingsphere
+        app.kubernetes.io/component: database
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      # ★ ambient 에서 ServiceAccount 는 곧 신원이다(Gotcha 10). 전용 SA 가
+      #   없으면 `allow-database-access` 에 이 워크로드만 허용할 수 없다.
+      serviceAccountName: shardingsphere
+      securityContext:
+        # 이미지에 USER 선언이 없어 기본이 root 다. 레포 표준으로 내린다.
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # ★ 설정 템플릿의 자리표시자를 Secret 값으로 치환한다.
+        #   ShardingSphere 는 설정을 YAML 파일로만 읽고 환경변수 오버라이드가
+        #   없어서(OpenMeter 와 같은 제약, Gotcha 26) 이 방법 외에는 ConfigMap 에
+        #   평문 비밀번호를 두게 된다. ranger-usersync 와 같은 패턴이다.
+        - name: render-config
+          image: busybox:1.38.0
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              for f in global database-oim; do
+                sed -e "s|__SS_PROXY_PASSWORD__|${SS_PROXY_PASSWORD}|" \
+                    -e "s|__PG_PASSWORD__|${PG_PASSWORD}|" \
+                    "/tmpl/${f}.yaml.tmpl" > "/conf/${f}.yaml"
+                chmod 600 "/conf/${f}.yaml"
+              done
+              # fail-closed — 치환이 안 된 자리표시자가 남으면 기동하지 않는다.
+              # 남은 채로 뜨면 프록시가 틀린 비밀번호로 붙어 조용히 실패한다.
+              ! grep -q "__.*__" /conf/global.yaml /conf/database-oim.yaml
+              echo "[render] 설정 2개 생성 (자리표시자 잔여 0)"
+          env:
+            - name: SS_PROXY_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: shardingsphere-secret, key: proxy-password }
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: postgresql-secret, key: postgres-password }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits:   { cpu: 100m, memory: 64Mi }
+          volumeMounts:
+            - { name: tmpl, mountPath: /tmpl, readOnly: true }
+            - { name: conf, mountPath: /conf }
+      containers:
+        - name: shardingsphere
+          image: apache/shardingsphere-proxy:5.5.3
+          ports:
+            - containerPort: 3307
+              name: pgwire
+              protocol: TCP
+          env:
+            # ★ 엔트리포인트가 `${LOCAL_PATH}/bin/start.sh ${PORT}` 다.
+            #   둘 다 비어 있으면 경로가 깨진다.
+            - name: LOCAL_PATH
+              value: /opt/shardingsphere-proxy
+            - name: PORT
+              value: "3307"
+            # ★ 힙을 컨테이너 limit 아래로 명시한다. limit 을 넘기면 OOMKill 이고,
+            #   그때 로그에는 아무것도 남지 않는다(hive-metastore 전례, §8).
+            - name: JVM_OPTS
+              value: "-Xmx768m -Xms256m -XX:MaxMetaspaceSize=256m"
+          volumeMounts:
+            # 렌더된 설정으로 이미지의 샘플 conf 를 덮는다.
+            - { name: conf, mountPath: /opt/shardingsphere-proxy/conf }
+            # Standalone + JDBC 저장소가 여기에 H2 파일을 만든다.
+            - { name: data, mountPath: /opt/shardingsphere-proxy/data }
+            - { name: logs, mountPath: /opt/shardingsphere-proxy/logs }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+            # ★ true 로 두지 못한다 — start.sh 가 logs/ 와 data/ 에 쓴다.
+            #   대신 그 두 경로만 emptyDir 로 열고 나머지는 읽기 전용이다.
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          # JVM 기동 + 스토리지 유닛 접속에 시간이 걸린다.
+          # 포트가 열리는 것으로 판정한다 — HTTP 헬스 엔드포인트가 없다.
+          startupProbe:
+            tcpSocket: { port: pgwire }
+            failureThreshold: 30
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: pgwire }
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            tcpSocket: { port: pgwire }
+            periodSeconds: 20
+            timeoutSeconds: 5
+      volumes:
+        - name: tmpl
+          configMap:
+            name: shardingsphere-config
+        - name: conf
+          emptyDir: {}
+        - name: data
+          emptyDir:
+            sizeLimit: 512Mi
+        - name: logs
+          emptyDir:
+            sizeLimit: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shardingsphere
+  labels:
+    app.kubernetes.io/name: shardingsphere
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3307
+      targetPort: pgwire
+      protocol: TCP
+      name: pgwire
+  selector:
+    app.kubernetes.io/name: shardingsphere

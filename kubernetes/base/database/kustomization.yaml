@@ -23,6 +23,10 @@ resources:
   # Redis
   - redis/redis-statefulset.yaml
   - redis/redis-headless.yaml
+  # ShardingSphere-Proxy — 관계형 DB 접근 계층 (§8-75).
+  # ★ 지금은 소비자가 없다. 기존 postgresql-headless 와 나란히 선다.
+  - shardingsphere/shardingsphere-configmap.yaml
+  - shardingsphere/shardingsphere-deployment.yaml
   # - redis/redis-secret.enc.yaml  # SOPS: re-enable after ArgoCD SOPS plugin setup
 
 commonLabels:

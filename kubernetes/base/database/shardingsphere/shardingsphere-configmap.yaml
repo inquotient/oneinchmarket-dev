@@ -1,0 +1,74 @@
+# ShardingSphere-Proxy 설정 (§8-75)
+#
+# ★★ 이 파일에는 **비밀번호가 없다.** 자리표시자를 두고 Deployment 의
+#   initContainer 가 Secret 값으로 치환한다 — ranger-usersync 와 같은 패턴이다.
+#   ShardingSphere 는 설정을 YAML 파일로만 읽고 환경변수 오버라이드가 없어서
+#   (OpenMeter 와 같은 제약, Gotcha 26) 이 방법 외에는 평문을 두게 된다.
+#
+# ★ 인스턴스당 **프런트엔드 프로토콜이 하나**다. 이 인스턴스는 PostgreSQL 이다.
+#   MariaDB 를 프록시하려면 별도 인스턴스가 필요하다 — 지금은 메모리가 없다.
+#   근거: 렌더 기준 접속 지점이 PostgreSQL 14곳 · MariaDB 1곳이다.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shardingsphere-config
+  labels:
+    app.kubernetes.io/name: shardingsphere
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+data:
+  # ── 전역 설정 ────────────────────────────────────────────────────
+  global.yaml.tmpl: |
+    # ★ Standalone 모드다. Cluster 모드는 ZooKeeper 등 레지스트리를 요구하는데,
+    #   이 랩의 ZooKeeper 는 HBase 전용이고(overlays/local/lakehouse-local)
+    #   거기에 거버넌스 네임스페이스를 얹으면 두 용도가 한 앙상블을 공유한다.
+    #   레플리카가 1이라 Cluster 모드의 이점(설정 공유·수평 확장)도 없다.
+    #   ★ 레플리카를 늘릴 때는 반드시 Cluster 모드로 바꿀 것 — Standalone 은
+    #     인스턴스마다 설정이 갈린다.
+    mode:
+      type: Standalone
+      repository:
+        type: JDBC
+
+    authority:
+      users:
+        - user: proxyadmin@%
+          password: __SS_PROXY_PASSWORD__
+          admin: true
+      privilege:
+        type: ALL_PERMITTED
+
+    props:
+      # ★ 이 값이 없으면 프록시가 프런트엔드 프로토콜을 스토리지 유닛에서
+      #   추론한다. 명시해 두어야 나중에 이종 스토리지를 붙여도 흔들리지 않는다.
+      proxy-frontend-database-protocol-type: PostgreSQL
+      proxy-default-port: 3307
+      # 단일 노드 랩이다. 기본값(Netty 가 코어 수만큼)은 과하다.
+      proxy-frontend-executor-size: 4
+      kernel-executor-size: 4
+      # 개발 편의보다 안전을 택한다 — 질의 전문이 로그로 나가지 않는다.
+      sql-show: false
+
+  # ── 논리 데이터베이스 ────────────────────────────────────────────
+  # ★ 지금은 **패스스루**다. 규칙(sharding·encrypt·mask)을 하나도 걸지 않고
+  #   스토리지 유닛만 등록한다. 도입 목적이 "나중에 필요할 능력을 미리 세워
+  #   두는 것" 이므로, 지금 규칙을 넣으면 검증할 수 없는 동작이 늘어난다.
+  #   규칙은 DistSQL 로 런타임에 추가할 수 있다(재기동 불필요).
+  #
+  # ★ 소비자를 아직 옮기지 않는다. 이 프록시는 기존 postgresql-headless 와
+  #   **나란히** 선다. 옮기는 것은 소비자별로 따로 판단한다 — §8-75.
+  database-oim.yaml.tmpl: |
+    databaseName: oim
+    dataSources:
+      oneinchmarket:
+        url: jdbc:postgresql://postgresql-headless:5432/oneinchmarket
+        username: postgres
+        password: __PG_PASSWORD__
+        connectionTimeoutMilliseconds: 30000
+        idleTimeoutMilliseconds: 60000
+        maxLifetimeMilliseconds: 1800000
+        # ★ 풀 크기를 작게 잡는다. 기본 50 은 이 랩의 PostgreSQL
+        #   max_connections 를 프록시 하나가 잠식한다.
+        maxPoolSize: 10
+        minPoolSize: 1

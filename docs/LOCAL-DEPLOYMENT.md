@@ -7460,6 +7460,128 @@ v5 가 Alpine 프레임워크를 걷어낸 것이 아니라 **설정 네임스�
 - **관리 포트 9000 의 지표를 Prometheus 가 긁게 할 것.** Service 에 포트는
   열어 두었으나 scrape 설정과 NetworkPolicy 는 아직 없다
 
+### 8-75. ShardingSphere-Proxy 도입 — 소비자 없이 옆에 세운다 (2026-09-07)
+
+관계형 DB 접근 계층을 네 후보로 검토한 끝에 **ShardingSphere-Proxy 를 도입했다.**
+검토 과정 자체가 결론만큼 중요하므로 함께 남긴다.
+
+#### 검토한 것 — 그리고 두 번 틀린 것
+
+| 후보 | 판정 |
+|---|---|
+| **CNPG** · **Galera** | 검토 대상이 아니었다 — **§13-2 의 기결정 사항**이고 `replicas-prod.yaml`·`ha-verification/` 이 이미 참조한다 |
+| **MariaDB Operator** | §13-2 의 **빈칸**. Galera 라는 기구는 골랐으나 누가 운영할지는 고르지 않았다 |
+| **ProxySQL** | ShardingSphere 보다 가볍고(C++ vs JVM) `mysql_galera_hostgroups` 로 Galera 를 안다. 저장소 설명이 이제 *"proxy for MySQL and PostgreSQL"* 이라 커버리지도 같다 |
+| **Envoy** | MySQL·Postgres·Mongo·Redis 네트워크 필터가 **전부 있다.** 이미 돌고 있는 것이기도 하다(waypoint) |
+
+★ **두 번 틀렸고 둘 다 사용자가 잡아 주었다.**
+
+**① "k3s 를 먼저 올리자"(§8-73)** 와 같은 부류의 실수를 여기서도 했다 —
+ShardingSphere 를 **샤딩 도구로만 평가**하고 "필요 없다" 로 끝냈다. 게이트웨이
+관점(토폴로지 은닉·자격 은닉·감사)은 다른 질문이고, 그 관점에서는 §15-1 이
+"가장 큰 숨은 작업" 이라 부른 접속 문자열 변경을 흡수한다는 진짜 논거가 있다.
+
+**② "ProxySQL 이 모든 축에서 낫다" 도 틀렸다.** 게이트웨이 용도의 축에서만
+그렇다. **샤딩 · 분산 SQL · 분산 트랜잭션 · 암호화/마스킹 · 복잡한 분할**에서는
+ProxySQL 이 경쟁 상대가 아니다. 두 제품은 같은 범주가 아니다 — 하나는 라우팅
+프록시, 하나는 데이터 분할 플랫폼이다.
+
+★ 그리고 조사 중에 **"SQL 감사는 Ranger 의 자리" 라고 쓴 것도 틀렸다** —
+Ranger 플러그인은 Hive·Trino·HBase·HDFS·Kafka 계열이고 **PostgreSQL·MariaDB
+플러그인은 없다.** 그 조언대로 하면 켤 것이 없다.
+
+#### 도입 판단
+
+문서 전수 조사 결과 ShardingSphere 고유 축 다섯 중 넷은 **요구사항이 0건**이고
+하나(페더레이션)는 Trino 가 담당한다. 남는 것이 **암호화·마스킹**이고, 그것은
+규모가 아니라 거버넌스 요건이라 "언젠가" 가 아니라 "요건이 서면 즉시" 다.
+
+그래서 **미리 세워 둔다.** 필요해진 시점에 프록시를 새로 도입하고 소비자를
+옮기는 것보다, 세워 두고 소비자를 하나씩 옮기는 편이 낫다.
+
+#### ★★ 도입 형태 — "앞에" 가 아니라 "옆에"
+
+**지금 이 프록시에는 소비자가 없다.** 기존 `postgresql-headless` 와 나란히 서고
+접속 문자열 14곳은 그대로다. 이유는 셋이다:
+
+1. 앞단에 끼워 넣으면 **돌고 있는 것에 SPOF 만 추가**된다. HA 를 세우려다 HA
+   문제를 하나 더 만드는 구조다
+2. CNPG 가 오면 백엔드가 `-rw`/`-ro` 로 바뀐다. 지금 소비자를 옮기면 **두 번**
+   고친다
+3. 규칙(sharding·encrypt·mask)을 하나도 걸지 않은 **패스스루**라, 지금 옮겨도
+   얻는 것이 없다. 규칙은 DistSQL 로 런타임에 추가할 수 있다(재기동 불필요)
+
+#### 구성
+
+| 항목 | 값 | 근거 |
+|---|---|---|
+| 이미지 | `apache/shardingsphere-proxy:5.5.3` | 최신 릴리스 |
+| 프런트엔드 프로토콜 | **PostgreSQL** | 인스턴스당 하나뿐이다. 접속 지점이 PostgreSQL 14곳 · MariaDB 1곳이라 이쪽을 택했다 |
+| 포트 | 3307 | `proxy-default-port` |
+| 모드 | **Standalone** (JDBC 저장소) | Cluster 모드는 레지스트리를 요구한다. 이 랩의 ZooKeeper 는 HBase 전용이고, 레플리카가 1이라 이점도 없다. ★ **레플리카를 늘리려면 반드시 Cluster 로 바꿀 것** — Standalone 은 인스턴스마다 설정이 갈린다 |
+| 힙 | `-Xmx768m` (limit 1Gi) | 도입 시점 노드 메모리 요청이 95% 였다 |
+| 비밀번호 | 자리표시자 + initContainer 치환 | ShardingSphere 도 **환경변수 오버라이드가 없다**(OpenMeter 와 같은 제약, Gotcha 26). ranger-usersync 와 같은 패턴이다 |
+
+★ 프록시 사용자(`proxyadmin`)의 자격은 뒤쪽 PostgreSQL 자격과 **별개**다 —
+프록시 자격이 새도 DB 자격은 지켜진다(§8-44 와 같은 이유).
+
+★ initContainer 는 **fail-closed** 다. 치환되지 않은 자리표시자가 남으면 기동
+하지 않는다 — 남은 채로 뜨면 프록시가 틀린 비밀번호로 붙어 조용히 실패한다.
+
+#### ★★ 막힌 지점 — Gotcha 9 를 내가 다시 밟았다
+
+파드가 `1/1 Running` 이고 백엔드 HikariPool 이 커넥션 10개를 정상 확보했는데도
+클라이언트 접속이 즉시 끊겼다:
+
+```
+psql: error: connection to server at "shardingsphere" ... failed:
+      server closed the connection unexpectedly
+```
+
+ztunnel 로그가 답을 준다:
+
+```
+connection closed due to policy rejection: allow policies exist, but none allowed
+```
+
+원인은 프록시가 아니다. ShardingSphere 에 `app.kubernetes.io/component: database`
+라벨을 주었고, 그래서 **`allow-database-access` 가 이 워크로드를 선택**하는데
+그 정책의 규칙에는 5432·3306·27017·6379 만 있고 **3307 이 없다.**
+ALLOW 정책이 워크로드를 선택하면 **매칭되지 않은 전부가 거부된다**(Gotcha 9).
+
+★ 알아채기 어려운 이유가 겹친다 — 파드는 Ready 이고, 백엔드 풀은 정상이며,
+오류 메시지가 "서버가 연결을 닫았다" 라 **프록시 자체의 문제로 읽힌다.**
+
+해소는 3307 규칙 추가다. 원칙은 **"PostgreSQL 에 직접 닿을 수 있는 것은
+프록시를 통해서도 닿을 수 있다"** 이고, 그래서 5432 와 **같은 principal 집합**을
+쓴다. ★ 한쪽만 고치면 프록시로 옮긴 소비자가 조용히 끊긴다.
+
+#### 검증 — 파드 상태가 아니라 기능으로
+
+```
+=== 1) 스토리지 유닛 ===
+ name          | type       | host                | port | db
+ oneinchmarket | PostgreSQL | postgresql-headless | 5432 | oneinchmarket
+
+=== 2) 프록시를 통한 실제 질의 ===
+ current_database | version
+ oneinchmarket    | PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2) ...
+```
+
+프록시(3307)를 거쳐 실제 PostgreSQL 18.6 에 질의가 도달했다. `1/1 Running` 만
+보고 끝냈다면 위의 정책 결함을 놓쳤을 것이다.
+
+#### 남는 것
+
+- **소비자 이설이 0곳이다.** 마스킹·암호화 요건이 서면 그때 건별로 옮긴다.
+  옮길 때는 `allow-database-access` 의 3307 목록도 함께 볼 것
+- **MariaDB 는 덮지 못한다.** 인스턴스당 프로토콜이 하나라 별도 인스턴스가
+  필요하고, 지금은 메모리가 없다(요청 96%)
+- **Standalone 이라 레플리카가 1로 고정**이다. 늘리려면 Cluster 모드 + 레지스트리
+- **CNPG 가 오면 백엔드 URL 을 `-rw`/`-ro` 로 바꿔야 한다** — 이 프록시가 그
+  변경을 소비자로부터 가려 주는 것이 원래 노린 이득이다
+- **MariaDB Operator 는 여전히 §13-2 의 빈칸이다**
+
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
 > **이 절은 "지금 하지 않기로 결정한 것" 의 목록이다.** §8 의 각 절 끝에
