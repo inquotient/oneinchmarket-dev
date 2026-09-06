@@ -108,9 +108,30 @@ spec:
             principals:
               - "*/sa/admin"
               - "*/sa/cmmn-api"
+              # ★ ProxySQL 은 소비자가 아니라 프록시다 — 뒤쪽 MariaDB 에
+              #   붙어야 하므로 여기 있어야 한다(§8-76).
+              - "*/sa/proxysql"
+              # ★ DB·사용자를 만드는 부트스트랩 Job. 전용 SA 가 없어 `default`
+              #   로 돌다가 **무한 대기**하고 있었다 — Gotcha 19 의 다섯 번째
+              #   사례다(§8-76). 오류가 아니라 대기라 더 늦게 드러난다.
+              - "*/sa/mariadb-bootstrap"
       to:
         - operation:
             ports: ["3306"]
+    # → ProxySQL (MySQL 와이어, 6033) — §8-76
+    #   ★ ShardingSphere 3307 과 같은 이유로 이 규칙이 필요하다. `component:
+    #     database` 라벨 때문에 이 ALLOW 정책이 ProxySQL 을 선택하므로,
+    #     6033 규칙이 없으면 **모든 접속이 거부**된다(Gotcha 9).
+    #     3306 목록과 같은 집합을 유지할 것.
+    - from:
+        - source:
+            principals:
+              - "*/sa/admin"
+              - "*/sa/cmmn-api"
+              - "*/sa/proxysql"
+      to:
+        - operation:
+            ports: ["6033"]
     # → MongoDB
     - from:
         - source:

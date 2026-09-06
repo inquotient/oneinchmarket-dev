@@ -98,6 +98,15 @@ sudo podman build --format docker --network host \
   -t oneinch/jenkins:latest -t oneinch/jenkins:2.568.3-lts \
   "${REPO_ROOT}/docker/jenkins"
 
+log "oneinch/proxysql 빌드"
+# ProxySQL 은 패키지와 컨테이너 이미지의 릴리스 주기가 다르다 — 4.x 는
+# 릴리스 자산이 rpm·deb·tar.gz 뿐이고 Docker Hub 에도 ghcr 에도 이미지가 없다.
+# 그래서 릴리스 tarball 로 직접 굽는다. 상세는 docker/proxysql/Dockerfile 과 §8-76.
+# ★ 업스트림이 4.x 컨테이너를 내기 시작하면 이 항목과 docker/proxysql 을 지울 것.
+sudo podman build --format docker --network host \
+  -t oneinch/proxysql:latest -t oneinch/proxysql:4.0.11 \
+  "${REPO_ROOT}/docker/proxysql"
+
 log "k3s containerd 로 반입 (namespace k8s.io)"
 # ★ 매니페스트가 참조하는 **정확한 태그**를 반입해야 한다. :latest 만 넣으면
 #   버전 태그를 쓰는 워크로드가 ImagePullBackOff 로 멈춘다 —
@@ -110,6 +119,7 @@ for img in oneinch/spark-iceberg:latest oneinch/spark-iceberg:3.5.6 \
            oneinch/ranger-usersync:latest oneinch/ranger-usersync:2.9.0 \
            oneinch/hbase:latest oneinch/hbase:3.0.0 \
            oneinch/jenkins:latest oneinch/jenkins:2.568.3-lts \
+           oneinch/proxysql:latest oneinch/proxysql:4.0.11 \
            oneinch/ranger-hdfs-plugin:latest oneinch/ranger-hdfs-plugin:2.9.0-jersey2 \
            oneinch/ranger-hbase-plugin:latest oneinch/ranger-hbase-plugin:2.9.0-hbase3 \
            oneinch/ranger-hive-plugin:latest oneinch/ranger-hive-plugin:2.9.0-hive4; do

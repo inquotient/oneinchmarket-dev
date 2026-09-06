@@ -7582,6 +7582,155 @@ ALLOW 정책이 워크로드를 선택하면 **매칭되지 않은 전부가 거
   변경을 소비자로부터 가려 주는 것이 원래 노린 이득이다
 - **MariaDB Operator 는 여전히 §13-2 의 빈칸이다**
 
+### 8-76. ProxySQL 4.0.11 도입 — 공식 이미지가 없어 직접 굽는다 (2026-09-07)
+
+§8-75 의 ShardingSphere 와 **상보 관계**다. 인스턴스당 프런트엔드 프로토콜이
+하나이므로:
+
+| 프록시 | 와이어 | 포트 | 백엔드 |
+|---|---|---|---|
+| ShardingSphere-Proxy 5.5.3 | PostgreSQL | 3307 | `postgresql-headless` |
+| **ProxySQL 4.0.11** | **MySQL/MariaDB** | **6033** | `mariadb-headless` |
+
+둘 다 **소비자가 없다.** 기존 서비스와 나란히 서고 접속 문자열은 그대로다.
+
+#### 왜 4.0.11 이고 왜 자체 빌드인가
+
+**ProxySQL 은 패키지와 컨테이너 이미지의 릴리스 주기가 다르다.** 실측:
+
+```
+GitHub 최신 릴리스              : v4.0.11
+Docker Hub proxysql/proxysql   : 3.0.11  (전체 300개 태그에 4.x 없음)
+ghcr.io/sysown/proxysql        : 없음
+v4.0.11 릴리스 자산            : rpm · deb · tar.gz + 서명/해시. Docker 언급 0건
+```
+
+4.x 는 **GenAI 플러그인 · MCP 엔드포인트 · RAG/벡터 도구**가 들어간 기능 계열
+이고 3.x 가 안정 계열로 보인다 — 4.0.11 바이너리 스스로
+`Latest ProxySQL version available: 3.0.11-...` 을 보고한다.
+
+★ 나는 처음에 "메모리 때문에 3.0.11 을 쓰자" 고 했다. **틀렸다.** 실측하니
+유휴 RSS 가 3.0.11 **18.5 MB**, 4.0.11 **18.4 MB** 로 차이가 없다. C++ 바이너리라
+JVM 과 성격이 다르다(같은 랩의 ShardingSphere 는 힙만 768 MB 다).
+메모리는 버전 선택의 근거가 되지 못했다.
+
+#### ★★ 체크섬이 없었다면 잘린 아티팩트로 이미지를 구웠다
+
+tarball 을 받으며 `curl --max-time` 을 썼고 **종료 코드를 확인하지 않았다.**
+그 결과:
+
+| 시도 | 크기 | sha256 |
+|---|---:|---|
+| 1차(`--max-time 60`) | 29.7 MB | `5fab5e…` |
+| 2차(`--max-time 90`) | 40.5 MB | `ea7e78…` |
+| 공식 게시값 | — | `635f0e…` |
+| **정상(`--max-time` 제거)** | **95.4 MB** | **`635f0e…` ✓** |
+
+**같은 URL 을 두 번 받아 크기가 다른 파일 두 개가 나왔고 둘 다 게시값과 달랐다.**
+그런데 **1차 파일은 `tar` 로 풀렸고 바이너리가 실행까지 됐다** — 앞부분만으로도
+동작한 것이다. Gotcha 12 그대로다. Dockerfile 에 `sha256sum -c` 를 넣고
+`--max-time` 금지를 주석으로 못박았다.
+
+#### 구성
+
+| 항목 | 값 | 근거 |
+|---|---|---|
+| 이미지 | `oneinch/proxysql:4.0.11` | `docker/proxysql/Dockerfile` — 릴리스 tarball + sha256 검증 |
+| 베이스 | `debian:13.6-slim` | 런타임 의존은 `ldd` 로 확인한 **`libgnutls30` 하나뿐**. 추측으로 넣지 않았다 |
+| 사용자 | uid 1000 (비-root) | 이미지에 USER 선언이 없어 기본이 root 다. Dockerfile 에서 만든다 |
+| datadir | **emptyDir** | ★★ 아래 참조 |
+| 관리 포트 6032 | **Service 미노출** | 런타임 설정을 바꾸는 문이다. cnf 가 `127.0.0.1` 로만 바인딩한다 |
+| MCP | **끄지 않고 그대로 둔다**(기본 비활성) | 노출 범위·토큰 보관 미결. 아래 "남는 것" |
+| 자원 | request 64Mi / limit 256Mi | 실측 RSS 18.3 MB |
+
+★★ **datadir 을 emptyDir 로 두는 것이 설계다.** ProxySQL 은 설정을 datadir 의
+SQLite(`proxysql.db`)에 넣고 **그 파일이 있으면 `.cnf` 를 무시한다.**
+`--initial` 없이 재기동하면 옛 설정으로 뜬다. emptyDir 이면 매 기동이 새것이라
+ConfigMap 이 항상 권위를 갖는다. **PVC 로 바꾸는 순간 설정 변경이 조용히
+무시된다** — 이 레포가 반복해서 겪은 "설정이 반영되지 않는데 오류도 없는"
+부류다(Gotcha 26·48).
+
+★ 모니터 계정을 **분리했다.** `mariadb-bootstrap` 이 `'proxysql-monitor'@'%'` 를
+`GRANT USAGE` 만으로 만든다 — 헬스체크는 ping 과 연결 성립만 보므로 데이터
+접근 권한이 필요 없다. 앱 계정 재사용은 §8-44(Ranger 의 다섯 자격이 전부 같은
+값이었던 결함)의 반복이다. Galera 를 세우면 wsrep 상태를 읽어야 하므로 그때
+`REPLICATION CLIENT` 를 더한다.
+
+#### 도입 목적 — Galera 대비
+
+§13-2 는 MariaDB Galera 에 대해 **"접속 문자열 변경 없음(아무 노드나 쓰기)"**
+이라고 적었다. 접속 문자열 관점에서는 맞지만 **비용이 0 이라는 뜻은 아니다.**
+Galera 는 다중 마스터지만 여러 노드에 동시에 쓰면 같은 행에 대해 **커밋 시점에
+certification 실패**가 난다. 실무 표준은 **단일 라이터 라우팅**이고, ProxySQL 의
+`mysql_galera_hostgroups` 가 그것을 강제한다:
+
+```
+writer_hostgroup · backup_writer_hostgroup · reader_hostgroup · offline_hostgroup
+max_writers DEFAULT 1     -- 초과 노드는 backup 으로 밀린다
+```
+
+`wsrep_local_state`·`wsrep_desync`·`wsrep_reject_queries` 를 감시해 문제 노드를
+자동으로 뺀다. **§13-2 가 빠뜨린 비용이 여기서 지불된다.**
+
+#### ★★ 부트스트랩 Job 이 무한 대기하고 있었다 — Gotcha 19 의 다섯 번째
+
+모니터 계정을 만들려고 `mariadb-bootstrap` 을 재실행하자 **끝나지 않았다.**
+로그는 `[mariadb-bootstrap] MariaDB 대기` 한 줄에서 멈춘 채였다.
+
+원인은 전용 SA 부재다. ztunnel 로그가 답을 준다:
+
+```
+src.workload="mariadb-bootstrap-..." src.identity="spiffe://.../sa/default"
+dst.service="mariadb-headless..." dst.hbone_addr=...:3306
+error="connection closed due to policy rejection: allow policies exist, but none allowed"
+```
+
+★ **증상이 오류가 아니라 대기다.** `until mariadb-admin ping ...` 루프가 영원히
+돌아 Job 이 `Running` 인 채로 남는다. hive-schematool(§8-71)은 `PSQLException`
+이라도 냈지만 이쪽은 아무것도 내지 않는다 — **더 늦게 드러난다.**
+
+★★ 그리고 이것만이 아니다. `base/bootstrap/` 의 **4개가 `default` SA 로 돈다**:
+`mariadb-bootstrap` · `postgres-bootstrap` · `minio-bootstrap` · `ds389-bootstrap`.
+앞의 셋은 ztunnel 로그에서 실제로 거부되는 것을 확인했다. 이번에는 작업에 필요한
+`mariadb-bootstrap` 만 고쳤다 — 나머지는 §9 로 넘긴다.
+
+#### 검증 — 파드 상태가 아니라 기능으로
+
+```
+=== ProxySQL(6033) 경유 ===
+ v                        backend_host
+ 12.3.3-MariaDB-ubu2404   mariadb-0
+
+=== 대조군: MariaDB 직접(3306) ===
+ v                        backend_host
+ 12.3.3-MariaDB-ubu2404   mariadb-0
+```
+
+프록시를 거친 결과가 직접 접속과 동일하다. 그리고 Job 이 `Completed` 로 끝나며
+`mysqld is alive` · `cmmn` DB 를 보고했다 — 위의 무한 대기가 해소된 증거다.
+
+★ 인가 정책은 ShardingSphere 에서 배운 것을 **미리** 적용했다 —
+`component: database` 라벨 때문에 `allow-database-access` 가 ProxySQL 을
+선택하므로 **6033 규칙을 처음부터 넣었다**(Gotcha 9). §8-75 에서는 이걸 빠뜨려
+한 번 막혔다.
+
+#### 남는 것
+
+- **소비자 이설 0곳.** Galera 가 서는 시점에 `cmmn-api` 를 옮긴다
+- **MCP 는 꺼져 있다.** 켜기 전에 정해야 할 것 셋: ① 엔드포인트가 무엇을
+  노출하는지(processlist·쿼리 통계가 AI 에 나간다) ② 베어러 토큰을 어디 둘지
+  — 이 레포의 시크릿 관리가 미작동이다 ③ 3.x/4.x 트랙 관계
+- **`docker/proxysql` 은 유지보수 짐이다.** Ranger 플러그인 3종과 같은 성격이라
+  업스트림이 4.x 컨테이너를 내면 지운다. 자체 빌드 이미지가 이제 **9종**이다
+- **`default` SA 부트스트랩 Job 3개가 남았다** — `postgres-bootstrap` ·
+  `minio-bootstrap` · `ds389-bootstrap`
+- **`cmmn` 과 `cmmn-api` 두 계정이 공존한다.** `mariadb-bootstrap` 은 `cmmn` 을
+  만들고 앱(`cmmn-api-statefulset`)은 `DB_USERNAME=cmmn-api` 로 붙는다.
+  후자는 MariaDB 이미지 엔트리포인트가 만든 것이고 **비밀번호 출처가 다르다**
+  (`mariadb-secret/app-password` vs `cmmn-api-secret/db-password`).
+  이번 검증은 `cmmn-api` 로 통과했으므로 앱 경로는 살아 있으나, **부트스트랩이
+  만드는 계정과 앱이 쓰는 계정이 다른 것 자체가 정리 대상이다**
+
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
 > **이 절은 "지금 하지 않기로 결정한 것" 의 목록이다.** §8 의 각 절 끝에
@@ -7616,6 +7765,7 @@ ALLOW 정책이 워크로드를 선택하면 **매칭되지 않은 전부가 거
   올바른 방법은 kubelet 의 실제 회전을 유도하는 것이고 아직 하지 않았다
 - **Kyverno 미충족** — `require-health-probes` 약 212건,
   `disallow-privilege-escalation` 178건(prod 는 Enforce 다)
+- **`default` SA 로 도는 부트스트랩 Job 3건** — `postgres-bootstrap` · `minio-bootstrap` · `ds389-bootstrap`. 셋 다 ztunnel 이 거부하며, 증상이 **오류가 아니라 무한 대기**일 수 있다(§8-76). `mariadb-bootstrap` 은 §8-76 에서 고쳤다
 - **`default` SA 로 도는 워크로드** — `nginx`·`ds389-bootstrap`·
   `efs-cleaner`·`databases-migrate`(매니페스트는 고쳤고 파드가 낡은
   Complete 다). ambient 에서 SA 는 곧 신원이다(Gotcha 10)

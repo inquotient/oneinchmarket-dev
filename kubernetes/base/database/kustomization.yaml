@@ -27,6 +27,10 @@ resources:
   # ★ 지금은 소비자가 없다. 기존 postgresql-headless 와 나란히 선다.
   - shardingsphere/shardingsphere-configmap.yaml
   - shardingsphere/shardingsphere-deployment.yaml
+  # ProxySQL — MySQL/MariaDB 와이어 (§8-76). ShardingSphere 와 상보 관계다:
+  # 인스턴스당 프로토콜이 하나라 PostgreSQL 은 저쪽, MySQL 은 이쪽이 맡는다.
+  - proxysql/proxysql-configmap.yaml
+  - proxysql/proxysql-deployment.yaml
   # - redis/redis-secret.enc.yaml  # SOPS: re-enable after ArgoCD SOPS plugin setup
 
 commonLabels:

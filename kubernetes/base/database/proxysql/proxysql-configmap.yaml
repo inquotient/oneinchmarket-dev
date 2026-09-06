@@ -1,0 +1,78 @@
+# ProxySQL 설정 (§8-76)
+#
+# ★★ **`.cnf` 는 첫 기동에만 읽힌다.** ProxySQL 은 설정을 datadir 의 SQLite
+#   (`/var/lib/proxysql/proxysql.db`)에 넣고, 그 파일이 있으면 `.cnf` 를
+#   **무시한다.** `--initial` 없이 재기동하면 옛 설정으로 뜬다.
+#   이 레포는 datadir 을 emptyDir 로 두어 **매 기동이 새것**이 되게 한다 —
+#   그래서 이 파일이 항상 권위를 갖는다. PVC 로 바꾸는 순간 그 성질이 사라지고
+#   설정 변경이 조용히 무시되므로, 바꾸려면 `--initial` 을 함께 넣을 것.
+#
+# ★ 비밀번호는 자리표시자다. Deployment 의 initContainer 가 Secret 값으로
+#   치환한다 — ShardingSphere·ranger-usersync 와 같은 패턴이다.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: proxysql-config
+  labels:
+    app.kubernetes.io/name: proxysql
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+data:
+  proxysql.cnf.tmpl: |
+    datadir="/var/lib/proxysql"
+    errorlog="/var/lib/proxysql/proxysql.log"
+
+    admin_variables=
+    {
+        # 관리 인터페이스도 MySQL 프로토콜이다. 6032 는 Service 로 노출하지
+        # 않는다 — 런타임 설정을 바꾸는 문이라 파드 안에서만 연다.
+        admin_credentials="admin:__ADMIN_PASSWORD__"
+        mysql_ifaces="127.0.0.1:6032"
+    }
+
+    mysql_variables=
+    {
+        threads=2
+        max_connections=512
+        default_query_delay=0
+        default_query_timeout=36000000
+        # ★ 백엔드가 MariaDB 12.3.3 이다. 이 값은 클라이언트에게 보이는
+        #   버전 문자열일 뿐이며 실제 협상과는 무관하다.
+        server_version="12.3.3"
+        connect_timeout_server=3000
+        monitor_username="__MONITOR_USERNAME__"
+        monitor_password="__MONITOR_PASSWORD__"
+        monitor_history=600000
+        monitor_connect_interval=60000
+        monitor_ping_interval=10000
+        ping_interval_server_msec=120000
+        ping_timeout_server=500
+        # 클라이언트가 붙는 포트.
+        interfaces="0.0.0.0:6033"
+        default_schema="information_schema"
+        stacksize=1048576
+        connect_retries_on_failure=10
+    }
+
+    # ── 백엔드 ────────────────────────────────────────────────────────
+    # ★ 지금은 **단일 노드 패스스루**다. hostgroup 10 하나뿐이고 읽기쓰기
+    #   분리도 하지 않는다. §13-2 의 Galera 3중이 서면 그때
+    #   `mysql_galera_hostgroups` 로 writer/reader 를 가른다 — 그것이
+    #   이 컴포넌트를 도입한 진짜 이유다(§8-76).
+    mysql_servers =
+    (
+        { address="mariadb-headless" , port=3306 , hostgroup=10 , max_connections=100 , comment="mariadb primary" }
+    )
+
+    # ── 사용자 ────────────────────────────────────────────────────────
+    # ★ 프록시가 아는 사용자는 **백엔드에 실재해야 한다.** ProxySQL 은 자격을
+    #   중계할 뿐 자기가 인증 주체가 되지 않는다.
+    mysql_users =
+    (
+        { username="cmmn-api" , password="__APP_PASSWORD__" , default_hostgroup=10 , active=1 , transaction_persistent=1 }
+    )
+
+    # ★ 쿼리 규칙을 두지 않는다. 지금은 패스스루이고, 규칙은 런타임에
+    #   admin 인터페이스(6032)로 넣을 수 있다 — 재기동이 필요 없다.
+    mysql_query_rules = ( )

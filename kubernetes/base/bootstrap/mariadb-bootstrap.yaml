@@ -1,5 +1,17 @@
 # G22 — cmmn-api 가 jdbc:mariadb://mariadb-headless:3306/cmmn 에 접속하나
 # 해당 DB·사용자를 만드는 주체가 없었다.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mariadb-bootstrap
+  labels:
+    app.kubernetes.io/name: mariadb-bootstrap
+    app.kubernetes.io/component: bootstrap
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+automountServiceAccountToken: false
+---
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -23,6 +35,18 @@ spec:
         app.kubernetes.io/component: bootstrap
         app.kubernetes.io/part-of: oneinchmarket
     spec:
+      # ★★ 전용 SA. 이 Job 은 `default` 로 돌아 ztunnel 이 MariaDB 접근을
+      #   거부하고 있었다 — `allow-database-access` 는 principal 로 3306 을
+      #   허용하는데 `*/sa/default` 는 거기 없다(Gotcha 10).
+      #   증상은 오류가 아니라 **무한 대기**다: `until mariadb-admin ping ...`
+      #   루프가 영원히 돌아 Job 이 `Running` 인 채로 끝나지 않는다.
+      #   실측 ztunnel 로그:
+      #     src.workload="mariadb-bootstrap-..." src.identity=".../sa/default"
+      #     error="connection closed due to policy rejection:
+      #            allow policies exist, but none allowed"
+      #   Gotcha 19 의 다섯 번째 사례다(kafka-topics·ILM·마이그레이션·
+      #   hive-schematool 에 이어). §8-76
+      serviceAccountName: mariadb-bootstrap
       restartPolicy: OnFailure
       priorityClassName: batch-low
       securityContext:
@@ -47,6 +71,16 @@ spec:
               CREATE USER IF NOT EXISTS 'cmmn'@'%' IDENTIFIED BY '${CMMN_PASSWORD}';
               ALTER USER 'cmmn'@'%' IDENTIFIED BY '${CMMN_PASSWORD}';
               GRANT ALL PRIVILEGES ON cmmn.* TO 'cmmn'@'%';
+              -- ★ ProxySQL 모니터 계정 (§8-76). 앱 계정을 재사용하지 않는다 —
+              --   Ranger 의 다섯 자격이 전부 같은 값이었던 것이 결함으로
+              --   지적된 전례가 있다(§8-44). 자격 하나가 새면 여럿이 함께 샌다.
+              --   ★ 권한은 USAGE 뿐이다. ProxySQL 의 헬스체크는 ping 과
+              --     연결 성립만 보므로 데이터 접근 권한이 필요 없다.
+              --     Galera 를 세우면 wsrep 상태를 읽어야 하므로 그때
+              --     REPLICATION CLIENT 를 더한다.
+              CREATE USER IF NOT EXISTS 'proxysql-monitor'@'%' IDENTIFIED BY '${PROXYSQL_MONITOR_PASSWORD}';
+              ALTER USER 'proxysql-monitor'@'%' IDENTIFIED BY '${PROXYSQL_MONITOR_PASSWORD}';
+              GRANT USAGE ON *.* TO 'proxysql-monitor'@'%';
               FLUSH PRIVILEGES;
               SQL
               echo "[mariadb-bootstrap] 완료"
@@ -56,6 +90,8 @@ spec:
               valueFrom: { secretKeyRef: { name: mariadb-secret, key: root-password } }
             - name: CMMN_PASSWORD
               valueFrom: { secretKeyRef: { name: cmmn-api-secret, key: db-password } }
+            - name: PROXYSQL_MONITOR_PASSWORD
+              valueFrom: { secretKeyRef: { name: proxysql-secret, key: monitor-password } }
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: { drop: ["ALL"] }

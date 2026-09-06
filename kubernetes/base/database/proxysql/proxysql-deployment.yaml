@@ -1,0 +1,170 @@
+# ProxySQL — MySQL/MariaDB 와이어 접근 계층 (§8-76)
+#
+# ★★ ShardingSphere-Proxy(§8-75)와 **상보 관계**다. 인스턴스당 프런트엔드
+#   프로토콜이 하나라서:
+#     · ShardingSphere → PostgreSQL 와이어 (3307)
+#     · ProxySQL       → MySQL/MariaDB 와이어 (6033)
+#   둘을 합쳐 관계형 두 엔진을 덮는다.
+#
+# ★★ **지금은 소비자가 없다.** 기존 `mariadb-headless` 와 나란히 서고
+#   접속 문자열은 그대로다. ShardingSphere 와 같은 이유다 — 앞단에 끼우면
+#   돌고 있는 것에 SPOF 만 추가된다.
+#
+# ★ 도입 목적은 §13-2 의 **Galera 대비**다. Galera 는 다중 마스터지만 여러
+#   노드에 동시에 쓰면 커밋 시점에 certification 실패가 난다. 실무 표준은
+#   `mysql_galera_hostgroups` 로 **단일 라이터 라우팅**을 강제하는 것이고,
+#   그 자리가 이 컴포넌트다. §13-2 의 "아무 노드나 쓰기" 는 낙관이다.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: proxysql
+  labels:
+    app.kubernetes.io/name: proxysql
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proxysql
+  labels:
+    app.kubernetes.io/name: proxysql
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: proxysql
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: proxysql
+        app.kubernetes.io/component: database
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      # ★ ambient 에서 ServiceAccount 는 곧 신원이다(Gotcha 10).
+      serviceAccountName: proxysql
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # 설정 템플릿의 자리표시자를 Secret 값으로 치환한다
+        # (ShardingSphere·ranger-usersync 와 같은 패턴).
+        - name: render-config
+          image: busybox:1.38.0
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              sed -e "s|__ADMIN_PASSWORD__|${ADMIN_PASSWORD}|" \
+                  -e "s|__MONITOR_USERNAME__|proxysql-monitor|" \
+                  -e "s|__MONITOR_PASSWORD__|${MONITOR_PASSWORD}|" \
+                  -e "s|__APP_PASSWORD__|${APP_PASSWORD}|" \
+                  /tmpl/proxysql.cnf.tmpl > /conf/proxysql.cnf
+              chmod 600 /conf/proxysql.cnf
+              # fail-closed — 치환되지 않은 자리표시자가 남으면 기동하지 않는다.
+              ! grep -q "__.*__" /conf/proxysql.cnf
+              echo "[render] proxysql.cnf 생성 (자리표시자 잔여 0)"
+          env:
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: proxysql-secret, key: admin-password }
+            - name: MONITOR_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: proxysql-secret, key: monitor-password }
+            # ★ 백엔드 앱 계정. mariadb-bootstrap 이 만드는 'cmmn'@'%' 의
+            #   비밀번호와 같아야 한다 — ProxySQL 은 자격을 중계할 뿐이다.
+            - name: APP_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: cmmn-api-secret, key: db-password }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits:   { cpu: 100m, memory: 64Mi }
+          volumeMounts:
+            - { name: tmpl, mountPath: /tmpl, readOnly: true }
+            - { name: conf, mountPath: /conf }
+      containers:
+        - name: proxysql
+          # 로컬 빌드다 — 업스트림이 4.x 컨테이너 이미지를 내지 않는다.
+          # docker/proxysql/Dockerfile 과 §8-76 참조.
+          image: oneinch/proxysql:4.0.11
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 6033
+              name: mysql
+              protocol: TCP
+            # ★ 6032(관리)는 **Service 로 노출하지 않는다.** 런타임 설정을
+            #   바꾸는 문이고, cnf 가 127.0.0.1 로만 바인딩한다.
+          volumeMounts:
+            - { name: conf, mountPath: /etc/proxysql.cnf, subPath: proxysql.cnf }
+            # ★★ datadir 을 **emptyDir 로 둔다.** ProxySQL 은 설정을 여기의
+            #   SQLite 에 넣고, 그 파일이 있으면 .cnf 를 무시한다. emptyDir 이면
+            #   매 기동이 새것이라 ConfigMap 이 항상 권위를 갖는다.
+            #   PVC 로 바꾸면 설정 변경이 조용히 무시된다 — `--initial` 필요.
+            - { name: data, mountPath: /var/lib/proxysql }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+            readOnlyRootFilesystem: true
+          # 실측 유휴 RSS 18.3 MiB. C++ 바이너리라 JVM 과 성격이 다르다
+          # (ShardingSphere 는 힙만 768 MiB 다).
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          startupProbe:
+            tcpSocket: { port: mysql }
+            failureThreshold: 20
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: { port: mysql }
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            tcpSocket: { port: mysql }
+            periodSeconds: 20
+            timeoutSeconds: 5
+      volumes:
+        - name: tmpl
+          configMap:
+            name: proxysql-config
+        - name: conf
+          emptyDir: {}
+        - name: data
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: proxysql
+  labels:
+    app.kubernetes.io/name: proxysql
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6033
+      targetPort: mysql
+      protocol: TCP
+      name: mysql
+  selector:
+    app.kubernetes.io/name: proxysql

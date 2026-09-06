@@ -48,6 +48,10 @@ mk redis-secret       "redis-password=$REDIS"
 # ShardingSphere-Proxy 의 프록시 사용자(proxyadmin). 뒤쪽 PostgreSQL 자격과
 # **별개**여야 한다 — 프록시 자격이 새도 DB 자격은 지켜진다(§8-44 와 같은 이유).
 mk shardingsphere-secret "proxy-password=$(gen)"
+# ProxySQL (§8-76). admin 은 런타임 설정 인터페이스(6032), monitor 는 백엔드
+# 헬스체크용 계정이다 — mariadb-bootstrap 이 'proxysql-monitor'@'%' 를
+# USAGE 권한만으로 만든다. 앱 계정(cmmn)을 재사용하지 않는다(§8-44).
+mk proxysql-secret "admin-password=$(gen)" "monitor-password=$(gen)"
 mk minio-secret       "root-user=oimadmin"           "root-password=$MINIO_PW" \
                       "minio-access-key=oimadmin"    "minio-secret-key=$MINIO_PW"
 
