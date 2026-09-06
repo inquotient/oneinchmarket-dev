@@ -6757,6 +6757,9 @@ hiveConf.getVar(ConfVars.PREEXECHOOKS)
 | **HBase** | 3.0.0 | `docker/ranger-hbase-plugin` (**이식**, §8-69) | scan + **DDL** + 대조군 |
 | **Hive** | 4.0.1 | `docker/ranger-hive-plugin` (백포트, 이 절) | 거부 → 정책 → 허용 + 대조군 |
 
+> ★ 이 표의 Hive 행은 **작성 시점 기준**이다. 곧바로 4.2.1 로 올렸고 그
+>   과정에서 여섯 건이 더 걸렸다 — 최종 상태는 §8-71 을 볼 것.
+
 전부 Ranger **2.9.0** 하나로 돌고, Admin 은 업스트림 이미지 그대로다.
 
 #### 남는 것
@@ -6768,6 +6771,221 @@ hiveConf.getVar(ConfVars.PREEXECHOOKS)
 - **이식본 세 개의 유지보수 부담.** Hadoop·HBase·Hive 버전을 움직이면
   해당 플러그인 이미지를 함께 손봐야 한다. Ranger 3.0.0 이 릴리스되면
   HDFS·Hive 것은 지울 수 있다(HBase 는 upstream 이 아직 지원하지 않는다)
+
+### 8-71. Hive 4.2.1 — 올리는 일은 스키마·SA·플러그인 세 갈래로 갈라진다 (2026-09-06)
+
+§8-70 에서 Ranger 통제를 세운 대상은 Hive **4.0.1** 이었다. 최신은 **4.2.1** 이다.
+버전만 바꾸면 되는 일로 보였고, 실제로는 **서로 다른 계층에서 여섯 건**이 걸렸다.
+전부 "오류가 늦게, 엉뚱한 곳에서 나오는" 부류다.
+
+먼저 되돌릴 수 없는 것부터 처리했다 — 메타스토어 스키마 업그레이드는 일방향이다.
+
+```
+pg_dump hive_metastore -> C:\Users\darka\iso\backup\hive_metastore-preupgrade-20260906-1421.sql
+```
+
+#### ① 이미지 태그와 Maven 아티팩트가 어긋난다
+
+`apache/hive:4.2.1` 은 있는데 **Maven Central 에 4.2.1 아티팩트가 없다**
+(`hive-jdbc`·`hive-service`·`hive-exec` 가 404). 바이너리만 릴리스된 경우다.
+패치 차이라 API 는 같으므로 **4.2.0 으로 컴파일해 4.2.1 위에서 돌린다.**
+`docker/ranger-hive-plugin/Dockerfile` 의 `ARG HIVE_VERSION=4.2.0` 이 그것이고,
+매니페스트의 이미지 태그(4.2.1)와 **의도적으로 다르다** — 주석에 그 이유를 남겼다.
+
+#### ② 부트스트랩 Job 이 `default` SA 로 돌아 DB 에 닿지 못했다 (Gotcha 19 네 번째)
+
+스키마를 올리려고 `hive-schematool` Job 을 다시 돌리자:
+
+```
+ERROR MetastoreSchemaTool: Failed to get schema version.
+Underlying cause: org.postgresql.util.PSQLException : The connection attempt failed.
+```
+
+인증 실패가 아니라 **연결 실패**다. 원인은 DB 가 아니라 ztunnel 이었다 —
+`allow-database-access` 는 principal 목록으로 5432 를 허용하는데 이 Job 은
+`default` SA 로 돌고 `*/sa/default` 는 거기 없다(Gotcha 10: ambient 에서
+ServiceAccount 는 곧 신원이다).
+
+**★ 이것이 이 결함을 어렵게 만드는 지점이다.** Job 안의 TCP 사전 검사
+(`/dev/tcp/postgresql-headless/5432`)는 **통과한다.** ztunnel 은 15008 에서
+끊으므로 포트 열림 검사로는 드러나지 않는다. 그래서 "DB 는 살아 있는데
+JDBC 만 안 된다" 로 보이고 JDBC 드라이버·자격을 의심하게 된다.
+
+부트스트랩 Job 은 평소에 돌지 않아 ambient 편입 시점에 드러나지 않고
+**재실행할 때** 터진다. `kafka-topics`·`elasticsearch-ilm-setup`·
+`databases-migrate` 에 이은 **네 번째** 사례다(§8-52·§8-55).
+
+고친 방법은 앞의 셋과 같다 — 전용 SA 를 만들고 정책에 넣는다:
+
+| 파일 | 변경 |
+|---|---|
+| `kubernetes/base/bootstrap/hive-schematool.yaml` | `ServiceAccount/hive-schematool` 추가 + `serviceAccountName` |
+| `kubernetes/base/service-mesh/authorization-policies.yaml` | `allow-database-access` 에 `"*/sa/hive-schematool"` |
+
+#### ③ `-info` 의 실패는 "스키마가 없다" 를 뜻하지 않는다
+
+Job 은 원래 "`-info` 가 성공하면 건너뛰고, 아니면 `-initSchema`" 두 갈래였다.
+그 전제가 틀렸다 — **`-info` 는 스키마가 바이너리보다 낡아도 실패한다.**
+그대로 두면 이미 데이터가 든 메타스토어에 `-initSchema` 를 걸게 된다.
+
+세 갈래로 고쳤다. 실패 출력에서 **버전을 읽어냈는지**로 가른다
+(`psql` 로 가르지 않는 이유는 hive 이미지에 psql 이 없어서다):
+
+```
+INFO=$(schematool -dbType postgres -info ...); RC=$?
+if   [ "$RC" -eq 0 ];                                        then 건너뜀
+elif echo "$INFO" | grep -qiE "Metastore schema version|Database Schema Version"; then -upgradeSchema
+else                                                              -initSchema
+fi
+```
+
+실제 결과 — 두 단계를 거쳐 올라갔다:
+
+```
+Completed upgrade-4.0.0-to-4.1.0.postgres.sql
+Completed upgrade-4.1.0-to-4.2.0.postgres.sql
+Hive distribution version:  4.2.0
+Metastore schema version:   4.2.0
+```
+
+이 갈래가 없으면 메타스토어가 `Hive Schema version does not match metastore's`
+로 기동하지 못하고, **그 오류는 메타스토어 로그에만** 나온다.
+
+#### ④ 스키마가 최신이 되는 순간 메타스토어가 CrashLoop 한다
+
+스키마를 맞춰 놓자 이번엔 메타스토어가 죽었다:
+
+```
+Upgrading from the version 4.2.0
+Unknown version specified for upgrade 4.2.0 ...
+*** schemaTool failed ***   ->   Schema initialization failed!
+```
+
+`apache/hive` 엔트리포인트는 `SKIP_SCHEMA_INIT` 이 없으면 무조건
+`schematool -initOrUpgradeSchema` 를 돌리는데, **올릴 대상이 없는 상태를
+오류로 처리한다.** 4.0.1 처럼 스키마가 바이너리보다 낮을 때는 드러나지 않고
+**최신에 도달하는 순간** 터진다 — 즉 이 결함은 업그레이드를 성공시켜야
+비로소 보인다.
+
+스키마의 소유자는 부트스트랩 Job 이므로 메타스토어에서는 끈다
+(`hive-server` 가 `IS_RESUME=true` 로 건너뛰는 것과 같은 이유다):
+
+```yaml
+- name: SKIP_SCHEMA_INIT
+  value: "true"
+```
+
+#### ⑤ Ranger 플러그인은 **JDK 21 로** 다시 빌드해야 한다
+
+§8-70 의 플러그인 이미지는 Hive 4.0.1 API 로 컴파일돼 있다. 4.2 로 다시
+빌드하자 오류가 하나 났다:
+
+```
+RangerHiveAuthorizer.java:[44,36] error: cannot access FileUtils
+```
+
+"클래스를 못 찾는다" 로 읽히지만 아니다. `maven-compiler-plugin 3.3` 이
+**사유 줄을 삼킨다**(HBase 때와 같다, §8-69). 바이트코드에 직접 물었다:
+
+```
+hive-common 4.0.1  class version 52   (Java 8)
+hive-common 4.2.0  class version 65   (Java 21)
+```
+
+**Hive 4.2 는 Java 21 로 컴파일돼 있고 JDK 8 은 그 클래스 파일을 읽지 못한다.**
+4.0.1 이 52 였기 때문에 지금까지 JDK 8 로 됐던 것이다. HBase 3 에서 61(Java 17)로
+겪은 것과 같은 함정이고, **판정은 추측이 아니라 `javap -verbose | grep major`** 다.
+
+#### ⑥ Hive 4.2 가 `getTables` 에 `TException` 을 추가했다
+
+JDK 를 올리자 남은 오류가 정확히 한 줄이었다:
+
+```
+HiveClient.java:[365,67] error: unreported exception TException;
+                                must be caught or declared to be thrown
+```
+
+`IMetaStoreClient.getTables(String, String)` 의 선언 예외가 바뀌었고
+`getTblListFromHM()` 은 `MetaException` 만 잡고 있었다. **`MetaException` 은
+`TException` 의 하위형**이므로 catch 를 넓히면 기존 처리가 그대로 유지된다
+(`TException` 은 이미 import 되어 있어 새 import 도 필요 없다).
+
+★ 이 파일에는 `catch (MetaException e)` 가 **두 곳**이다. 뒤쪽은 바로 다음에
+`catch (Throwable t)` 가 있어 손댈 필요가 없으므로 **첫 번째만** 바꾸고
+남은 한 곳을 세어 확인한다(fail-closed).
+
+★ 인가 로직이 아니라 **서비스 정의용 자원 조회 클라이언트**다 — Ranger Admin
+UI 가 정책을 만들 때 DB·테이블 목록을 자동완성하는 데 쓴다.
+
+#### ★ 2단계 빌드의 근거가 실측에서 무너졌다
+
+HBase 판(§8-69)을 본떠 "Ranger 2.9 의 `agents-common` 은 Nashorn 때문에
+JDK 15+ 에서 컴파일되지 않는다" 를 전제로 1단계(JDK 8)를 두었다.
+**그 전제는 성립하지 않았다** — 2단계(JDK 21)가 `-am` 으로 상위 10개 모듈을
+전부 다시 컴파일했고 `Common library for Plugins ... SUCCESS` 로 통과했다.
+
+즉 이 이미지는 **단일 JDK 21 단계로 접을 수 있다.** 접지 않고 둔 이유는
+정확성이 아니라 **반복 빌드 시간**이다 — 1단계가 `~/.m2` 를 채워 두면
+2단계를 고쳐 다시 돌릴 때 의존성 재다운로드(약 950건)를 건너뛴다.
+Dockerfile 주석에 그렇게 적었다. HBase 판에서는 그 분리가 **필수**였고
+여기서는 아니다 — 같은 모양이라고 같은 이유는 아니다.
+
+#### ⑦ `build-images.sh` 안에 리터럴 `\n` 이 들어 있었다
+
+이 작업 중에 발견한 별개 결함이다. hive 플러그인 빌드 줄과 반입 루프에
+줄바꿈 대신 **문자 그대로의 백슬래시+n** 이 박혀 있었다:
+
+```
+sudo podman build --format docker --network host \n  -t oneinch/ranger-hive-plugin:latest ...
+```
+
+`bash -n` 은 **통과한다** — 문법적으로 완결된 다른 명령이 되기 때문이다
+(`\n` 은 `n` 으로 해석되어 `n` 이라는 인자가 podman 에 넘어간다).
+§8-30 의 BOM 건과 같은 부류다: **정적 검증이 잡지 못하는 조용한 변형.**
+드러나지 않았던 이유는 그동안 hive 플러그인을 podman 으로 직접 빌드했기
+때문이고, 클러스터를 다시 세우려고 이 스크립트를 돌렸다면 거기서 막혔다.
+
+#### 검증 — 판정 기준은 §8-70 과 같다
+
+파드가 `1/1 Running` 인 것으로는 아무것도 증명되지 않는다(Gotcha 40).
+
+| 단계 | 확인 |
+|---|---|
+| ① 정책 엔진 | `/tmp/hive/hive.log` 에 `Switched policy engine to [12]`, ERROR 0건 |
+| ② 허용 | `oimtest` 로 `SELECT * FROM rangerhive` -> `No rows selected (5.171 seconds)` |
+| ③ 대조군 | `oimother` 로 같은 질의 -> `HiveAccessControlException Permission denied: user [oimother] does not have [SELECT] privilege on [default/rangerhive/*]` |
+
+정책을 하나도 바꾸지 않고 §8-70 이 남긴 상태 그대로 시험했다 — **버전을
+올린 뒤에도 같은 정책이 같은 판정을 낸다**는 것이 여기서 필요한 증거다.
+
+HDFS·HBase 도 함께 확인했다(플러그인을 건드리지 않았으므로 회귀만 본다):
+
+| 대상 | 확인 |
+|---|---|
+| HDFS (Hadoop 3.5.0) | `Switched policy engine to [9]` = 캐시 파일의 `policyVersion 9` |
+| HBase (3.0.0) | `Switched policy engine to [4]` |
+
+#### 최종 상태
+
+| 대상 | 버전 | 플러그인 | 비고 |
+|---|---|---|---|
+| **HDFS** | Hadoop 3.5.0 | `docker/ranger-hdfs-plugin` (Jersey 2 백포트) | §8-68 |
+| **HBase** | 3.0.0 | `docker/ranger-hbase-plugin` (이식) | §8-69 |
+| **Hive** | **4.2.1** | `docker/ranger-hive-plugin` (백포트, JDK 21 빌드) | 이 절 |
+
+셋 다 Ranger **2.9.0** 하나로 돌고 Admin 은 업스트림 이미지 그대로다.
+메타스토어 스키마는 **4.2.0**, 컴파일 대상 아티팩트도 4.2.0, 런타임 이미지는
+4.2.1 이다 — 이 셋이 다른 것은 ① 때문이며 의도된 것이다.
+
+#### 남는 것
+
+- **감사(audit)는 여전히 세 플러그인 모두 꺼져 있다** — §8-70 의 목록 그대로다
+- **`docker/ranger-hive-plugin` 의 2단계 빌드는 접을 수 있다.** 지금은 캐시
+  이득 때문에 두었을 뿐이다(위 ★ 참조)
+- **버전 올리기의 비용이 이제 명확하다.** Hadoop·HBase·Hive 중 하나를 움직이면
+  ⓐ 해당 플러그인 이미지의 컴파일 대상 버전, ⓑ 빌드 JDK, ⓒ (Hive 라면)
+  메타스토어 스키마까지 셋이 함께 움직인다. Ranger 3.0.0 이 나오면 ⓐⓑ 는
+  HDFS·Hive 에서 사라진다
 
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 

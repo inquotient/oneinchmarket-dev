@@ -63,7 +63,7 @@ spec:
             - {name: ranger-plugin, mountPath: /ranger}
       containers:
         - name: hive-server
-          image: apache/hive:4.0.1
+          image: apache/hive:4.2.1
           ports:
             - containerPort: 10000
               name: thrift

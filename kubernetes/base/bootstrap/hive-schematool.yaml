@@ -1,3 +1,26 @@
+---
+# ★ 전용 SA. 이 Job 은 `default` 로 돌아 ztunnel 이 PostgreSQL 접근을 거부했다
+#   — `allow-database-access` 가 principal 목록으로 허용하는데 `*/sa/default`
+#   는 거기 없다. 증상은 인증 실패가 아니라 **연결 실패**다:
+#     ERROR MetastoreSchemaTool: Failed to get schema version.
+#     Underlying cause: org.postgresql.util.PSQLException : The connection attempt failed.
+#   ★★ 그런데 TCP 사전 검사(/dev/tcp)는 **통과한다** — ztunnel 이 15008 에서
+#     끊기 때문에 포트 열림 검사로는 드러나지 않는다. 그래서 "DB 는 살아 있는데
+#     JDBC 만 안 된다" 로 보인다.
+#   편입 전에는 통했으므로 처음 만들 때는 드러나지 않고 **재실행할 때** 터진다
+#   — 부트스트랩 Job 네 번째 사례다(kafka-topics·ILM·마이그레이션에 이어).
+#   Gotcha 19 · §8-52 · §8-71
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hive-schematool
+  labels:
+    app.kubernetes.io/name: hive-schematool
+    app.kubernetes.io/component: bootstrap
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+automountServiceAccountToken: false
+---
 # G22 — Hive Metastore 스키마 초기화. postgres-bootstrap 이 만든
 # hive_metastore DB·롤을 전제한다.
 apiVersion: batch/v1
@@ -24,6 +47,7 @@ spec:
         app.kubernetes.io/part-of: oneinchmarket
     spec:
       restartPolicy: OnFailure
+      serviceAccountName: hive-schematool
       priorityClassName: batch-low
       securityContext:
         runAsNonRoot: true
@@ -50,7 +74,7 @@ spec:
               mountPath: /driver
       containers:
         - name: schematool
-          image: apache/hive:4.0.1
+          image: apache/hive:4.2.1
           command: ["/bin/bash", "-c"]
           args:
             - |
@@ -64,9 +88,27 @@ spec:
               JDBC=(-url "jdbc:postgresql://postgresql-headless:5432/hive_metastore"
                     -driver org.postgresql.Driver
                     -userName hive -passWord "$HIVE_DB_PASSWORD")
-              if /opt/hive/bin/schematool -dbType postgres -info "${JDBC[@]}" >/dev/null 2>&1; then
-                echo "[hive-schematool] 스키마가 이미 존재한다 — 건너뜀"
+              # ★ 세 갈래다 — 없으면 초기화, 낡았으면 업그레이드, 맞으면 통과.
+              #   `-info` 는 스키마가 **바이너리보다 낡아도 실패**하므로
+              #   "실패 = 없음" 으로 볼 수 없다. 실패 출력으로 가른다:
+              #   버전을 읽어냈다면(= 스키마는 있다) 업그레이드, 아니면 초기화.
+              #   psql 로 가르지 않는 이유는 hive 이미지에 psql 이 없어서다.
+              set +e
+              INFO=$(/opt/hive/bin/schematool -dbType postgres -info "${JDBC[@]}" 2>&1)
+              RC=$?
+              set -e
+              if [ "$RC" -eq 0 ]; then
+                echo "[hive-schematool] 스키마 버전이 이 배포판과 일치한다 — 건너뜀"
+              elif echo "$INFO" | grep -qiE "Metastore schema version|Database Schema Version"; then
+                # ★★ 되돌릴 수 없는 단계다. 실행 전에 pg_dump 를 떠 둘 것.
+                #   이 갈래가 없으면 Hive 를 올릴 때 메타스토어가
+                #   "Hive Schema version does not match metastore's" 로 기동하지
+                #   못한다 — 그리고 그 오류는 메타스토어 로그에만 나온다.
+                echo "[hive-schematool] 스키마가 낡았다 — 업그레이드한다"
+                echo "$INFO" | grep -iE "version" | head -3
+                /opt/hive/bin/schematool -dbType postgres -upgradeSchema "${JDBC[@]}"
               else
+                echo "[hive-schematool] 스키마가 없다 — 초기화한다"
                 /opt/hive/bin/schematool -dbType postgres -initSchema "${JDBC[@]}"
               fi
               /opt/hive/bin/schematool -dbType postgres -info "${JDBC[@]}"

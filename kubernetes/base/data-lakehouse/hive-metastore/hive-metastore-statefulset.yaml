@@ -48,7 +48,7 @@ spec:
               mountPath: /driver
       containers:
         - name: hive-metastore
-          image: apache/hive:4.0.1
+          image: apache/hive:4.2.1
           ports:
             - containerPort: 9083
               name: thrift
@@ -59,6 +59,18 @@ spec:
                 secretKeyRef:
                   name: hive-metastore-secret
                   key: db-password
+            # ★★ 이미지 엔트리포인트의 자체 스키마 초기화를 끈다 (§8-71)
+            #   기본값(false)이면 `schematool -dbType postgres -initOrUpgradeSchema`
+            #   를 돌리는데, **스키마가 이미 최신이면 그것이 실패한다**:
+            #     Upgrading from the version 4.2.0
+            #     Unknown version specified for upgrade 4.2.0 ...
+            #     *** schemaTool failed ***  ->  Schema initialization failed!
+            #   "올릴 대상이 없음" 을 오류로 처리하는 것이라, 4.0.1 처럼 스키마가
+            #   바이너리보다 낮을 때는 드러나지 않고 **최신에 도달하는 순간** 터진다.
+            #   스키마의 init·upgrade 는 bootstrap/hive-schematool Job 이 소유한다
+            #   (hive-server 가 IS_RESUME 으로 건너뛰는 것과 같은 이유다).
+            - name: SKIP_SCHEMA_INIT
+              value: "true"
             - name: SERVICE_NAME
               value: metastore
             - name: DB_DRIVER

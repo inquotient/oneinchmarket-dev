@@ -47,6 +47,11 @@ spec:
               - "*/sa/keycloak"
               - "*/sa/gitlab"
               - "*/sa/hive-metastore"
+              # ★ 스키마 소유자는 메타스토어지만, 스키마를 **만들고 올리는** 것은
+              #   부트스트랩 Job 이다. 전용 SA 를 주고 여기 넣지 않으면 ztunnel 이
+              #   막아 "connection attempt failed" 로 나온다 — TCP 검사는
+              #   통과하므로 DB 문제로 오해하기 쉽다. Gotcha 19 · §8-71
+              - "*/sa/hive-schematool"
               - "*/sa/apicurio"
               - "*/sa/ranger-admin"
               - "*/sa/glitchtip"

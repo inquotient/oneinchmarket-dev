@@ -86,7 +86,9 @@ log "oneinch/ranger-hive-plugin 빌드"
 # Hive 플러그인이 기동하지 못한다(NoSuchFieldError: PREEXECHOOKS).
 # ★ 이것은 §8-69 의 HBase 와 달리 **백포트**다 — upstream master 가 Hive 4 를
 # 겨냥한다. 상세는 docker/ranger-hive-plugin/Dockerfile 주석과 §8-70.
-sudo podman build --format docker --network host \n  -t oneinch/ranger-hive-plugin:latest -t oneinch/ranger-hive-plugin:2.9.0-hive4 \n  "${REPO_ROOT}/docker/ranger-hive-plugin"
+sudo podman build --format docker --network host \
+  -t oneinch/ranger-hive-plugin:latest -t oneinch/ranger-hive-plugin:2.9.0-hive4 \
+  "${REPO_ROOT}/docker/ranger-hive-plugin"
 
 log "oneinch/jenkins 빌드"
 # 공식 이미지에는 플러그인이 없다. JCasC 로 관리자 계정을 선언하려면
@@ -104,7 +106,8 @@ for img in oneinch/spark-iceberg:latest oneinch/livy:latest oneinch/ranger-users
            oneinch/hbase:latest oneinch/hbase:3.0.0 \
            oneinch/jenkins:latest \
            oneinch/ranger-hdfs-plugin:latest oneinch/ranger-hdfs-plugin:2.9.0-jersey2 \
-           oneinch/ranger-hbase-plugin:latest oneinch/ranger-hbase-plugin:2.9.0-hbase3 \n           oneinch/ranger-hive-plugin:latest oneinch/ranger-hive-plugin:2.9.0-hive4; do
+           oneinch/ranger-hbase-plugin:latest oneinch/ranger-hbase-plugin:2.9.0-hbase3 \
+           oneinch/ranger-hive-plugin:latest oneinch/ranger-hive-plugin:2.9.0-hive4; do
   sudo podman save --format docker-archive "localhost/$img" \
     | sudo k3s ctr -n k8s.io images import --base-name "docker.io/$img" -
   # ★ --base-name 이 항상 docker.io 이름을 만들어 주지는 않는다.

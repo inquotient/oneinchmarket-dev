@@ -67,7 +67,7 @@ images:
     newTag: "3.0.0"
   # ── ↑ 여기까지 미사용 ────────────────────────────────────────
   - name: apache/hive
-    newTag: "4.0.1"                   # 스키마 버전 고정. 상향 시 schematool -upgradeSchema 필요
+    newTag: "4.2.1"                   # §8-71. 상향 시 schematool -upgradeSchema 가 필요하고 bootstrap Job 이 그 갈래를 갖는다
   - name: oneinch/spark-iceberg
     newTag: "3.5.6"
   - name: oneinch/livy
