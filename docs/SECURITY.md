@@ -66,6 +66,22 @@ v1/tls/ca_bundle.crt  2,470 bytes
 
 **조치**: ① 사용처 확인 → ② `git rm --cached` + `git filter-repo`로 이력 제거 → ③ 리모트 강제 갱신 → ④ 재발급 → ⑤ Gitleaks를 CI 게이트로 추가.
 
+#### 진행 상황 (2026-09-08, §8-92)
+
+| 단계 | 상태 |
+|---|---|
+| ① 사용처 확인 | **완료** — `v1/admin/admin-configmap.yaml` 의 런타임 마운트 경로만 참조하며, `v1/` 은 배포 금지 트리다. **활성 인증서 6종은 전부 cert-manager 발급**(`gateway-*`·`wazuh-*` Issuer)이라 이 키는 TLS 경로에 없다 |
+| ② 트리에서 제거 | **완료** — `v1/cluster/tls.key` 삭제. ★ `tls.crt` 는 공개값이라 남겼다 |
+| ②-b 이력 제거 | **하지 않았다.** `git filter-repo` 는 모든 커밋 SHA 를 바꾸고 강제 push 가 필요하며 ArgoCD 가 추적하는 리비전도 함께 깨진다. 되돌리기 어려운 선택이라 **결정을 남겨 둔다** |
+| ③ 리모트 갱신 | ②-b 에 달려 있다 |
+| ④ 재발급 | **불필요로 판단** — 이 키로 발급된 인증서가 현재 쓰이는 곳이 없다. 다만 **키 자체는 손상된 것으로 취급**하고 재사용하지 않는다 |
+| ⑤ CI 게이트 | **완료** — GitLab Secret Detection 을 켰다(§8-91). 매 push 의 증분 잡은 `allow_failure: false` 로 **새 유출을 막고**, 이력 잡은 schedule/manual 로 빚을 센다 |
+
+★★ **①~⑤ 를 하는 과정에서 같은 종류가 더 나왔다.** 이력 전체 스캔이 **9건**을
+찾았고 알고 있던 것은 SEC-401 하나뿐이었다 — 상세와 분류는 §8-92 다.
+그중 진짜였던 또 하나가 `openreplay` 의 ConfigMap 안에 있던 개인키다
+(Secret 도 아니었다). 그것도 제거했다.
+
 ### SEC-402 — 평문 자격증명 제거 **[HIGH]**
 
 `v1/ranger/admin/ranger-admin-configmap.yaml:6`에 DB 비밀번호가 평문으로 커밋되어 있다. 계획서 §2가 이미 "ConfigMap에 평문 비밀번호 — 13개 서비스"로 지적한 사안이다.
