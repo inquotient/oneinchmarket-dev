@@ -44,6 +44,31 @@ spec:
       # ★ 서버 사이드 적용. 이 레포는 매니페스트가 커서
       #   last-applied-configuration 어노테이션이 한계에 걸린다.
       - ServerSideApply=true
+      # ★★ 클라이언트 측 스키마 검증을 끈다. 이 클러스터는 **CRD 가 104개**라
+      #   `/openapi/v2` 가 매우 크고, ArgoCD 의 dry-run 이 그것을 받다가
+      #   32초 타임아웃으로 죽는다 — 실측:
+      #     error validating data: failed to download openapi:
+      #     Get "https://10.43.0.1:443/openapi/v2?timeout=32s": i/o timeout
+      #   500건이 전부 SyncFailed 가 되는데 **적용된 것은 0건**이라
+      #   증상만 보면 권한이나 매니페스트 문제로 읽힌다.
+      #   ServerSideApply 를 쓰면 **API 서버가 검증하므로 이 단계는 중복**이다.
+      - Validate=false
+
+    # ★ 재시도. ArgoCD 는 **dry-run 이 하나만 실패해도 작업 전체를 중단**한다 —
+    #   500건이 통째로 SyncFailed 가 되고 적용된 것은 0건이라 증상만 보면
+    #   권한이나 매니페스트 문제로 읽힌다.
+    #   ★★ 다만 재시도는 **진짜 일시적인 실패에만** 듣는다. 이 랩에서
+    #   `dial tcp 10.43.0.1:443: i/o timeout` 이 5회 내내 **똑같은 3건**에
+    #   난 적이 있는데, 그것은 ArgoCD 가 아니라 클러스터 결함이었다 —
+    #   `kubernetes` Service 엔드포인트에 죽은 주소가 섞여 연결의 절반이
+    #   버려졌다(§8-84). **재시도를 진단의 대용품으로 쓰지 말 것** —
+    #   같은 것이 같은 수만큼 실패하면 그것은 일시적이 아니다.
+    retry:
+      limit: 5
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 3m
 
   ignoreDifferences:
     # ECK·cert-manager 가 채우는 필드는 diff 에서 뺀다 — 안 그러면

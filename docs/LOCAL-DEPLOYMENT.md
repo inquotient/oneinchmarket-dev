@@ -8610,6 +8610,130 @@ ServerSideApply 필드 관리자). **규명 전에 동기화를 켜면 무엇이
 - 그 뒤에야 `automated{prune,selfHeal}` 을 논할 수 있다. ADR-068 의 머지
   관문(§9-4)도 같은 순서를 말한다
 
+### 8-84. OutOfSync 를 파다가 클러스터 결함을 찾았다 — API 연결의 절반이 버려지고 있었다 (2026-09-07)
+
+§8-83 이 남긴 숙제("OutOfSync 315건이 렌더링 차이인지 실제 드리프트인지")를
+파고들다 **ArgoCD 와 무관한, 클러스터 전체에 걸친 결함**에 닿았다.
+
+#### 먼저 진짜 드리프트가 아닌 것들을 걷어냈다
+
+관리 대상 486건을 ArgoCD API(`managed-resources`)로 분류했다.
+
+| 분류 | 건수 | 무엇인가 |
+|---|---:|---|
+| 추적 어노테이션만 없음 | 162 | ArgoCD 3.x 의 기본 추적 방식이 `annotation` 이다(`argocd.argoproj.io/tracking-id`). 우리가 `kubectl apply -k` 로 만든 것들에는 당연히 없다 |
+| 서버가 채우는 기본값 | 236 | `clusterIPs`·`ipFamilies`·`sessionAffinity`·`type`·`volumeMode`·`volumeName` |
+| 한쪽에만 있음 | 88 | ↓ |
+
+**88건의 정체는 AppProject 화이트리스트 구멍이었다** — `networking.k8s.io`
+(NetworkPolicy 64 + Ingress 12) · `cert-manager.io`(Certificate 6 + Issuer 4) ·
+`scheduling.k8s.io`(PriorityClass 1) = **정확히 87**. 화이트리스트에 없는 종류는
+ArgoCD 가 **살아 있는 상태를 아예 읽지 않아**(`liveState: null`) "클러스터에
+없다" 로 보인다. 넣자 `Unknown 87 → 0`.
+
+★ **클러스터에만 있는 리소스는 관리 대상 안에 0건**이었다 — 즉 `prune` 을 켰어도
+지워질 것은 없었다(고아 113건은 관리 대상 **밖**이다).
+
+#### 그다음 두 번 막혔다
+
+**① `failed to download openapi ... 32s timeout`** — 전체 동기화 시도가
+**500건 전부 SyncFailed**. 적용된 것은 0건이다. 원인은 dry-run 의 클라이언트 측
+스키마 검증이 `/openapi/v2` 를 받다 죽은 것 — **이 클러스터는 CRD 가 104개**다.
+`ServerSideApply=true` 면 API 서버가 검증하므로 이 단계는 중복이다.
+`Validate=false` 를 넣어 **500 → 3** 이 됐다.
+
+**② `dial tcp 10.43.0.1:443: i/o timeout` 3건** — `Namespace/local` ·
+`Secret/or-secrets` · `Secret/openreplay-secrets`. 재시도 5회를 붙였더니
+**다섯 번 모두 똑같은 3건**이 똑같이 실패했다.
+
+> ★★ **여기서 판단이 갈린다.** "간헐적으로 느린 API 서버" 로 읽고 재시도를
+> 늘리는 길과, "같은 것이 같은 수만큼 실패하면 그것은 일시적이 아니다" 로 읽고
+> 계측하는 길이다. 앞의 길은 이 문서 초안에 실제로 한 번 적혔다가 지워졌다.
+
+#### 계측 — 그리고 계측 자체가 먼저 틀렸다
+
+컨트롤러 파드에서 API 서버로 GET 을 20회 돌렸더니 **20회 전부 실패**했다.
+그런데 응답 시간이 전부 **4ms** 였다. 타임아웃이라면 나올 수 없는 값이다 —
+원인은 `curl: not found` 였다. **파드에 curl 이 없었다.** §8-57 이 적은 것과
+같은 부류다(측정값이 이상하면 측정 방법부터 의심할 것). 그 파드에 있는 것은
+`bash` 와 `openssl` 둘뿐이라 `/dev/tcp` 로 다시 쟀다.
+
+```
+컨트롤러 파드 -> 10.43.0.1:443 TCP dial 100회
+  성공=47  실패=53  최대=5867ms
+```
+
+**절반이다.** 무작위 지연이 아니라 **백엔드 둘 중 하나가 죽었을 때의 모양**이다.
+
+#### 원인 — `kubernetes` Service 에 죽은 주소가 섞여 있었다
+
+```
+$ kubectl get endpoints kubernetes
+  addr=10.77.0.190      ← 죽어 있다 (dial 실패)
+  addr=172.25.102.72    ← 실제 노드 IP (dial 성공)
+  port=6443
+```
+
+`10.77.0.190` 은 **Hyper-V L0 랩 주소**다 — §8-77(Gotcha 49)에서
+`.wslconfig` 의 `networkingMode=mirrored` 가 k3s 에게 고르게 만든 바로 그
+주소다. `.wslconfig` 는 되돌렸는데 **주소는 남았다.**
+
+남은 이유는 kine 에 있다.
+
+```
+$ etcdctl --endpoints=unix:///var/lib/rancher/k3s/server/kine.sock     get /registry/masterleases/ --prefix --keys-only
+/registry/masterleases/10.77.0.190      mod_revision=4543925  lease=15
+/registry/masterleases/172.25.102.72    mod_revision=5295023  lease=15
+```
+
+`lease=15` — **15초 TTL 이 붙은 키인데 만료되지 않았다.** 그리고 두 키의
+`mod_revision` 이 **75만 리비전** 차이다. 즉 아무도 갱신하지 않는 죽은 행이
+남아 있고, kube-apiserver 의 lease 리컨실러는 그것을 **살아 있는 마스터로
+읽어** `kubernetes` Endpoints 에 계속 올린다. kine 의 TTL 처리는 **기동 시점
+이후에 쓰인 키만** 만료를 예약하므로, 재시작 이전에 쓰인 이 키는 영원히 남는다
+— 실제로 노드가 14시간 넘게 떠 있고 그 사이 재시작을 여러 번 겪고도 그대로다.
+**k3s 를 재시작해도 풀리지 않는다.**
+
+#### 이것은 ArgoCD 문제가 아니었다 — 클러스터 전체가 앓고 있었다
+
+같은 시점 k3s 자신의 remotedialer 도 2분 30초마다 이러고 있었다:
+
+```
+level=info  msg="Connecting to proxy" url="wss://10.77.0.190:6443/v1-k3s/connect"
+level=error msg="Failed to connect to proxy. Empty dialer response"
+            error="dial tcp 10.77.0.190:6443: connect: connection timed out"
+```
+
+`10.43.0.1:443` 은 **클러스터 안 모든 워크로드가 API 서버에 닿는 주소**다.
+그 절반이 버려진다. 오래 사는 연결(Go 클라이언트의 keepalive)은 한 번 붙으면
+버티므로 대부분 정상으로 보이고, **새로 여는 짧은 연결이 골라서 실패한다** —
+ArgoCD 의 dry-run 이 포크한 apply 가 정확히 그 모양이라 제일 먼저 드러났다.
+
+#### 처방 — 아직 적용하지 않았다
+
+죽은 lease 키 하나를 지우면 된다.
+
+```
+ETCDCTL_API=3 etcdctl --endpoints=unix:///var/lib/rancher/k3s/server/kine.sock   del /registry/masterleases/10.77.0.190
+```
+
+지우기 전 값은 보존해 두었다(`mod_revision=4543925`, base64 값 64바이트).
+**클러스터 데이터스토어에 대한 삭제라 승인을 받고 적용한다** — 이 문서는 원인
+규명까지의 기록이고, 적용·검증은 승인 후에 이어 쓴다.
+
+★ 직접 sqlite(`state.db`)를 고치는 길도 있으나 **쓰지 않는다** — kine 이 도는
+중에 그 파일에 쓰면 리비전 장부와 watch 알림이 어긋난다. kine 자신의 etcd API 로
+지우면 정상적인 삭제 이벤트가 되어 apiserver 가 그대로 받는다.
+
+#### 남는 것
+
+- 재발 방지 — `--node-ip` · `--advertise-address` 를 k3s 에 고정하면 이 사고가
+  다시 나도 엉뚱한 주소가 lease 에 올라가지 않는다. 다만 §8-77 이 적었듯
+  **WSL NAT 에서는 노드 IP 가 재부팅마다 바뀌므로** 고정값을 박으면 그때 깨진다.
+  고정 대신 **기동 시 점검**(`local/keepalive.ps1` 이나 부트스트랩에서
+  `kubernetes` 엔드포인트가 노드 IP 하나인지 확인)이 이 랩에 맞는다
+- 그 뒤에 전체 동기화를 다시 돌려 OutOfSync 를 끝까지 내린다
+
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
 > **이 절은 "지금 하지 않기로 결정한 것" 의 목록이다.** §8 의 각 절 끝에
