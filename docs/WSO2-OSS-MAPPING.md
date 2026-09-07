@@ -332,7 +332,32 @@ OpenBao 에서는 무료다. B2B 테넌트별 시크릿 격리가 여기서 성�
 |---|---|
 | **HSM auto-unseal · Seal Wrap** | 하드웨어 신뢰 근원이다. 소프트웨어 대체가 성립하지 않는다. 클라우드로 가면 KMS auto-unseal 이 답이고, **로컬에서는 사이드카가 최선이며 그것은 봉인을 약화시킨다**(§8-80) |
 | **FIPS 140-2 검증 빌드** | 인증은 빌드에 붙는 것이라 포크가 물려받지 못한다. 규제 요건이 있으면 이 칸이 결정적이다 |
-| **KMIP secrets engine** | 레거시 KMIP 클라이언트가 있을 때만 문제다. 없으면 무시해도 된다 |
+| **KMIP secrets engine** | KMIP 를 말하는 클라이언트가 있을 때만 문제다. **이 플랫폼에는 하나도 없다** — 아래 A-5 참조 |
+
+### A-5. KMIP 서버가 왜 필요 없는가 — 실측 (2026-09-07)
+
+"저장 시 암호화를 하려면 KMIP 서버가 필요한가" 는 자연스러운 질문이다.
+**필요 없다.** 배포된 것 중 KMIP 를 쓸 컴포넌트가 하나도 없기 때문이다.
+
+| 컴포넌트 | 실제 이미지 | 저장 시 암호화 경로 | KMIP |
+|---|---|---|---|
+| MongoDB | `percona/percona-server-mongodb:8.0.29-13` | **Vault 네이티브** 키 관리(`--vaultServerName` 등) | 불필요 |
+| MinIO | `minio/minio:RELEASE.2025-09-07T16-13-09Z` | SSE → **KES** → **Vault 네이티브** | 불필요 |
+| MariaDB | `mariadb:12.3.3` (커뮤니티) | `file_key_management` · `aws_key_management` | **KMIP 는 Enterprise 전용** — 서버를 세워도 못 쓴다 |
+| PostgreSQL | `postgres:18.6` (커뮤니티) | TDE 자체가 없다(pgcrypto 는 컬럼 단위) | 해당 없음 |
+| ClickHouse · Elasticsearch | — | 설정 · 파일시스템 수준 | 해당 없음 |
+
+★ **핵심은 이것이다** — envelope 암호화를 할 수 있는 둘(Percona MongoDB ·
+MinIO)이 **모두 Vault 프로토콜을 네이티브로 말한다.** OpenBao 가 그것을 그대로
+받으므로 KMIP 는 한 겹 더 얹는 것일 뿐 얻는 것이 없다.
+
+KMIP 가 실제로 필요한 곳은 **자체 암호화 드라이브(SAN·NetApp·Pure) ·
+VMware vSphere 암호화 · 백업 어플라이언스 · MongoDB Enterprise ·
+MySQL Enterprise** 다. 이 플랫폼에는 하나도 없다.
+
+> 저장 시 암호화 자체는 **아직 비어 있다** — 실측으로 설정된 컴포넌트가 0건이고
+> G22 가 그것을 기록하고 있다. 다만 채우는 방법이 KMIP 가 아니다.
+> 미룬 이유와 순서는 [LOCAL-DEPLOYMENT.md §9-9](LOCAL-DEPLOYMENT.md) 에 있다.
 
 ### A-4. 이 플랫폼에서의 결론
 
