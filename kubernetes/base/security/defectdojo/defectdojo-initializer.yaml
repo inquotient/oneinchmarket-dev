@@ -14,6 +14,13 @@ metadata:
     app.kubernetes.io/component: security
     app.kubernetes.io/part-of: oneinchmarket
     app.kubernetes.io/managed-by: kustomize
+  annotations:
+    # ★ Job 의 `spec.template` 은 불변이다 — 이미 존재하는 Job 에 apply 를 걸면
+    #   `field is immutable` 로 **동기화 전체가 멈춘다**(ArgoCD 는 실패 하나에
+    #   작업을 중단한다, §8-84). 이 레포의 부트스트랩 Job 9종이 이미 쓰는
+    #   방식대로 훅으로 다뤄 **만들기 전에 지우게** 한다.
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
   backoffLimit: 5
   template:
