@@ -35,6 +35,15 @@ spec:
   # ★ 1 을 넘기지 말 것. Standalone 모드는 인스턴스마다 설정이 갈린다 —
   #   늘리려면 global.yaml 을 Cluster 모드(ZooKeeper/etcd)로 먼저 바꿔야 한다.
   replicas: 1
+  # ★ maxSurge: 0 — postgresql-secret 을 참조하므로 로테이션(1·15일 03:00)에
+  #   reloader 가 이것을 굴린다. 기본값이면 새 파드 512Mi 를 먼저 띄워야 하는데,
+  #   같은 시각에 postgresql·ranger-admin StatefulSet 도 함께 돌고 노드 여유는
+  #   1.1 GiB 뿐이다. replicas 1 이라 surge 가 사주는 무중단은 한 파드뿐이다(§8-96).
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: shardingsphere

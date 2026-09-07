@@ -9887,6 +9887,98 @@ if [ "$MANIFEST_PREFIX" != "$REGISTRY_HOST" ]; then  ... exit 1 ; fi
 공유하므로 지워도 회수량이 크지 않다. **지우지 않았다** — 노드 상태라 이
 레포 밖이고, 지금 지우면 무엇이 무엇인지 헷갈릴 여지만 남긴다.
 
+### 8-96. Reloader 를 세웠다 — 그런데 세우고 보니 9/15 에 확실한 장애가 예약돼 있었다 (2026-09-08)
+
+§9-11 이 남긴 결정이다. 선택지 셋 중 **①(설치)** 을 골랐다.
+
+#### 왜 ①인가 — 설치가 위험을 만드는 것이 아니라 이미 있던 위험을 막는다
+
+②(로테이션 중단)를 고를 뻔했으나, 로테이션 Job 이 무엇을 하는지 먼저 읽었다:
+
+```sh
+PGPASSWORD="${CURRENT_PASSWORD}" psql ... -c "ALTER USER postgres WITH PASSWORD '${NEW_PASSWORD}';"
+kubectl patch secret postgresql-secret ...
+```
+
+**DB 비밀번호와 Secret 을 둘 다 바꾼다.** 즉 reloader 가 없으면 9/15 새벽에
+DB 쪽 비밀번호만 바뀌고 파드는 옛 값을 든 채 남는다 — **어차피 장애다.**
+reloader 는 그것을 막는 쪽이지 만드는 쪽이 아니다. 이 사실을 확인하기 전에는
+"설치가 65개를 재시작시킨다" 는 위험만 보였다.
+
+#### 설치 — scoped 모드
+
+어노테이션이 붙은 65개가 **전부 `local`** 에 있어 `reloader.namespaces={local}`
+로 좁혔다. 그러면 **ClusterRole 이 만들어지지 않고** `local`·`reloader` 두
+곳에 Role 만 생긴다(secrets·configmaps 는 list/get/watch, workload 는
+list/get/update/patch).
+
+★★ **키 이름을 틀렸다가 렌더에서 잡았다.** 처음에 `reloader.watchNamespaces`
+로 썼는데 **그런 키는 없고 helm 은 조용히 무시한다** — Role 이 `local` 에
+생기지 않았고, 그대로 적용했으면 "설치했는데 아무 일도 안 한다" 가 됐을
+것이다(Gotcha 26·77 과 같은 부류). 맞는 키는 `reloader.namespaces` 다.
+**적용 전에 렌더를 읽는 것이 유일한 방어였다.**
+
+`reload-strategy=annotations` 를 쓴다. 기본(`env-vars`)은 컨테이너에 해시
+환경변수를 넣어 ArgoCD 가 드리프트로 본다. annotations 는 파드 템플릿
+어노테이션 한 줄(`reloader.stakater.com/last-reloaded-from`)이라 Application 의
+`ignoreDifferences` 로 정확히 지목할 수 있다.
+
+#### 검증 — 설치했다가 아니라 재시작이 실제로 일어나는가
+
+```
+akhq-config 에 무해한 키 하나 추가
+  -> 10초 이내  sts generation 5 -> 6
+  -> 18초       새 파드 uid 교체 · ready=true
+reloader 로그  "Changes detected in 'akhq-config' of type 'CONFIGMAP' in
+               namespace 'local'; updated 'akhq' of type 'StatefulSet'"
+ArgoCD         Synced · Healthy · OutOfSync 0건  (ignoreDifferences 가 듣는다)
+reloader 실사용 14Mi (requests 64Mi · QoS Burstable)
+```
+
+#### ★★ 그런데 그것만으로는 부족했다 — 두 가지를 더 쟀다
+
+**① 어노테이션 구멍 20개.** 로테이션 Secret 을 참조하는 워크로드 41개 중
+20개(OpenReplay 15 · OpenMeter 5)에 어노테이션이 **없었다.** 상류 차트가
+붙이지 않기 때문이다. 두 파일 다 생성 파일이라 `kustomization.yaml` 의
+`patches` 로 넣었다(`commonAnnotations` 는 쓰지 않았다 — Service·ConfigMap
+까지 붙고 같은 키를 덮어쓴다, Gotcha 67). 이제 **41/41**.
+
+**② 9/15 03:15 의 교착 — 계산해 보니 확실한 장애였다.**
+
+| 로테이션 | 시각 | 워크로드 | surge 필요 |
+|---|---|---|---|
+| postgresql | 03:00 | 3 | 1개 512Mi |
+| mariadb | 03:05 | 1 | 0 |
+| mongodb | 03:10 | 1 | 0 |
+| **minio + redis** | **03:15** | **41 중 26** | **26개 3648Mi** |
+
+노드 여유는 **1.14 GiB** 다. Deployment 기본값은 `maxSurge 25% ·
+maxUnavailable 0` 이고 replicas 1 에서는 "새 파드가 Ready 된 뒤에야 헌 파드를
+죽인다" 를 뜻한다. 그러면 새 파드 26개가 전부 `Insufficient memory` 로
+Pending 에 머물고 **헌 파드는 죽지 않는다** — 그런데 그 헌 파드는 이미 바뀐
+Redis·MinIO 비밀번호로는 붙지 못한다. **자가 복구되지 않는 장애다.**
+§8-93 이 밟은 그 함정이 시각까지 정해져 있었던 셈이다.
+
+처방은 `maxSurge: 0 · maxUnavailable: 1` 이다. **replicas 가 1 이라 surge 가
+사주는 무중단은 어차피 한 파드뿐이고**, 이 노드에서 surge 는 롤아웃이 아니라
+교착이다. openreplay 15 · openmeter 5 · glitchtip 2 · ratelimit 1 ·
+shardingsphere 1 에 넣었다. defectdojo 3종은 **이미 `Recreate`** 라 손대지
+않았다(그래서 처음 계산에서 896Mi 를 과대계상했고, 다시 셌다).
+
+재계산 결과 **필요한 surge 0 Mi.**
+
+★ 이 두 가지는 reloader 를 세우지 않았으면 **드러나지 않았다.** 설치가 문제를
+만든 것이 아니라, 잠자던 경로를 깨워 그 아래 있던 것을 보이게 했다 —
+Gotcha 58 이 "GitOps 를 켜는 것은 평소에 돌지 않던 것을 전부 다시 돌리는
+일" 이라고 적은 것과 같은 구조다.
+
+#### 남는 것
+
+로테이션은 **아직 한 번도 돌지 않았다**(`lastScheduleTime <none>`).
+계산상 교착은 없앴지만 **실제로 도는 것을 본 적은 없다.** 2026-09-15 03:00
+이후에 확인할 것 — Job 7종의 성공 여부, 재시작된 워크로드 수, 그리고
+DB 접속이 실제로 되는지.
+
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
 > **이 절은 "지금 하지 않기로 결정한 것" 의 목록이다.** §8 의 각 절 끝에
@@ -10116,7 +10208,11 @@ JVM 의 `availableProcessors`·Go 의 `GOMAXPROCS`·nginx 의 `worker_processes 
 가 전부 같은 함정이다. 예약과 실사용이 크게 벌어지는 워크로드를 만나면
 **메모리 누수를 의심하기 전에 병렬도부터 볼 것.**
 
-### 9-11. ★★ Reloader 어노테이션 65개가 아무 일도 하지 않는다 — 결정이 필요하다 (§8-94 에서 발견)
+### 9-11. ~~Reloader 어노테이션 65개가 아무 일도 하지 않는다~~ — **§8-96 에서 해소됐다**
+
+> ★ 선택지 ①(설치)를 골랐고, 그 과정에서 어노테이션 구멍 20개와
+> 9/15 03:15 의 surge 교착(3648Mi vs 여유 1.14 GiB)을 함께 찾아 고쳤다.
+> 아래는 결정 전의 기록이다.
 
 `CLAUDE.md` 의 "Annotations" 규약이 `reloader.stakater.com/auto: "true"` 를
 "Secret/ConfigMap 변경 시 자동 재시작" 으로 적어 두었다. **그 컨트롤러가
