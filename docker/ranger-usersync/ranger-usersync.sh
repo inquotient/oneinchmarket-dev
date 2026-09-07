@@ -65,11 +65,27 @@ fi
 #
 # ★ 값을 바꾸면 매니페스트의 limit 과 함께 움직여야 한다
 #   (ranger-usersync-deployment.yaml 의 limits.memory).
+#
+# ★★ 고쳐졌는지 **반드시 확인한다.** 조용히 실패하면 이 수정은
+#   없는 것과 같고, 힙이 limit 을 넘기는 상태로 돌아간다 — 그러면
+#   파드는 1/1 Running 이면서 언젠가 커널이 죽인다(§8-94).
+#   상류가 변수명을 바꾸면 sed 가 아무 일도 하지 않으므로
+#   **기동을 거부한다** — 조용한 오설정보다 CrashLoop 가 낫다.
+USERSYNC_HEAP="${USERSYNC_HEAP:-384m}"
+USERSYNC_MIN_HEAP="${USERSYNC_MIN_HEAP:-128m}"
 USERSYNC_SVC="${RANGER_HOME}/usersync/ranger-usersync-services.sh"
-if [ -f "${USERSYNC_SVC}" ]; then
-  sed -i     -e 's/^ranger_usersync_max_heap_size=.*/ranger_usersync_max_heap_size=384m/'     -e 's/-Xms1g/-Xms128m/'     "${USERSYNC_SVC}"
-  echo "[usersync] heap: $(grep -m1 '^ranger_usersync_max_heap_size=' "${USERSYNC_SVC}")"
+if [ ! -f "${USERSYNC_SVC}" ]; then
+  echo "[usersync] ★★ ${USERSYNC_SVC} 가 없다 — 힙을 고칠 수 없다. 중단." >&2
+  exit 1
 fi
+sed -i   -e "s/^ranger_usersync_max_heap_size=.*/ranger_usersync_max_heap_size=${USERSYNC_HEAP}/"   -e "s/-Xms1g/-Xms${USERSYNC_MIN_HEAP}/"   "${USERSYNC_SVC}"
+if ! grep -q "^ranger_usersync_max_heap_size=${USERSYNC_HEAP}$" "${USERSYNC_SVC}"; then
+  echo "[usersync] ★★ 힙 수정이 먹지 않았다 — 상류 스크립트가 바뀌었을 수 있다." >&2
+  echo "[usersync]   대상: ${USERSYNC_SVC}" >&2
+  grep -n 'heap_size\|Xm' "${USERSYNC_SVC}" >&2 || true
+  exit 1
+fi
+echo "[usersync] heap: -Xmx${USERSYNC_HEAP} -Xms${USERSYNC_MIN_HEAP} (limit 768Mi)"
 
 cd ${RANGER_HOME}/usersync && ./start.sh
 

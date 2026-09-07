@@ -9763,8 +9763,10 @@ direct buffer 가 들어갈 자리가 0 이라는 뜻이고, Trino 처럼 네이
 **마지막 `-Xmx` 를 취하므로** 환경변수로는 이길 수 없다. 그래서
 `docker/ranger-usersync/ranger-usersync.sh`(우리 래퍼)가 기동 전에 그
 스크립트를 `sed` 한다. **이미지를 다시 빌드해야 반영된다** —
-`local/build-images.sh` 는 9종을 통째로 빌드하고 단건 선택이 없어서,
-도는 파드는 그때까지 `-Xmx1g` 그대로다(실사용 71Mi 라 당장의 위험은 낮다).
+~~`local/build-images.sh` 는 9종을 통째로 빌드하고 단건 선택이 없어서,
+도는 파드는 그때까지 `-Xmx1g` 그대로다.~~ — **§8-95 에서 반영했다.**
+단건 선택을 넣고 다시 빌드했고, 그 과정에서 **반입 이름이 매니페스트와
+달라 재빌드가 애초에 파드에 닿지 않던 것**을 찾았다.
 
 #### ★ jvm.config 안에는 주석을 쓰지 말 것
 
@@ -9795,6 +9797,95 @@ livy 실사용 534Mi -> 255Mi
 `reloader.stakater.com/auto: "true"` 가 붙어 있는데도 그렇다 —
 **그 컨트롤러가 이 클러스터에 없다.** 어노테이션이 붙은 워크로드가
 **65개**이고 전부 아무 일도 하지 않는다.
+
+### 8-95. ranger-usersync 힙을 실제로 반영했다 — 그러다 "빌드해도 파드에 닿지 않는" 경로를 찾았다 (2026-09-08)
+
+§8-94 가 고쳐 두고 **반영하지 못한 채** 남긴 것이다. 그것을 밀어 넣으려다
+`local/build-images.sh` 에서 결함 둘이 나왔고, 두 번째가 훨씬 크다.
+
+#### ① 단건 선택이 없었다 — 그래서 "고치고 반영하지 않는" 상태가 생긴다
+
+한 이미지의 한 줄을 고치려고 9종을 통째로 빌드해야 했다(Ranger Maven 빌드와
+HBase tarball 때문에 아주 비싸다). 그래서 실제로 §8-94 가 **소스만 고치고
+도는 파드는 옛 설정 그대로** 인 채 끝났다.
+
+```
+local/build-images.sh                    # 9종 전부(예전과 같다)
+local/build-images.sh ranger-usersync    # 하나만
+local/build-images.sh livy jenkins       # 여럿
+local/build-images.sh --list             # 이름 목록
+```
+
+이름을 틀리면 목록을 보여주고 즉시 멈춘다. 반입·push 목록도 **같은 선택을
+따른다** — 빌드만 하고 반입을 잊으면 파드는 옛 이미지로 계속 돈다.
+
+#### ★★ ② 반입 이름이 매니페스트와 달랐다 — 오류 없이
+
+```
+스크립트  REGISTRY_HOST="gitlab-registry:5050"                       (짧은 이름)
+매니페스트 gitlab-registry.local.svc.cluster.local:5050/oneinch/...   (FQDN)
+```
+
+첫 재빌드에서 실측한 것:
+
+```
+gitlab-registry:5050/oneinch/ranger-usersync:2.9.0                        sha256:758c7adf  ← 새것
+gitlab-registry.local.svc.cluster.local:5050/oneinch/ranger-usersync:2.9.0 sha256:e5ce6fd0  ← 6일 전
+```
+
+**빌드는 성공하고, 반입도 성공하고, 파드는 옛 이미지로 계속 돈다.**
+`imagePullPolicy: IfNotPresent` 라 kubelet 은 매니페스트의 이름이 이미
+있으니 그대로 쓴다. 어디에서도 오류가 나지 않는다.
+
+Gotcha 52 ③ 이 "짧은 서비스 이름은 같은 네임스페이스에서만 풀린다 — FQDN 을
+쓸 것" 이라고 이미 적어 둔 것인데, **레지스트리 접속**에서만 그렇게 하고
+**이미지 이름**에서는 놓쳤다. 그리고 `/etc/hosts` 에도 짧은 이름만 박아
+`podman login` 이 실패해 push 까지 조용히 건너뛰고 있었다(Trivy 가 이 9종을
+스캔하지 못한 이유다).
+
+처방은 두 가지다. 하나는 `REGISTRY_FQDN` 을 도입해 이미지 이름·`/etc/hosts`·
+로그인을 전부 FQDN 으로 맞춘 것. 다른 하나가 더 중요하다 — **믿지 말고
+매니페스트에 물어보게 했다**:
+
+```sh
+MANIFEST_PREFIX="$(grep -rho 'image: *[A-Za-z0-9./_:-]*/oneinch/' "${REPO_ROOT}/kubernetes" ...)"
+if [ "$MANIFEST_PREFIX" != "$REGISTRY_HOST" ]; then  ... exit 1 ; fi
+```
+
+값을 고치는 것만으로는 다음에 또 어긋난다. **어긋나면 멈추게** 해야 한다.
+
+#### ③ 래퍼가 조용히 실패하지 않게 했다
+
+`docker/ranger-usersync/ranger-usersync.sh` 가 상류 스크립트를 `sed` 하는데,
+그 `sed` 가 실패하면 **아무 일도 하지 않은 것과 같고 힙은 limit 을 넘는
+상태로 돌아간다** — 파드는 `1/1 Running` 이다. 그래서 고친 뒤 값을 되읽어
+확인하고, 다르면 **기동을 거부한다.** 상류가 변수명을 바꾸면 CrashLoop 로
+드러나는 편이 조용한 오설정보다 낫다.
+
+★ 힙 값은 `USERSYNC_HEAP` · `USERSYNC_MIN_HEAP` 환경변수로 덮을 수 있게 했다.
+매니페스트의 limit 을 바꿀 때 함께 움직일 자리다.
+
+#### 검증
+
+```
+반입 다이제스트  e5ce6fd0 -> 9640e0e4 -> 688739b1   (FQDN 이름에 붙었다)
+레지스트리 push  성공                                (/etc/hosts FQDN 수정 뒤)
+래퍼 로그        [usersync] heap: -Xmx384m -Xms128m (limit 768Mi)
+실제 JVM 인자    -Xmx384m -Xms128m -XX:MaxMetaspaceSize=200m
+파드             ready=true · restarts=0
+동작             "Apache Ranger Usersync Service with pid 383 has started"
+                 "[I] Successfully updated password of rangerusersync user"
+인증 실패 누적   0건 (Gotcha 11 — 계정 잠금 없음)
+```
+
+★ 힙이 limit 의 **50%** 가 됐다(이전에는 **133%**).
+
+#### 남는 것
+
+`gitlab-registry:5050/oneinch/*` 로 반입된 이름 9개가 containerd 에 남아
+있다. 어느 매니페스트도 참조하지 않는 쓰레기이나, 레이어를 올바른 이름과
+공유하므로 지워도 회수량이 크지 않다. **지우지 않았다** — 노드 상태라 이
+레포 밖이고, 지금 지우면 무엇이 무엇인지 헷갈릴 여지만 남긴다.
 
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 

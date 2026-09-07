@@ -16,6 +16,37 @@ trap 'echo "[build][ERROR] line $LINENO: $BASH_COMMAND" >&2' ERR
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 log() { echo "[build] $*"; }
 
+# ★★ 단건 선택 — 인자를 주면 그 이미지만 빌드한다.
+#   왜 필요한가: 한 이미지의 한 줄을 고치려고 9종을 통째로 빌드하는 것은
+#   Ranger Maven 빌드와 HBase tarball 때문에 아주 비싸다. 그래서 실제로
+#   "고쳤지만 반영하지 않은" 상태가 생겼다(§8-94 의 ranger-usersync).
+#   반입·push 목록도 같은 선택을 따른다 — 빌드만 하고 반입을 잊으면
+#   파드는 옛 이미지로 계속 돈다(IfNotPresent 다).
+#
+# 사용
+#   local/build-images.sh                      # 9종 전부
+#   local/build-images.sh ranger-usersync      # 하나만
+#   local/build-images.sh livy jenkins         # 여럿
+#   local/build-images.sh --list               # 이름 목록
+ALL_IMAGES="spark-iceberg livy ranger-usersync hbase ranger-hdfs-plugin ranger-hbase-plugin ranger-hive-plugin jenkins proxysql"
+if [ "${1:-}" = "--list" ]; then
+  for n in $ALL_IMAGES; do echo "  $n"; done
+  exit 0
+fi
+ONLY="$*"
+for n in $ONLY; do
+  case " $ALL_IMAGES " in
+    *" $n "*) ;;
+    *) echo "[build] 그런 이미지가 없다: $n (--list 로 확인할 것)" >&2; exit 1;;
+  esac
+done
+[ -n "$ONLY" ] && log "선택: $ONLY"
+want() {
+  [ -z "$ONLY" ] && return 0
+  case " $ONLY " in *" $1 "*) return 0;; esac
+  return 1
+}
+
 # k3s 와 경합하지 않도록 도커 계열 서비스를 내린다 (패키지는 남긴다)
 for s in docker.socket docker containerd; do
   systemctl list-unit-files "$s"* >/dev/null 2>&1 && sudo systemctl disable --now "$s" 2>/dev/null || true
@@ -33,79 +64,97 @@ if ! command -v podman >/dev/null 2>&1; then
 fi
 podman --version
 
-log "oneinch/spark-iceberg 빌드"
-sudo podman build --format docker --network host \
-  -t oneinch/spark-iceberg:latest -t oneinch/spark-iceberg:3.5.6 \
-  "${REPO_ROOT}/docker/spark-iceberg"
+if want spark-iceberg; then
+  log "oneinch/spark-iceberg 빌드"
+  sudo podman build --format docker --network host \
+    -t oneinch/spark-iceberg:latest -t oneinch/spark-iceberg:3.5.6 \
+    "${REPO_ROOT}/docker/spark-iceberg"
+fi
 
-log "oneinch/livy 빌드"
-sudo podman build --format docker --network host \
-  -t oneinch/livy:latest -t oneinch/livy:0.9.0-incubating \
-  "${REPO_ROOT}/docker/livy"
+if want livy; then
+  log "oneinch/livy 빌드"
+  sudo podman build --format docker --network host \
+    -t oneinch/livy:latest -t oneinch/livy:0.9.0-incubating \
+    "${REPO_ROOT}/docker/livy"
+fi
 
-log "oneinch/ranger-usersync 빌드"
-# Ranger UserSync 는 공식 이미지가 없다. Dockerfile 은 upstream 에 있다
-#   apache/ranger @ release-ranger-2.9.0
-#     dev-support/ranger-docker/Dockerfile.ranger-usersync
-# 베이스(apache/ranger-base)와 릴리스 tarball 모두 Apache 배포물이다.
-sudo podman build --format docker --network host \
-  -t oneinch/ranger-usersync:latest -t oneinch/ranger-usersync:2.9.0 \
-  "${REPO_ROOT}/docker/ranger-usersync"
+if want ranger-usersync; then
+  log "oneinch/ranger-usersync 빌드"
+  # Ranger UserSync 는 공식 이미지가 없다. Dockerfile 은 upstream 에 있다
+  #   apache/ranger @ release-ranger-2.9.0
+  #     dev-support/ranger-docker/Dockerfile.ranger-usersync
+  # 베이스(apache/ranger-base)와 릴리스 tarball 모두 Apache 배포물이다.
+  sudo podman build --format docker --network host \
+    -t oneinch/ranger-usersync:latest -t oneinch/ranger-usersync:2.9.0 \
+    "${REPO_ROOT}/docker/ranger-usersync"
+fi
 
-log "oneinch/hbase 빌드"
-# HBase 는 공식 이미지가 없다(Docker Hub 에 apache/hbase 저장소가 없음).
-# v1/hbase/Dockerfile 을 고쳐 docker/hbase 로 옮겼다 — 상세는 그 파일 주석.
-sudo podman build --format docker --network host \
-  -t oneinch/hbase:latest -t oneinch/hbase:3.0.0 \
-  "${REPO_ROOT}/docker/hbase"
+if want hbase; then
+  log "oneinch/hbase 빌드"
+  # HBase 는 공식 이미지가 없다(Docker Hub 에 apache/hbase 저장소가 없음).
+  # v1/hbase/Dockerfile 을 고쳐 docker/hbase 로 옮겼다 — 상세는 그 파일 주석.
+  sudo podman build --format docker --network host \
+    -t oneinch/hbase:latest -t oneinch/hbase:3.0.0 \
+    "${REPO_ROOT}/docker/hbase"
+fi
 
-log "oneinch/ranger-hdfs-plugin 빌드"
-# Ranger 2.9 의 REST 클라이언트는 Jersey 1 을 쓰는데 Hadoop 3.5 가 그것을
-# 걷어냈다. upstream 이 master 에서 이미 Jersey 2 로 옮겼고, 그 수정을 2.9.0 에
-# 백포트해 빌드한다 — 상세와 실패했던 우회들은
-# docker/ranger-hdfs-plugin/Dockerfile 주석과 §8-68 에 있다.
-# Ranger 3.0.0 이 릴리스되면 이 이미지는 지운다.
-# ★ 오래 걸린다 — Maven 이 Ranger 부모 모듈 의존성을 받는다.
-sudo podman build --format docker --network host \
-  -t oneinch/ranger-hdfs-plugin:latest -t oneinch/ranger-hdfs-plugin:2.9.0-jersey2 \
-  "${REPO_ROOT}/docker/ranger-hdfs-plugin"
+if want ranger-hdfs-plugin; then
+  log "oneinch/ranger-hdfs-plugin 빌드"
+  # Ranger 2.9 의 REST 클라이언트는 Jersey 1 을 쓰는데 Hadoop 3.5 가 그것을
+  # 걷어냈다. upstream 이 master 에서 이미 Jersey 2 로 옮겼고, 그 수정을 2.9.0 에
+  # 백포트해 빌드한다 — 상세와 실패했던 우회들은
+  # docker/ranger-hdfs-plugin/Dockerfile 주석과 §8-68 에 있다.
+  # Ranger 3.0.0 이 릴리스되면 이 이미지는 지운다.
+  # ★ 오래 걸린다 — Maven 이 Ranger 부모 모듈 의존성을 받는다.
+  sudo podman build --format docker --network host \
+    -t oneinch/ranger-hdfs-plugin:latest -t oneinch/ranger-hdfs-plugin:2.9.0-jersey2 \
+    "${REPO_ROOT}/docker/ranger-hdfs-plugin"
+fi
 
-log "oneinch/ranger-hbase-plugin 빌드"
-# HBase 3 이 구 protobuf 패키지를 걷어내 Ranger 2.9 코프로세서가 적재되지
-# 못한다(마스터 ABORT). ★ 이것은 §8-68 의 Jersey 건과 달리 **백포트가 아니다** —
-# Ranger master 조차 hbase 2.6.0 을 겨냥해 대조할 구현이 없다. 우리가 이식했다.
-# 상세는 docker/ranger-hbase-plugin/Dockerfile 주석과 §8-69.
-# ★ docker/hbase 의 HBASE_VERSION 과 **짝이 맞아야 한다.**
-# ★ 오래 걸린다 — JDK 8/17 두 단계로 Ranger 를 빌드한다.
-sudo podman build --format docker --network host \
-  -t oneinch/ranger-hbase-plugin:latest -t oneinch/ranger-hbase-plugin:2.9.0-hbase3 \
-  "${REPO_ROOT}/docker/ranger-hbase-plugin"
+if want ranger-hbase-plugin; then
+  log "oneinch/ranger-hbase-plugin 빌드"
+  # HBase 3 이 구 protobuf 패키지를 걷어내 Ranger 2.9 코프로세서가 적재되지
+  # 못한다(마스터 ABORT). ★ 이것은 §8-68 의 Jersey 건과 달리 **백포트가 아니다** —
+  # Ranger master 조차 hbase 2.6.0 을 겨냥해 대조할 구현이 없다. 우리가 이식했다.
+  # 상세는 docker/ranger-hbase-plugin/Dockerfile 주석과 §8-69.
+  # ★ docker/hbase 의 HBASE_VERSION 과 **짝이 맞아야 한다.**
+  # ★ 오래 걸린다 — JDK 8/17 두 단계로 Ranger 를 빌드한다.
+  sudo podman build --format docker --network host \
+    -t oneinch/ranger-hbase-plugin:latest -t oneinch/ranger-hbase-plugin:2.9.0-hbase3 \
+    "${REPO_ROOT}/docker/ranger-hbase-plugin"
+fi
 
-log "oneinch/ranger-hive-plugin 빌드"
-# Hive 4 가 HiveConf.ConfVars 상수를 개명하고 인덱스 연산을 걷어내 Ranger 2.9
-# Hive 플러그인이 기동하지 못한다(NoSuchFieldError: PREEXECHOOKS).
-# ★ 이것은 §8-69 의 HBase 와 달리 **백포트**다 — upstream master 가 Hive 4 를
-# 겨냥한다. 상세는 docker/ranger-hive-plugin/Dockerfile 주석과 §8-70.
-sudo podman build --format docker --network host \
-  -t oneinch/ranger-hive-plugin:latest -t oneinch/ranger-hive-plugin:2.9.0-hive4 \
-  "${REPO_ROOT}/docker/ranger-hive-plugin"
+if want ranger-hive-plugin; then
+  log "oneinch/ranger-hive-plugin 빌드"
+  # Hive 4 가 HiveConf.ConfVars 상수를 개명하고 인덱스 연산을 걷어내 Ranger 2.9
+  # Hive 플러그인이 기동하지 못한다(NoSuchFieldError: PREEXECHOOKS).
+  # ★ 이것은 §8-69 의 HBase 와 달리 **백포트**다 — upstream master 가 Hive 4 를
+  # 겨냥한다. 상세는 docker/ranger-hive-plugin/Dockerfile 주석과 §8-70.
+  sudo podman build --format docker --network host \
+    -t oneinch/ranger-hive-plugin:latest -t oneinch/ranger-hive-plugin:2.9.0-hive4 \
+    "${REPO_ROOT}/docker/ranger-hive-plugin"
+fi
 
-log "oneinch/jenkins 빌드"
-# 공식 이미지에는 플러그인이 없다. JCasC 로 관리자 계정을 선언하려면
-# configuration-as-code 플러그인이 필요하고, 런타임에 받으면 SEC-512 다.
-# 상세는 docker/jenkins/Dockerfile 주석.
-sudo podman build --format docker --network host \
-  -t oneinch/jenkins:latest -t oneinch/jenkins:2.568.3-lts \
-  "${REPO_ROOT}/docker/jenkins"
+if want jenkins; then
+  log "oneinch/jenkins 빌드"
+  # 공식 이미지에는 플러그인이 없다. JCasC 로 관리자 계정을 선언하려면
+  # configuration-as-code 플러그인이 필요하고, 런타임에 받으면 SEC-512 다.
+  # 상세는 docker/jenkins/Dockerfile 주석.
+  sudo podman build --format docker --network host \
+    -t oneinch/jenkins:latest -t oneinch/jenkins:2.568.3-lts \
+    "${REPO_ROOT}/docker/jenkins"
+fi
 
-log "oneinch/proxysql 빌드"
-# ProxySQL 은 패키지와 컨테이너 이미지의 릴리스 주기가 다르다 — 4.x 는
-# 릴리스 자산이 rpm·deb·tar.gz 뿐이고 Docker Hub 에도 ghcr 에도 이미지가 없다.
-# 그래서 릴리스 tarball 로 직접 굽는다. 상세는 docker/proxysql/Dockerfile 과 §8-76.
-# ★ 업스트림이 4.x 컨테이너를 내기 시작하면 이 항목과 docker/proxysql 을 지울 것.
-sudo podman build --format docker --network host \
-  -t oneinch/proxysql:latest -t oneinch/proxysql:4.0.11 \
-  "${REPO_ROOT}/docker/proxysql"
+if want proxysql; then
+  log "oneinch/proxysql 빌드"
+  # ProxySQL 은 패키지와 컨테이너 이미지의 릴리스 주기가 다르다 — 4.x 는
+  # 릴리스 자산이 rpm·deb·tar.gz 뿐이고 Docker Hub 에도 ghcr 에도 이미지가 없다.
+  # 그래서 릴리스 tarball 로 직접 굽는다. 상세는 docker/proxysql/Dockerfile 과 §8-76.
+  # ★ 업스트림이 4.x 컨테이너를 내기 시작하면 이 항목과 docker/proxysql 을 지울 것.
+  sudo podman build --format docker --network host \
+    -t oneinch/proxysql:latest -t oneinch/proxysql:4.0.11 \
+    "${REPO_ROOT}/docker/proxysql"
+fi
 
 # ── GitLab 컨테이너 레지스트리로 push ──────────────────────────────
 #
@@ -125,7 +174,25 @@ sudo podman build --format docker --network host \
 #   GitLab 자체가 없으므로 여기서 실패하면 안 된다.
 REGISTRY_SVC="gitlab-registry"
 REGISTRY_NS="local"
-REGISTRY_HOST="${REGISTRY_SVC}:5050"
+# ★★ 이미지 이름은 **FQDN** 이어야 한다 — 짧은 이름이었다.
+#   매니페스트는 gitlab-registry.local.svc.cluster.local:5050/... 을
+#   참조하는데 이 스크립트는 gitlab-registry:5050/... 로 반입했다.
+#   그러면 **빌드는 성공하고 파드는 옛 이미지로 계속 돌다**
+#   (imagePullPolicy: IfNotPresent 라 이미 있는 이름을 그대로 쓴다).
+#   오류가 한 줄도 나지 않는다 — §8-95.
+REGISTRY_FQDN="${REGISTRY_SVC}.${REGISTRY_NS}.svc.cluster.local"
+REGISTRY_HOST="${REGISTRY_FQDN}:5050"
+
+# ★ 그리고 믿지 말고 매니페스트에 물어본다.
+#   위 값을 고치더라도 다음에 또 어긋나면 같은 일이 조용히 반복된다.
+MANIFEST_PREFIX="$(grep -rho 'image: *[A-Za-z0-9./_:-]*/oneinch/' "${REPO_ROOT}/kubernetes" 2>/dev/null                    | sed 's/^image:[[:space:]]*//; s#/oneinch/$##' | sort -u | head -1)"
+if [ -n "$MANIFEST_PREFIX" ] && [ "$MANIFEST_PREFIX" != "$REGISTRY_HOST" ]; then
+  log "★★ 반입 이름이 매니페스트와 다르다 — 중단한다"
+  log "     스크립트  : $REGISTRY_HOST"
+  log "     매니페스트: $MANIFEST_PREFIX"
+  log "   그대로 두면 빌드는 성공하고 파드는 옛 이미지로 돌다."
+  exit 1
+fi
 
 # Secret(dockerconfigjson)에서 토큰만 꺼내는 조각. 셸 따옴표 안에서
 # 한 줄로 쓰면 읽을 수 없어 변수로 뺀다.
@@ -160,9 +227,11 @@ push_to_registry() {
     log "ClusterIP 를 읽지 못했다 — push 를 건너뛴다"
     return 1
   fi
-  sudo sed -i "/[[:space:]]${REGISTRY_SVC}\$/d" /etc/hosts
-  echo "${cip} ${REGISTRY_SVC}" | sudo tee -a /etc/hosts >/dev/null
-  log "  ${REGISTRY_SVC} -> ${cip} (/etc/hosts)"
+  # ★ FQDN 과 짧은 이름을 한 줄에 함께 박는다 — podman 은 REGISTRY_HOST(FQDN)로
+  #   붙고, 짧은 이름은 수작업 시험에 쓰인다.
+  sudo sed -i "/[[:space:]]${REGISTRY_FQDN}\$/d; /[[:space:]]${REGISTRY_SVC}\$/d; /[[:space:]]${REGISTRY_FQDN}[[:space:]]/d" /etc/hosts
+  echo "${cip} ${REGISTRY_FQDN} ${REGISTRY_SVC}" | sudo tee -a /etc/hosts >/dev/null
+  log "  ${REGISTRY_FQDN} -> ${cip} (/etc/hosts)"
 
   # 토큰은 Secret 이 정본이다 — 사본을 따로 두지 않는다.
   local tokfile; tokfile="$(mktemp)"
@@ -203,6 +272,8 @@ for img in oneinch/spark-iceberg:3.5.6 \
            oneinch/ranger-hdfs-plugin:2.9.0-jersey2 \
            oneinch/ranger-hbase-plugin:2.9.0-hbase3 \
            oneinch/ranger-hive-plugin:2.9.0-hive4; do
+  # ★ 빌드하지 않은 것을 반입하면 옛 레이어가 그대로 올라간다.
+  base="${img%%:*}"; want "${base#oneinch/}" || continue
   ref="${REGISTRY_HOST}/${img}"
   sudo podman tag "localhost/${img}" "$ref"
   sudo podman save --format docker-archive "$ref"     | sudo k3s ctr -n k8s.io images import --base-name "$ref" - >/dev/null
