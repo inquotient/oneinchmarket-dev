@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - openbao-headless.yaml
+  - openbao-configmap.yaml
+  - openbao-statefulset.yaml
+
+commonAnnotations:
+  # Keycloak(4)과 같은 security 계층이다.
+  # External Secrets Operator 가 이것을 백엔드로 쓰므로, ESO 로 옮긴
+  # 시크릿을 참조하는 워크로드보다 먼저 떠야 한다.
+  argocd.argoproj.io/sync-wave: "4"

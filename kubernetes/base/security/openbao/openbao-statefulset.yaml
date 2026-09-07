@@ -1,0 +1,146 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: openbao
+  labels: {app.kubernetes.io/name: openbao, app.kubernetes.io/component: security, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+  annotations: {reloader.stakater.com/auto: "true"}
+spec:
+  serviceName: openbao-headless
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: openbao}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: openbao, app.kubernetes.io/component: security, app.kubernetes.io/part-of: oneinchmarket}
+    spec:
+      serviceAccountName: openbao
+      securityContext:
+        # 실측(podman inspect): uid=100(openbao) gid=1000(openbao).
+        # Vault 이미지와 같은 값이라 그대로 옮겨 온다.
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: openbao
+          image: openbao/openbao:2.4.1
+          # ★★ args 를 반드시 덮을 것. 이미지 기본 CMD 는
+          #   `server -dev -dev-no-store-token` 이라(실측) 그대로 두면
+          #   **조용히 dev 모드로 뜬다** — 메모리 저장이라 재시작마다 데이터가
+          #   사라지고 root token 이 고정값인데, 파드는 1/1 Ready 라 정상으로
+          #   보인다. 이 레포가 반복해 겪은 "성공처럼 보이는 실패" 다.
+          # ★ -config 을 직접 주지 말 것. 엔트리포인트가 BAO_CONFIG_DIR
+          #   (=/openbao/config)을 스스로 덧붙인다. 명시하면 같은 파일을 두 번
+          #   읽어 리스너가 중복 등록되고 bind: address already in use 로 죽는다.
+          #   Vault 에서 겪은 것과 같은 함정이다.
+          args: ["server"]
+          ports:
+            - {containerPort: 8200, name: http, protocol: TCP}
+            - {containerPort: 8201, name: cluster, protocol: TCP}
+          env:
+            # 환경변수 접두가 VAULT_ 가 아니라 BAO_ 다.
+            - {name: BAO_ADDR, value: "http://127.0.0.1:8200"}
+            # 컨테이너에서 mlock 은 IPC_LOCK 이 필요하다. 켜려면 capability 를
+            # 되돌려야 하는데, 대신 config 의 disable_mlock 으로 끈다.
+            # 스왑에 키가 남을 수 있다는 뜻이다 — 로컬 검증 범위에서 수용한다.
+            - {name: SKIP_SETCAP, value: "true"}
+            # ★★ 이것이 없으면 CrashLoopBackOff 다(실측).
+            #   엔트리포인트는 5번 줄이 `set -e` 인데 config 의 chown 은
+            #   `|| echo` 폴백이 있고(77줄) **logs 의 chown 은 없다**(82줄).
+            #   ConfigMap 마운트는 읽기 전용이고 logs 는 emptyDir 라
+            #   `chown: Operation not permitted` 에서 그대로 죽는다.
+            #   증상은 `exitCode 1` 뿐이고 로그 마지막 줄이 chown 이라
+            #   OpenBao 설정 문제로 읽기 쉽다 — 설정은 멀쩡하다.
+            #   Vault 이미지에는 없던 동작이라 그대로 옮기면 걸린다.
+            - {name: SKIP_CHOWN, value: "true"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits:   {cpu: 500m, memory: 512Mi}
+          # ★ 프로브에 /v1/sys/health 를 쓰되 봉인 상태를 실패로 보지 않는다.
+          #   기본값으로 두면 sealed(503) 를 실패로 읽어 unseal 하기도 전에
+          #   컨테이너를 죽인다. standbyok·sealedcode·uninitcode 로 200 을 받는다.
+          startupProbe:
+            httpGet:
+              path: "/v1/sys/health?standbyok=true&sealedcode=200&uninitcode=200"
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: "/v1/sys/health?standbyok=true&sealedcode=200&uninitcode=200"
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          # readiness 는 반대다 — 봉인 중이면 트래픽을 받지 않아야 한다.
+          # 즉 unseal 하기 전까지 이 파드는 0/1 이 정상이다.
+          readinessProbe:
+            httpGet: {path: "/v1/sys/health?standbyok=true", port: http}
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - {name: config, mountPath: /openbao/config}
+            - {name: data, mountPath: /openbao/file}
+            - {name: logs, mountPath: /openbao/logs}
+        # 자동 봉인 해제 사이드카.
+        #   없으면 파드가 재시작할 때마다 OpenBao 가 봉인되어 0/1 로 남고,
+        #   External Secrets 가 그때마다 끊긴다. 이 클러스터는 파드 재시작이
+        #   잦다(다른 워크로드 실측 15회) — 수동 해제는 현실적이지 않다.
+        #
+        #   ★★ 이것은 봉인을 약화시킨다. 여는 열쇠가 여는 대상 옆에 있다.
+        #     로컬에는 auto-unseal 에 쓸 KMS·HSM 이 없고 transit auto-unseal 은
+        #     OpenBao 가 하나 더 필요해 순환이다. **prod 에서는 이렇게 하지 말 것** —
+        #     KMS auto-unseal 또는 M-of-N 분산 보관으로 바꿔야 한다(§8-80).
+        #
+        #   ★ Secret 은 optional 이다 — 최초 기동 시점에는 아직 없다.
+        #     local/openbao-init.sh 가 init 하면서 만든다.
+        - name: unsealer
+          image: openbao/openbao:2.4.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              # bao status 종료 코드: 0=해제됨 · 2=봉인됨 · 1=오류(미기동)
+              while true; do
+                if ! bao status >/dev/null 2>&1; then
+                  if [ -s /keys/unseal-key ]; then
+                    # unseal - 는 stdin 을 읽지 않는다. read 로 받아 인자로 넘긴다.
+                    read -r UK < /keys/unseal-key
+                    if bao operator unseal "$UK" >/dev/null 2>&1; then
+                      echo "[unsealer] unsealed"
+                    fi
+                  fi
+                fi
+                sleep 10
+              done
+          env:
+            - {name: BAO_ADDR, value: "http://127.0.0.1:8200"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits:   {cpu: 100m, memory: 64Mi}
+          volumeMounts:
+            - {name: keys, mountPath: /keys, readOnly: true}
+      volumes:
+        - name: config
+          configMap: {name: openbao-config}
+        - name: logs
+          emptyDir: {}
+        - name: keys
+          secret:
+            secretName: openbao-keys
+            optional: true
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        # 기본 StorageClass 에 기대지 않는다 — 로컬에 default 표시가 둘이다.
+        storageClassName: standard
+        resources: {requests: {storage: 5Gi}}

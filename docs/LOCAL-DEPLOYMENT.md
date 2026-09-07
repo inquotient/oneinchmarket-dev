@@ -8225,6 +8225,81 @@ Running` 이고 리포트 건수도 늘어나는 것만 보고는 알 수 없다
   `kubectl get vulnerabilityreports -n local -o json | grep -c gitlab-registry`
   로 볼 것.
 
+### 8-80. Vault(BUSL) 를 OpenBao 로 교체하고 자동 봉인 해제를 붙였다 (2026-09-07)
+
+#### 왜 바꿨나 — 기능이 아니라 라이선스다
+
+**기능 차이는 0 이다.** OpenBao 는 Vault 의 포크이고 API 가 호환되며 External
+Secrets Operator 는 같은 `vault` provider 로 둘 다 붙는다. 바꾼 이유는 하나다 —
+**HashiCorp Vault 는 2023년에 BUSL 1.1 로 바뀌어 오픈소스가 아니다.** 이
+플랫폼의 목표가 "상용을 OSS 로 대체" 인데 시크릿 계층에 비-OSS 를 두면
+목표와 어긋난다. OpenBao 는 MPL-2.0 · Linux Foundation 이다.
+
+★ 공정하게 적어 둔다 — **BUSL 이 이 용도를 실제로 막지는 않는다.** 내부 사용은
+무료·무제한이고 제약은 "경쟁하는 관리형 Vault 서비스를 파는 것" 이다. 즉 이
+교체는 **원칙의 문제이지 필요의 문제가 아니었다.** 되돌리는 비용도 같으므로
+판단이 바뀌면 되돌려도 된다(ADR-024 는 여전히 `Open` 이다).
+
+구 Vault 는 `0/1`(봉인)로 한 번도 초기화된 적이 없어 잃은 데이터가 없다.
+
+#### 걸린 것 셋 — 전부 Vault 이미지에는 없던 것이다
+
+**① 엔트리포인트의 `chown` 이 `set -e` 와 만나 죽는다.**
+```
+chown: /openbao/config/bao.hcl: Read-only file system
+chown: /openbao/logs: Operation not permitted
+```
+로 `exitCode 1` · CrashLoopBackOff. 원인은 엔트리포인트 안에 있다 — 5번 줄이
+`set -e` 인데 **config 의 chown 은 `|| echo` 폴백이 있고(77줄) logs 의 chown 은
+없다(82줄).** ConfigMap 마운트는 읽기 전용이고 logs 는 emptyDir 라 반드시 실패한다.
+★ 증상이 원인과 멀다 — 로그 마지막 줄이 chown 이라 **OpenBao 설정 문제로
+읽히는데 설정은 멀쩡하다.** 해법은 `SKIP_CHOWN=true`(엔트리포인트 74줄).
+
+**② 이미지 기본 CMD 가 `server -dev -dev-no-store-token` 이다**(실측:
+`podman inspect`). `args: ["server"]` 로 덮지 않으면 **조용히 dev 모드로 뜬다** —
+메모리 저장이라 재시작마다 데이터가 사라지고 root token 이 고정값인데
+**파드는 1/1 Ready** 라 정상으로 보인다. 이 레포가 반복해 겪은 "성공처럼
+보이는 실패" 다. 판정은 기동 로그의 `Storage: file` 로 한다.
+
+**③ `bao operator unseal -` 는 stdin 을 읽지 않는다.**
+`'key' must be a valid hex or base64 string` 로 거절한다. 컨테이너 안에서
+`read -r K; bao operator unseal "$K"` 로 받아 인자로 넘겨야 한다.
+
+#### 봉인은 재시작마다 풀어야 한다 — 그래서 사이드카를 붙였다
+
+봉인된 OpenBao 는 `0/1` 이라 트래픽을 받지 않는다(readiness 가 `sealedcode` 를
+주지 않으므로 의도된 동작이다). 그런데 **이 클러스터는 파드 재시작이 잦다**
+(다른 워크로드 실측 15회). 수동 해제로는 External Secrets 가 그때마다 끊긴다.
+
+`unsealer` 사이드카가 10초마다 `bao status` 를 보고 봉인돼 있으면 Secret
+`openbao-keys` 의 키로 해제한다. 검증은 **파드를 지워 재생성**해서 했다:
+
+```
+openbao-0   2/2   Running
+[unsealer] unsealed
+Initialized true · Sealed false · Storage Type file
+```
+
+★★ **이것은 봉인을 약화시킨다 — 여는 열쇠가 여는 대상 옆에 있다.**
+그럼에도 이렇게 한 이유는 로컬에 auto-unseal 에 쓸 KMS·HSM 이 없고,
+transit auto-unseal 은 OpenBao 가 하나 더 필요해 순환이기 때문이다.
+**prod 에서는 이렇게 하지 말 것** — KMS auto-unseal 또는 M-of-N 분산 보관이어야
+한다. `key-shares=1` 도 로컬 전용 단순화다.
+
+#### 실측한 능력 (Enterprise 매핑의 근거)
+
+| 확인한 것 | 결과 |
+|---|---|
+| `bao namespace create` | **성공** — Vault 에서는 Enterprise 전용인 멀티테넌시가 무료다 |
+| `bao secrets enable database` | **성공** — 동적 DB 자격이 된다(이 클러스터에 DB 6종이 있다) |
+| 시크릿 엔진 | kubernetes · kv · ldap · openldap · pki · rabbitmq · ssh · totp · transit (+ database) |
+| 인증 방법 | approle · cert · jwt · kerberos · kubernetes · ldap · oidc · radius · userpass |
+
+★ **없는 것**: aws·azure·gcp·consul·nomad 등 클라우드 엔진(OpenBao 가 코어에서
+덜어냈다. 외부 플러그인으로 붙일 수 있다). 로컬에는 해당 없다.
+
+전체 Enterprise 기능 매핑은 [WSO2-OSS-MAPPING.md 부록 A](WSO2-OSS-MAPPING.md) 에 있다.
+
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
 > **이 절은 "지금 하지 않기로 결정한 것" 의 목록이다.** §8 의 각 절 끝에

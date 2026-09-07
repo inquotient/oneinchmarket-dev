@@ -9,6 +9,9 @@
 > **이 문서가 아닌 것** — 구현 계획이 아니다. 후보 목록과 그 근거이며,
 > 결정은 [ADR-079](ADR-CANDIDATES.md) 에 있다.
 >
+> **범위** — WSO2 로 시작했으나 "상용 제품을 OSS 조합으로 채운다" 라는
+> 같은 작업이므로 관련 매핑을 함께 둔다. **부록 A 는 Vault Enterprise** 다.
+>
 > **표기** — ★ 권장 · ✅ 이미 있음 · ⚠️ 있으나 미완 · ❌ 없음
 
 ## 0. 왜 이 문서가 필요한가
@@ -147,7 +150,7 @@ B2B 멀티테넌시가 네이티브로 된다) · **389DS**(사용자 저장소)
 
 | WSO2 기능 | OSS 후보 | 이 레포 |
 |---|---|---|
-| 시크릿 볼트 | ★ **OpenBao** + External Secrets Operator | Vault `0/1` 봉인 ⚠️ |
+| 시크릿 볼트 | ★ **OpenBao** + External Secrets Operator — 상세는 **부록 A** | ✅ OpenBao 2.4.1 `2/2`(§8-80) |
 | 감사 추적 | ★ OTel → Loki / Elasticsearch | ✅ |
 | 콘솔 RBAC | ★ Keycloak + 컴포넌트별 RBAC | ⚠️ |
 | HA / DR | ★ Kubernetes + 컴포넌트별 HA | ❌ §9-6 이 "고치기 전까지 건드리지 말 것" |
@@ -290,6 +293,54 @@ Gotcha 15 가 말한 "이미 청구한 이력" 이 아직 없으므로, **바꾼
 
 **Phase 0 의 프로파일 분리가 선행되지 않으면 들어갈 자리가 없다.** 이것은
 취향이 아니라 산술이다.
+
+## 부록 A — Vault Enterprise → OpenBao + OSS
+
+> 이 문서는 WSO2 로 시작했지만, **"상용 제품의 기능을 OSS 조합으로 채운다"**
+> 라는 같은 작업이라 여기 함께 둔다. 배포 기록은 §8-80 이다.
+>
+> 아래 OpenBao 열은 **실측**이다(v2.4.1 컨테이너에 직접 물었다).
+
+### A-1. OpenBao 가 이미 갖고 있는 것 — Vault 에서는 유료다
+
+| Vault Enterprise 기능 | OpenBao 2.4.1 | 근거 |
+|---|---|---|
+| **Namespaces (멀티테넌시)** | ✅ **내장** | `bao namespace create` 성공 |
+| Vault Agent · Proxy | ✅ (Vault 도 OSS) | — |
+
+★ Namespaces 는 Vault Enterprise 를 사는 대표적인 이유 중 하나다. 그것이
+OpenBao 에서는 무료다. B2B 테넌트별 시크릿 격리가 여기서 성립한다.
+
+### A-2. OSS 조합으로 채우는 것
+
+| Vault Enterprise 기능 | 대체 | 이 레포 |
+|---|---|---|
+| **Secrets Sync** (외부 매니저로 동기화) | ★ **External Secrets Operator** — 방향은 반대지만 목적(앱이 K8s Secret 으로 받는다)은 같다 | Phase 0 진행 중 |
+| **Transform** (FPE · 토큰화 · 마스킹) | ★ **ShardingSphere** 의 암호화·마스킹 — **이미 배포돼 있다**(§8-75) · PostgreSQL `pgcrypto` | ✅ ShardingSphere |
+| **Audit log filtering** | ★ audit device → 파일 → **OTel filelog → Loki/Elasticsearch** 에서 필터·보존 | ✅ 관측 스택 |
+| **Login MFA** | ★ **Keycloak MFA + OIDC auth method** 로 앞단에서 처리 | ✅ Keycloak 26.7.3 |
+| **Sentinel 정책 (RGP/EGP)** | ⚠️ **OPA** 로 외부 인가 · 단순한 것은 OpenBao ACL 정책 | ❌ OPA 미도입 |
+| **Control Groups** (M-of-N 승인) | ⚠️ 승인 워크플로를 밖에 둔다 — **midPoint** 또는 **Temporal** | ❌ |
+| **Lease count quotas** | ⚠️ rate limit quota 는 OSS 에 있다. 앞단 제한은 **Envoy ratelimit** | ❌ |
+| **자동 스냅샷** | ★ CronJob + PVC 백업(file 스토리지) · Raft 면 `bao operator raft snapshot` | ❌ ADR-018 `Open` |
+| **DR Replication** | ⚠️ 복제가 아니라 **백업·복구**로 바꾼다(위 스냅샷) | ❌ |
+| **Performance Replication** | ⚠️ 읽기 확장은 **ESO 가 K8s Secret 으로 물질화**하는 것으로 상당 부분 대체된다 — 앱은 OpenBao 를 직접 때리지 않는다 | 설계상 대체 |
+
+### A-3. OSS 로 못 채우는 것 — 3개
+
+| 기능 | 왜 못 채우나 |
+|---|---|
+| **HSM auto-unseal · Seal Wrap** | 하드웨어 신뢰 근원이다. 소프트웨어 대체가 성립하지 않는다. 클라우드로 가면 KMS auto-unseal 이 답이고, **로컬에서는 사이드카가 최선이며 그것은 봉인을 약화시킨다**(§8-80) |
+| **FIPS 140-2 검증 빌드** | 인증은 빌드에 붙는 것이라 포크가 물려받지 못한다. 규제 요건이 있으면 이 칸이 결정적이다 |
+| **KMIP secrets engine** | 레거시 KMIP 클라이언트가 있을 때만 문제다. 없으면 무시해도 된다 |
+
+### A-4. 이 플랫폼에서의 결론
+
+- **Namespaces 가 무료**라 멀티테넌시는 해결된다 — 외부 소비자가 생긴다는 전제에서 큰 항목이다
+- **Transform 은 ShardingSphere 가 이미 그 자리에 있다** — 새로 도입할 것이 없다
+- 진짜 남는 위험은 **HSM 부재로 인한 봉인 약화** 하나다. 로컬에서는 수용하고
+  (§8-80 에 트레이드오프를 명시), 클라우드로 나갈 때 KMS auto-unseal 로 바꾼다
+- **FIPS 가 요건이 되면 이 선택은 무효다** — 그때는 상용으로 돌아가야 한다
 
 ## 관련 문서
 

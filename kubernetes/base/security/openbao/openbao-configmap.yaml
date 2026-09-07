@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openbao-config
+  labels: {app.kubernetes.io/name: openbao, app.kubernetes.io/component: security, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+data:
+  # 왜 Vault 가 아니라 OpenBao 인가 (ADR-024 · ADR-079)
+  #   HashiCorp Vault 는 2023년에 BUSL 1.1 로 바뀌어 오픈소스가 아니다.
+  #   이 플랫폼의 목표가 "WSO2 Enterprise 를 OSS 로 대체" 이므로 시크릿
+  #   계층에 비-OSS 를 두면 목표와 어긋난다. OpenBao 는 그 포크이며
+  #   MPL-2.0 · Linux Foundation 이다. API 가 호환되어 전환 비용이 낮다.
+  #
+  # 단일 노드 · file 스토리지. Raft(integrated storage)는 3노드 이상에서
+  # 의미가 있고 로컬 예산에서는 얻는 것이 없다.
+  #
+  # dev 모드가 아니다. 실제 봉인(seal) 상태로 뜨며 unseal 키가 필요하다.
+  #   dev 모드는 메모리 저장이라 재시작마다 데이터가 사라지고 root token 이
+  #   고정값이라 습관을 잘못 들인다.
+  #   ★★ 이미지의 기본 CMD 가 `server -dev -dev-no-store-token` 이다
+  #     (실측: podman inspect). StatefulSet 에서 args 를 반드시 덮을 것 —
+  #     빠뜨리면 조용히 dev 모드로 떠서 "잘 되는 줄" 알게 된다.
+  bao.hcl: |
+    ui = true
+    disable_mlock = true
+
+    # 경로가 Vault 와 다르다. 이미지가 선언한 볼륨은
+    #   /openbao/file · /openbao/logs 이고 설정은 /openbao/config 다
+    #   (실측: podman inspect 의 Config.Volumes · BAO_CONFIG_DIR).
+    storage "file" {
+      path = "/openbao/file"
+    }
+
+    listener "tcp" {
+      address     = "0.0.0.0:8200"
+      tls_disable = true
+    }
+
+    # 컨테이너 안에서 자기 자신을 가리키는 주소. operator init/unseal 이 쓴다.
+    api_addr     = "http://127.0.0.1:8200"
+    cluster_addr = "http://127.0.0.1:8201"
+
+    # 텔레메트리는 Prometheus 가 가져간다. 인증 없이 노출하지 않는다 —
+    # /v1/sys/metrics 는 토큰을 요구하므로 스크레이프 설정은 별도 작업이다.
+    telemetry {
+      prometheus_retention_time = "24h"
+      disable_hostname          = true
+    }

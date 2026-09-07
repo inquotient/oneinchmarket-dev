@@ -8,5 +8,5 @@ resources:
   - dependency-track/
   - defectdojo/
   - safeline/
-  - vault/
+  - openbao/
   - wazuh/
