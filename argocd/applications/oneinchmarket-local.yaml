@@ -35,9 +35,35 @@ spec:
     server: https://kubernetes.default.svc
     namespace: local
 
-  # syncPolicy 를 비워 둔다 = 수동 동기화.
-  # 상태는 계속 계산되므로 "무엇이 다른가" 는 볼 수 있다.
   syncPolicy:
+    # ★★ 자동 동기화를 켠다(§8-86). §8-83 에서 수동으로 두었던 이유 둘이
+    #   모두 해소됐다 — OutOfSync 389건은 §8-84 에서 0이 됐고, 고아 84건은
+    #   §8-85 에서 판정을 마쳤다.
+    automated:
+      # ★ prune 을 켠다. **추측이 아니라 재고 켰다** —
+      #   `prune=true` + `dryRun=true` 동기화가 `Synced 490 · 지워질 것 0`
+      #   이라고 답했다. 이유는 둘이다:
+      #   ① prune 의 대상은 "git 에 없는 것" 이 아니라 **"ArgoCD 가 추적하는
+      #      것 중 git 에 없는 것"** 이다. 고아 15건에는
+      #      `argocd.argoproj.io/tracking-id` 가 없어 애초에 후보가 아니다
+      #      (그래서 `orphanedResources` 가 별도 기능이고 warn 만 한다).
+      #   ② 실제 `requiresPruning=true` 는 **훅 16건뿐**이고, 훅의 수명은
+      #      `hook-delete-policy` 가 관리하므로 ArgoCD 가 지우지 않는다.
+      prune: true
+      # ★★ selfHeal 은 **켜지 않는다.** 켜면 클러스터가 git 과 어긋나는 즉시
+      #   되돌린다 — 그것이 옳은 환경도 있지만 이 랩은 아니다.
+      #   여기서는 진단하려고 손으로 자주 고친다(오늘만 해도 kubescape 의
+      #   args 를 패치해 통과를 확인한 뒤 커밋했다). selfHeal 이 켜져 있으면
+      #   그 패치가 몇 초 만에 사라지고, **관측값이 왜 그런지 알 수 없게 된다**
+      #   — 이 레포가 반복해서 경계하는 "관측 행위 자체를 의심하라" 부류를
+      #   스스로 만드는 셈이다(Gotcha 6·25).
+      #   selfHeal=false 면 손으로 고친 것은 **OutOfSync 로 보이되 되돌아가지
+      #   않는다**(ArgoCD 는 이미 동기화한 리비전을 다시 동기화하지 않는다).
+      #   즉 "git 이 정답" 은 유지하면서 드리프트를 **신호로 남긴다.**
+      #   운영 성격이 되면 그때 켤 것 — ADR-068 의 머지 관문(§9-4)과 같은 순서다.
+      selfHeal: false
+      # git 이 비면(렌더 0건) 전부 지우는 사고를 막는다.
+      allowEmpty: false
     syncOptions:
       - CreateNamespace=false
       - RespectIgnoreDifferences=true

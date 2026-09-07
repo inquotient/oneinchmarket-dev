@@ -8919,13 +8919,36 @@ RBAC              : configmaps 에 delete 있음 — 권한 문제가 아니다
 sync=Synced · health=Healthy · 파드 149 · 이상 0 · 재시작 2912(변화 없음)
 ```
 
-#### ★ `prune` 을 켜도 되는가 — 아직 아니다
+#### ★ `prune` 을 켜도 되는가 — **측정해 보니 0건이 지워진다**
 
-남은 15건은 **전부 git 에 없다.** `automated{prune}` 을 켜면 그 15건이
-"git 에 없다" 는 이유로 지워지고, 그러면 **인증서 · Elasticsearch 자격 ·
-OpenBao unseal key** 가 함께 사라진다. 켜려면 먼저 그 15건을 ArgoCD 의 비교
-대상에서 확실히 빼야 한다(`argocd.argoproj.io/compare-options: IgnoreExtraneous`
-또는 AppProject 의 예외). **판정이 끝났다는 것과 켜도 된다는 것은 다르다.**
+★★ **이 절에는 처음에 틀린 답이 적혀 있었다.** "남은 15건은 git 에 없으니
+`prune` 을 켜면 인증서·ES 자격·OpenBao unseal key 가 지워진다" 고 썼는데
+**둘 다 틀렸다.** 고치면서 이유를 남긴다 — 같은 실수를 반복하지 않기 위해서다.
+
+**① `prune` 의 대상은 "git 에 없는 것" 이 아니라 "ArgoCD 가 추적하는 것 중
+git 에 없는 것" 이다.** 고아 15건에는 `argocd.argoproj.io/tracking-id` 가
+**없다**(실측). 애초에 ArgoCD 의 소유가 아니므로 prune 후보가 아니다 —
+`orphanedResources` 가 별도 기능으로 존재하고 **warn 만 하는 이유가 이것**이다.
+
+**② 실제 prune 후보는 전혀 다른 16건이고, 그마저 지워지지 않는다.**
+`requiresPruning=true` 인 것은 훅뿐이다 — Job 12 + ConfigMap 2 + Secret 2, 전부
+`argocd.argoproj.io/hook` 또는 `helm.sh/hook` 을 달고 있다. 훅은 목표 상태에서
+빠지므로 "잉여" 로 잡히지만, 수명은 `hook-delete-policy` 가 관리하므로 ArgoCD 는
+prune 하지 않는다.
+
+**③ 그래서 추측 대신 재 봤다** — `prune=true` + `dryRun=true` 로 동기화를 걸면
+ArgoCD 가 무엇을 지울지 말해 준다:
+
+```
+phase: Succeeded | successfully synced (no more tasks)
+결과: {'Synced': 490}
+★ 지워질 것: 0
+```
+
+★ 교훈: **"git 에 없으니 지워질 것" 은 추론이고, `dryRun` 은 측정이다.**
+이 레포가 반복해서 밟은 부류다(§8-57 의 측정 방법 결함, Gotcha 56 의
+"같은 것이 같은 수만큼 실패하면 일시적이 아니다"). 파괴적 옵션을 논할 때는
+**그 옵션을 켠 dry-run 을 먼저 돌릴 것.**
 
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
