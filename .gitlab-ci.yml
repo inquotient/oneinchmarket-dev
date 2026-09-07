@@ -209,6 +209,13 @@ secret_detection_historic:
   stage: scan
   needs: []
   allow_failure: true
+  # ★ script 를 직접 준다. 템플릿의 `script: [/analyzer run]` 은
+  #   `.secret-analyzer` 가 아니라 **secret_detection 잡 쪽**에 있어
+  #   extends 로 상속되지 않는다. 빠뜨리면 스크립트 잡으로 분류되지 못해
+  #     jobs:...: config contains unknown keys: image, services, artifacts
+  #   라는 **엉뚱한 오류**가 난다(진짜 원인은 script 누락이다).
+  script:
+    - /analyzer run
   variables:
     GIT_DEPTH: "0"
     # 이 변수 하나가 증분 -> 이력 전체로 바꾼다.
