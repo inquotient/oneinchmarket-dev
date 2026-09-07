@@ -11,7 +11,16 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   annotations:
     argocd.argoproj.io/hook: PostSync
-    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+    # ★★ `HookSucceeded` 만으로는 부족하다 — 그것은 **성공한 뒤에** 지우는
+    #   정책이라, ArgoCD 밖에서(=`kubectl apply -k`) 이미 만들어진 Job 이
+    #   남아 있으면 훅이 그것을 **갱신하려다** 죽는다:
+    #     Job.batch "elasticsearch-ilm-setup" is invalid:
+    #     spec.template: field is immutable
+    #   Job 의 파드 템플릿은 불변이고, ArgoCD 는 실패 하나에 작업 전체를
+    #   중단한다. `BeforeHookCreation` 을 함께 두어 **만들기 전에** 지운다.
+    #   ★ 이 결함은 PostSync 라 **늦게 드러난다** — 앞선 wave 에서 한 번이라도
+    #   멈추면 여기까지 오지 않는다(§8-84 에서 여섯 번째로 나타났다).
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
 spec:
   backoffLimit: 5
   template:

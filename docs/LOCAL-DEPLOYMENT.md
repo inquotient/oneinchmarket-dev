@@ -8709,21 +8709,72 @@ level=error msg="Failed to connect to proxy. Empty dialer response"
 버티므로 대부분 정상으로 보이고, **새로 여는 짧은 연결이 골라서 실패한다** —
 ArgoCD 의 dry-run 이 포크한 apply 가 정확히 그 모양이라 제일 먼저 드러났다.
 
-#### 처방 — 아직 적용하지 않았다
+#### 처방 — kine 자신의 etcd API 로 지웠다
 
-죽은 lease 키 하나를 지우면 된다.
-
-```
-ETCDCTL_API=3 etcdctl --endpoints=unix:///var/lib/rancher/k3s/server/kine.sock   del /registry/masterleases/10.77.0.190
-```
-
-지우기 전 값은 보존해 두었다(`mod_revision=4543925`, base64 값 64바이트).
-**클러스터 데이터스토어에 대한 삭제라 승인을 받고 적용한다** — 이 문서는 원인
-규명까지의 기록이고, 적용·검증은 승인 후에 이어 쓴다.
-
-★ 직접 sqlite(`state.db`)를 고치는 길도 있으나 **쓰지 않는다** — kine 이 도는
+★ 직접 sqlite(`state.db`)를 고치는 길도 있으나 **쓰지 않았다** — kine 이 도는
 중에 그 파일에 쓰면 리비전 장부와 watch 알림이 어긋난다. kine 자신의 etcd API 로
 지우면 정상적인 삭제 이벤트가 되어 apiserver 가 그대로 받는다.
+
+kine 은 유닉스 소켓으로 etcd v3 gRPC 를 말한다. 다만 **두 번 막힌다**:
+
+```
+# ① 엔드포인트 표기 — unix:// 로 절대경로를 준다
+etcdctl --endpoints=unix:///var/lib/rancher/k3s/server/kine.sock get ... --prefix
+
+# ② `del` 은 구현돼 있지 않다
+Error: rpc error: code = Unimplemented desc = delete is not implemented by kine
+```
+
+Kubernetes 는 삭제를 **트랜잭션**으로 한다. kine 의 `isDelete` 는 그 모양만
+받는다 — compare 1개(`mod_revision` 일치) · success `DeleteRange` 1개 ·
+**failure `Range` 1개**. 마지막 것을 빼면 `unsupported operations in txn request`
+다. 같은 모양으로 보내면 통과한다:
+
+```
+printf 'mod("%s") = "%s"
+
+del "%s"
+
+get "%s"
+
+' "$K" "$REV" "$K" "$K"   | etcdctl --endpoints=unix:///var/lib/rancher/k3s/server/kine.sock txn
+SUCCESS
+```
+
+#### 검증 — 세 가지가 동시에 바뀌었다
+
+| 지표 | 삭제 전 | 삭제 후 |
+|---|---|---|
+| `kubernetes` 엔드포인트 | `10.77.0.190` + `172.25.102.72` | **`172.25.102.72` 하나** |
+| 컨트롤러 파드 → `10.43.0.1:443` dial 100회 | 성공 47 · **실패 53** · 최대 5867ms | **성공 100 · 실패 0** · 최대 108ms |
+| k3s remotedialer 의 `10.77.0.190` 언급 | 2분 30초마다 타임아웃 | **0건** |
+
+#### 그 뒤 — 동기화가 결함을 하나씩 밀어냈다
+
+API 경로가 성해지자 **처음으로 dry-run 을 통과했고**, 그때부터는 ArgoCD 가
+막힌 게 아니라 **이 클러스터에 이미 있던 결함들이 차례로 게이트가 됐다.**
+평소에 돌지 않던 것들이 GitOps 로 한꺼번에 재실행되면서 드러난 것이다.
+
+| # | 걸린 것 | 정체 |
+|:-:|---|---|
+| 1 | `Job.batch ... spec.template: field is immutable` | Job 의 파드 템플릿은 불변이다. 이 레포는 이미 Job 9종을 훅으로 다루고 있었고 **셋만 빠져 있었다**(keycloak-realm-bootstrap · glitchtip-migrate · defectdojo-initializer). `hook: Sync` + `hook-delete-policy: BeforeHookCreation` 으로 맞췄다. `databases-migrate` 는 상류 차트의 `helm.sh/hook` 이 있어 이미 훅이었다 — 그래서 같은 결함이 드러나지 않았다 |
+| 2 | `waiting for hook Job/postgres-bootstrap` (영구) | Gotcha 19 의 여섯 번째. `default` SA 라 ztunnel 이 5432 를 거부하고 Job 이 `PostgreSQL 대기` 에서 영원히 돈다. 전용 SA + principal |
+| 3 | 같은 것이 `minio-bootstrap` 에도 | 일곱 번째. 9000 거부. ★ 세어 보니 `default` 로 도는 Job 이 **다섯**이었다 — Gotcha 19 는 **셋으로 잘못 적고 있었다**(`apicurio-rules`·`hdfs-bootstrap` 누락). 렌더 결과에서 세는 것이 맞다 |
+| 4 | `waiting for healthy state of Ingress/api-openreplay` 외 12건 | **동작한 적 없는 것이 게이트가 됐다.** 12개 전부 `ingressClassName: openreplay` 인데 IngressClass 가 클러스터에 하나도 없다(Gotcha 7). 건강 판정은 `status.loadBalancer.ingress` 라 영원히 `Progressing` 이다. `Certificate/openreplay-ssl` 도 같은 부류 — 존재하지 않는 `ClusterIssuer/letsencrypt-prod` 를 본다. **제거했다**(기능 손실 0) |
+| 5 | `waiting for healthy state of Elasticsearch` | Gotcha 14·34 의 세 번째. ★ **매니페스트에는 `number_of_replicas: 0` 이 있는데 ES 에 설치된 `filebeat-9.5.3` 템플릿에는 그 키가 없었다** — filebeat 은 이미 있는 템플릿을 덮어쓰지 않는다(기본 false). §8-72 의 수정이 반영된 적이 없었던 것이다. **판정은 매니페스트가 아니라 설치된 템플릿으로 한다.** `setup.template.overwrite: true` 를 넣었다 |
+| 6 | `CronJob/kubescape-scan` Degraded | `Error: framework 'C-0240' not found`. 매니페스트를 바꾸지 않았는데 깨진 부류다 — 프레임워크 목록을 실행마다 원격에서 내려받고, 41시간 전 실행은 성공했다(Gotcha 45 유형). ★ **kubescape 가 사용법을 출력하고 exit 1** 하므로 로그 끝이 도움말이라 "인자를 덜 줬나" 로 읽힌다 — 진짜 오류는 도움말 **앞** 한 줄이다. `all` 대신 `kubescape list frameworks` 로 확인한 6개를 명시했다(클라우드 전용 cis-aks/eks/gke 제외 — 이 클러스터는 k3s 다) |
+
+★ 가는 길에 **내 실수도 하나** — 네임스페이스가 없는 base 매니페스트를 그대로
+`kubectl apply -f` 해서 `default` 에 `kubescape-scan` CronJob 이 생겼다.
+지웠다. **base 매니페스트는 오버레이를 통해서만 적용할 것.**
+
+#### 결과
+
+```
+sync=OutOfSync · Synced 97  · OutOfSync 389 · None 6     ← 시작
+sync=OutOfSync · Synced 432 · OutOfSync 54  · None 45    ← 엔드포인트 수리 후
+health=Healthy · Synced 487 · PruneSkipped 1 · 실패 0     ← Ingress·ES 정리 후
+```
 
 #### 남는 것
 
@@ -8732,7 +8783,16 @@ ETCDCTL_API=3 etcdctl --endpoints=unix:///var/lib/rancher/k3s/server/kine.sock  
   **WSL NAT 에서는 노드 IP 가 재부팅마다 바뀌므로** 고정값을 박으면 그때 깨진다.
   고정 대신 **기동 시 점검**(`local/keepalive.ps1` 이나 부트스트랩에서
   `kubernetes` 엔드포인트가 노드 IP 하나인지 확인)이 이 랩에 맞는다
-- 그 뒤에 전체 동기화를 다시 돌려 OutOfSync 를 끝까지 내린다
+- `default` SA 로 도는 Job 이 아직 넷이다(`apicurio-rules` · `ds389-bootstrap` ·
+  `hdfs-bootstrap` · `minio-bootstrap` 중 앞의 셋). **지금은 성공한다** —
+  목적지가 제한적인 ALLOW 정책에 선택되지 않을 뿐이고, 그 정책에 워크로드가
+  하나 추가되는 순간 함께 끊긴다
+- kubescape 의 호스트 스캐너 컨트롤이 비어 있다 —
+  `osreleasefiles.hostdata.kubescape.cloud is forbidden`. node-agent 를 배포하지
+  않았으므로 C-0284 등 커널·kubelet 계열은 **판정되지 않는다**. 리포트에
+  `Action Required` 로 찍히는 것들이 그것이다
+- `automated{prune,selfHeal}` 은 여전히 켜지 않았다. 고아 리소스 판정(§8-83)이
+  먼저다
 
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
