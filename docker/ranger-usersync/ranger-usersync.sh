@@ -50,6 +50,27 @@ then
   fi
 fi
 
+# ★★ 힙을 컨테이너 limit 안으로 내린다 — upstream 이 limit 을 넘기는 값을
+#   하드코딩해 둔다. ranger-usersync-services.sh 에:
+#       48행  ranger_usersync_max_heap_size=1g
+#       82행  JAVA_OPTS=" ${JAVA_OPTS} ... -Xmx${...} -Xms1g "
+#   즉 -Xmx 1g 이 **limit(768Mi)보다 크다.** 그러면 JVM 은 1 GiB 까지
+#   늘려도 된다고 믿어 full GC 를 서둘지 않고, 힙이 차기 전에
+#   커널이 먼저 OOMKill 한다. 실사용은 71Mi 다(§8-94).
+#
+# ★ 환경변수로는 못 고친다 — 48행이 조건 없이 대입하고, 82행은
+#   우리 ${JAVA_OPTS} 를 **앞에** 두고 자기 -Xmx 를 뒤에 붙인다.
+#   java 는 마지막 -Xmx 를 취하므로 상류 스크립트가 이긴다.
+#   그래서 스크립트 자체를 고친다.
+#
+# ★ 값을 바꾸면 매니페스트의 limit 과 함께 움직여야 한다
+#   (ranger-usersync-deployment.yaml 의 limits.memory).
+USERSYNC_SVC="${RANGER_HOME}/usersync/ranger-usersync-services.sh"
+if [ -f "${USERSYNC_SVC}" ]; then
+  sed -i     -e 's/^ranger_usersync_max_heap_size=.*/ranger_usersync_max_heap_size=384m/'     -e 's/-Xms1g/-Xms128m/'     "${USERSYNC_SVC}"
+  echo "[usersync] heap: $(grep -m1 '^ranger_usersync_max_heap_size=' "${USERSYNC_SVC}")"
+fi
+
 cd ${RANGER_HOME}/usersync && ./start.sh
 
 RANGER_USERSYNC_PID=`ps -ef  | grep -v grep | grep -i "org.apache.ranger.authentication.UnixAuthenticationService" | awk '{print $2}'`

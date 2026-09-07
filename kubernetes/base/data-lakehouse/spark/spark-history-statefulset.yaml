@@ -52,6 +52,12 @@ spec:
               name: http
               protocol: TCP
           env:
+            # ★ spark-class 는 daemon 클래스에 SPARK_DAEMON_MEMORY(기본 1g)를
+            #   -Xmx 로 준다. limit 이 1Gi 라 **힙이 limit 과 같았다** —
+            #   메타스페이스·코드캐시·스레드 스택·direct buffer 가 들어갈 자리가
+            #   0 이라는 뜻이고, 힙이 다 차기 전에 커널이 먼저 죽인다(§8-94).
+            - name: SPARK_DAEMON_MEMORY
+              value: "640m"                   # limit 1Gi 의 63%. 실사용 550Mi
             - name: SPARK_HISTORY_OPTS
               value: >-
                 -Dspark.history.fs.logDirectory=s3a://spark-events/events

@@ -12,11 +12,18 @@ data:
     node-scheduler.include-coordinator=true
     http-server.http.port=8080
     discovery.uri=http://localhost:8080
+  # ★★ -Xmx 를 limit 과 같게 두지 말 것 — 2G == limit 2Gi 였다.
+  #   Trino 는 off-heap(네이티브 S3·버퍼)을 크게 쓰므로 힙이 다 차기 전에
+  #   커널이 먼저 OOMKill 한다. 실사용은 859Mi 다(§8-94).
+  # ★ RAMPercentage 두 줄은 지웠다 — -Xmx 가 있으면 **무시되는 값**인데
+  #   남아 있으면 "80% 로 맞춰 두었다" 로 읽혀 다음 사람이 limit 만 바꾸고
+  #   힙이 따라올 거라 착각한다. 그리고 퍼센트 기반은 JDK 가 컨테이너를 못
+  #   읽는 순간 통째로 무너진다 — 이 클러스터에 실제 사례가 있다(livy).
+  # ★ jvm.config 는 리터럴 블록이라 그 안의 # 는 YAML 주석이 아니라
+  #   JVM 인자로 넘어간다. 설명은 반드시 블록 밖에 둘 것.
   jvm.config: |
     -server
-    -Xmx2G
-    -XX:InitialRAMPercentage=80
-    -XX:MaxRAMPercentage=80
+    -Xmx1400m
     -XX:+ExplicitGCInvokesConcurrent
     -XX:+UseG1GC
     -XX:G1HeapRegionSize=32M

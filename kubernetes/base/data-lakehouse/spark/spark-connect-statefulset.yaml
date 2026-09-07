@@ -75,6 +75,11 @@ spec:
             # 컨테이너에서는 포그라운드로 돌아야 한다.
             - name: SPARK_NO_DAEMONIZE
               value: "true"
+            # ★ 값 자체는 기본값(1g)과 같다. 명시하는 이유는 이 이미지의 JDK 11 이
+            #   컨테이너 limit 을 못 읽기 때문이다 — 누가 이 줄을 지우면 인체공학이
+            #   호스트 기준 10.78 GiB 를 잡는다(livy 가 그 상태였다, §8-94).
+            - name: SPARK_DAEMON_MEMORY
+              value: "1g"                     # limit 2Gi 의 50%
             - name: POD_IP
               valueFrom:
                 fieldRef:
