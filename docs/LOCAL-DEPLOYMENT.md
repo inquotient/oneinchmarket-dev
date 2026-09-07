@@ -8205,11 +8205,25 @@ Running` 이고 리포트 건수도 늘어나는 것만 보고는 알 수 없다
   `TRIVY_NON_SSL=true` 와 자격이 정상 주입된다.
 - **DB 잠금은 ClientServer 로 해소됐다.** 스캔 Job 이 `Failed` 대신
   `Complete` 로 끝나기 시작했다.
-- **오퍼레이터가 우리 이미지의 리포트를 남기는 것은 아직 확인하지 못했다.**
-  단일 컨테이너 워크로드(`livy`·`jenkins`·`spark-*`)는 경합 대상이 아니므로
-  차례가 오면 될 것으로 보이나, 오퍼레이터가 워크로드 140여 개를 동시 2개씩
-  훑는 백로그가 길어 세션 안에서 관측하지 못했다. **관측하지 못한 것을
-  됐다고 적지 않는다.**
+- **ClientServer + 레지스트리 조합이 실제 CVE 를 뽑는 것까지 확인했다.**
+  오퍼레이터의 스캔 Job 과 **같은 조건**(같은 이미지 태그 0.66.0, 같은 서버
+  URL, `TRIVY_NON_SSL=true`, 같은 배포 토큰)으로 일회성 Job 을 돌렸다:
+
+  ```
+  trivy image --server http://trivy-server.trivy-system.svc.cluster.local:4954         gitlab-registry.local.svc.cluster.local:5050/oneinch/proxysql:4.0.11
+  → util-linux   CVE-2026-76642 / 78408 / 78409 / 78410
+    perl-Archive-Tar  CVE-2026-9538 ...
+  ```
+
+  **이 이미지는 그전까지 한 번도 스캔된 적이 없다.** 레지스트리·자격·평문
+  HTTP·FQDN·ClientServer 다섯 고리가 전부 이어졌다는 뜻이다.
+
+- **다만 오퍼레이터가 그 리포트를 `VulnerabilityReport` 로 남기는 것은
+  관측하지 못했다.** 오퍼레이터는 워크로드 140여 개(CronJob·Job 포함)를
+  동시 2개씩 훑고, 우리 워크로드의 차례가 세션 안에 오지 않았다.
+  **관측하지 못한 것을 됐다고 적지 않는다.** 다음에 확인할 때는
+  `kubectl get vulnerabilityreports -n local -o json | grep -c gitlab-registry`
+  로 볼 것.
 
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
