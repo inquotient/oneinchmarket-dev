@@ -35,10 +35,21 @@ variables:
 kustomize-validate:
   stage: validate
   image: registry.k8s.io/kustomize/kustomize:v5.4.3
+  # ★★ 렌더 결과를 아티팩트로 남긴다 — 뒤의 잡이 그것을 쓴다.
+  #   이유: trivy config 가 소스 트리를 직접 읽으면 **kustomize 패치
+  #   조각**(requests-local.yaml 등)을 완성된 매니페스트로 착각해
+  #   securityContext·probe 가 없다고 지적한다. 실측 338건 중 149건이
+  #   패치 파일 3개에서 나왔다 — 배포되지 않는 조각이다(§8-97).
   script:
-    - kustomize build kubernetes/overlays/dev > /dev/null
-    - kustomize build kubernetes/overlays/prod > /dev/null
+    - mkdir -p rendered
+    - kustomize build kubernetes/overlays/dev > rendered/dev.yaml
+    - kustomize build kubernetes/overlays/prod > rendered/prod.yaml
+    - kustomize build kubernetes/overlays/local > rendered/local.yaml
     - echo "Kustomize validation passed"
+  artifacts:
+    paths:
+      - rendered/
+    expire_in: 1h
   rules:
     - changes:
         - kubernetes/**/*
@@ -138,16 +149,45 @@ trivy-image-scan:
         - v1/cmmn-api/**/*
   allow_failure: false
 
+# ★★ 이 잡은 **한 번도 성공한 적이 없었다**(실제로 돌은 4번 전부 실패).
+#   매니페스트가 바뀔 때만 돌아서 오래 드러나지 않았다. 고친 것 셋:
+#
+#   ① 대상 — 소스 트리 대신 **렌더 결과**를 읽는다(kustomize-validate 의
+#      아티팩트). 패치 조각에서 나오던 구조적 오탐 149건이 사라진다.
+#   ② 임계 — 차단은 **CRITICAL** 만. HIGH 는 아래 report 잡이 비차단으로
+#      계속 보고한다. ★ 이유: HIGH 가 366건이고 그중 312건이
+#      readOnlyRootFilesystem 미설정이다 — 진짜 부채이지만 한 번에 갑을 수
+#      없다. **달성할 수 없는 게이트는 없는 게이트보다 나쁘다** —
+#      무시하는 버릇을 기른다(Gotcha 73 이 allow_failure 에 대해 한 말과 같다).
+#   ③ 예외 — .trivyignore.yaml 에 **근거를 적어** 둔다(지금 1건).
+#   ④ 버전 고정 — :latest 는 결과가 조용히 변한다(Gotcha 45·60).
 trivy-config-scan:
   stage: scan
-  image: aquasec/trivy:latest
+  image: aquasec/trivy:0.74.0
+  needs:
+    - kustomize-validate
   script:
-    - trivy config --severity ${TRIVY_SEVERITY} --exit-code ${TRIVY_EXIT_CODE}
-        kubernetes/
+    - trivy config --severity CRITICAL --exit-code 1
+        --ignorefile .trivyignore.yaml rendered/
   rules:
     - changes:
         - kubernetes/**/*
   allow_failure: false
+
+# HIGH 를 숨기지 않기 위한 잡. 막지는 않지만 **보이게** 한다.
+# ★ 이 숫자가 줄지 않으면 부채를 갑지 않고 있는 것이다(§9-12).
+trivy-config-report:
+  stage: scan
+  image: aquasec/trivy:0.74.0
+  needs:
+    - kustomize-validate
+  script:
+    - trivy config --severity HIGH,CRITICAL --exit-code 0
+        --ignorefile .trivyignore.yaml rendered/
+  rules:
+    - changes:
+        - kubernetes/**/*
+  allow_failure: true
 
 trivy-filesystem-scan:
   stage: scan

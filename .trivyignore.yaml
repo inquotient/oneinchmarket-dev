@@ -1,0 +1,22 @@
+# Trivy 미스컨피그 예외 — **이유 없이 추가하지 말 것.**
+#
+# ★ 이 파일은 `trivy config` 의 `--ignorefile` 대상이다(.gitlab-ci.yml 의
+#   trivy-config-scan). 여기 넣는 것은 "무시한다" 가 아니라 **"판정했고 받아들인다"**
+#   여야 한다. statement 에 근거를 남기지 않은 항목은 리뷰에서 되돌릴 것.
+#
+# ★★ 차단 게이트는 CRITICAL 뿐이다. HIGH 는 trivy-config-report(비차단)가
+#   계속 보고하므로, 여기 넣지 않아도 파이프라인이 녹색이 된다 —
+#   **HIGH 를 이 파일로 덮지 말 것.** 덮으면 보이지 않게 된다(§8-97).
+
+misconfigurations:
+  - id: KSV-0046
+    # "ClusterRole 'kubescape-reader' shouldn't manage all resources"
+    #
+    # ★ 규칙이 verbs 를 보지 않는다. 실제 정의는 읽기 전용이다:
+    #     resources: ["*"]  verbs: ["get", "list"]
+    #   kubescape 는 자세(posture) 스캐너라 모든 종류를 **읽어야** 성립한다.
+    #   좁히면 스캔 범위가 조용히 줄어들고, 그것은 Gotcha 39 가 경계하는
+    #   "통제되는 것처럼 보이지만 아닌" 상태가 된다.
+    # ★ 되돌아볼 조건 — kubescape-rbac.yaml 의 verbs 에 get/list 외의 것이
+    #   추가되면 이 예외는 무효다. 그때는 이 항목을 지우고 다시 판정할 것.
+    statement: "kubescape-reader 는 resources:[*] 지만 verbs 가 get,list 뿐인 읽기 전용이다 (kubernetes/base/security/kubescape/kubescape-rbac.yaml)"
