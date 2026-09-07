@@ -14,6 +14,18 @@
 #   ② `apicurio.rest.draft.production-mode.enabled=false`(기본)에서는
 #      **DRAFT 버전에 규칙이 평가되지 않는다.** 초안을 자유롭게 고치고
 #      DRAFT 를 벗어날 때 검사받는 흐름이다. 편집 기능(§8-13)과 맞물린다.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: apicurio-rules
+  labels:
+    app.kubernetes.io/name: apicurio-rules
+    app.kubernetes.io/component: bootstrap
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+automountServiceAccountToken: false
+---
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -37,6 +49,13 @@ spec:
         app.kubernetes.io/component: bootstrap
         app.kubernetes.io/part-of: oneinchmarket
     spec:
+      # ★ 전용 SA. ambient 에서 ServiceAccount 는 곧 신원이고, `default` 로
+      #   도는 워크로드는 서로 구분되지 않아 정책을 쓸 수 없다(Gotcha 10).
+      #   이 Job 은 **지금은 성공한다** — 목적지가 제한적인 ALLOW 정책에
+      #   선택되지 않을 뿐이다. 그 정책에 워크로드가 하나 추가되는 순간
+      #   함께 끊기고, 증상은 오류가 아니라 **무한 대기**다(Gotcha 19).
+      #   고장난 뒤가 아니라 지금 준다 — §8-86
+      serviceAccountName: apicurio-rules
       restartPolicy: OnFailure
       priorityClassName: batch-low
       securityContext:
