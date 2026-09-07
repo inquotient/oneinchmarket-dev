@@ -8255,6 +8255,14 @@ Running` 이고 리포트 건수도 늘어나는 것만 보고는 알 수 없다
 
 ### 9-3. 그 밖에 열려 있는 것
 
+- **WSO2 Enterprise 대체 조합이 미확정이다** — 전체 매핑은
+  [docs/WSO2-OSS-MAPPING.md](WSO2-OSS-MAPPING.md), 결정은 ADR-079 다.
+  선행 조건 셋이 지금 깨져 있다: **시크릿 관리 미작동**(ADR-024) ·
+  **ArgoCD 부재**(CRD 0 · 파드 0 · 네임스페이스 없음) · **메모리**(신규 12종
+  추정 8~14 GiB 인데 §11-4 가 이미 `필요 56.6 vs 가용 47.6` 이다)
+- **ArgoCD 가 클러스터에 없다** — `argocd/` 매니페스트와 CLAUDE.md 의 Sync Wave
+  표는 GitOps 를 전제하는데 **실제 배포는 전부 수동 `kubectl apply -k`** 다.
+  ADR-068 머지 관문도 이것을 전제한다. 서술과 실제가 어긋나 있다
 - **로그 회전 내성 미검증** — §8-57 의 시험 방법이 틀렸다(Gotcha 25).
   올바른 방법은 kubelet 의 실제 회전을 유도하는 것이고 아직 하지 않았다
 - **Kyverno 미충족** — `require-health-probes` 약 212건,

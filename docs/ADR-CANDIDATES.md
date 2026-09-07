@@ -626,6 +626,47 @@ Kyverno 6정책이 실제로 가동 중이다. 지금 OPA 를 넣으면 정책 �
 2026-09-04 에 "과금 요건이 없다"를 근거로 기각했으나, **외부 고객 인보이스
 발행이 요건으로 확정되어 그 전제가 사라졌다.** 판단을 ADR-072 로 옮긴다.
 
+### ADR-079 — WSO2 Enterprise 를 OSS 조합으로 대체한다
+**상태: `Open` (전제 확정 · 조합 미확정)** (2026-09-07)
+
+**배경** — WSO2 Enterprise 전 제품(API Manager · Identity Server ·
+Micro Integrator · Streaming Integrator · Message Broker · BPMN · Choreo)의
+기능을 OSS 로 대체하는 것이 목표다. 전제는 **"외부 API 소비자가 생긴다"** 이며,
+그래서 포털·플랜·구독을 **미리 짓는다.**
+
+**전체 매핑은 [WSO2-OSS-MAPPING.md](WSO2-OSS-MAPPING.md) 에 있다.** 여기에는
+결정에 필요한 것만 적는다.
+
+**이미 절반은 있다** — Istio Gateway(ADR-071) · Keycloak 26.7.3 ·
+389DS+LAM · Prometheus/Grafana/Loki/Tempo/OTel · OpenMeter 계량(ADR-072) ·
+Kafka · Apicurio. 그리고 후보들이 요구하는 데이터스토어(PostgreSQL · MongoDB ·
+Elasticsearch · Redis · ClickHouse)가 **전부 이미 돌고 있어** 도입 단가가 낮다.
+
+**OSS 로 깔끔히 못 메우는 칸 6개** — SCIM 2.0 · 적응형 인증(스크립트) ·
+Data Services(SQL→REST 무코드) · 동의 관리/FAPI · ID 운영 승인 워크플로 ·
+그리고 **"한 제품으로 묶여 있음"**(기능이 아니라 배선 비용이다).
+
+**결정해야 할 것 셋**
+
+1. **게이트웨이** — Gravitee CE 를 얹을 것인가. Istio 를 대체하지 못하고
+   **한 계층을 더 얹는 것**이다(east-west 는 ztunnel 이 계속 담당한다).
+   ★ 전환 비용은 **계량 지점 이동**이다(Gotcha 15·16·29). 다만 **지금은 청구
+   이력이 0건**이라 바꾼다면 지금이 가장 싸다 — **요금제를 정의하기 전에** 정할 것.
+2. **인가** — OpenFGA(ReBAC)와 OPA(Rego) 중 **하나**. 둘 다 두지 않는다.
+   어드미션은 Kyverno 가 이미 갖고 있다(ADR-007).
+3. **과금** — OpenMeter 로 요금제를 정의해 보고, 표현하지 못할 때만 Lago.
+
+**선행 조건(Phase 0) — 지금 깨져 있다**
+
+- 시크릿 관리 미작동(ADR-024 미결). Vault 는 `0/1` 봉인
+- **ArgoCD 가 실제로 없다** — CRD 0 · 파드 0 · 네임스페이스 없음.
+  Multi-environment · API Promotion 두 칸과 ADR-068 머지 관문이 여기 달려 있다
+- 메모리 — 신규 12종 추정 **8~14 GiB**. §11-4 가 이미 `필요 56.6 vs 가용 47.6` 이라
+  프로파일 분리(§19 ③)가 선행되어야 한다. **이것은 취향이 아니라 산술이다**
+
+**왜 `Open` 인가** — 위 셋은 사람의 결정이고, Phase 0 이 끝나기 전에는
+어느 쪽을 골라도 검증할 수 없다.
+
 ## 보안
 
 ### ADR-007 — 어드미션 제어로 Kyverno 채택 (OPA Gatekeeper 대비)
@@ -1263,3 +1304,4 @@ Current version:            ← 빈 값
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx 56건
 - [COMPONENTS.md](./COMPONENTS.md) — 구성요소 카탈로그
 - [PRD.md](./PRD.md) — 목표·비목표, Phase 달성도
+- [WSO2-OSS-MAPPING.md](./WSO2-OSS-MAPPING.md) — WSO2 Enterprise 전 제품의 OSS 대체 후보(ADR-079)

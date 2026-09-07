@@ -18,6 +18,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | [local/ACCESS.md](local/ACCESS.md) | **Windows 에서 접근하는 법.** UI 40여 종의 port-forward·URL·계정 + DBeaver 용 DB 접속 정보. 비밀번호는 값이 아니라 **조회 명령**으로 적혀 있다 |
 | [docs/APP-INTEGRATION.md](docs/APP-INTEGRATION.md) | **애플리케이션 연동 가이드.** 앱을 이 플랫폼에 붙이는 법 — OTel·GlitchTip·Pyroscope·Kafka·계약, 새 워크로드 규약, 지금 안 되는 것 |
 | [docs/ADR-CANDIDATES.md](docs/ADR-CANDIDATES.md) | 아키텍처 결정 기록 후보 60건 |
+| [docs/WSO2-OSS-MAPPING.md](docs/WSO2-OSS-MAPPING.md) | **WSO2 Enterprise 전 제품 → OSS 대체 후보.** 제품별 매핑 · **이 클러스터의 실측 상태** · 못 메우는 칸 6개 · 최소 조합 · 메모리 추정 · Phase 0~4. 게이트웨이 선택(Gravitee vs Istio)은 §5. 결정은 ADR-079 |
 | `v2-architecture-plan.md` | **2026-02 작성 계획서.** 목표를 기술하며 현재 상태와 다른 부분이 있다 |
 | `README.md` | **v1 내용 그대로다.** v2를 반영하지 않는다 |
 
