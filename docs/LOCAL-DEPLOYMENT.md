@@ -8604,7 +8604,10 @@ ServerSideApply 필드 관리자). **규명 전에 동기화를 켜면 무엇이
 
 #### 그다음
 
-- OutOfSync 315건의 원인 규명 — 렌더링 차이인지 실제 드리프트인지
+- ~~OutOfSync 315건의 원인 규명~~ — **§8-84 에서 끝냈다.** `Synced 473 ·
+  OutOfSync 0 · health Healthy`. 결론은 **드리프트가 거의 없었다** 는 것이다:
+  추적 어노테이션 · 서버 기본값 · 화이트리스트 구멍이 대부분이었고, 진짜
+  문제는 ArgoCD 밖에 있었다(`kubernetes` 엔드포인트에 죽은 주소)
 - `orphanedResources` 를 `warn: true` 로 두되, 고아 113건을 하나씩 판정
   (git 에 넣을 것 / ArgoCD 밖에 둘 것)
 - 그 뒤에야 `automated{prune,selfHeal}` 을 논할 수 있다. ADR-068 의 머지
@@ -8763,6 +8766,32 @@ API 경로가 성해지자 **처음으로 dry-run 을 통과했고**, 그때부�
 | 4 | `waiting for healthy state of Ingress/api-openreplay` 외 12건 | **동작한 적 없는 것이 게이트가 됐다.** 12개 전부 `ingressClassName: openreplay` 인데 IngressClass 가 클러스터에 하나도 없다(Gotcha 7). 건강 판정은 `status.loadBalancer.ingress` 라 영원히 `Progressing` 이다. `Certificate/openreplay-ssl` 도 같은 부류 — 존재하지 않는 `ClusterIssuer/letsencrypt-prod` 를 본다. **제거했다**(기능 손실 0) |
 | 5 | `waiting for healthy state of Elasticsearch` | Gotcha 14·34 의 세 번째. ★ **매니페스트에는 `number_of_replicas: 0` 이 있는데 ES 에 설치된 `filebeat-9.5.3` 템플릿에는 그 키가 없었다** — filebeat 은 이미 있는 템플릿을 덮어쓰지 않는다(기본 false). §8-72 의 수정이 반영된 적이 없었던 것이다. **판정은 매니페스트가 아니라 설치된 템플릿으로 한다.** `setup.template.overwrite: true` 를 넣었다 |
 | 6 | `CronJob/kubescape-scan` Degraded | `Error: framework 'C-0240' not found`. 매니페스트를 바꾸지 않았는데 깨진 부류다 — 프레임워크 목록을 실행마다 원격에서 내려받고, 41시간 전 실행은 성공했다(Gotcha 45 유형). ★ **kubescape 가 사용법을 출력하고 exit 1** 하므로 로그 끝이 도움말이라 "인자를 덜 줬나" 로 읽힌다 — 진짜 오류는 도움말 **앞** 한 줄이다. `all` 대신 `kubescape list frameworks` 로 확인한 6개를 명시했다(클라우드 전용 cis-aks/eks/gke 제외 — 이 클러스터는 k3s 다) |
+| 7 | `Job/elasticsearch-ilm-setup` 도 `field is immutable` | ①과 같은 결함인데 **PostSync 라 제일 늦게 드러났다** — 앞선 wave 에서 한 번이라도 멈추면 여기까지 오지 않는다. `hook-delete-policy: HookSucceeded` 는 **성공한 뒤에** 지우는 정책이라 ArgoCD 밖에서 만들어진 Job 을 치우지 못한다. `BeforeHookCreation,HookSucceeded` 로 바꿨다 |
+
+#### 마지막 31건 — 실제 드리프트는 0이었다
+
+첫 완주 뒤 `Synced 442 · OutOfSync 31`. 그 31건을 `targetState` vs
+`normalizedLiveState` 로 하나씩 펼쳐 보니 **전부 API 서버·CRD 가 채우는 스키마
+기본값**이었다.
+
+| 종류 | 건수 | 서버가 넣은 것 |
+|---|---:|---|
+| StatefulSet | 22 | `volumeClaimTemplates[].{apiVersion, kind, status, spec.volumeMode}` |
+| ClusterPolicy | 6 | `spec.{admission, emitWarning}` · `rules[].{skipBackgroundRequests, validate.allowExistingViolations}` |
+| HTTPRoute · Gateway | 3 | `parentRefs`·`backendRefs`·`certificateRefs` 의 `{group, kind, weight}` 와 `rules[].matches` |
+
+처리를 두 갈래로 나눴다.
+
+- **Gateway API 3건은 무시하지 않고 명시했다** — 전부 매니페스트에 쓸 수 있는
+  값이고, 명시하면 "무엇에 붙는 경로인가" 가 파일만 읽어도 드러난다
+- 나머지는 `ignoreDifferences` 로 뺐다. ★ **경로를 좁게 적는다** —
+  `jsonPointers` 로 블록째 빼지 않고 `jqPathExpressions` 로 서버가 넣은 키만
+  지목한다. 특히 StatefulSet 의 `storageClassName`·`resources.requests.storage`
+  는 **계속 OutOfSync 로 보여야 한다**: 그 필드는 불변이라 동기화로 반영되지
+  않고 `kubectl delete sts --cascade=orphan` 이 필요하다(Gotcha 46 ④).
+  목적은 "ArgoCD 가 못 고치니 조용히 하라" 가 아니라 **사람이 해야 할 일이
+  생겼다는 신호를 지우지 않는 것**이다. 같은 이유로 Kyverno 의
+  `validationFailureAction` 도 무시 목록에 넣지 않았다 — 그것은 우리가 정한다
 
 ★ 가는 길에 **내 실수도 하나** — 네임스페이스가 없는 base 매니페스트를 그대로
 `kubectl apply -f` 해서 `default` 에 `kubescape-scan` CronJob 이 생겼다.
@@ -8773,8 +8802,27 @@ API 경로가 성해지자 **처음으로 dry-run 을 통과했고**, 그때부�
 ```
 sync=OutOfSync · Synced 97  · OutOfSync 389 · None 6     ← 시작
 sync=OutOfSync · Synced 432 · OutOfSync 54  · None 45    ← 엔드포인트 수리 후
-health=Healthy · Synced 487 · PruneSkipped 1 · 실패 0     ← Ingress·ES 정리 후
+sync=OutOfSync · Synced 442 · OutOfSync 31  · None 45    ← 첫 완주(Succeeded)
+sync=Synced    · Synced 473 · OutOfSync 0   · None 45    ← 기본값 정리 후
+health=Healthy · 파드 150 · 이상 0
 ```
+
+★ 최종 확인(전부 실측):
+
+```
+masterleases                → /registry/masterleases/172.25.102.72 하나
+kubernetes 엔드포인트       → ["172.25.102.72"] 하나
+컨트롤러 -> 10.43.0.1:443   → 성공 50 · 실패 0
+Elasticsearch               → green
+Ingress                     → 0건
+Certificate 6종             → 전부 True
+```
+
+★★ **동기화가 "성공" 한 것과 "무엇을 했는가" 는 다르다.** 이번 완주에서
+ArgoCD 가 실제로 바꾼 것은 대부분 **추적 어노테이션과 부트스트랩 Job 재실행**
+이고, 워크로드 사양이 바뀐 것은 없다 — 파드 재시작이 동기화 중에 새로 일어나지
+않은 것으로 확인했다(측정 시점마다 `최근 1시간 내 재시작 0`). GitOps 를 켠 것이
+클러스터를 갈아엎지 않았다는 뜻이다.
 
 #### 남는 것
 
@@ -8829,9 +8877,11 @@ health=Healthy · Synced 487 · PruneSkipped 1 · 실패 0     ← Ingress·ES �
   선행 조건 셋이 지금 깨져 있다: **시크릿 관리 미작동**(ADR-024) ·
   **ArgoCD 부재**(CRD 0 · 파드 0 · 네임스페이스 없음) · **메모리**(신규 12종
   추정 8~14 GiB 인데 §11-4 가 이미 `필요 56.6 vs 가용 47.6` 이다)
-- ~~**ArgoCD 가 클러스터에 없다**~~ — **§8-83 에서 세웠다**(v3.5.2). 다만
-  **동기화는 켜지 않았다** — 고아 리소스 113건이 잡혀서, `prune` 을 켜면
-  오퍼레이터 계층과 스크립트가 만든 것들이 지워진다. OutOfSync 315건의 원인
+- ~~**ArgoCD 가 클러스터에 없다**~~ — **§8-83 에서 세웠고 §8-84 에서 전체
+  동기화를 완주시켰다**(v3.5.2 · `Synced 473 · OutOfSync 0 · Healthy`).
+  다만 **자동 동기화는 여전히 켜지 않았다** — 고아 리소스 113건이 잡혀서,
+  `prune` 을 켜면 오퍼레이터 계층과 스크립트가 만든 것들이 지워진다.
+  ~~OutOfSync 315건의 원인~~
   규명이 선행되어야 한다
 - **로그 회전 내성 미검증** — §8-57 의 시험 방법이 틀렸다(Gotcha 25).
   올바른 방법은 kubelet 의 실제 회전을 유도하는 것이고 아직 하지 않았다
