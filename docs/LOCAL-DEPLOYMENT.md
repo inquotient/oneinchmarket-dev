@@ -9702,6 +9702,100 @@ k3s 애드온이라 `/var/lib/rancher/k3s/server/manifests/local-storage.yaml` �
 가능하게 만들었다 — 설치 뒤에 다시 돌릴 것. `--check` 로 BestEffort 건수만
 셀 수 있다.
 
+### 8-94. JVM 힙을 명시했다 — JDK 11 이 컨테이너를 못 보고 있었다 (2026-09-08)
+
+§19-3 ② 레버다. 문서는 "12종 중 9종 미설정" 이라 적어 두었는데, Gotcha 19 가
+배운 대로 **기억이 아니라 렌더에서 다시 셌다** — JVM 후보 37종, 힙 명시 11.
+그런데 중요한 것은 건수가 아니었다.
+
+#### ★★ 같은 노드에서 JDK 버전에 따라 컨테이너 인식이 갈린다
+
+```
+livy · spark-connect · spark-history   JDK 11.0.27
+    /proc/self/cgroup    0::/
+    /sys/fs/cgroup/memory.max  1073741824   (읽을 수 있다)
+    UseContainerSupport  true
+    MaxHeapSize(인체공학) 11572084736 = 10.78 GiB   ← 호스트 43 GiB 의 25%
+
+trino                                   JDK 25.0.3
+    같은 자리에서 MaxHeapSize 536870912 = 512Mi     ← limit 2 GiB 의 25% ✓
+```
+
+`memory.max` 는 읽히는데 JVM 이 그것을 쓰지 않는다. **오류는 없다.**
+`UseContainerSupport=true` 라고 말하면서 호스트 RAM 을 본다. Gotcha 79 가
+"컨테이너 안의 프로세스는 limit 이 아니라 호스트를 읽는다" 로 적어 둔 것의
+JVM 판이고, 이번에는 **실물 사례**다.
+
+가장 나쁜 것이 `livy` 였다 — **-Xmx 가 아예 없었다.** limit 1 GiB 컨테이너
+안에서 JVM 이 "나는 10.78 GiB 까지 쓸 수 있다" 고 믿는다. 그러면 GC 를
+서두를 이유가 없고, **힙이 차기 전에 커널이 먼저 OOMKill 한다.** 파드는
+`1/1 Running` 이고 아무 경고도 없다.
+
+#### 고친 것 — 그리고 "힙 == limit" 은 힙 미설정만큼 나쁘다
+
+| 워크로드 | 이전 | 이후 | limit | 실사용 | 무엇이 문제였나 |
+|---|---|---|---|---|---|
+| `livy` | **없음** | `-Xmx640m -Xms256m` | 1Gi | 534Mi | JVM 이 10.78 GiB 를 잡았다 |
+| `spark-history` | `1g`(기본) | `640m` | 1Gi | 550Mi | **힙 == limit** |
+| `trino` | `2G` | `1400m` | 2Gi | 859Mi | **힙 == limit**. off-heap 자리 0 |
+| `spark-connect` | `1g`(기본) | `1g`(명시) | 2Gi | 278Mi | 값은 맞았고 암묵이었다 |
+| `ranger-usersync` | `1g` | `384m` | 768Mi | 71Mi | ★★ **힙 > limit** |
+
+**힙을 limit 과 같게 두면 안 된다.** 메타스페이스·코드캐시·스레드 스택·
+direct buffer 가 들어갈 자리가 0 이라는 뜻이고, Trino 처럼 네이티브 S3 를
+쓰는 것은 off-heap 이 크다. 힙이 다 차기 전에 커널이 먼저 죽인다.
+
+`trino` 의 `InitialRAMPercentage=80` · `MaxRAMPercentage=80` 두 줄은
+**지웠다.** `-Xmx` 가 있으면 무시되는 값인데 남아 있으면 "80% 로 맞춰
+두었으니 limit 만 바꾸면 힙이 따라온다" 로 읽힌다. 그리고 퍼센트 기반은
+**JDK 가 컨테이너를 못 읽는 순간 통째로 무너진다** — 바로 위에 사례가 있다.
+
+#### ★ ranger-usersync 는 매니페스트로 못 고친다
+
+상류 `ranger-usersync-services.sh` 가
+
+```
+ 48행  ranger_usersync_max_heap_size=1g          ← 조건 없는 대입
+ 82행  JAVA_OPTS=" ${JAVA_OPTS} ... -Xmx${...} -Xms1g "
+```
+
+우리 `JAVA_OPTS` 를 **앞에** 두고 자기 `-Xmx` 를 뒤에 붙인다. java 는
+**마지막 `-Xmx` 를 취하므로** 환경변수로는 이길 수 없다. 그래서
+`docker/ranger-usersync/ranger-usersync.sh`(우리 래퍼)가 기동 전에 그
+스크립트를 `sed` 한다. **이미지를 다시 빌드해야 반영된다** —
+`local/build-images.sh` 는 9종을 통째로 빌드하고 단건 선택이 없어서,
+도는 파드는 그때까지 `-Xmx1g` 그대로다(실사용 71Mi 라 당장의 위험은 낮다).
+
+#### ★ jvm.config 안에는 주석을 쓰지 말 것
+
+`jvm.config: |` 는 YAML **리터럴 블록**이라 그 안의 `#` 는 주석이 아니라
+문자열이고, Trino 에는 JVM 인자로 넘어간다. 설명은 블록 **밖**에 둔다.
+(이 파일은 CRLF 라 편집할 때 줄끝을 보존해야 한다.)
+
+#### 검증 — 파드 상태가 아니라 실제 JVM 인자와 동작으로
+
+```
+livy            limit=1Gi    heap= -Xmx640m -Xms256m     /sessions -> HTTP 200
+spark-history   limit=1Gi    heap= -Xmx640m              /api/v1/applications -> 200
+spark-connect   limit=2Gi    heap= -Xmx1g
+trino           limit=2Gi    heap= -Xmx1400m             SHOW CATALOGS -> hive·iceberg·system
+                                                          node trino-0 active · 질의 반환
+전부 restarts=0 · ready=true · OOMKilled 0건
+livy 실사용 534Mi -> 255Mi
+```
+
+★ **회수량으로 팔 만한 레버가 아니다.** 즉시 줄어든 실사용은 livy 약
+280Mi 뿐이고, 나머지는 원래 그만큼 쓰고 있었다. 이 작업의 값어치는
+**메모리 회수가 아니라 조용한 OOMKill 을 막는 것**이다 — §19-3 의 표에
+"큼" 으로 적혀 있던 것을 그렇게 정정한다.
+
+#### ★★★ 그리고 이 김에 더 큰 것이 나왔다 — §9-11 참조
+
+`trino` 는 ConfigMap 만 바뀌어서 **파드가 저절로 재시작하지 않았다.**
+`reloader.stakater.com/auto: "true"` 가 붙어 있는데도 그렇다 —
+**그 컨트롤러가 이 클러스터에 없다.** 어노테이션이 붙은 워크로드가
+**65개**이고 전부 아무 일도 하지 않는다.
+
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
 > **이 절은 "지금 하지 않기로 결정한 것" 의 목록이다.** §8 의 각 절 끝에
@@ -9930,6 +10024,55 @@ OpenBao 가 섰으므로(§8-80~82) 경로는 셋 다 열려 있다. **순서가
 JVM 의 `availableProcessors`·Go 의 `GOMAXPROCS`·nginx 의 `worker_processes auto`
 가 전부 같은 함정이다. 예약과 실사용이 크게 벌어지는 워크로드를 만나면
 **메모리 누수를 의심하기 전에 병렬도부터 볼 것.**
+
+### 9-11. ★★ Reloader 어노테이션 65개가 아무 일도 하지 않는다 — 결정이 필요하다 (§8-94 에서 발견)
+
+`CLAUDE.md` 의 "Annotations" 규약이 `reloader.stakater.com/auto: "true"` 를
+"Secret/ConfigMap 변경 시 자동 재시작" 으로 적어 두었다. **그 컨트롤러가
+이 클러스터에 없다.**
+
+```
+어노테이션이 붙은 워크로드 : 65개
+reloader 파드              : 0개
+stakater CRD               : 없음
+install-operators.sh       : 설치하지 않는다
+```
+
+실제로 §8-94 에서 `trino-config` 를 고쳤을 때 **파드가 저절로 재시작하지
+않아** 손으로 `rollout restart` 를 해야 했다. 그것이 이 결함을 드러냈다.
+
+Gotcha 33(Alertmanager receiver 비어 있음) · Gotcha 48(Dependency-Track 이
+환경변수를 통째로 버림)과 **같은 부류**다 — 설정은 있고, 아무도 읽지 않고,
+오류는 나지 않는다.
+
+#### ★ 날짜가 붙은 위험이다
+
+로테이션 CronJob **7종이 전부 활성**(`suspend=false`)이고 아직 한 번도
+돌지 않았다(`lastScheduleTime <none>`).
+
+| CronJob | 일정 | 다음 발화 |
+|---|---|---|
+| `rotate-postgresql-password` | `0 3 1,15 * *` | **2026-09-15 03:00** |
+| `rotate-mariadb-password` | `5 3 1,15 * *` | 2026-09-15 03:05 |
+| `rotate-elasticsearch-password` · `rotate-mongodb-password` | `10 3 1,15 * *` | 2026-09-15 03:10 |
+| `rotate-minio-password` · `rotate-redis-password` | `15 3 1,15 * *` | 2026-09-15 03:15 |
+| `rotation-git-sync` | `30 3 1,15 * *` | 2026-09-15 03:30 |
+| `rotate-admin-passwords` | `20 3 1 */3 *` | 2026-12-01 03:20 |
+
+그날 새벽 Secret 이 바뀌는데 **아무도 파드를 재시작하지 않는다.** 그리고
+로테이션 Job 중 스스로 `rollout restart` 를 하는 것은 **0개**다(`grep`
+확인). 즉 DB 비밀번호는 바뀌고 워크로드는 옛 값을 든 채 남는다.
+
+#### 선택지 — 어느 것도 자동으로 고르지 않았다
+
+| 안 | 내용 | 대가 |
+|---|---|---|
+| **①** | Reloader 를 설치한다(`install-operators.sh` 에 추가) | 새 컨트롤러 하나. 노드 여유가 **+0.83 GiB** 뿐이다(§8-93) — 지금 무엇을 얹을지는 가벼운 결정이 아니다 |
+| **②** | 로테이션 CronJob 7종을 `suspend: true` 로 세운다 | 되돌리기 쉽고 비용 0. 다만 **비밀번호가 영원히 안 바뀐다** — 보안 태세를 낮추는 결정이라 사람이 정할 일이다 |
+| **③** | 각 로테이션 Job 이 끝에 `kubectl rollout restart` 를 하게 한다 | 컨트롤러 없이 해결된다. `secret-rotator-rbac.yaml` 에 `deployments/statefulsets` patch 권한을 더해야 하고, **무엇을 재시작할지 목록을 Job 이 알아야 한다**(65개 중 어느 것이 그 Secret 을 쓰는지) — reloader 가 하는 일을 손으로 다시 만드는 것이다 |
+
+★ ②를 고르더라도 **어노테이션 65개는 남는다.** 그 자체가 "동작한다" 는
+잘못된 신호이므로, 어느 안을 고르든 `CLAUDE.md` 의 규약 문장을 함께 고칠 것.
 
 ## 10. Hyper-V 배포(ADR-051 A안) 재검토 — 2026-09-05 실측
 
@@ -11322,7 +11465,7 @@ requests 38.0 GiB · 실사용 21.0 GiB · **낭비 17.0 GiB (45%)**
 | | 레버 | 회수(추정) | 성격 |
 |:-:|---|---|---|
 | **①** | **requests 실측 정정** | **6.5~10.7 GiB** (이 중 **2.2 GiB 회수함**) | 설정만. 2026-09-03 에 6.7 GiB, **2026-09-08 에 2.2 GiB 더**(§8-93 — 오퍼레이터 15종에 requests 를 주고 과예약 5건을 깎았다. BestEffort 0). 산출은 §19-5 |
-| **②** | **JVM 힙 명시** | 큼 | 12종 중 **9종이 미설정**(실측). 레포가 prod 산정에서 −48 GiB 로 잡은 레버다(§6-2 단계 2) |
+| **②** | **JVM 힙 명시** | **작다(즉시 280Mi)** — 회수 레버가 아니다 | ★ 2026-09-08 수행(§8-94). "12종 중 9종 미설정" 은 틀렸다 — 렌더에서 다시 세니 후보 37종·명시 11. **값어치는 메모리 회수가 아니라 조용한 OOMKill 을 막는 것**이다 — livy 는 -Xmx 가 없어 JVM 이 10.78 GiB 를 잡고 있었고(limit 1Gi), trino·spark-history 는 힙이 limit 과 같았으며 ranger-usersync 는 힙이 limit 보다 컸다 |
 | **③** | **프로파일 분리**(Kustomize Component) | **매우 큼** | 항상 다 띄울 필요가 없다 |
 | ④ | 중복 스택 정리 | 중간 | 검토 필요 |
 | ⑤ | zram ZSTD 전환 | 실사용만 | 커널 빌드. §7 에서 이미 보류 |

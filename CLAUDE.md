@@ -152,7 +152,7 @@ containers:
 
 ### Annotations
 
-- `reloader.stakater.com/auto: "true"` — Secret/ConfigMap 변경 시 자동 재시작
+- `reloader.stakater.com/auto: "true"` — 원래 의도는 Secret/ConfigMap 변경 시 자동 재시작이나 **지금 아무 일도 하지 않는다** — 어노테이션은 65개 워크로드에 붙어 있는데 **reloader 컨트롤러가 설치되어 있지 않다**(Gotcha 84 · §9-11). ConfigMap/Secret 을 고쳤으면 재시작을 손으로 확인할 것
 - `argocd.argoproj.io/sync-wave: "<N>"` — 카테고리 `kustomization.yaml`의 `commonAnnotations`로 설정
 
 ## Secret Management
@@ -319,6 +319,11 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 78. **BestEffort 워크로드에 requests 를 주면, 그 순간 노드가 "줄 수 없다" 고 답한다 — 그리고 그 수정은 자기 자신에게 막힌다.** requests 가 없는 파드는 예약 없이 남의 여유에 얹혀 살고 있었을 뿐이라, 정직하게 예약을 요구하는 순간 과예약이 드러난다(실측: 15개에 requests 를 주자 노드가 **103%** 가 되고 남은 4개가 `ProgressDeadlineExceeded` 로 멈췄다 — Deployment 스펙에는 새 값이 들어갔고 ReplicaSet 도 있었는데 파드가 `FailedScheduling: Insufficient memory` 였다). **노드는 그 전에도 과예약이었고 아무도 말해 주지 않았을 뿐이다.** ★★ 그리고 그 상태에서 ArgoCD 로 정정을 배포하면 **동기화가 고리에 걸린다** — 훅 Job 이 스케줄되지 않아 wave 경계에서 멈추는데, 노드를 비우는 매니페스트는 같은 동기화의 **뒤쪽**에 있다. 기다려서는 풀리지 않는다. 고리를 끊는 방법은 **git 이 말하는 것과 똑같은 값을 kubectl 로 먼저 적용하는 것**이다(드리프트가 아니라 순서를 앞당기는 것이라 동기화 결과가 같다). ★ **StatefulSet 과 Deployment 의 순서가 다르다**: StatefulSet 은 헌 파드를 지운 뒤 만들어 꽉 찬 노드에서도 되고, Deployment 는 기본 `maxSurge=1/maxUnavailable=0` 이라 **새 파드가 먼저 떠야 해서 영영 멈춘다** — StatefulSet 을 먼저 돌려 자리를 만들고, Deployment 는 `set resources` 뒤에 헌 파드를 명시적으로 지울 것. ★ 깎을 때 **Guaranteed 8종은 건드리지 말 것** — `requests==limits` 가 그 QoS 의 정의라 낮추면 QoS 가 무너진다 — §8-93
 79. **컨테이너 안의 프로세스는 limit 이 아니라 호스트 코어 수를 읽는다.** safeline 의 tengine 이 `worker_processes auto` 로 nginx 워커를 **24개**(호스트 코어 수) 띄워 유휴 122Mi 와 피크 1783Mi 가 14배 벌어졌다. JVM 의 `availableProcessors`·Go 의 `GOMAXPROCS`·nginx 의 `auto` 가 전부 같은 함정이다. **예약과 실사용이 크게 벌어지는 워크로드를 만나면 메모리 누수를 의심하기 전에 병렬도부터 볼 것** — §8-93·§9-10
 80. **오퍼레이터 계층의 requests 패치는 되돌아간다 — 두 가지 이유로.** ① `install-operators.sh`·`install-argocd.sh` 가 상류 매니페스트를 다시 적용하면 지워진다. ② `local-path-provisioner` 는 **k3s 애드온**이라 `/var/lib/rancher/k3s/server/manifests/local-storage.yaml` 에서 k3s 가 재적용하므로 **k3s 재시작만으로도** 지워진다(지속시키려면 그 파일을 고쳐야 하고 그것은 노드 상태라 이 레포 밖이다). 그래서 `local/set-operator-requests.sh` 는 **재실행 가능해야 하고**, 설치 뒤에 다시 돌려야 한다. `--check` 가 BestEffort 건수만 센다 — §8-93
+
+81. **JVM 의 컨테이너 인식은 JDK 버전에 달려 있고, 실패해도 오류가 나지 않는다.** 같은 노드·같은 cgroup v2 에서 **JDK 11.0.27 은 호스트 43 GiB 를 읽고 JDK 25.0.3 은 컨테이너 2 GiB 를 정확히 읽었다.** 11 쪽은 `/sys/fs/cgroup/memory.max` 를 **읽을 수 있는데도** 쓰지 않고, `UseContainerSupport=true` 라고 보고하면서 `MaxHeapSize` 를 호스트의 25%(10.78 GiB)로 잡았다 — limit 이 1 GiB 인 컨테이너 안에서다(`/proc/self/cgroup` 이 `0::/`). 그러면 JVM 은 GC 를 서두를 이유가 없고 **힙이 차기 전에 커널이 OOMKill** 하며, 파드는 `1/1 Running` 이다. ★ 처방은 **`-Xmx` 를 명시하는 것**이다 — `MaxRAMPercentage` 같은 퍼센트 기반은 바로 이 상황에서 통째로 무너진다. ★ 판정은 `java -XX:+PrintFlagsFinal -version | grep -E 'MaxHeapSize|MaxRAM '` 을 **컨테이너 안에서** 돌려 limit 과 대조하는 것이다(`jcmd` 는 대부분의 이미지에 없다) — §8-94
+82. **힙을 limit 과 같게(또는 크게) 두는 것은 힙을 안 주는 것만큼 나쁘다.** 실측 셋: `trino -Xmx2G`/limit 2Gi, `spark-history -Xmx1g`/limit 1Gi, `ranger-usersync -Xmx1g`/**limit 768Mi**. 메타스페이스·코드캐시·스레드 스택·direct buffer 가 들어갈 자리가 0 이라는 뜻이라 **힙이 다 차기 전에 커널이 먼저 죽인다**(Trino 처럼 네이티브 S3 를 쓰면 off-heap 이 특히 크다). 60~70% 를 기준으로 잡을 것. ★ 그리고 `-Xmx` 옆에 `MaxRAMPercentage` 를 **남겨 두지 말 것** — `-Xmx` 가 있으면 무시되는 값인데, 남아 있으면 "limit 만 바꾸면 힙이 따라온다" 로 읽혀 다음 사람이 틀린 전제로 움직인다. ★★ 상류 기동 스크립트가 `JAVA_OPTS=" ${JAVA_OPTS} ... -Xmx1g "` 처럼 **우리 값을 앞에 두고 자기 값을 뒤에 붙이면 환경변수로는 이길 수 없다**(java 는 마지막 `-Xmx` 를 취한다) — 그때는 스크립트 자체를 고쳐야 하고, 이미지 재빌드 전까지 반영되지 않는다 — §8-94
+83. **`jvm.config` 같은 YAML 리터럴 블록 안에 `#` 주석을 쓰지 말 것.** `jvm.config: |` 아래의 `#` 는 YAML 주석이 아니라 **값의 일부**이고, Trino 에는 JVM 인자로 넘어간다. 설명은 반드시 블록 **밖**(키 위)에 둘 것. 같은 이유로 리터럴 블록을 고칠 때는 원본 줄끝(이 파일은 CRLF)을 보존해야 한다 — §8-94
+84. **`reloader.stakater.com/auto: "true"` 는 이 클러스터에서 아무 일도 하지 않는다 — 컨트롤러가 없다.** 어노테이션이 붙은 워크로드가 **65개**인데 reloader 파드는 0개이고 `install-operators.sh` 도 설치하지 않는다. 드러난 계기는 `trino-config` 를 고쳤는데 파드가 재시작하지 않은 것이다. ★★ 그리고 **로테이션 CronJob 7종이 전부 활성**이라 다음 발화(**2026-09-15 03:00**)에 Secret 이 바뀌는데 아무도 파드를 재시작하지 않는다 — 로테이션 Job 중 스스로 `rollout restart` 를 하는 것은 0개다. Gotcha 33·48 과 같은 부류다(설정은 있고, 아무도 읽지 않고, 오류는 없다). **ConfigMap/Secret 을 고쳤으면 재시작을 손으로 확인할 것.** 선택지 셋과 대가는 §9-11 에 적었다 — 결정이 필요하다
 
 ### 매니페스트 작업 시
 
