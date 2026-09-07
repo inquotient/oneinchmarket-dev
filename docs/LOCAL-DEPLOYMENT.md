@@ -9072,6 +9072,129 @@ HDFS 8020)가 제한적인 ALLOW 정책에 선택되지 않아 `default` 로도 
   클러스터 리소스는 남는다. 의도한 것이다(이 랩에서 Application 을 지우는 것은
   대개 실험이지 철거가 아니다)
 
+### 8-87. 가격을 붙였다 — 인보이스가 나오고, 5xx 는 청구되지 않는다 (2026-09-07)
+
+§9-2 가 "인보이스 발행 전 마지막 조각" 이라고 적은 것이다. §8-58~§8-63 이
+만든 것은 **"얼마나 썼나"** 까지였고 **"얼마인가"** 가 비어 있었다.
+
+절차는 `local/openmeter-pricing.sh` 로 남겼다(멱등하다). 순서가 고정돼 있다 —
+**feature → plan → publish → customer → subscription**. 앞의 것이 없으면 뒤의
+것이 만들어지지 않는다.
+
+#### 출발점
+
+```
+meters            2건  (api_requests_total · api_response_bytes)
+features          0건
+plans             0건
+customers         0건
+subscriptions     0건
+billing/profiles  1건  ← 이것만 이미 있었다(sandbox 기본값)
+```
+
+계량 subject 는 실측으로 `acme-corp` · `globex-corp` · **`-`** 셋이었다.
+`-` 는 Gotcha 16 이 "청구하지 말고 격리" 라고 한 그것이라 고객으로 만들지 않았다.
+
+#### ★★ 5xx 를 청구하지 않는 것 — 계약이 이미 정해 둔 것을 구현했다
+
+`contracts/schemas/api-usage-event.json` 의 `status` 설명이 이렇게 적고 있다:
+
+> **이벤트는 결과와 무관하게 전부 낸다. 대신 이 값을 실어 미터가 골라 쓰게 한다.
+> 5xx(우리 잘못)를 청구하는 것은 방어할 수 없고, 4xx 를 청구할지는 요금제가
+> 정할 문제이지 계량기가 정할 문제가 아니다.**
+
+즉 "고르는" 자리는 미터가 아니라 **feature** 다. OpenMeter 의
+`advancedMeterGroupByFilters` 로 표현한다:
+
+```json
+{"status": {"$lt": "500"}}
+```
+
+`status` 는 문자열이지만 HTTP 상태는 전부 세 자리라 사전순 비교가 수치 비교와
+같다 — 1xx~4xx 만 남는다. 4xx 를 청구할지는 요금제의 선택이고, 지금은 청구한다
+(게이트웨이가 인증·라우팅을 실제로 수행한 요청이다).
+
+★★★ **`$not` · `$like` 를 쓰지 말 것 — 201 을 돌려주고 필터를 통째로 삼킨다.**
+실측:
+
+```
+보낸 것 : {"status": {"$not": {"$like": "5%"}}}
+응답    : 201 Created
+저장된 것: {"status": {}}          ← 필터 없음 = 5xx 도 전부 청구
+```
+
+이 레포가 반복해서 겪은 "성공 출력이 성공을 뜻하지 않는" 부류다(Gotcha 12).
+**보존되는 연산자만 쓸 것**: `$eq` `$ne` `$in` `$nin` `$lt` `$gt`(전부 실측 확인).
+그래서 스크립트는 만든 뒤 **되읽어 필터가 남아 있는지 확인하고, 비어 있으면
+중단한다** — 여기서 놓치면 조용히 5xx 를 청구하게 된다.
+
+#### Plan 스키마 함정 넷 (전부 400 을 받아 가며 알아냈다)
+
+| # | 함정 |
+|:-:|---|
+| 1 | `key` 는 **snake_case 만** 받는다 — `^[a-z0-9]+(?:_[a-z0-9]+)*$`. `oim-api-standard` 는 400 이다 |
+| 2 | **`flat_fee` rate card 에도 `billingCadence` 가 필수**다(null 이면 일회성 요금) |
+| 3 | phase 에 `duration` 이 필수다. 마지막(유일) phase 는 무기한이므로 **`null`** |
+| 4 | **usage_based rate card 의 `key` 는 `featureKey` 와 같아야 한다** — 다르면 `rate_card_key_feature_key_mismatch` |
+
+★ 게시하지 않은 plan(`status: draft`)에는 **구독할 수 없다.** `POST
+/api/v1/plans/{id}/publish` 를 거쳐야 `active` 가 된다.
+
+#### ★★ 고객 key 와 계량 subject 는 다른 이름 공간이다
+
+| | 값 | 강제 |
+|---|---|---|
+| 고객 key | `acme_corp` | snake_case |
+| 계량 subject | `acme-corp` | 게이트웨이가 토큰의 `tenant` 클레임에서 만든 값(§8-54) |
+
+둘을 잇는 것이 `usageAttribution.subjectKeys` 다. **빠뜨리면 고객은 만들어지는데
+사용량이 하나도 붙지 않는다** — 실측: `key` 만 주면 `201` 이 그냥 나오고, 나중에
+**0원 인보이스**로 드러난다(오류가 아니다). 스크립트가 이 필드를 강제한다.
+
+#### 검증 — 오류 경로를 실제로 밟게 했다
+
+인보이스는 바로 나왔다:
+
+```
+Acme Corp   / paid       total=20 USD   ← 선불 platform fee
+Acme Corp   / gathering  total=20 USD   ← 사용량 누적 중
+Globex Corp / paid       total=20 USD
+Globex Corp / gathering  total=20 USD
+```
+
+★ 그런데 사용량 라인이 `qty=0` 이었다. **구독 시작 이전의 사용량은 청구되지
+않는다** — 과거 40건은 구독(14:17)보다 앞선다. 당연한 동작이지만, 이것 때문에
+"필터가 되는지" 를 기존 데이터로는 확인할 수 없었다.
+
+그래서 **구독 이후에 200 과 503 을 직접 흘렸다.** OpenMeter 의 ingest API 로
+보냈다 — Kafka 과금 토픽을 건드리지 않기 위해서다(Gotcha 23: 과금 토픽에 대고
+실험하지 말 것).
+
+```
+보낸 것  : status=200 ×3 · status=503 ×2   (전부 204)
+계량된 것: status=200 ×3 · status=503 ×2   (합계 5)
+청구 수량: qty=3                            ← 5xx 2건이 빠졌다
+대조군   : Globex Corp qty=0                ← 트래픽이 없으면 0이다
+```
+
+**이것이 필터가 동작한다는 증거다.** 만들 때의 `201` 이 아니라, 5xx 를 실제로
+흘려보고 청구 수량이 늘지 않는 것을 본 것이다(§8-78 ③ 의 교훈: 오류 경로를
+실제로 밟게 해서 확인한다).
+
+#### 남는 것 — 두 가지가 실제 발행 전에 걸린다
+
+- ★★ **인보이스의 공급자가 "OpenMeter"(US) 다.** billing profile 이 OpenMeter 가
+  자동 생성한 sandbox 기본값이라 `supplier.name = "OpenMeter"` ·
+  `addresses[0].country = "US"` 이고, 결제·세금 앱도 전부 sandbox 다.
+  **남의 회사 이름으로 인보이스가 나간다** — 실제 고객에게 발행하기 전에
+  반드시 고쳐야 한다. §9-2 로 넘겼다
+- 가격이 예시라 `total` 이 `0` 으로 보인다 — 3건 × $0.001 = $0.003 이고 통화
+  최소 단위(cent) 미만이다. 결함이 아니라 예시 가격의 성질이다
+
+★ 그리고 **egress(`api_response_bytes`)는 요금제에 넣지 않았다.** 그 미터의
+`groupBy` 에 `status` 가 없어 5xx 를 뺄 수 없기 때문이다. 미터를 고치는 것은
+계량 변경이라(Gotcha 15) 별도로 판단할 일이다 — §9-2.
+
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
 > **이 절은 "지금 하지 않기로 결정한 것" 의 목록이다.** §8 의 각 절 끝에
@@ -9098,17 +9221,18 @@ HDFS 8020)가 제한적인 ALLOW 정책에 선택되지 않아 `default` 로도 
 ★ 다시 쌓이기 시작하면 그것 자체가 **신호**다 — 무엇이 executor 를 죽이고
 있는지 묻는 편이 청소보다 먼저다.
 
-### 9-2. 과금 — 계량은 끝났고 **가격이 없다**
+### 9-2. 과금 — ~~가격이 없다~~ **가격은 붙었고, 발행 주체가 남았다**
 
-이것이 인보이스 발행 전 마지막 조각이다. §8-58~§8-63 이 만든 것은
-**"얼마나 썼나"** 까지다. **"얼마인가"** 는 비어 있다.
+~~이것이 인보이스 발행 전 마지막 조각이다.~~ — **§8-87 에서 붙였다.**
+feature → plan → publish → customer → subscription 이 서고 인보이스가 나온다.
+5xx 가 청구되지 않는 것도 실제로 5xx 를 흘려 확인했다(계량 5건 → 청구 3건).
 
-- 요금제(plan)·가격(price)·구독(subscription) 정의가 없다
-- OpenMeter 의 billing 쪽 CronJob 3종(`billing-advance-invoices`·
-  `billing-collect-invoices`·`subscription-sync`)은 **돌고는 있으나
-  대상이 없다** — §8-63 에서 경보를 띄운 그 Job 들이다
-- 계량 이벤트와 달리 가격은 **소급 적용이 가능하다**(청구 이력은 불가능,
-  Gotcha 15). 그래서 계량을 먼저 끝내고 가격을 뒤로 미룰 수 있었다
+| 남은 것 | 왜 미뤘나 | 지금 상태 |
+|---|---|---|
+| ★★ **인보이스 공급자가 "OpenMeter"(US) 다** | billing profile 이 OpenMeter 가 자동 생성한 **sandbox 기본값**이고, 바꾸는 것은 가격이 아니라 **발행 주체**를 정하는 일이라 사업자 정보(상호·주소·세금 식별자)가 필요하다 | `supplier.name="OpenMeter"` · `country=US` · invoicing/payment/tax 앱이 전부 sandbox. **실제 고객에게 발행하기 전에 반드시 고칠 것** |
+| **egress 과금** | `api_response_bytes` 미터의 `groupBy` 에 `status` 가 없어 5xx 를 뺄 수 없다. 미터를 고치는 것은 **계량 변경**이라(Gotcha 15) 청구 이력이 쌓이기 전에 결정해야 한다 | 요금제에 넣지 않았다. 넣으려면 미터를 다시 만들어야 하고, 그러면 OpenMeter 가 기동을 거부하므로 DB 행을 지우고 재기동해야 한다(§8-60) |
+| **실제 가격** | 지금 값은 **예시다**(월 $20 + 요청당 $0.001) | `local/openmeter-pricing.sh` 의 `PRICE_*` 로 바꾼다. 가격은 소급 적용이 가능하다 — 다만 **청구 이력은 불가능하다**(Gotcha 15) |
+| **4xx 를 청구할 것인가** | 계약이 "요금제가 정할 문제" 로 남겨 두었다. 지금은 **청구한다**(게이트웨이가 인증·라우팅을 실제로 수행한 요청이다) | 바꾸려면 feature 필터를 `{"status":{"$lt":"400"}}` 로 좁힌다 |
 
 ### 9-3. 그 밖에 열려 있는 것
 
