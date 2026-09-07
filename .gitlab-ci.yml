@@ -190,6 +190,40 @@ secret_detection:
     # 자라므로, 빼야 할 것이 생기면 사유를 여기 적을 것.
     SECRET_DETECTION_EXCLUDED_PATHS: ""
 
+# ★★ 이력 전체 스캔 — 증분 스캔으로는 **이미 커밋된 시크릿을 못 찾는다.**
+#   실측: 기본 동작은 마지막 스캔 이후의 커밋만 본다.
+#     Fetching commits since ... for ref local
+#     1 commits scanned.  scanned ~543 bytes  no leaks found
+#   543바이트를 훑고 "성공" 이 나온다 — 켜 두고도 아무것도 못 보는 상태다
+#   (Gotcha 12 의 부류). 위 secret_detection 은 **새 유출을 막는** 용도이고,
+#   이미 들어간 것은 이 잡이 찾는다.
+#
+# ★ 매 push 마다 돌리지 않는다. 이력 전체를 훑는 비용이 크고, 같은 발견이
+#   매번 반복되면 경보가 무시된다. schedule 과 수동 실행에서만 돈다.
+#
+# ★★ allow_failure 를 true 로 둔다 — 이것은 **이미 있는 빚**을 세는 잡이라
+#   파이프라인을 막는 것이 목적이 아니다. 새 유출을 막는 것은 위의
+#   secret_detection(allow_failure: false)이 한다. 둘의 역할이 다르다.
+secret_detection_historic:
+  extends: .secret-analyzer
+  stage: scan
+  needs: []
+  allow_failure: true
+  variables:
+    GIT_DEPTH: "0"
+    # 이 변수 하나가 증분 -> 이력 전체로 바꾼다.
+    SECRET_DETECTION_HISTORIC_SCAN: "true"
+    SECRET_DETECTION_EXCLUDED_PATHS: ""
+  artifacts:
+    reports:
+      secret_detection: gl-secret-detection-report.json
+    paths: [gl-secret-detection-report.json]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_PIPELINE_SOURCE == "web"
+    - when: manual
+      allow_failure: true
+
 # ──────────────────────────────────────────
 # Stage: sign - Cosign 이미지 서명
 # ──────────────────────────────────────────
