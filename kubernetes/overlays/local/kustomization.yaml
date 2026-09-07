@@ -20,6 +20,9 @@ resources:
   - openmeter
   # Caldera — ADR-030 이 prod 배포를 금지한다. base 에 두면 prod 가 상속한다.
   - caldera
+  # OpenBao 로 원천이 옮겨진 시크릿의 ExternalSecret (§8-82).
+  #   이관이 끝난 것만 들어 있다 — 나머지는 create-secrets.sh 가 원천이다.
+  - external-secrets
 
 patches:
   # 로컬 레플리카 1

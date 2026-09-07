@@ -1,0 +1,23 @@
+# OpenBao 로 원천이 옮겨진 시크릿들 (§8-82)
+#
+# ★ 여기 있는 것은 **이관이 끝난 것만**이다. 나머지는 아직
+#   local/create-secrets.sh 가 원천이다. 한꺼번에 옮기지 않는 이유는
+#   워크로드 40여 개가 secretKeyRef 로 물려 있어 하나만 어긋나도
+#   CreateContainerConfigError 로 서기 때문이다.
+#
+# ★ 추가는 local/openbao-migrate-secret.sh 가 한다 — 값을 OpenBao 에 넣고
+#   왕복을 해시로 검증한 뒤 매니페스트를 만든다.
+#
+# ★ 전면 이관이 끝나면 .enc.yaml 12개와 로테이션 CronJob 7종·git-sync 를
+#   제거한다(ADR-024). 그전까지는 둘 다 둔다.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - grafana-secret.yaml
+  - apicurio-secret.yaml
+  - caldera-secret.yaml
+
+commonAnnotations:
+  # security 계층(4)보다 뒤여야 한다 — OpenBao 가 먼저 떠야 한다.
+  argocd.argoproj.io/sync-wave: "5"

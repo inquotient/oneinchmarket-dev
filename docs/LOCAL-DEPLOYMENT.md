@@ -8418,6 +8418,87 @@ Secret         : eso-proof-secret -> hello-from-openbao
 - `.enc.yaml` 12개와 로테이션 CronJob 7종·git-sync 는 이관이 끝난 뒤에 지운다
   (ADR-024 가 그렇게 정해 두었다)
 
+### 8-82. 시크릿 원천이 OpenBao 로 옮겨지기 시작했다 (2026-09-07)
+
+§8-81 이 남긴 두 가지를 처리했다 — **Kubernetes auth 전환**과 **시크릿 이관**.
+
+#### ① 장기 토큰을 없앴다 — Kubernetes auth method
+
+ESO 가 쓰던 것은 `periodic` 토큰이었다. 새면 유효 기간 내내 열린다. 이제
+**ESO 의 ServiceAccount 가 곧 신원**이고 OpenBao 가 TokenReview 로 검증한다.
+로그인할 때마다 짧은 수명(ttl 1h)으로 발급되므로 창이 좁다.
+
+세 가지가 함께 필요하다 — 하나라도 빠지면 로그인이 실패한다:
+
+| 필요한 것 | 없으면 |
+|---|---|
+| OpenBao SA 의 `automountServiceAccountToken: true` | OpenBao 가 TokenReview 를 호출할 토큰이 없다 |
+| `ClusterRoleBinding` → `system:auth-delegator` | `permission denied` |
+| `bound_service_account_names/namespaces` 로 좁힌 역할 | 그 네임스페이스의 아무 SA 나 정책을 얻는다 |
+
+★ **오류 메시지가 엉뚱한 쪽을 가리킨다.** TokenReview 권한이 없으면
+`auth/kubernetes/login` 이 `permission denied` 로 실패하는데, 그 메시지는
+**로그인하려는 쪽**(ESO)을 가리켜서 역할이나 정책을 의심하게 된다. 실제로
+권한이 없는 것은 **검증하는 쪽**(OpenBao)이다.
+
+★ 전환 직후 `InvalidProviderConfig / connection refused` 를 봤는데, 이것은
+**파드 재시작 창**이었다(OpenBao 가 다시 뜨며 봉인 → 사이드카가 해제하기까지).
+설정 오류로 읽고 되돌리지 말 것 — 잠시 뒤 `Ready=True store validated` 가 된다.
+
+검증(장기 토큰 Secret 을 지운 상태에서):
+
+```
+ExternalSecret : Ready=True SecretSynced
+Secret         : kauth-proof-secret = via-kubernetes-auth
+openbao-eso-token : NotFound
+```
+
+#### ② 시크릿 이관 — 점진적으로, 값을 해시로 검증하며
+
+`local/openbao-migrate-secret.sh` 가 한다: 기존 Secret 을 읽어 OpenBao KV 에
+넣고 **왕복을 sha256 으로 검증**한 뒤 ExternalSecret 매니페스트를 만든다.
+값은 어디에도 출력하지 않는다.
+
+★ **`creationPolicy` 는 `Merge` 다. `Owner` 가 아니다:**
+
+- `Owner` 는 기존 Secret 의 소유권을 요구해 이미 있는 것과 충돌한다
+- `Merge` 는 키만 갱신하고 Secret 자체는 남긴다 — **ESO 나 OpenBao 가 내려가도
+  워크로드가 계속 돈다.** 되돌리기도 ExternalSecret 을 지우면 끝이다
+
+★ `dataFrom.extract` 로 **모든 키**를 가져온다. 키를 하나씩 나열하면 나중에
+키가 늘 때 조용히 빠진다.
+
+첫 3종(`grafana-secret` 1키 · `apicurio-secret` 1키 · `caldera-secret` 4키)을
+옮기고 **이관 전후 해시가 같은지**로 판정했다:
+
+```
+grafana-secret   sha=1e8c24f4dd8fae2e  (이관 전과 동일)
+apicurio-secret  sha=55a7203394207bf0  (동일)
+caldera-secret   sha=fd406d279edd4dc2  (동일)
+소비 워크로드 3종 모두 Running · 재시작 횟수 변화 없음
+```
+
+#### ★★ 옮기면 안 되는 것 셋
+
+| | 왜 |
+|---|---|
+| `openbao-keys` | **OpenBao 를 여는 열쇠다.** OpenBao 에 넣으면 순환이다 — 봉인을 풀어야 읽을 수 있는데 읽어야 봉인을 푼다 |
+| `elasticsearch-es-*` | ECK 오퍼레이터가 소유·회전한다. 뺏으면 ECK 가 되돌리며 싸운다 |
+| `*-tls`·인증서 | cert-manager 가 소유한다 |
+
+스크립트가 이 목록을 하드코딩해 거부한다 — 실수로 옮기는 것을 막기 위해서다.
+
+#### 남은 이관 — 50종
+
+지금은 `create-secrets.sh` 가 여전히 대부분의 원천이다. **한꺼번에 옮기지
+말 것** — 워크로드 40여 개가 `secretKeyRef` 로 물려 있고, 하나만 어긋나도 그
+파드가 `CreateContainerConfigError` 로 서는데 그 시점에는 무엇이 바뀌었는지
+추적하기 어렵다. 몇 개씩 옮기고 매번 해시로 확인하는 것이 맞다.
+
+전면 이관이 끝나면 `.enc.yaml` 12개와 로테이션 CronJob 7종·git-sync 를
+제거한다(ADR-024). **그전까지는 둘 다 둔다** — 지우고 나서 이관이 덜 됐다는
+것을 알게 되면 복구할 원천이 없다.
+
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
 > **이 절은 "지금 하지 않기로 결정한 것" 의 목록이다.** §8 의 각 절 끝에

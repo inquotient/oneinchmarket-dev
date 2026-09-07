@@ -3,9 +3,28 @@ kind: ServiceAccount
 metadata:
   name: openbao
   labels: {app.kubernetes.io/name: openbao, app.kubernetes.io/component: security, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
-# Kubernetes auth method 를 켤 때 TokenReview 권한이 필요해진다.
-# 지금은 켜지 않았으므로 토큰을 마운트하지 않는다.
-automountServiceAccountToken: false
+# ★ Kubernetes auth method 를 켰다(§8-82). OpenBao 가 들어온 SA 토큰을
+#   검증하려면 **자기 토큰으로 TokenReview 를 호출**해야 하므로 마운트한다.
+#   아래 ClusterRoleBinding 이 system:auth-delegator 를 준다.
+automountServiceAccountToken: true
+---
+# TokenReview 권한. 이것이 없으면 auth/kubernetes/login 이
+#   "permission denied" 로 실패하는데, 메시지가 **로그인하려는 쪽**을
+#   가리켜서 ESO 의 역할이나 정책을 의심하게 된다. 실제로 권한이 없는 것은
+#   검증하는 쪽(OpenBao)이다.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: openbao-tokenreview
+  labels: {app.kubernetes.io/name: openbao, app.kubernetes.io/component: security, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: openbao
+    namespace: local
 ---
 apiVersion: v1
 kind: Service
