@@ -138,3 +138,21 @@ spec:
         - '.spec.emitWarning'
         - '.spec.rules[]?.skipBackgroundRequests'
         - '.spec.rules[]?.validate.allowExistingViolations'
+
+    # Reloader 가 재시작을 일으킬 때 파드 템플릿에 남기는 흔적이다(§8-96).
+    #   reload-strategy=annotations 로 두어 **이 한 줄**만 달라진다 —
+    #   기본값(env-vars)은 컨테이너에 해시 환경변수를 넣어 지목하기 어렵다.
+    #   ★ 빼지 않으면 65개 워크로드가 로테이션마다 OutOfSync 로 보이고,
+    #   다음 동기화가 그 줄을 지우면 **파드가 한 번 더 재시작한다.**
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - '.spec.template.metadata.annotations."reloader.stakater.com/last-reloaded-from"'
+    - group: apps
+      kind: StatefulSet
+      jqPathExpressions:
+        - '.spec.template.metadata.annotations."reloader.stakater.com/last-reloaded-from"'
+    - group: apps
+      kind: DaemonSet
+      jqPathExpressions:
+        - '.spec.template.metadata.annotations."reloader.stakater.com/last-reloaded-from"'

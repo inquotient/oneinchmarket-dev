@@ -20,6 +20,7 @@ TETRAGON_VERSION="${TETRAGON_VERSION:-1.7.1}"
 TRIVY_OPERATOR_VERSION="${TRIVY_OPERATOR_VERSION:-v0.34.0}"
 POLICY_REPORTER_VERSION="${POLICY_REPORTER_VERSION:-policy-reporter-3.10.0}"
 EXTERNAL_SECRETS_VERSION="${EXTERNAL_SECRETS_VERSION:-2.10.0}"
+RELOADER_VERSION="${RELOADER_VERSION:-2.2.16}"   # app v1.4.21
 
 log() { echo "[operators] $*"; }
 
@@ -196,6 +197,36 @@ kubectl apply --server-side --force-conflicts \
   -f "$PR_DIR/manifests/policy-reporter/install.yaml"
 rm -rf "$PR_DIR"
 # ── 6. 대기 및 검증 ────────────────────────────────────────────
+# ── 8. Reloader (ConfigMap/Secret 변경 시 워크로드 재시작) ─────
+#
+# ★★ 왜 필요한가 — `reloader.stakater.com/auto: "true"` 어노테이션이 워크로드
+#   **65개**에 이미 붙어 있는데 컨트롤러가 없었다. 어노테이션은 아무 일도 하지
+#   않고 오류도 내지 않는다(Gotcha 84). 드러난 계기는 trino-config 를 고쳤는데
+#   파드가 재시작하지 않은 것이다(§8-94).
+#
+# ★★★ 날짜가 붙은 문제였다 — 로테이션 CronJob 7종이 전부 활성이고 다음 발화가
+#   2026-09-15 03:00 이다. 그날 Secret 이 바뀌는데 아무도 파드를 재시작하지
+#   않으면 워크로드가 옛 자격을 든 채 남는다. 로테이션 Job 중 스스로
+#   rollout restart 를 하는 것은 0개다(§9-11).
+#
+# ★ scoped 모드다 — `reloader.namespaces` 로 local 만 본다. 어노테이션이 붙은
+#   65개가 전부 local 에 있어서다. 그러면 **ClusterRole 이 만들어지지 않고**
+#   local·reloader 두 네임스페이스에 Role 만 생긴다(최소 권한).
+#   ★ 키 이름은 `namespaces` 다. `watchNamespaces` 는 **존재하지 않는 키이고
+#     helm 은 조용히 무시한다** — 실제로 처음에 그렇게 써서 Role 이 local 에
+#     생기지 않았고, 렌더를 보지 않았으면 "설치했는데 아무 일도 안 한다" 가
+#     됐을 것이다(§8-96).
+#
+# ★★ reload-strategy=annotations 를 쓴다. 기본(env-vars)은 컨테이너에 해시
+#   환경변수를 넣어 ArgoCD 가 드리프트로 본다. annotations 는 파드 템플릿
+#   어노테이션 한 줄이라 Application 의 ignoreDifferences 로 정확히 지목할 수
+#   있다 — argocd/applications/oneinchmarket-local.yaml 에 함께 넣었다.
+log "Reloader ${RELOADER_VERSION}"
+kubectl create ns reloader --dry-run=client -o yaml | kubectl apply -f -
+helm repo add stakater https://stakater.github.io/stakater-charts >/dev/null 2>&1 || true
+helm repo update >/dev/null
+helm template reloader stakater/reloader   --version "${RELOADER_VERSION}"   --namespace reloader   --set reloader.watchGlobally=false   --set "reloader.namespaces={local}"   --set reloader.reloadStrategy=annotations   --set reloader.deployment.containerSecurityContext.allowPrivilegeEscalation=false   --set reloader.deployment.containerSecurityContext.readOnlyRootFilesystem=true   --set "reloader.deployment.containerSecurityContext.capabilities.drop={ALL}"   --set reloader.deployment.resources.requests.cpu=10m   --set reloader.deployment.resources.requests.memory=64Mi   --set reloader.deployment.resources.limits.memory=192Mi   | kubectl apply --server-side --force-conflicts -f -
+
 log "오퍼레이터 Ready 대기"
 kubectl -n istio-system    rollout status deploy/istiod                 --timeout=300s || true
 kubectl -n istio-system    rollout status ds/ztunnel                    --timeout=300s || true
