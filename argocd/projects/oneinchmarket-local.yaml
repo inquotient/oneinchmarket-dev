@@ -54,6 +54,11 @@ spec:
       kind: ClusterSecretStore
     - group: storage.k8s.io
       kind: StorageClass
+    # ★ PriorityClass 가 빠져 있었다 — base 가 batch-low 등을 정의한다.
+    #   없으면 ArgoCD 가 그것을 **보지 못해** liveState 가 null 이 되고,
+    #   "git 에만 있다 = 만들어야 한다" 로 오판한다.
+    - group: scheduling.k8s.io
+      kind: PriorityClass
 
   namespaceResourceWhitelist:
     - group: ""
@@ -80,6 +85,22 @@ spec:
     - group: gateway.networking.k8s.io
       kind: "*"
     - group: external-secrets.io
+      kind: "*"
+    # ★★ 아래 둘이 빠져 있어 실측으로 **87건이 Unknown** 이었다:
+    #   NetworkPolicy 64 · Ingress 12(networking.k8s.io) ·
+    #   Certificate 6 · Issuer 4(cert-manager.io).
+    #   ArgoCD 는 화이트리스트에 없는 종류를 **볼 수 없다** — liveState 가
+    #   null 이 되고 "git 에만 있으니 만들어야 한다" 로 보인다.
+    #   ★ 증상이 "리소스가 없다" 라 클러스터를 의심하게 되는데,
+    #     실제로는 전부 클러스터에 있었다. 권한 문제다.
+    #   CLAUDE.md 가 dev/prod 프로젝트에 대해 적어 둔 결함과 같은 부류다.
+    - group: networking.k8s.io
+      kind: "*"
+    - group: cert-manager.io
+      kind: "*"
+    - group: policy
+      kind: "*"
+    - group: autoscaling
       kind: "*"
 
   orphanedResources:
