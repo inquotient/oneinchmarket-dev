@@ -23,11 +23,19 @@ data:
     ui = true
     disable_mlock = true
 
-    # 경로가 Vault 와 다르다. 이미지가 선언한 볼륨은
-    #   /openbao/file · /openbao/logs 이고 설정은 /openbao/config 다
-    #   (실측: podman inspect 의 Config.Volumes · BAO_CONFIG_DIR).
-    storage "file" {
-      path = "/openbao/file"
+    # ★ file 이 아니라 raft(integrated storage)다.
+    #   단일 노드에서 raft 는 합의(consensus) 이득이 없지만 **스냅샷 API 가
+    #   생긴다** — `bao operator raft snapshot save`. file 스토리지에는 그것이
+    #   없어서 백업이 "PVC 를 통째로 복사" 뿐이고, RWO 볼륨은 쓰는 중에 다른
+    #   파드가 마운트할 수 없어 온라인 백업이 성립하지 않는다.
+    #   Vault Enterprise 의 DR Replication·자동 스냅샷 자리를 이것으로 채운다
+    #   (WSO2-OSS-MAPPING.md 부록 A-2).
+    #   ★★ 스토리지 backend 를 바꾸면 **재초기화**다(기존 데이터·unseal 키 무효).
+    #     데이터가 0건일 때만 공짜다 — 나중에 바꾸려면 export/import 를 손으로 해야 한다.
+    #   경로는 이미지가 선언한 볼륨을 그대로 쓴다(/openbao/file).
+    storage "raft" {
+      path    = "/openbao/file"
+      node_id = "openbao-0"
     }
 
     listener "tcp" {
@@ -35,13 +43,43 @@ data:
       tls_disable = true
     }
 
-    # 컨테이너 안에서 자기 자신을 가리키는 주소. operator init/unseal 이 쓴다.
-    api_addr     = "http://127.0.0.1:8200"
-    cluster_addr = "http://127.0.0.1:8201"
+    # ★ raft 는 cluster_addr 가 **다른 노드가 도달할 수 있는 주소**여야 한다.
+    #   127.0.0.1 로 두면 단일 노드에서는 뜨지만 노드를 늘리는 순간 깨지고,
+    #   그때는 이미 데이터가 있어 되돌리기 어렵다. 지금 StatefulSet DNS 로 둔다.
+    api_addr     = "http://openbao-0.openbao-headless:8200"
+    cluster_addr = "http://openbao-0.openbao-headless:8201"
 
     # 텔레메트리는 Prometheus 가 가져간다. 인증 없이 노출하지 않는다 —
     # /v1/sys/metrics 는 토큰을 요구하므로 스크레이프 설정은 별도 작업이다.
     telemetry {
       prometheus_retention_time = "24h"
       disable_hostname          = true
+    }
+
+    # ── 감사(audit) 장치 ──────────────────────────────────────────
+    # ★★ OpenBao 2.4 는 **API 로 감사 장치를 켤 수 없다.** 실측:
+    #     cannot enable audit device via API; use declarative,
+    #     config-based audit device management instead
+    #   Vault 와 다른 점이라 `bao audit enable` 을 쓰는 문서·스크립트를
+    #   그대로 옮기면 400 으로 막힌다. 설정에 선언해야 한다.
+    #
+    # ★ 문법은 파서에 직접 물어 확정했다 — `type` 과 `path` 가 **둘 다**
+    #   블록 안 속성이어야 한다(블록 라벨은 이름일 뿐이다):
+    #     audit "stdout" { type=... }  -> "audit path must be specified"
+    #     audit "file"   { file_path } -> "audit type must be specified"
+    #
+    # ★ 출력을 stdout 으로 보낸다. 컨테이너 로그 파이프라인(filebeat·OTel)이
+    #   이미 Loki/Elasticsearch 로 나르므로 별도 배선이 필요 없다.
+    #   Vault Enterprise 의 audit log filtering 자리를 이것으로 채운다 —
+    #   필터·보존은 로그 스택이 한다(WSO2-OSS-MAPPING.md 부록 A-2).
+    #
+    # ★★ 감사 장치가 하나뿐인데 그 싱크가 막히면 **OpenBao 는 요청을 거부한다**
+    #   (감사 기록 실패를 조용히 넘기지 않는 것이 설계다). stdout 은 막힐 일이
+    #   사실상 없어 그 위험이 가장 낮은 선택이기도 하다.
+    audit "stdout" {
+      type = "file"
+      path = "stdout"
+      options = {
+        file_path = "stdout"
+      }
     }

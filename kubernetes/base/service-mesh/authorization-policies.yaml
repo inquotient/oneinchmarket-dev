@@ -290,6 +290,11 @@ spec:
               - "*/sa/hive-server"
               - "*/sa/spark-connect"
               - "*/sa/spark-history"
+              # OpenBao raft 스냅샷을 MinIO 로 올린다(§8-80).
+              # ★ ALLOW 정책이 minio 를 선택하므로 여기 없으면 **거부**다
+              #   (Gotcha 9). 증상은 mc 가 조용히 매달리는 것이라
+              #   MinIO 자격이나 버킷 이름을 의심하게 된다.
+              - "*/sa/openbao-snapshot"
       to:
         - operation:
             ports: ["9000", "9001"]

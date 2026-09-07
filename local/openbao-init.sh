@@ -92,6 +92,11 @@ if [ "$RC" = "2" ]; then
   log "해제 완료"
 fi
 
+# ── 감사 장치 ────────────────────────────────────────────────────
+# 여기서 켜지 않는다. OpenBao 2.4 는 API 로 감사 장치를 켤 수 없고
+#   (cannot enable audit device via API — 실측 400)
+# ConfigMap 의 `audit "stdout"` 스탠자가 선언적으로 켠다.
+
 log "최종 상태"
 bao status | grep -E 'Seal Type|Initialized|Sealed|Storage Type|Version' || true
 log "root 토큰 조회:  kubectl -n ${NS} get secret ${SECRET} -o jsonpath='{.data.root-token}' | base64 -d"

@@ -5,6 +5,8 @@ resources:
   - openbao-headless.yaml
   - openbao-configmap.yaml
   - openbao-statefulset.yaml
+  - openbao-snapshot-cronjob.yaml
+  - openbao-clustersecretstore.yaml
 
 commonAnnotations:
   # Keycloak(4)과 같은 security 계층이다.

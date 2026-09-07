@@ -8300,6 +8300,124 @@ transit auto-unseal 은 OpenBao 가 하나 더 필요해 순환이기 때문이�
 
 전체 Enterprise 기능 매핑은 [WSO2-OSS-MAPPING.md 부록 A](WSO2-OSS-MAPPING.md) 에 있다.
 
+### 8-81. Vault Enterprise 의 OSS 대체를 실제로 채웠다 (2026-09-07)
+
+부록 A-2 의 "OSS 조합으로 채우는 것" 을 도입했다. 네 칸이 실제로 동작한다.
+
+| 부록 A-2 의 칸 | 무엇으로 채웠나 | 검증 |
+|---|---|---|
+| **자동 스냅샷 · DR Replication** | raft 스토리지 + CronJob → MinIO | 스냅샷 12.38 KiB 업로드 확인 |
+| **Audit log filtering** | 선언적 audit device → stdout → 기존 로그 파이프라인 | `"type":"request"` 가 컨테이너 로그에 나옴 |
+| **Secrets Sync** | External Secrets Operator + ClusterSecretStore | OpenBao 값이 K8s Secret 으로 물질화됨 |
+| **Performance Replication** | 위와 같음 — 앱은 OpenBao 를 직접 때리지 않는다 | 설계상 |
+
+#### ① file → raft 로 바꿨다 — 스냅샷 API 때문이다
+
+`file` 스토리지에는 스냅샷 API 가 없다. 백업이 "PVC 를 통째로 복사" 뿐인데
+**RWO 볼륨은 쓰는 중에 다른 파드가 마운트할 수 없어 온라인 백업이 성립하지
+않는다.** raft 로 바꾸면 `bao operator raft snapshot save` 가 생긴다.
+
+★ 스토리지 backend 변경은 **재초기화**다(기존 데이터·unseal 키 무효).
+**데이터가 0건일 때만 공짜다** — §8-80 직후가 그 순간이었다. 나중에 바꾸려면
+export/import 를 손으로 해야 한다.
+
+★ `cluster_addr` 를 `127.0.0.1` 로 두지 말 것. 단일 노드에서는 뜨지만 노드를
+늘리는 순간 깨지고, 그때는 이미 데이터가 있어 되돌리기 어렵다. StatefulSet
+DNS(`openbao-0.openbao-headless`)로 둔다.
+
+실측: `Storage Type raft · HA Enabled true · Raft Committed Index 39`.
+
+#### ② 감사 장치는 API 로 켤 수 없다 — 선언적 설정이다
+
+```
+cannot enable audit device via API; use declarative,
+config-based audit device management instead
+```
+
+**Vault 와 다른 점이다.** `bao audit enable` 을 쓰는 문서·스크립트를 그대로
+옮기면 400 으로 막힌다. 설정 HCL 에 선언해야 한다.
+
+★ 문법은 **파서에 직접 물어 확정했다.** 추측하면 두 번 틀린다:
+
+```
+audit "stdout" { type = "file" }        -> "audit path must be specified"
+audit "file"   { file_path = "..." }    -> "audit type must be specified"
+```
+
+즉 블록 라벨은 이름일 뿐이고 `type` 과 `path` 가 **둘 다 속성**이어야 한다:
+
+```hcl
+audit "stdout" {
+  type = "file"
+  path = "stdout"
+  options = { file_path = "stdout" }
+}
+```
+
+출력을 stdout 으로 보내면 컨테이너 로그 파이프라인(filebeat·OTel)이 이미
+Loki/Elasticsearch 로 나른다 — **별도 배선이 필요 없다.** Vault Enterprise 의
+audit log filtering 자리를 이것으로 채운다(필터·보존은 로그 스택이 한다).
+
+★★ 감사 장치가 하나뿐인데 그 싱크가 막히면 **OpenBao 는 요청을 거부한다**
+(감사 기록 실패를 조용히 넘기지 않는 것이 설계다). stdout 은 막힐 일이
+사실상 없어 그 위험이 가장 낮은 선택이기도 하다.
+
+#### ③ 스냅샷 CronJob — 그리고 정책 두 겹에 걸렸다
+
+`openbao` 이미지에는 `mc` 가 없고 `minio/mc` 에는 `bao` 가 없다. initContainer 가
+스냅샷을 뜨고 본 컨테이너가 MinIO 로 올린다(emptyDir 로 넘긴다). 보존 30일.
+
+★ 처음 돌렸을 때 **업로드가 조용히 매달렸다.** 두 계층이 동시에 막고 있었다:
+
+- **AuthorizationPolicy** `allow-datalakehouse-access` 가 `minio` 를 선택하는데
+  principal 목록에 `*/sa/openbao-snapshot` 이 없었다 — ALLOW 정책이 워크로드를
+  선택하면 매칭되지 않은 전부가 거부다(Gotcha 9)
+- **NetworkPolicy** `allow-minio-access` 는 `component: data-lakehouse` 만
+  허용하는데 이 Job 은 `component: security` 다
+
+증상이 "mc 가 응답 없음" 이라 **MinIO 자격이나 버킷 이름을 의심하게 된다.**
+둘 다 열고 나서 통했다.
+
+★★ 스냅샷에는 봉인된 데이터 전체가 들어 있다. 복호화하려면 unseal 키가
+필요하므로 스냅샷 자체는 평문이 아니다 — **다만 unseal 키가 같은 클러스터의
+Secret 에 있으므로(§8-80) 둘을 같은 곳에 두면 의미가 없다.** prod 에서는
+스냅샷을 클러스터 밖으로, 키는 KMS 로 분리할 것.
+
+#### ④ External Secrets Operator — 시크릿 원천이 생겼다
+
+ESO 는 정적 `install.yaml` 을 내지 않는다(릴리스 자산이 Helm 차트 tgz 뿐).
+**Tetragon 과 같이 `helm template | kubectl apply` 로 렌더만** 한다 — 클러스터에
+Helm 릴리스가 남지 않으므로 "No Helm" 원칙과 어긋나지 않는다.
+
+★ **root 토큰을 ESO 에 주지 않는다.** 정책 `eso-read` 는 `oim/data/*` 읽기만
+갖고, 전용 토큰(periodic)을 발급해 `external-secrets/openbao-eso-token` 에 둔다.
+root 를 주면 원천을 OpenBao 로 옮긴 이득이 상당 부분 사라진다 — 자격 하나가
+새면 전부가 새는 상태로 돌아간다(§8-44 의 전례).
+
+★ ClusterSecretStore 의 `server` 는 **FQDN 이어야 한다.** ESO 컨트롤러는
+`external-secrets` 네임스페이스에서 돌기 때문에 짧은 이름은 풀리지 않는다
+(Gotcha 17·52 와 같은 부류).
+
+검증 — 합성 값을 넣고 끝까지 흘렸다:
+
+```
+bao kv put oim/demo greeting=hello-from-openbao
+ExternalSecret : Ready=True SecretSynced secret synced
+Secret         : eso-proof-secret -> hello-from-openbao
+```
+
+#### 남은 것
+
+- **Kubernetes auth method 로 바꾸기** — 장기 토큰이 사라지고 ESO 의
+  ServiceAccount 가 곧 신원이 된다. OpenBao SA 에 TokenReview 권한이 필요해
+  별도 작업으로 둔다
+- **기존 시크릿 60개를 OpenBao 로 옮기기** — 지금은 `create-secrets.sh` 가
+  여전히 원천이다. ★ 한꺼번에 옮기지 말 것: 워크로드 40여 개가 `secretKeyRef` 로
+  물려 있어 하나라도 어긋나면 그 파드가 `CreateContainerConfigError` 로 선다.
+  몇 개씩 옮기고 매번 확인하는 것이 맞다
+- `.enc.yaml` 12개와 로테이션 CronJob 7종·git-sync 는 이관이 끝난 뒤에 지운다
+  (ADR-024 가 그렇게 정해 두었다)
+
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
 > **이 절은 "지금 하지 않기로 결정한 것" 의 목록이다.** §8 의 각 절 끝에

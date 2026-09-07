@@ -19,6 +19,7 @@ CERT_MANAGER_VERSION="${CERT_MANAGER_VERSION:-v1.16.2}"
 TETRAGON_VERSION="${TETRAGON_VERSION:-1.7.1}"
 TRIVY_OPERATOR_VERSION="${TRIVY_OPERATOR_VERSION:-v0.34.0}"
 POLICY_REPORTER_VERSION="${POLICY_REPORTER_VERSION:-policy-reporter-3.10.0}"
+EXTERNAL_SECRETS_VERSION="${EXTERNAL_SECRETS_VERSION:-2.10.0}"
 
 log() { echo "[operators] $*"; }
 
@@ -162,6 +163,24 @@ kubectl -n trivy-system patch cm trivy-operator-trivy-config --type merge -p '{"
 
 kubectl -n trivy-system rollout restart deploy/trivy-operator || true
 
+# 5-2-b. External Secrets Operator — OpenBao 를 시크릿 원천으로 (§8-81)
+#
+# ★ 왜 필요한가 — 이 레포의 시크릿 관리는 오래도록 미작동이었다
+#   (.enc.yaml 12개가 자리표시자이고 전부 주석 처리되어 렌더 결과에 Secret 이
+#    0개다). ESO 가 OpenBao 의 값을 읽어 Kubernetes Secret 으로 **물질화**하면
+#   워크로드는 지금 쓰는 secretKeyRef 를 그대로 두고도 원천만 바뀐다.
+#   Vault Enterprise 의 Secrets Sync 자리이기도 하다(부록 A-2).
+#
+# ★ ESO 는 정적 install.yaml 을 내지 않는다(릴리스 자산이 Helm 차트 tgz 뿐).
+#   Tetragon 과 같이 **Helm 을 템플릿 렌더러로만** 쓴다 — 클러스터에 Helm
+#   릴리스가 남지 않으므로 "No Helm" 원칙과 어긋나지 않는다.
+log "External Secrets Operator ${EXTERNAL_SECRETS_VERSION}"
+kubectl create ns external-secrets --dry-run=client -o yaml | kubectl apply -f -
+helm repo add external-secrets https://charts.external-secrets.io >/dev/null 2>&1 || true
+helm repo update >/dev/null
+# ★ 기본 requests 가 이 노드에 과하다. 다른 오퍼레이터와 같은 취급으로 낮춘다.
+helm template external-secrets external-secrets/external-secrets   --version "${EXTERNAL_SECRETS_VERSION}"   --namespace external-secrets   --include-crds   --set installCRDs=true   --set resources.requests.cpu=25m   --set resources.requests.memory=64Mi   --set webhook.resources.requests.cpu=10m   --set webhook.resources.requests.memory=32Mi   --set certController.resources.requests.cpu=10m   --set certController.resources.requests.memory=32Mi   | kubectl apply --server-side --force-conflicts -f -
+
 # 5-3. Policy Reporter (Kyverno·Trivy 결과 집계)
 #
 # ★ kustomize 의 원격 git fetch 에는 27초 하드 타임아웃이 있어 이 저장소에서는
@@ -193,6 +212,7 @@ kubectl -n kyverno         rollout status deploy/kyverno-admission-controller --
 kubectl -n cert-manager    rollout status deploy/cert-manager-webhook   --timeout=300s || true
 kubectl -n tetragon        rollout status ds/tetragon                    --timeout=300s || true
 kubectl -n trivy-system    rollout status deploy/trivy-operator          --timeout=300s || true
+kubectl -n external-secrets rollout status deploy/external-secrets       --timeout=300s || true
 kubectl -n policy-reporter rollout status deploy/policy-reporter         --timeout=300s || true
 
 log "── 설치 결과 ──"

@@ -21,6 +21,11 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/component: data-lakehouse
+        # OpenBao raft 스냅샷 업로드(§8-80). component 가 security 라
+        # 위 셀렉터에 걸리지 않는다 — 이름으로 따로 허용한다.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: openbao-snapshot
       ports:
         - protocol: TCP
           port: 9000

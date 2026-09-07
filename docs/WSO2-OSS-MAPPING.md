@@ -315,16 +315,16 @@ OpenBao 에서는 무료다. B2B 테넌트별 시크릿 격리가 여기서 성�
 
 | Vault Enterprise 기능 | 대체 | 이 레포 |
 |---|---|---|
-| **Secrets Sync** (외부 매니저로 동기화) | ★ **External Secrets Operator** — 방향은 반대지만 목적(앱이 K8s Secret 으로 받는다)은 같다 | Phase 0 진행 중 |
+| **Secrets Sync** (외부 매니저로 동기화) | ★ **External Secrets Operator** — 방향은 반대지만 목적(앱이 K8s Secret 으로 받는다)은 같다 | ✅ **동작 확인**(§8-81) |
 | **Transform** (FPE · 토큰화 · 마스킹) | ★ **ShardingSphere** 의 암호화·마스킹 — **이미 배포돼 있다**(§8-75) · PostgreSQL `pgcrypto` | ✅ ShardingSphere |
-| **Audit log filtering** | ★ audit device → 파일 → **OTel filelog → Loki/Elasticsearch** 에서 필터·보존 | ✅ 관측 스택 |
+| **Audit log filtering** | ★ audit device → **stdout** → 기존 컨테이너 로그 파이프라인 | ✅ **켜져 있음**(§8-81) |
 | **Login MFA** | ★ **Keycloak MFA + OIDC auth method** 로 앞단에서 처리 | ✅ Keycloak 26.7.3 |
 | **Sentinel 정책 (RGP/EGP)** | ⚠️ **OPA** 로 외부 인가 · 단순한 것은 OpenBao ACL 정책 | ❌ OPA 미도입 |
 | **Control Groups** (M-of-N 승인) | ⚠️ 승인 워크플로를 밖에 둔다 — **midPoint** 또는 **Temporal** | ❌ |
 | **Lease count quotas** | ⚠️ rate limit quota 는 OSS 에 있다. 앞단 제한은 **Envoy ratelimit** | ❌ |
-| **자동 스냅샷** | ★ CronJob + PVC 백업(file 스토리지) · Raft 면 `bao operator raft snapshot` | ❌ ADR-018 `Open` |
-| **DR Replication** | ⚠️ 복제가 아니라 **백업·복구**로 바꾼다(위 스냅샷) | ❌ |
-| **Performance Replication** | ⚠️ 읽기 확장은 **ESO 가 K8s Secret 으로 물질화**하는 것으로 상당 부분 대체된다 — 앱은 OpenBao 를 직접 때리지 않는다 | 설계상 대체 |
+| **자동 스냅샷** | ★ raft + CronJob → MinIO (6시간 주기 · 보존 30일) | ✅ **동작 확인**(§8-81) |
+| **DR Replication** | ⚠️ 복제가 아니라 **백업·복구**로 바꾼다(위 스냅샷) | ✅ 스냅샷 있음 · **복구는 미검증** |
+| **Performance Replication** | ⚠️ 읽기 확장은 **ESO 가 K8s Secret 으로 물질화**하는 것으로 상당 부분 대체된다 — 앱은 OpenBao 를 직접 때리지 않는다 | ✅ ESO 동작(§8-81) |
 
 ### A-3. OSS 로 못 채우는 것 — 3개
 
