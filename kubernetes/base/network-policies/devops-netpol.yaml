@@ -91,6 +91,12 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: trivy-system
+        # ★ ArgoCD 의 repo-server 가 git 을 읽는다(§8-83). 없으면
+        #   `failed to list refs` 로 멈추는데, 증상이 저장소 자격 문제처럼
+        #   읽혀 토큰을 의심하게 된다. git 은 80 을 쓴다.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: argocd
         - podSelector:
             matchLabels:
               app.kubernetes.io/component: devops

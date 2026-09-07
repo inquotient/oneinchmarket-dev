@@ -8531,6 +8531,85 @@ ExternalSecret 29종 · 전부 SecretSynced
 제거한다(ADR-024). **아직 지우지 않는다** — `openreplay-secrets`·`or-secrets`
 가 남아 있고, 지우고 나서 이관이 덜 됐다는 것을 알게 되면 복구할 원천이 없다.
 
+### 8-83. ArgoCD 를 세웠다 — 다만 동기화는 켜지 않았다 (2026-09-07)
+
+Phase 0 의 마지막 항목. **ArgoCD 가 클러스터에 없었다** — `argocd/` 매니페스트와
+CLAUDE.md 의 Sync Wave 표는 GitOps 를 전제하는데 CRD 0 · 파드 0 · 네임스페이스
+없음이었고, 배포는 전부 수동 `kubectl apply -k` 였다(§9-3).
+
+#### 선행 조건이 하나 더 있었다 — 읽을 git 이 없다
+
+ArgoCD 는 git 을 읽어야 동작한다. 그런데 이 GitLab 에는 **코드 저장소가
+0개**였다(§8-79 에서 만든 9개는 레지스트리 전용이라 커밋이 없다). 그래서
+레포를 먼저 올렸다 — `local/gitlab-repo-bootstrap.sh`.
+
+```
+infra/oneinchmarket-infra · 커밋 있음=true · 기본브랜치="local"
+```
+
+★ **배포 토큰으로는 push 할 수 없다.** GitLab 의 `DeployToken` 스코프에
+`write_repository` 가 **없다**(실측: `read_repository` · `read_registry` ·
+`write_registry` · `read/write_package_registry` · `read/write_virtual_registry`).
+시도하면 `unknown attribute 'write_repository' for DeployToken` 으로 죽는다.
+**배포 토큰은 git 에 대해 읽기 전용이다** — push 는 root 자격(HTTP basic)으로
+하고, ArgoCD 에는 `read_repository` 토큰만 준다.
+
+★ 토큰을 프로세스 인자나 `.git/config` 에 두지 않는다. `GIT_ASKPASS` 로 파일에서
+읽고 원격을 영구 등록하지 않는다.
+
+#### 두 번 막혔다 — 그리고 원인이 서로 달랐다
+
+**① `dial tcp 10.43.0.1:443: i/o timeout`** — 컨트롤러가 Kubernetes API 에
+닿지 못했다. NetworkPolicy 를 의심했으나 **틀렸다**: ArgoCD 가 함께 넣는
+NetworkPolicy 7종은 전부 `policyTypes: [Ingress]` 라 egress 를 막지 않는다.
+실제로는 **기동 직후의 일시적 상태**였고 곧 `Cluster successfully synced` 가
+나왔다. ★ 설치 직후의 오류를 설정 문제로 읽고 되돌리지 말 것.
+
+**② `failed to list refs`** — repo-server 가 GitLab 에 닿지 못했다. 이것은
+진짜 정책 문제다. `allow-gitlab-access` 가 `trivy-system` 과 `component: devops`
+만 허용하는데 **`argocd` 네임스페이스가 없었다.** §8-79 에서 Trivy 에 겪은 것과
+같은 패턴이다. ★ 증상이 `failed to list refs` 라 **저장소 자격을 의심하게
+된다** — 토큰은 멀쩡했다. git 은 80 을 쓴다.
+
+#### AppProject 를 새로 만들었다 — dev/prod 것을 쓸 수 없다
+
+| dev/prod 프로젝트의 문제 | local 프로젝트에서 |
+|---|---|
+| `sourceRepos` 가 `gitlab.oneinchmarket.co.kr` 만 허용 | 이 클러스터의 GitLab 주소 |
+| `destinations` 에 `local` 이 없음 | 추가 |
+| **`security.istio.io`·`gateway.networking.k8s.io` 화이트리스트 없음** | 추가 — CLAUDE.md 가 적어 둔 결함이다. 없으면 **service-mesh/ 전체가 sync 거부**되고 증상은 "왜 정책이 안 붙지" 라 원인이 멀다 |
+| `ClusterRoleBinding`·`ClusterSecretStore`·`StorageClass` 없음 | 추가(§8-81·82 가 만든 것들) |
+
+#### ★★ 동기화를 켜지 않은 이유 — 숫자가 말한다
+
+Application 을 **수동 동기화**(`syncPolicy.automated` 없음)로 두고 finalizer 도
+달지 않았다. 첫 비교 결과:
+
+```
+sync=OutOfSync · revision=286c27d3 · git 리소스 500건
+  Synced 84 · OutOfSync 315 · Unknown 87
+고아 리소스 113건
+```
+
+**고아 113건**은 ArgoCD 밖에서 만든 것들이다 — 오퍼레이터 계층(Istio·ECK·
+Kyverno·cert-manager·Tetragon·Trivy·ESO) · `create-secrets.sh` 의 시크릿 ·
+`openbao-init.sh` 의 키 · GitLab 레지스트리 자격. **`prune: true` 를 켰다면
+이것들이 "git 에 없다" 는 이유로 지워졌을 것이다.**
+
+★ 그리고 **OutOfSync 315건은 실제 드리프트가 아닐 가능성이 크다** —
+ServiceAccount 67 · Service 59 · ConfigMap 46 처럼 종류별로 고르게 퍼진 것은
+**렌더링 차이**의 모양이다(kustomize 버전 · ArgoCD 의 추적 라벨 ·
+ServerSideApply 필드 관리자). **규명 전에 동기화를 켜면 무엇이 바뀌는지 모르는
+채로 500건을 건드린다.**
+
+#### 그다음
+
+- OutOfSync 315건의 원인 규명 — 렌더링 차이인지 실제 드리프트인지
+- `orphanedResources` 를 `warn: true` 로 두되, 고아 113건을 하나씩 판정
+  (git 에 넣을 것 / ArgoCD 밖에 둘 것)
+- 그 뒤에야 `automated{prune,selfHeal}` 을 논할 수 있다. ADR-068 의 머지
+  관문(§9-4)도 같은 순서를 말한다
+
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
 > **이 절은 "지금 하지 않기로 결정한 것" 의 목록이다.** §8 의 각 절 끝에
@@ -8566,9 +8645,10 @@ ExternalSecret 29종 · 전부 SecretSynced
   선행 조건 셋이 지금 깨져 있다: **시크릿 관리 미작동**(ADR-024) ·
   **ArgoCD 부재**(CRD 0 · 파드 0 · 네임스페이스 없음) · **메모리**(신규 12종
   추정 8~14 GiB 인데 §11-4 가 이미 `필요 56.6 vs 가용 47.6` 이다)
-- **ArgoCD 가 클러스터에 없다** — `argocd/` 매니페스트와 CLAUDE.md 의 Sync Wave
-  표는 GitOps 를 전제하는데 **실제 배포는 전부 수동 `kubectl apply -k`** 다.
-  ADR-068 머지 관문도 이것을 전제한다. 서술과 실제가 어긋나 있다
+- ~~**ArgoCD 가 클러스터에 없다**~~ — **§8-83 에서 세웠다**(v3.5.2). 다만
+  **동기화는 켜지 않았다** — 고아 리소스 113건이 잡혀서, `prune` 을 켜면
+  오퍼레이터 계층과 스크립트가 만든 것들이 지워진다. OutOfSync 315건의 원인
+  규명이 선행되어야 한다
 - **로그 회전 내성 미검증** — §8-57 의 시험 방법이 틀렸다(Gotcha 25).
   올바른 방법은 kubelet 의 실제 회전을 유도하는 것이고 아직 하지 않았다
 - **Kyverno 미충족** — `require-health-probes` 약 212건,

@@ -1,0 +1,89 @@
+# ArgoCD AppProject — local (§8-83)
+#
+# ★ dev/prod 용 `oneinchmarket` 프로젝트를 그대로 쓰지 않는 이유 셋:
+#   ① sourceRepos 가 `https://gitlab.oneinchmarket.co.kr/...` 만 허용한다.
+#      이 클러스터의 GitLab 은 `gitlab-registry.local.svc.cluster.local` 이다
+#   ② destinations 에 `local` 네임스페이스가 없다
+#   ③ 화이트리스트가 좁다 — CLAUDE.md 가 적어 둔 결함이다:
+#      `security.istio.io`·`gateway.networking.k8s.io` 가 없어
+#      **service-mesh/ 전체가 sync 거부된다.** 여기서는 그 결함을 반복하지 않는다
+#
+# ★ 이 프로젝트는 local 전용이다. dev/prod 프로젝트를 건드리면 아직 배포된 적
+#   없는 환경의 의미가 바뀌므로 분리했다.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: oneinchmarket-local
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: argocd
+    environment: local
+spec:
+  description: OneinchMarket — local (WSL2 단일 노드)
+
+  sourceRepos:
+    - "http://gitlab-registry.local.svc.cluster.local/infra/oneinchmarket-infra.git"
+
+  destinations:
+    - namespace: local
+      server: https://kubernetes.default.svc
+    # 오퍼레이터 계층은 ArgoCD 밖(local/install-operators.sh)이지만,
+    # 네임스페이스 생성 등을 위해 목적지로 허용해 둔다.
+    - namespace: argocd
+      server: https://kubernetes.default.svc
+
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: kyverno.io
+      kind: ClusterPolicy
+    - group: policy
+      kind: PodDisruptionBudget
+    - group: networking.k8s.io
+      kind: NetworkPolicy
+    # ★ 아래 셋이 dev/prod 프로젝트에 빠져 있는 것들이다.
+    #   ClusterRoleBinding: OpenBao 의 TokenReview 권한(§8-82)
+    #   ClusterSecretStore: ESO 의 OpenBao 연결(§8-81)
+    #   StorageClass: local/storageclass-standard.yaml
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+    - group: external-secrets.io
+      kind: ClusterSecretStore
+    - group: storage.k8s.io
+      kind: StorageClass
+
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: "*"
+    - group: apps
+      kind: "*"
+    - group: batch
+      kind: "*"
+    - group: rbac.authorization.k8s.io
+      kind: "*"
+    - group: elasticsearch.k8s.elastic.co
+      kind: "*"
+    - group: kibana.k8s.elastic.co
+      kind: "*"
+    # ★★ CLAUDE.md 가 적어 둔 결함을 여기서 막는다 — 이 둘이 없으면
+    #   service-mesh/ 전체(AuthorizationPolicy 26곳·Gateway·HTTPRoute)가
+    #   sync 거부되고, 증상은 "왜 정책이 안 붙지" 라 원인이 멀다.
+    - group: security.istio.io
+      kind: "*"
+    - group: networking.istio.io
+      kind: "*"
+    - group: telemetry.istio.io
+      kind: "*"
+    - group: gateway.networking.k8s.io
+      kind: "*"
+    - group: external-secrets.io
+      kind: "*"
+
+  orphanedResources:
+    # ★ warn 만 한다. 이 클러스터에는 ArgoCD 밖에서 만든 것이 많다
+    #   (오퍼레이터 계층·create-secrets.sh·openbao-init.sh). 그것들을
+    #   "고아" 로 지우면 안 된다.
+    warn: true
