@@ -9580,6 +9580,128 @@ Free 이므로 그 파일은 **영원히 아무 일도 하지 않는다.** 그�
 그래서 실효적인 처방은 이력 재작성이 아니라 **키를 손상된 것으로 취급하는
 것**이고, 그것은 위에서 했다.
 
+### 8-93. BestEffort 15개를 0으로 — 그리고 그 수정이 노드를 꽉 채워 스스로 막혔다 (2026-09-08)
+
+§19-3 이 "requests 정정" 을 레버로 꼽아 둔 것을 실제로 당겼다. 두 단계였고,
+**두 번째는 첫 번째가 만든 문제**다.
+
+#### 왜 하나 — BestEffort 는 "요청이 적은" 것이 아니라 "가장 먼저 죽는" 것이다
+
+오퍼레이터 계층은 ArgoCD 밖에서 상류 매니페스트로 설치돼(`install-operators.sh`
+· `install-argocd.sh`) requests 가 없었다. QoS 가 BestEffort 면 메모리 압박 시
+**가장 먼저 축출된다.** 무엇이 멈추는지가 분명하다:
+
+| 워크로드 | 축출되면 |
+|---|---|
+| `argocd-application-controller` | GitOps 가 멈춘다 |
+| `cert-manager` | 인증서 갱신이 멈춘다 |
+| `local-path-provisioner` | 새 PVC 가 묶이지 않는다 |
+| `trivy-operator` | 취약점 스캔이 멈춘다 |
+
+이 노드는 §11-4 기준 `필요 56.6 vs 가용 47.6` 이라 가정이 아니다.
+
+값은 `kubectl top` 실측에 여유를 얹어 정했다 — 추측한 requests 는 스케줄러를
+속일 뿐이다(너무 낮으면 축출되고 너무 높으면 다른 것이 스케줄되지 못한다).
+`local/set-operator-requests.sh` 가 15종을 표로 들고 있다.
+
+#### 결과: 15 → 4. 그리고 남은 4개가 **롤아웃되지 못했다**
+
+```
+Progressing=False  ProgressDeadlineExceeded: ReplicaSet "..." has timed out progressing.
+FailedScheduling:  0/1 nodes are available: 1 Insufficient memory.
+```
+
+Deployment **스펙에는 새 requests 가 들어가 있었다.** 새 ReplicaSet 도 있었다.
+파드가 스케줄되지 않았을 뿐이다. 측정하니 원인이 명확했다:
+
+```
+노드 allocatable : 40.8 GiB
+요청 합계        : 42.1 GiB (103%)
+여유             : -1.3 GiB
+```
+
+★ **requests 를 준 것이 requests 부족을 드러냈다.** 전에는 이 네 개가 예약
+없이 남의 여유에 얹혀 살고 있었고, 정직하게 예약을 요구하는 순간 노드가
+그것을 줄 수 없다고 답한 것이다. 노드는 그 전에도 이미 과예약이었고 아무도
+말해 주지 않았을 뿐이다.
+
+#### 무엇을 깎았나 — 예약과 실사용의 차이
+
+Guaranteed 8종(kafka·trino·postgresql·mariadb·mongodb·redis·minio)은 **손대지
+않았다.** `requests==limits` 가 그 QoS 의 정의라 낮추면 QoS 자체가 무너진다.
+남은 것에서 예약 대비 실사용이 가장 벌어진 다섯을 깎았다:
+
+| 워크로드 | 예약 → | 실사용 | 확보 |
+|---|---|---|---|
+| `safeline` / tengine | 1792Mi → **1024Mi** | 122Mi | 768Mi |
+| `loki` | 1024Mi → **512Mi** | 277Mi | 512Mi |
+| `hive-metastore` | 768Mi → **320Mi** | 178Mi | 448Mi |
+| `hive-server` | 640Mi → **384Mi** | 229Mi | 256Mi |
+| `defectdojo-django` / uwsgi | 640Mi → **384Mi** | 219Mi | 256Mi |
+
+`loki` 와 `defectdojo-django` 는 `requests-local.yaml` 에 **항목 자체가
+없어** base 값 그대로였다. 전부 낮추는 방향이라 `request > limit` 이 되는
+경우는 없다 — 렌더 결과로 확인했다.
+
+★ **safeline 은 절충이다.** 1792Mi 는 2026-09-03 에 기록한 값인데, 그때는
+nginx 워커 24개(호스트 코어 수)가 전부 떠 있었다. 상시가 아니다. limit 은
+3Gi 그대로라 **OOM 되지는 않지만** 그 피크에서는 request 를 넘어 축출 후보가
+된다. 근본 해법은 예약을 키우는 것이 아니라 워커 수를 노드 크기에 맞게
+줄이는 것이고, 그것은 §9-10 으로 넘겼다.
+
+#### ★★ 그리고 동기화가 자기가 고치려는 문제에 막혔다
+
+커밋을 push 하고 ArgoCD 를 돌렸더니 `phase=Running` 에서 멈췄다:
+
+```
+waiting for completion of hook batch/Job/databases-migrate
+databases-migrate-wqphs   0/2   Pending
+  FailedScheduling: 0/1 nodes are available: 1 Insufficient memory.
+```
+
+**고리다.** ArgoCD 는 wave 경계에서 훅 Job 을 기다리고, 그 Job 은 노드가
+꽉 차서 스케줄되지 않고, 노드를 비우는 매니페스트는 **같은 동기화의 뒤쪽에**
+있다. 기다려서는 풀리지 않는다.
+
+고리를 끊은 방법은 **git 이 말하는 것과 똑같은 값을 kubectl 로 먼저
+적용하는 것**이다. 드리프트를 만드는 것이 아니라 순서를 앞당기는 것이라,
+동기화가 나중에 도착해도 결과가 같다(실제로 `Synced` + `Healthy` 로 끝났다).
+
+★ 그런데 **StatefulSet 과 Deployment 의 순서가 다르다.**
+
+| | 갱신 방식 | 노드가 꽉 찼을 때 |
+|---|---|---|
+| StatefulSet | 헌 파드를 **지운 뒤** 만든다 | 된다 — 지우는 순간 자리가 난다 |
+| Deployment | 기본 `maxSurge=1/maxUnavailable=0` — **새 파드가 먼저** 떠야 한다 | 안 된다 — 새 파드가 스케줄되지 못해 영영 멈춘다 |
+
+그래서 StatefulSet 3종(loki·hive-metastore·hive-server)을 먼저 돌려 1216Mi 를
+확보하고, Deployment 2종은 `set resources` 뒤에 **헌 파드를 명시적으로 지워**
+자리를 비웠다. 순서를 반대로 하면 첫 삽에서 막힌다.
+
+#### 검증
+
+```
+BestEffort 파드: 0            (15 → 4 → 0)
+allocatable 40.81 GiB / 요청 39.95 GiB (98%) / 여유 +0.86 GiB
+Pending 파드: 없음
+정정한 5종: 전부 Ready, restarts=0
+ArgoCD: Synced · Healthy · rev=c1ba1a3 · "successfully synced (no more tasks)"
+```
+
+★ 여유가 **+0.86 GiB** 다. 넉넉하지 않다 — 이 노드에 워크로드를 하나 더
+얹기 전에 §19-3 의 다른 레버(프로파일 분리)를 먼저 볼 것.
+
+#### ★★★ 남는 구멍 — `local-path-provisioner` 는 다시 돌아온다
+
+k3s 애드온이라 `/var/lib/rancher/k3s/server/manifests/local-storage.yaml` 에서
+**k3s 가 재적용한다.** 여기서 패치해도 k3s 재시작이면 되돌아간다. 지속시키려면
+그 파일을 고쳐야 하고 그것은 노드 상태라 이 레포 밖이다.
+
+같은 이유로 나머지 14종도 **상류 매니페스트를 다시 설치하면 되돌아간다**
+(`install-operators.sh` · `install-argocd.sh`). 그래서 스크립트를 재실행
+가능하게 만들었다 — 설치 뒤에 다시 돌릴 것. `--check` 로 BestEffort 건수만
+셀 수 있다.
+
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
 > **이 절은 "지금 하지 않기로 결정한 것" 의 목록이다.** §8 의 각 절 끝에
@@ -9792,6 +9914,22 @@ OpenBao 가 섰으므로(§8-80~82) 경로는 셋 다 열려 있다. **순서가
   호스트·전원 장애를 범위 밖**으로 정했고, 데이터는 단일 노드의 local-path PVC 에 있다
 - 반대로 **잃을 것은 크다** — 키 관리가 어긋나면 데이터가 사라진다
 - 선행 조건(OpenBao 스냅샷 **복구** 검증)이 아직 없다
+
+### 9-10. 노드 크기에 맞지 않는 워커 수 (§8-93 에서 미룸)
+
+`safeline` 의 tengine 은 nginx 워커를 **호스트 코어 수(24)만큼** 띄우고 각각
+탐지 룰셋을 올린다. 그래서 유휴 122Mi 와 피크 1783Mi 가 **14배** 벌어진다.
+
+| 할 일 | 왜 미뤘나 | 지금 상태 |
+|---|---|---|
+| `worker_processes` 를 노드 크기에 맞게 고정 | 이 값은 tengine 이미지 안의 설정이고, 이 레포가 마운트하는 ConfigMap 밖이다. 겉으로 `worker_processes auto` 를 덮으면 **탐지 엔진이 워커별로 여는 룰셋 핸들과 어긋날 수 있어** 실측 없이 건드릴 자리가 아니다 | request 를 1024Mi 로 낮추고 limit 3Gi 를 유지하는 것으로 **당장의 스케줄 문제만** 풀었다(§8-93) |
+
+★ 이것은 safeline 만의 문제가 아니라 **부류**다 — 컨테이너 안의 프로세스가
+`nproc`·`/proc/cpuinfo` 를 보고 병렬도를 정하면 컨테이너 limit 이 아니라
+**호스트 코어 수**를 읽는다. 24코어 호스트에서 도는 단일 노드 랩에서는
+JVM 의 `availableProcessors`·Go 의 `GOMAXPROCS`·nginx 의 `worker_processes auto`
+가 전부 같은 함정이다. 예약과 실사용이 크게 벌어지는 워크로드를 만나면
+**메모리 누수를 의심하기 전에 병렬도부터 볼 것.**
 
 ## 10. Hyper-V 배포(ADR-051 A안) 재검토 — 2026-09-05 실측
 
@@ -11183,7 +11321,7 @@ requests 38.0 GiB · 실사용 21.0 GiB · **낭비 17.0 GiB (45%)**
 
 | | 레버 | 회수(추정) | 성격 |
 |:-:|---|---|---|
-| **①** | **requests 실측 정정** | **6.5~10.7 GiB** | 설정만. 전례 있음(2026-09-03, 6.7 GiB 회수). 산출은 §19-5 |
+| **①** | **requests 실측 정정** | **6.5~10.7 GiB** (이 중 **2.2 GiB 회수함**) | 설정만. 2026-09-03 에 6.7 GiB, **2026-09-08 에 2.2 GiB 더**(§8-93 — 오퍼레이터 15종에 requests 를 주고 과예약 5건을 깎았다. BestEffort 0). 산출은 §19-5 |
 | **②** | **JVM 힙 명시** | 큼 | 12종 중 **9종이 미설정**(실측). 레포가 prod 산정에서 −48 GiB 로 잡은 레버다(§6-2 단계 2) |
 | **③** | **프로파일 분리**(Kustomize Component) | **매우 큼** | 항상 다 띄울 필요가 없다 |
 | ④ | 중복 스택 정리 | 중간 | 검토 필요 |
