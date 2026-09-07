@@ -300,6 +300,9 @@ spec:
               #   (Gotcha 9). 증상은 mc 가 조용히 매달리는 것이라
               #   MinIO 자격이나 버킷 이름을 의심하게 된다.
               - "*/sa/openbao-snapshot"
+              # 버킷을 만드는 부트스트랩 Job. 전용 SA 가 없어 `default` 로
+              # 돌다가 9000 이 거부됐다 — §8-84
+              - "*/sa/minio-bootstrap"
       to:
         - operation:
             ports: ["9000", "9001"]

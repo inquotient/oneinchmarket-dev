@@ -1,5 +1,17 @@
 # G22 — Trino·Hive Metastore 가 s3a://warehouse 를 조회하나
 # 버킷을 만드는 주체가 없었다. Spark 계층(ADR-064)이 쓰는 2개도 함께 만든다.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: minio-bootstrap
+  labels:
+    app.kubernetes.io/name: minio-bootstrap
+    app.kubernetes.io/component: bootstrap
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+automountServiceAccountToken: false
+---
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -23,6 +35,14 @@ spec:
         app.kubernetes.io/component: bootstrap
         app.kubernetes.io/part-of: oneinchmarket
     spec:
+      # ★★ 전용 SA. `default` 로 돌면 `allow-datalakehouse-access` 가 minio 를
+      #   선택하는데 `*/sa/default` 가 principal 에 없어 **9000 이 거부**된다
+      #   (Gotcha 9·10). 증상은 `mc alias set` 이 조용히 매달리는 것이라
+      #   MinIO 자격이나 주소를 의심하게 된다 — §8-84
+      #   ★ 이 Job 은 오래 성공해 왔다. 정책이 minio 를 선택하게 된 뒤로
+      #   깨진 것이고, **평소에 돌지 않는 Job 이라 재실행할 때 비로소**
+      #   드러났다(Gotcha 19 가 적은 그대로다).
+      serviceAccountName: minio-bootstrap
       restartPolicy: OnFailure
       priorityClassName: batch-low
       securityContext:
