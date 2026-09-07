@@ -1,0 +1,174 @@
+# Trivy 서버 — 스캔 Job 의 취약점 DB 경합을 없앤다
+#
+# ★ 왜 필요한가 (§8-79)
+#   Standalone 모드에서는 스캔 Job 의 **모든 컨테이너가 각자 취약점 DB 를
+#   연다.** 한 Job 안의 컨테이너들은 같은 emptyDir 를 공유한 채 병렬로 돌기
+#   때문에 BoltDB 잠금을 다투고, 진 쪽이 이렇게 죽는다:
+#     FATAL  init error: DB error: error in vulnerability DB initialize:
+#            vulnerability database may be in use by another process: timeout
+#   실측으로 초기화 컨테이너를 가진 워크로드가 전부 이 경합에 걸렸다 —
+#   그리고 **이 레포의 로컬 빌드 이미지 9종은 전부 초기화 컨테이너를
+#   동반한다**(ranger 플러그인·wait-deps·render-config).
+#
+#   ★★ 부분 성공이라 발견이 늦었다. 컨테이너 3개 중 하나만 리포트가 생겨도
+#     `kubectl get vulnerabilityreports` 의 건수는 늘어난다. 건수로 보면
+#     "스캔되고 있다" 로 읽힌다 — 판정은 **대상 워크로드별 리포트 유무**다.
+#
+# ★ ClientServer 모드에서는 DB 를 **서버 한 곳만** 연다. 스캔 Job 은 이미지를
+#   분석해 패키지 목록만 보내고 매칭은 서버가 한다. 경합할 대상이 사라진다.
+#   부수 효과로 Job 마다 111MB DB 를 내려받지 않아 스캔이 빨라진다.
+#
+# ★ 서버와 클라이언트의 **버전이 같아야 한다.** `trivy.tag` 와 여기 이미지
+#   태그를 함께 움직일 것 — 어긋나면 서버가 요청을 거절한다.
+#
+# ★ 이 파일은 오퍼레이터 계층(ArgoCD 밖)이다. `local/install-operators.sh` 가
+#   Trivy Operator 를 설치한 직후 적용한다.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: trivy-server
+  namespace: trivy-system
+  labels:
+    app.kubernetes.io/name: trivy-server
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kubectl
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: trivy-server-cache
+  namespace: trivy-system
+  labels:
+    app.kubernetes.io/name: trivy-server
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # 기본 StorageClass 에 기대지 않는다 — 로컬에 default 표시가 둘이다.
+  storageClassName: standard
+  resources:
+    requests:
+      # 취약점 DB 는 약 111MB 다. 자바 DB 와 여유를 합쳐 잡는다.
+      storage: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trivy-server
+  namespace: trivy-system
+  labels:
+    app.kubernetes.io/name: trivy-server
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: trivy-server
+  ports:
+    - name: http
+      port: 4954
+      targetPort: 4954
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trivy-server
+  namespace: trivy-system
+  labels:
+    app.kubernetes.io/name: trivy-server
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kubectl
+spec:
+  replicas: 1
+  # ★ RWO PVC 하나를 쥐므로 롤링 중 두 파드가 겹치면 안 된다.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: trivy-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: trivy-server
+        app.kubernetes.io/component: security
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: trivy-server
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10000
+        runAsGroup: 10000
+        # PVC 를 이 GID 로 넘겨야 비-root 가 캐시를 쓸 수 있다.
+        fsGroup: 10000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: trivy-server
+          # ★ trivy-operator 의 `trivy.tag` 와 **같은 값**이어야 한다.
+          image: mirror.gcr.io/aquasec/trivy:0.66.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - server
+            - --listen
+            - 0.0.0.0:4954
+            - --cache-dir
+            - /cache
+          env:
+            # 이미지 기본 HOME 은 /root 라 비-root 로는 쓸 수 없다.
+            - name: HOME
+              value: /cache
+          ports:
+            - name: http
+              containerPort: 4954
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          # ★ 기동 시 취약점 DB(약 111MB)를 내려받는다. 회선에 따라 몇 분이
+          #   걸리므로 startupProbe 예산을 넉넉히 준다 — 짧으면 파드가
+          #   조용히 kill 되고 "서버가 안 뜬다" 로만 보인다.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            failureThreshold: 60
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 30
+          volumeMounts:
+            - name: cache
+              mountPath: /cache
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: cache
+          persistentVolumeClaim:
+            claimName: trivy-server-cache
+        - name: tmp
+          emptyDir: {}

@@ -112,7 +112,15 @@ kubectl apply --server-side --force-conflicts \
 #   키 이름은 OPERATOR_CONCURRENT_SCAN_JOBS_LIMIT 이다.
 #   scanJob.concurrentLimit 같은 이름은 없다 — 잘못 쓰면 조용히 무시되는
 #   키가 하나 늘 뿐이고 동시 스캔은 그대로 10개다.
-kubectl -n trivy-system patch cm trivy-operator-config --type merge -p '{"data":{"OPERATOR_CONCURRENT_SCAN_JOBS_LIMIT":"2","OPERATOR_CONCURRENT_NODE_COLLECTOR_LIMIT":"1","OPERATOR_SCAN_JOB_TTL":"10m"}}' || true
+# ★★ `OPERATOR_SCAN_JOB_TTL` 은 정리 주기가 아니라 **처리량을 정하는 값**이다.
+#   끝난 Job(Complete·Failed)이 TTL 동안 **동시 실행 슬롯을 붙잡는다** —
+#   실측: 슬롯 2개가 끝난 Job 둘에 물려 새 스캔이 하나도 뜨지 않다가,
+#   그 둘을 지우자 10초 만에 새 Job 2개가 떴다.
+#   10m × 2 슬롯이면 **시간당 12건**이라 워크로드 140여 개의 백로그가
+#   끝나지 않는다. 증상은 "스캔이 안 된다" 가 아니라 **"내 워크로드 차례가
+#   영영 오지 않는다"** 라 오퍼레이터가 도는 것만 보고는 알 수 없다.
+#   1m 로 줄인다 — 실패한 Job 을 들여다볼 시간이 짧아지는 것이 대가다.
+kubectl -n trivy-system patch cm trivy-operator-config --type merge -p '{"data":{"OPERATOR_CONCURRENT_SCAN_JOBS_LIMIT":"2","OPERATOR_CONCURRENT_NODE_COLLECTOR_LIMIT":"1","OPERATOR_SCAN_JOB_TTL":"1m"}}' || true
 # ★ GitLab 컨테이너 레지스트리는 **평문 HTTP** 다(§8-79). Trivy 는 기본적으로
 #   HTTPS 로 붙으므로 알려 주지 않으면 스캔이 실패한다.
 #   `nonSslRegistry` 와 `insecureRegistry` 는 다른 것이다 —
@@ -132,6 +140,26 @@ kubectl -n trivy-system patch cm trivy-operator-config --type merge -p '{"data":
 #     하루 종일 드문드문 생겼다. 판정은 대상 워크로드별 리포트 유무로 할 것.
 kubectl -n trivy-system patch cm trivy-operator-trivy-config --type merge -p '{"data":{"trivy.tag":"0.66.0"}}' || true
 kubectl -n trivy-system patch cm trivy-operator-trivy-config --type merge -p '{"data":{"trivy.nonSslRegistry.gitlab":"gitlab-registry.local.svc.cluster.local:5050"}}' || true
+
+# 5-2-a. Trivy 서버 — ClientServer 모드 (§8-79)
+#
+# ★ Standalone 은 이 클러스터에서 쓸 수 없다. 스캔 Job 의 **컨테이너마다**
+#   취약점 DB 를 여는데, 한 Job 의 컨테이너들이 같은 emptyDir 를 공유한 채
+#   병렬로 돌아 BoltDB 잠금을 다툰다:
+#     FATAL init error: DB error: vulnerability database may be in use by
+#           another process: timeout
+#   초기화 컨테이너를 가진 워크로드가 전부 걸리고, **로컬 빌드 이미지 9종은
+#   전부 초기화 컨테이너를 동반한다**(ranger 플러그인·wait-deps·render-config).
+#   ★★ 부분 성공이라 건수로는 드러나지 않는다 — 판정은 대상 워크로드별
+#     리포트 유무로 할 것.
+#
+# ★ 서버와 클라이언트의 **버전이 같아야 한다** — local/trivy-server.yaml 의
+#   이미지 태그와 위 `trivy.tag` 를 함께 움직일 것.
+log "Trivy 서버 (ClientServer 모드)"
+kubectl apply -f "$(dirname "$0")/trivy-server.yaml"
+kubectl -n trivy-system rollout status deploy/trivy-server --timeout=900s || true
+kubectl -n trivy-system patch cm trivy-operator-trivy-config --type merge -p '{"data":{"trivy.mode":"ClientServer","trivy.serverURL":"http://trivy-server.trivy-system.svc.cluster.local:4954"}}' || true
+
 kubectl -n trivy-system rollout restart deploy/trivy-operator || true
 
 # 5-3. Policy Reporter (Kyverno·Trivy 결과 집계)

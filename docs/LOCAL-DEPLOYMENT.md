@@ -8140,14 +8140,76 @@ FATAL  unable to initialize fs cache: cache may be in use by another process: ti
 있다. **부분 성공은 "스캔되고 있다" 로 읽힌다.** 판정은 전체 건수가 아니라
 **대상 워크로드별 리포트 유무**로 할 것.
 
-문서상 처방은 `trivy.mode` 를 `ClientServer` 로 바꾸는 것이다(DB 를 서버가
-쥐고 스캔 Job 은 클라이언트가 된다). 컴포넌트가 하나 늘어나므로 **§9 로
-미룬다** — 레지스트리 도입과는 독립된 결정이다.
+#### ClientServer 모드로 전환했다 — DB 잠금은 없어졌다
 
-> ★ 그래서 이 절의 성취를 정확히 적어 둔다. **레지스트리 경로는 증명됐다**
-> (일회성 Job 이 레지스트리에서 당겨 우리 jar 목록까지 스캔했고, 오퍼레이터가
-> 만드는 Job 스펙에도 `TRIVY_NON_SSL=true` 와 자격이 정상 주입된다).
-> **오퍼레이터가 리포트를 남기는 것까지는 아직 확인되지 않았다.**
+처방은 `trivy.mode` 를 `ClientServer` 로 바꾸는 것이다. 그러면 취약점 DB 를
+**서버 한 곳만** 열고, 스캔 Job 은 이미지를 분석해 패키지 목록만 보낸다.
+경합할 대상이 사라진다. `local/trivy-server.yaml` 로 서버를 세우고
+`install-operators.sh` 가 모드를 바꾼다.
+
+| 항목 | 값 |
+|---|---|
+| Deployment | `trivy-server`(trivy-system) · `mirror.gcr.io/aquasec/trivy:0.66.0` |
+| 캐시 | PVC 2Gi(`standard`) — 재시작마다 111MB DB 를 다시 받지 않는다 |
+| 노출 | `http://trivy-server.trivy-system.svc.cluster.local:4954` |
+| 프로브 | `/healthz` · startup 예산 10분(첫 기동에 DB 를 받는다) |
+
+★ **서버와 클라이언트의 버전이 같아야 한다** — `trivy.tag` 와 서버 이미지
+태그를 함께 움직일 것. 어긋나면 서버가 요청을 거절한다.
+
+효과는 로그로 확인된다 — `Trivy runs in client/server mode` 가 찍히고
+**`vulnerability database may be in use by another process` 가 사라졌다.**
+
+#### 그런데 그 아래에 다른 결함이 하나 더 있었다
+
+DB 잠금이 없어지자 **다중 컨테이너 Job 에서 다른 오류**가 드러났다:
+
+```
+FATAL  failed to analyze file: unable to open usr/lib/libLLVM.so.19.1:
+       failed to create the temp file:
+       open /tmp/trivy-7/cached-file-2347776608: no such file or directory
+```
+
+스캔 Job 의 컨테이너들은 **같은 `/tmp` emptyDir 를 공유**하는데, 한 컨테이너의
+trivy 가 만든 임시 디렉터리가 다른 컨테이너 쪽에서 사라진다. 잠금이 아니라
+**임시 파일 수준의 간섭**이라 ClientServer 로는 해소되지 않는다. 실측 대상은
+`postgres-check`·`hive-schematool` 처럼 초기화 컨테이너가 있는 워크로드다.
+
+> ★ 이 두 결함은 **원인이 다르고 처방도 다르다.** DB 잠금은 ClientServer 로
+> 풀렸고, 임시 파일 간섭은 trivy-operator 가 컨테이너마다 별도 스크래치를
+> 주지 않는 한 남는다. 다음에 손댈 때 그 구분부터 확인할 것 — "여전히
+> 실패한다" 로 뭉뚱그리면 방금 고친 것을 되돌리게 된다.
+
+#### 그리고 세 번째 — 아무것도 스캔되지 않던 진짜 이유
+
+두 결함을 고치고도 우리 워크로드의 차례가 오지 않았다. 원인은 스캔 품질이
+아니라 **처리량**이었다.
+
+`OPERATOR_SCAN_JOB_TTL` 은 정리 주기처럼 보이지만 실제로는 **처리량을 정하는
+값**이다 — 끝난 Job(`Complete`·`Failed`)이 TTL 동안 **동시 실행 슬롯을
+붙잡는다.** 실측이 명확했다: 슬롯 2개가 끝난 Job 둘에 물려 새 스캔이 하나도
+뜨지 않다가, **그 둘을 지우자 10초 만에 새 Job 2개가 떴다.**
+
+`10m × 2슬롯 = 시간당 12건`. 워크로드가 140여 개인 이 클러스터에서는 한 바퀴에
+12시간이 걸리고, 실패한 Job 이 섞이면 더 늘어난다. **증상이 "스캔이 안 된다"
+가 아니라 "내 워크로드 차례가 영영 오지 않는다" 라서**, 오퍼레이터가 `1/1
+Running` 이고 리포트 건수도 늘어나는 것만 보고는 알 수 없다.
+
+`1m` 로 줄였다(`install-operators.sh`). 대가는 실패한 Job 을 들여다볼 시간이
+짧아지는 것이다 — 진단할 때는 일시적으로 다시 늘릴 것.
+
+#### 이 절의 성취를 정확히 적어 둔다
+
+- **레지스트리 경로는 증명됐다.** 일회성 Job 이 레지스트리에서 당겨 우리
+  jar 목록까지 스캔했고, 오퍼레이터가 만드는 Job 스펙에도
+  `TRIVY_NON_SSL=true` 와 자격이 정상 주입된다.
+- **DB 잠금은 ClientServer 로 해소됐다.** 스캔 Job 이 `Failed` 대신
+  `Complete` 로 끝나기 시작했다.
+- **오퍼레이터가 우리 이미지의 리포트를 남기는 것은 아직 확인하지 못했다.**
+  단일 컨테이너 워크로드(`livy`·`jenkins`·`spark-*`)는 경합 대상이 아니므로
+  차례가 오면 될 것으로 보이나, 오퍼레이터가 워크로드 140여 개를 동시 2개씩
+  훑는 백로그가 길어 세션 안에서 관측하지 못했다. **관측하지 못한 것을
+  됐다고 적지 않는다.**
 
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
