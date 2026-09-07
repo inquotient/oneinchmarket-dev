@@ -15,5 +15,8 @@ resources:
   - devops/
   - application/
   - service-mesh/
+  # ★ service-mesh/ 와 분리한다 — 그쪽 commonAnnotations 가 wave 를 0 으로
+  #   덮어쓰는데, 이 RLS 는 Redis(wave 1) 뒤에 떠야 한다(§8-89).
+  - gateway-ratelimit/
   - network-policies/
   - rotation/

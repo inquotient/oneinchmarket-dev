@@ -1,0 +1,97 @@
+# 게이트웨이에 전역 레이트 리밋을 붙인다
+#
+# ★ 두 조각이 모두 있어야 동작한다. 하나만 있으면 오류 없이 조용히 아무
+#   일도 일어나지 않는다:
+#     (1) HTTP 필터 — 어디에 물어볼지(RLS 클러스터)와 도메인
+#     (2) route 액션 — 무엇을 키로 셀지(descriptor)
+#   (2) 가 없으면 필터는 붙지만 descriptor 가 비어 RLS 가 항상 OK 를 준다.
+#
+# ★★ 대상은 ingress Gateway 파드다. ambient 워크로드가 아니라 Gateway
+#   자체이므로 workloadSelector 는 그 파드의 라벨을 쓴다
+#   (istio.io/dataplane-mode: none — 이중 프록시를 피하려고 메시 밖에 둔다,
+#   ingress-gateway.yaml 참조).
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: ratelimit-filter
+  labels:
+    app.kubernetes.io/name: ratelimit
+    app.kubernetes.io/component: service-mesh
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    # RLS 가 wave 2 이므로 필터도 그 뒤에 붙인다. 먼저 붙으면 게이트웨이가
+    # 없는 클러스터로 질의하게 된다(failure_mode_deny=false 라 통과하지만
+    # 로그가 오해를 부른다).
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  workloadSelector:
+    labels:
+      gateway.networking.k8s.io/gateway-name: ingress
+  configPatches:
+    # ── (1) HTTP 필터 ────────────────────────────────────────
+    - applyTo: HTTP_FILTER
+      match:
+        context: GATEWAY
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+              subFilter:
+                name: envoy.filters.http.router
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          name: envoy.filters.http.ratelimit
+          typed_config:
+            # ★ 타입 URL 은 `ratelimit` 이다 — `rate_limit`(밑줄)이 아니다.
+            #   틀리면 istiod 웹훅이 거부한다:
+            #     could not resolve Any message type: ...rate_limit.v3.RateLimit
+            #   필터 이름(envoy.filters.http.ratelimit)과 헷갈리지 말 것 —
+            #   이름은 점 표기, 타입 URL 은 패키지 경로다.
+            "@type": type.googleapis.com/envoy.extensions.filters.http.ratelimit.v3.RateLimit
+            # ★ ratelimit-service.yaml 의 ConfigMap 안 domain 과 같아야 한다.
+            #   다르면 RLS 가 descriptor 를 못 찾아 전부 통과시킨다.
+            domain: oim-api
+            # ★★ fail open 이다. RLS 가 죽으면 요청을 막지 않는다.
+            #   쿼터를 지키자고 API 를 통째로 내리는 것은 옳지 않고,
+            #   무엇보다 계량은 계속 돈다 — 초과분은 여전히 기록되고
+            #   청구된다(§8-87). 즉 RLS 장애가 "무료 통행" 이 되지는 않는다.
+            failure_mode_deny: false
+            timeout: 0.05s
+            rate_limited_as_resource_exhausted: false
+            enable_x_ratelimit_headers: DRAFT_VERSION_03
+            rate_limit_service:
+              transport_api_version: V3
+              grpc_service:
+                envoy_grpc:
+                  cluster_name: outbound|8081||ratelimit.local.svc.cluster.local
+    # ── (2) descriptor 액션 ──────────────────────────────────
+    - applyTo: VIRTUAL_HOST
+      match:
+        context: GATEWAY
+      patch:
+        operation: MERGE
+        value:
+          rate_limits:
+            - actions:
+                # ★★ generic_key 를 **앞에** 둔다. 이것이 없으면 구멍이 생긴다:
+                #   Envoy 의 request_headers 액션은 헤더가 없을 때
+                #   **descriptor 를 통째로 만들지 않는다** — 즉 RLS 를 아예
+                #   호출하지 않아 그 요청이 **무제한**이 된다.
+                #   (skip_if_absent 는 그 반대가 아니다. false 가 "빈 값으로
+                #   만든다" 는 뜻이 아니라 "이 액션이 없으면 descriptor 를
+                #   버린다" 는 뜻이다 — 처음에 반대로 적었다가 고쳤다.)
+                #   scope 를 고정값으로 먼저 넣으면 descriptor 는 항상
+                #   최소 하나의 항목을 갖고, 아래 tenant 는 있으면 더해진다.
+                - generic_key:
+                    descriptor_key: scope
+                    descriptor_value: api
+                # ★ 키를 x-oim-tenant 로 잡는다. 이 헤더는 게이트웨이가
+                #   토큰의 tenant 클레임으로 덮어쓰므로(api-jwt.yaml)
+                #   클라이언트가 위조할 수 없다.
+                - request_headers:
+                    header_name: x-oim-tenant
+                    descriptor_key: tenant
+                    skip_if_absent: true

@@ -247,7 +247,10 @@ Gotcha 15 가 말한 "이미 청구한 이력" 이 아직 없으므로, **바꾼
 
 ### Phase 1 — API Manager 완성 (절반은 이미 있다)
 
-4. **쓰로틀링** — Envoy ratelimit + 기존 Redis (또는 Gravitee 로 통합)
+4. ~~**쓰로틀링**~~ — **끝났다**(§8-89). `envoyproxy/ratelimit` + 기존 Redis.
+   descriptor 키는 토큰의 tenant 클레임이고, 실측으로 650회 버스트에서
+   **600번째부터 429** 를 받았다. 요금제별 쿼터는 ConfigMap 의 `descriptors` 에
+   테넌트를 명시해 준다 — 다만 **요금제와 한도를 잇는 자동화는 아직 없다**
 5. **Apicurio 채우기** — `contracts/openapi/` 작성. 지금 **0건**이라
    Publisher · Compatibility · Governance **세 칸이 동시에 껍데기**다
 6. **요금제 정의**(§9-2) — 제품 추가가 아니라 OpenMeter 설정

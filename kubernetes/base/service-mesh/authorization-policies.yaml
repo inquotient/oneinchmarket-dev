@@ -160,6 +160,11 @@ spec:
               # ★ OpenMeter — 중복 제거(dedupe)에 Redis 를 쓴다. 과금 정확성의
               #   핵심이므로 이 줄이 없으면 이벤트가 중복 청구된다.
               - "*/sa/openmeter"
+              # ★ 전역 레이트 리밋(§8-89). RLS 는 카운터를 Redis 에 둔다.
+              #   여기 없으면 ztunnel 이 6379 를 끊고 RLS 가
+              #   `connection reset by peer` 로 CrashLoop 한다 —
+              #   Redis 자격이나 주소를 의심하게 되는 증상이다(Gotcha 9).
+              - "*/sa/ratelimit"
       to:
         - operation:
             ports: ["6379"]

@@ -9195,6 +9195,121 @@ Globex Corp / gathering  total=20 USD
 `groupBy` 에 `status` 가 없어 5xx 를 뺄 수 없기 때문이다. 미터를 고치는 것은
 계량 변경이라(Gotcha 15) 별도로 판단할 일이다 — §9-2.
 
+### 8-89. Envoy 전역 레이트 리밋 — WSO2 Traffic Manager 칸을 채웠다 (2026-09-08)
+
+WSO2-OSS-MAPPING §6 Phase 1 ④. 그 표에서 Traffic Manager(쓰로틀·쿼터)는
+**자산 0건**이었다. 게이트웨이 인가가 `requestPrincipals: ["*"]` 라 **유효한
+Keycloak 토큰이면 누구나 무제한**으로 통과하고 있었다.
+
+구성은 `envoyproxy/ratelimit` + 기존 Redis, descriptor 키는 토큰의 tenant
+클레임이다 — 문서가 §5 에서 미리 정해 둔 조합 그대로다.
+
+★ **전제가 이미 갖춰져 있었다.** `api-jwt.yaml` 의 `outputClaimToHeaders` 가
+토큰의 `tenant` 클레임을 `x-oim-tenant` 헤더로 **덮어쓴다.** 클라이언트가 같은
+헤더를 보내도 대체되므로 헤더를 바꿔 쿼터를 우회할 수 없다. 이것이 없었다면
+레이트 리밋 전체가 무의미했다 — §8-54 가 그것을 먼저 고쳐 둔 값어치다.
+
+#### 다섯 번 막혔다 — 전부 "조용히 안 되는" 부류였다
+
+**① kustomize `commonAnnotations` 가 sync-wave 를 덮어쓴다.**
+파일마다 `argocd.argoproj.io/sync-wave: "2"` 를 달았는데 렌더 결과가 **전부
+`"0"`** 이었다. `service-mesh/kustomization.yaml` 의 `commonAnnotations` 가
+같은 키를 덮어쓰기 때문이다. wave 0 이면 안 되는 이유는 이 RLS 가
+**Redis(wave 1)** 없이는 Healthy 가 되지 않는다는 것이다 — ArgoCD 가 wave
+경계에서 영원히 기다린다(§8-84 에서 죽은 Ingress·yellow ES 로 밟은 그 교착).
+그래서 `kubernetes/base/gateway-ratelimit/` 을 따로 만들었다.
+★ **파일에 쓴 값이 렌더 결과라고 가정하지 말 것** — `kubectl kustomize` 로 본다.
+
+**② EnvoyFilter 타입 URL 은 `ratelimit` 이지 `rate_limit` 이 아니다.**
+
+```
+admission webhook "validation.istio.io" denied the request:
+  could not resolve Any message type:
+  type.googleapis.com/envoy.extensions.filters.http.rate_limit.v3.RateLimit
+```
+
+필터 **이름**은 `envoy.filters.http.ratelimit`, 타입 URL 도
+`...filters.http.ratelimit.v3.RateLimit` 이다. 밑줄을 넣으면 거부된다.
+이건 그래도 정직하게 실패한다 — 나머지 넷은 그렇지 않다.
+
+**③ RLS 가 Redis 에 못 붙어 CrashLoop 한다.**
+`creating redis connection error : read: connection reset by peer` 다.
+Redis 자격이나 주소를 의심하게 되지만 **ztunnel 이 끊은 것**이다 —
+Redis 는 `component: database` 라 `allow-database-access` 가 선택하는데
+6379 규칙의 principal 에 `*/sa/ratelimit` 이 없었다(Gotcha 9). 실측 ztunnel:
+
+```
+src.identity="spiffe://cluster.local/ns/local/sa/ratelimit"
+dst.hbone_addr=...:6379  dst.workload="redis-0"
+```
+
+**④★★ RLS 가 설정을 버리고 "성공" 을 출력한다.**
+
+```
+level=error msg="Error loading new configuration: oim-api.yaml: descriptor has empty key"
+level=info  msg="Successfully loaded the initial ratelimit configs"     ← 바로 다음 줄
+```
+
+원인은 **중첩 descriptor 에도 `key` 가 필수**인데 `value` 만 준 것이다.
+설정이 통째로 버려지면 **모든 요청이 무제한**이 되는데, 파드는 `1/1 Running`
+이고 로그 끝은 "Successfully loaded" 다. 이 레포가 반복해서 겪은 부류다
+(Gotcha 12). **판정은 `config_load_error` 카운터로 한다.**
+
+**⑤ `skip_if_absent` 의 의미를 반대로 알고 있었다.**
+Envoy 의 `request_headers` 액션은 **헤더가 없으면 descriptor 를 통째로 만들지
+않는다** — 즉 RLS 를 호출하지 않아 그 요청이 **무제한**이 된다.
+`skip_if_absent: false` 는 "빈 값으로 만든다" 가 아니라 "이 액션이 없으면
+descriptor 를 버린다" 는 뜻이다. 처음에 반대로 적었다가 고쳤다.
+해법은 `generic_key` 를 **앞에** 두어 descriptor 가 항상 최소 한 항목을 갖게
+하는 것이다:
+
+```yaml
+actions:
+  - generic_key: { descriptor_key: scope, descriptor_value: api }
+  - request_headers: { header_name: x-oim-tenant, descriptor_key: tenant,
+                       skip_if_absent: true }
+```
+
+그러면 tenant 클레임이 없는 토큰도 `scope=api` 항목에 걸려 분당 10 으로 묶인다
+(청구 대상이 아니므로, Gotcha 16).
+
+#### 검증 — 실제로 429 를 받아냈다
+
+★ 여기서도 **측정 방법이 먼저 틀렸다.** port-forward 로 받은 토큰이 401 이었는데,
+Keycloak 은 `iss` 를 **요청의 Host 헤더로 만든다** — `127.0.0.1:18080` 으로
+발급되어 정책의 issuer 와 어긋난 것이다. `Host: keycloak-headless:8080` 을
+붙여 다시 받았다(§8-84 의 curl 없는 프로브와 같은 부류).
+
+```
+x-ratelimit-limit: 600, 600;w=60
+x-ratelimit-remaining: 599
+x-ratelimit-reset: 29
+
+650회 버스트 → 404 599건 · 429 51건
+첫 429 가 나온 순번: 600          ← 한도와 정확히 일치
+```
+
+404 는 백엔드(`cmmn-api-headless`)가 `/` 에 준 것이다 — JWT·RBAC·라우팅을 모두
+통과했다는 뜻이므로 이 시험에서는 정상이다.
+
+#### 설계 판단 둘
+
+- **fail open 이다**(`failure_mode_deny: false`). RLS 가 죽으면 요청을 막지
+  않는다. 쿼터를 지키자고 API 를 통째로 내리지 않는다는 뜻인데, **무료 통행이
+  되지는 않는다** — 계량은 계속 돌아 초과분이 기록되고 청구된다(§8-87).
+- **한도 값은 예시다**(테넌트당 600/분, 클레임 없으면 10/분). 요금제(§8-87)가
+  늘어나면 ConfigMap 의 `descriptors` 에 테넌트를 명시해 **요금제별 쿼터**를
+  준다 — 문서가 §5 에서 "클레임을 descriptor 키로 쓰면 요금제별 쿼터가
+  성립한다" 고 한 자리가 여기다.
+
+#### 남는 것
+
+- 요금제와 한도를 **잇는 자동화가 없다.** 지금은 OpenMeter 의 plan 과
+  ratelimit ConfigMap 이 각자 산다 — 요금제를 바꾸면 사람이 두 곳을 고쳐야
+  하고, 어긋나도 아무도 알려주지 않는다. §9-2 에 넣었다
+- `x-ratelimit-*` 헤더는 `DRAFT_VERSION_03` 이다. 표준이 바뀌면 소비자 쪽
+  파싱이 깨질 수 있다
+
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
 > **이 절은 "지금 하지 않기로 결정한 것" 의 목록이다.** §8 의 각 절 끝에

@@ -1,0 +1,179 @@
+# Envoy 전역 레이트 리밋 서비스 (envoyproxy/ratelimit)
+#
+# ★ 왜 필요한가 — WSO2 의 Traffic Manager(쓰로틀·쿼터) 칸이 이 플랫폼에
+#   자산 0건이었다(WSO2-OSS-MAPPING §2). Istio Gateway 자체에는 쿼터가
+#   없어서 envoyproxy/ratelimit 을 따로 붙여야 한다.
+#   현재 게이트웨이 인가는 requestPrincipals: ["*"] 라 유효한 Keycloak
+#   토큰이면 누구나 무제한으로 통과한다 — 소비자별 구분도 쿼터도 없다.
+#
+# ★★ descriptor 키는 x-oim-tenant 헤더다. 이 헤더는 게이트웨이가 토큰의
+#   tenant 클레임으로 덮어쓴다(api-jwt.yaml 의 outputClaimToHeaders).
+#   클라이언트가 보낸 값은 남지 않으므로 헤더를 바꿔 쿼터를 우회할 수 없다.
+#   덮어쓰기가 없었다면 이 파일 전체가 무의미하다 — §8-54 가 그것을 먼저
+#   고쳐 둔 이유다.
+#
+# ★ sync-wave 를 2 로 덮는다. service-mesh 는 wave 0 인데 Redis 는 wave 1 이다.
+#   wave 0 에 두면 ArgoCD 가 wave 경계에서 이 파드의 Healthy 를 기다리는데
+#   Redis 가 아직 없어 영원히 기다린다(§8-84 에서 같은 교착을 밟았다).
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ratelimit
+  labels:
+    app.kubernetes.io/name: ratelimit
+    app.kubernetes.io/component: service-mesh
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ratelimit-config
+  labels:
+    app.kubernetes.io/name: ratelimit
+    app.kubernetes.io/component: service-mesh
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+data:
+  # ★ 파일 이름이 곧 도메인이 아니다 — 파일 안의 domain 이 도메인이고,
+  #   EnvoyFilter 의 domain 과 정확히 같아야 한다. 다르면 RLS 가 descriptor 를
+  #   못 찾아 전부 통과시킨다(오류가 나지 않는다).
+  # ★★ 구조에 함정이 있다 — **중첩 descriptor 에도 `key` 가 필수**다.
+  #   `key` 없이 `value` 만 준 항목을 넣으면 RLS 가
+  #     Error loading new configuration: oim-api.yaml: descriptor has empty key
+  #   를 내고 **바로 다음 줄에 "Successfully loaded" 를 출력한다.**
+  #   설정은 통째로 버려지고 모든 요청이 무제한이 된다(Gotcha 12 의 부류).
+  #   판정은 기동 로그에서 `config_load_error` 카운터를 보는 것이다.
+  oim-api.yaml: |
+    domain: oim-api
+    descriptors:
+      # scope 를 바깥에 둔다. 이유는 EnvoyFilter 쪽 주석 참조 —
+      # 요청마다 descriptor 가 **반드시 하나는** 만들어지게 하려는 것이다.
+      - key: scope
+        value: api
+        descriptors:
+          # 토큰에 tenant 클레임이 있는 정상 경로.
+          # ★ 값은 예시다. 요금제(§8-87)가 늘어나면 여기에 테넌트를 명시해
+          #   요금제별 쿼터를 준다 — value: acme-corp 같은 식이다.
+          - key: tenant
+            rate_limit:
+              unit: minute
+              requests_per_unit: 600
+        # tenant 클레임이 없는 토큰. 청구 대상이 아니므로(Gotcha 16) 낮게
+        # 묶는다 — 차단하지 않는 이유는 원인 파악이 어려운 429 보다
+        # 낮은 한도가 진단에 낫기 때문이다.
+        rate_limit:
+          unit: minute
+          requests_per_unit: 10
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ratelimit
+  labels:
+    app.kubernetes.io/name: ratelimit
+    app.kubernetes.io/component: service-mesh
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ratelimit
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ratelimit
+        app.kubernetes.io/component: service-mesh
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: ratelimit
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ratelimit
+          image: envoyproxy/ratelimit:80b15778
+          command: ["/bin/ratelimit"]
+          env:
+            # 설정 파일 위치. RUNTIME_ROOT/RUNTIME_SUBDIRECTORY/config 아래를 읽는다.
+            - { name: RUNTIME_ROOT, value: "/data" }
+            - { name: RUNTIME_SUBDIRECTORY, value: "ratelimit" }
+            # ★ ConfigMap 은 ..data/ 심링크로 마운트된다. WATCH_ROOT 를 켜면
+            #   심링크 교체를 감지하지 못해 설정 갱신을 놓친다.
+            - { name: RUNTIME_WATCH_ROOT, value: "false" }
+            - { name: RUNTIME_IGNOREDOTFILES, value: "true" }
+            - { name: LOG_LEVEL, value: "info" }
+            - { name: USE_STATSD, value: "false" }
+            - { name: REDIS_SOCKET_TYPE, value: "tcp" }
+            - { name: REDIS_URL, value: "redis-headless.local.svc.cluster.local:6379" }
+            - name: REDIS_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: redis-password
+            - { name: GRPC_PORT, value: "8081" }
+            - { name: PORT, value: "8080" }
+          ports:
+            - { name: grpc, containerPort: 8081, protocol: TCP }
+            - { name: http, containerPort: 8080, protocol: TCP }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { cpu: "300m", memory: "192Mi" }
+          # ★ /healthcheck 는 Redis 연결까지 본다. 프로세스 생존이 아니라
+          #   실제로 일할 수 있는지를 보는 프로브다(Gotcha 48).
+          livenessProbe:
+            httpGet: { path: /healthcheck, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /healthcheck, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - { name: config, mountPath: /data/ratelimit/config }
+      volumes:
+        - name: config
+          configMap:
+            name: ratelimit-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ratelimit
+  labels:
+    app.kubernetes.io/name: ratelimit
+    app.kubernetes.io/component: service-mesh
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  type: ClusterIP
+  ports:
+    - { name: grpc, port: 8081, targetPort: grpc, protocol: TCP }
+    - { name: http, port: 8080, targetPort: http, protocol: TCP }
+  selector:
+    app.kubernetes.io/name: ratelimit
