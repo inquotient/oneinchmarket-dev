@@ -31,6 +31,15 @@
 
 # tengine 이 nginx 워커를 **호스트 코어 수(24)만큼** 띄우고 각각 탐지 룰셋을
 # 올린다. 실사용 1783Mi 인데 예약이 384Mi 였다. detector 는 반대로 과다(132Mi).
+#
+# ★★ 2026-09-08 재정정: 1792Mi -> 1024Mi.
+#   재측정하니 tengine 이 **122Mi** 였다(파드 전체 246Mi). 1783Mi 는 워커를
+#   전부 띄웠을 때의 값이고 상시가 아니다. 노드 예약이 allocatable 의 103%
+#   가 되어 **새 파드가 스케줄되지 못하는** 상태였고, 이 한 줄이 가장 큰
+#   과다 예약이었다(§8-93).
+#   ★ 절충이다 — 워커가 다시 다 뜨면 request 를 넘어 축출 후보가 된다.
+#   다만 limit 은 3Gi 그대로라 **OOM 되지는 않는다.** 근본 해법은 예약을
+#   키우는 것이 아니라 워커 수를 노드 크기에 맞게 줄이는 것이다(§9 로 넘겼다).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -41,7 +50,7 @@ spec:
       containers:
         - name: tengine
           resources:
-            requests: {memory: 1792Mi}
+            requests: {memory: 1024Mi}
         - name: detector
           resources:
             requests: {memory: 256Mi}
@@ -88,7 +97,7 @@ spec:
 
 # ── 과대 예약: 낮춘다 ────────────────────────────────────────────
 
-# 527Mi
+# 527Mi -> ★ 2026-09-08 재측정 178Mi. 320Mi 로 낮춘다(§8-93)
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -99,7 +108,7 @@ spec:
       containers:
         - name: hive-metastore
           resources:
-            requests: {memory: 768Mi}
+            requests: {memory: 320Mi}
 ---
 # 315Mi
 apiVersion: apps/v1
@@ -216,7 +225,7 @@ spec:
       containers:
         - name: hive-server
           resources:
-            requests: {memory: 640Mi}
+            requests: {memory: 384Mi}   # ★ 2026-09-08 재측정 229Mi (§8-93)
 ---
 # 113Mi
 apiVersion: apps/v1
@@ -373,3 +382,31 @@ spec:
         - name: ranger-usersync
           resources:
             requests: {memory: 256Mi}
+---
+# ★ 2026-09-08 추가 — 이 둘은 base 값 그대로였고 과다 예약이었다(§8-93).
+#   실사용 277Mi. limits-local 이 기록한 OOM 이력은 **limit** 쪽 이야기이고
+#   여기서 낮추는 것은 request 라 OOM 과 무관하다.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: loki
+spec:
+  template:
+    spec:
+      containers:
+        - name: loki
+          resources:
+            requests: {memory: 512Mi}
+---
+# 실사용 219Mi
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: defectdojo-django
+spec:
+  template:
+    spec:
+      containers:
+        - name: uwsgi
+          resources:
+            requests: {memory: 384Mi}
