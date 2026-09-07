@@ -9404,6 +9404,115 @@ feature 필터가 규모에서도 동작한다.
   테넌트가 API 를 쓰면 청구되지 않는다.** 게이트웨이는 유효한 토큰이면
   통과시키므로(§8-89) 구독 없이 쓰는 경로가 열려 있다
 
+### 8-91. GitLab Secret Detection — 켜는 데 결함 넷을 넘었고, 시크릿 9건을 찾았다 (2026-09-08)
+
+"Secret Detection 을 켜 달라" 는 요청이었는데, **켜기 전에 CI 자체가 죽어
+있었다.** 그것부터 고쳐야 했다.
+
+#### ★★ 켜기 전에 드러난 것 — CI 가 통째로 마비돼 있었다
+
+파이프라인 10건이 만들어지고도 **한 번도 실행되지 않았다**(잡 24건 canceled).
+원인이 두 겹이었다.
+
+**① 러너가 0개.** 템플릿만 include 했다면 "켠 것처럼 보이고 아무것도 돌지
+않는" 상태가 됐을 것이다. `local/gitlab-runner-bootstrap.sh` +
+`kubernetes/overlays/local/gitlab-runner/` 로 세웠다(Kubernetes executor).
+★ GitLab 19 에는 **등록 토큰 흐름이 없다** — 러너 객체를 먼저 만들고 그
+**인증 토큰**(glrt-)을 받는다.
+
+**② ★★ GitLab 이 CI 잡 토큰 서명 키를 복호화하지 못했다.**
+러너를 세웠는데도 잡이 `scheduler_failure` 로 즉사하고, 러너 디버그 로그는
+`204 No Content` 만 반복했다 — GitLab 이 잡을 **주지 않은** 것이다.
+답은 GitLab 예외 로그에 있었다:
+
+```
+POST /api/:version/jobs/request
+exception.class : OpenSSL::Cipher::CipherError
+  lib/ci/job_token/jwt.rb:86  key
+```
+
+**Gotcha 51 의 잔해다.** §8-79 에서 `gitlab-etc` PVC 를 붙여 `db_key_base`
+재생성을 멈췄지만, 그 **이전에 암호화된 DB 행은 그대로 남았다.**
+새 손상은 막았고 기존 손상은 고치지 않은 것이다.
+
+`gitlab:doctor:secrets` 전수 조사: **11행**. 복구 절차에 함정이 둘 있었다.
+
+| 시도 | 결과 |
+|---|---|
+| `s.ci_job_token_signing_key = ...` | **할당에서 죽는다.** `attr_encrypted` 가 더티 추적을 위해 **옛 값을 먼저 복호화**한다 |
+| 컬럼을 비우고 `save!` | **`save!` 에서 죽는다.** `Authn::TokenField#ensure_token` 이 *다른* 깨진 토큰(`runners_registration_token`·`error_tracking_access_token`)을 읽는다 |
+
+★ 두 방식이 **컬럼 이름 규칙도 다르다** — `attr_encrypted` 는
+`encrypted_<attr>`, `Authn::TokenField` 는 `<attr>_encrypted` 다. 한쪽만
+찾으면 나머지를 놓친다. 결국 `update_columns` 로 깨진 것들을 모두 비운 뒤
+새 키를 저장했다. 결과 **11 → 1**(남은 `CloudConnector::Keys` 는 GitLab Duo
+용이라 라이선스 없는 이 인스턴스와 무관하다).
+
+#### 켜면서 넘은 결함 넷
+
+| # | 증상 |
+|:-:|---|
+| 1 | 템플릿 기본 `stage` 가 `test` 인데 이 파이프라인에 **그런 스테이지가 없다** — 잡이 조용히 생성되지 않는다. `scan` 으로 덮었다 |
+| 2 | 템플릿 기본 `allow_failure: true` — **시크릿을 찾아내고도 초록불**이다. `false` 로 덮었다 |
+| 3 | `scan` 은 `validate` 뒤라, 따로 고장난 validate 3종 때문에 `skipped` 가 된다. **`needs: []`** 로 떼어냈다 — 시크릿 검사는 매니페스트 검증에 의존할 이유가 없고, 오히려 앞이 깨졌을 때야말로 돌아야 한다 |
+| 4 | ★★ **`success` 가 성공이 아니었다** — 아래 |
+
+#### ★★★ ④ 가 이 절의 핵심이다 — 543바이트를 훑고 초록불
+
+```
+Fetching commits since 2026-09-08 02:54:18 for ref local
+1 commits scanned.  scanned ~543 bytes (543 bytes) in 78.7ms
+no leaks found
+```
+
+기본 동작이 **증분 스캔**이라 마지막 스캔 이후의 커밋만 본다.
+`GIT_DEPTH: 0` 은 그것을 바꾸지 않는다. 이 레포에는 개인키가 이미 커밋되어
+있는데(SEC-401) 증분 스캔은 **영원히 그것을 보지 못한다.**
+
+역할을 둘로 나눴다:
+
+| 잡 | 언제 | 무엇 | allow_failure |
+|---|---|---|---|
+| `secret_detection` | 매 push | **새 유출 차단** | `false` — 막는다 |
+| `secret_detection_historic` | schedule · web · manual | **이미 있는 빚 집계** (`SECRET_DETECTION_HISTORIC_SCAN=true`) | `true` — 세는 것이 목적이다 |
+
+★ 이력 잡을 만들 때도 한 번 걸렸다 — `extends: .secret-analyzer` 만으로는
+**`script` 가 오지 않는다**(템플릿의 `script: [/analyzer run]` 은
+`.secret-analyzer` 가 아니라 `secret_detection` 잡 쪽에 있다). 빠뜨렸을 때의
+오류가 엉뚱하다: `config contains unknown keys: image, services, artifacts` —
+진짜 원인은 `script` 누락이고 파이프라인이 `config_error` 로 잡 0개가 된다.
+
+#### 결과 — 9건, 전부 Critical
+
+```
+345 commits scanned.  scanned ~4,088,120 bytes (4.09 MB) in 385ms
+WRN leaks found: 9
+```
+
+| 위치 | 종류 | 현재 트리 |
+|---|---|---|
+| `v1/cluster/tls.key:1` ×2 | PKCS8 private key | **있다** — SEC-401, 알고 있던 것 |
+| `docs/SECURITY.md:60` | PKCS8 private key | **있다** — ★ 보안 문서 안에 개인키 |
+| `kubernetes/overlays/local/openreplay/openreplay.yaml:3582` | PKCS8 private key | **있다** |
+| `kubernetes/overlays/local/openmeter/openmeter.yaml:43` ×2 | Password in URL | **있다** |
+| `local/openmeter-values.yaml:87` | Password in URL | **있다** |
+| `cluster/tls.key:1` | PKCS8 private key | 없다 — **이력에만** |
+| `tls/gitlab-tls.key:1` | PKCS8 private key | 없다 — **이력에만** |
+
+★★ **알고 있던 것은 SEC-401 하나뿐이고 나머지 6곳은 몰랐다.** 특히
+`docs/SECURITY.md` 는 SEC-xxx 를 세는 문서 자신이다.
+★ 이력에만 있는 둘은 **지워도 사라지지 않는다** — 커밋에 남아 있으므로
+회수는 이력 재작성이 아니라 **키 회전**이다.
+
+#### 남는 것
+
+- **9건의 처리** — SEC-401 을 포함해 §9 로 넘긴다. 지우는 것과 회전하는 것을
+  구분해야 한다(이력에 남은 것은 지워도 유출이 회수되지 않는다)
+- **Secret Push Protection**(커밋 자체를 pre-receive 에서 막는 것)은
+  **Ultimate 전용**이라 이 인스턴스(Free)에서는 쓸 수 없다
+- 러너가 `concurrent = 1` 이라 잡이 순차로 돈다. 고장난 validate 잡이 슬롯을
+  잡으면 뒤가 밀린다 — 이번 검증에서 그것들을 취소하고서야 큐가 흘렀다
+
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
 > **이 절은 "지금 하지 않기로 결정한 것" 의 목록이다.** §8 의 각 절 끝에
