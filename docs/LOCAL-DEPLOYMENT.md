@@ -8608,8 +8608,10 @@ ServerSideApply 필드 관리자). **규명 전에 동기화를 켜면 무엇이
   OutOfSync 0 · health Healthy`. 결론은 **드리프트가 거의 없었다** 는 것이다:
   추적 어노테이션 · 서버 기본값 · 화이트리스트 구멍이 대부분이었고, 진짜
   문제는 ArgoCD 밖에 있었다(`kubernetes` 엔드포인트에 죽은 주소)
-- `orphanedResources` 를 `warn: true` 로 두되, 고아 113건을 하나씩 판정
-  (git 에 넣을 것 / ArgoCD 밖에 둘 것)
+- ~~`orphanedResources` 를 `warn: true` 로 두되, 고아 113건을 하나씩 판정~~ —
+  **§8-85 에서 끝냈다.** 84건(그 사이 줄었다)을 판정한 결과 **git 에 넣을 것은
+  0건**이었고, 69건은 고아가 아니라 **누수·잔재**여서 지웠다. 남은 15건은
+  컨트롤러가 소유하거나 값이 git 에 있으면 안 되는 것들이다
 - 그 뒤에야 `automated{prune,selfHeal}` 을 논할 수 있다. ADR-068 의 머지
   관문(§9-4)도 같은 순서를 말한다
 
@@ -8842,6 +8844,89 @@ ArgoCD 가 실제로 바꾼 것은 대부분 **추적 어노테이션과 부트�
 - `automated{prune,selfHeal}` 은 여전히 켜지 않았다. 고아 리소스 판정(§8-83)이
   먼저다
 
+### 8-85. 고아 리소스 84건을 판정했다 — git 에 넣을 것은 0건이었다 (2026-09-07)
+
+§8-83 이 남긴 두 번째 숙제. `orphanedResources.warn: true` 가 잡은 것들을
+"git 에 넣을 것 / ArgoCD 밖에 둘 것" 으로 가르는 작업이다. §8-84 에서 죽은
+Ingress 12개를 지우고 SA 두 개를 추가한 뒤라 **113 → 84** 로 줄어 있었다.
+
+★ **판정은 이름이 아니라 오브젝트에 붙은 흔적으로 한다** — 누가 만들었는지는
+라벨·주석·오너 참조에 남아 있고, 이름만 보고 가르면 틀린다.
+
+#### ① 컨트롤러가 소유한다 — ArgoCD 밖이 맞다 (12건)
+
+| 리소스 | 소유자 | 근거(실측) |
+|---|---|---|
+| `istio-ca-root-cert` · `istio-ca-crl` | istiod | `istio.io/config: true`. istiod 가 **모든 네임스페이스에 뿌린다** |
+| `elasticsearch-es-elastic-user` · `-es-http-certs-public` · `-es-transport-certs-public` · `kibana-kb-http-certs-public` | ECK | `eck.k8s.elastic.co/owner-{kind,name,namespace}` |
+| `gateway-ca-cert` · `gateway-tls-cert` · `knox-tls` · `wazuh-{admin,ca,indexer}-tls` | cert-manager | `controller.cert-manager.io/fao` + `cert-manager.io/certificate-name` |
+
+git 에 넣으면 **컨트롤러와 소유권을 다투게 되고**, 인증서는 갱신될 때마다
+OutOfSync 가 된다.
+
+#### ② 값이 git 에 있으면 안 된다 — ArgoCD 밖이 맞다 (3건)
+
+| Secret | 만드는 것 | 왜 git 밖인가 |
+|---|---|---|
+| `argocd-admin-secret` | `local/create-secrets.sh` | 난수. `rotation/rotate-admin.yaml` 이 **참조**는 하지만 값은 git 에 없다 |
+| `gitlab-registry-secret` | `local/gitlab-registry-bootstrap.sh --secret` | GitLab 이 발급하는 배포 토큰이라 난수로 만들 수 없다(§8-79) |
+| `openbao-keys` | `local/openbao-init.sh` | unseal key · root token. **git 에 들어가면 OpenBao 를 도입한 의미가 사라진다** |
+
+셋 다 ESO 대상 29건에 **없다**(확인함) — 이 레포의 시크릿 규약대로다.
+
+#### ③ 누수였다 — 지웠다 (68건)
+
+`spark-exec-*-conf-map`. GitOps 문제가 아니라 **수거되지 않은 쓰레기**다.
+
+```
+ownerReferences   : 없음 (68/68)
+대응 executor 파드: 0개
+spark-app-selector: 68개가 전부 서로 다른 앱 ID   ← 결정적
+생성일            : 09-01(30) 09-02(4) 09-03(19) 09-04(1) 09-06(14)
+RBAC              : configmaps 에 delete 있음 — 권한 문제가 아니다
+```
+
+**앱 하나당 정확히 하나씩** 남았다. Spark 는 executor ConfigMap 의 오너를
+*executor 파드*로 다는데, 그 단계가 성립하지 않으면 오너 없는 채로 남고
+아무도 수거하지 않는다.
+
+★ **부수 비용이 따로 있었다** — Kyverno `require-standard-labels` 가 이것들에
+계속 걸려 `PolicyViolation` 이벤트를 끝없이 찍고 있었다. 이벤트 로그를 볼 때
+진짜 신호가 여기에 묻힌다.
+
+★★ **왜 새는지는 아직 모른다.** 확인한 것과 아닌 것을 갈라 둔다:
+
+- 확인함 — 현재 도는 앱(`spark-da4c0a0a…`)은 **한 건도 남기지 않았고**, 68건을
+  지운 뒤 새로 생긴 것도 0건이다. 그리고 이 드라이버는 이번 기동에서 executor 를
+  **한 번도 요청하지 않았다**(동적 할당 최소 0, 유휴)
+- 추정 — executor 를 실제로 띄운 앱이 **비정상 종료**할 때 정리 경로가 돌지 않는
+  것으로 보인다. 이 호스트는 WSL 배포판 종료로 파드를 하드 킬하므로(Gotcha 6·49)
+  그 트리거가 유력하다. **다만 증명하지 않았다** — 재현하려면 executor 를 띄운 뒤
+  드라이버를 하드 킬해 봐야 한다
+- ★ **정리 CronJob 을 지금 붙이지 않는다.** 원인을 모른 채 청소부를 두면
+  "죽은 것을 건강하다고 말하는" 부류가 된다(§8-84 에서 Ingress 를 두고 한 판단과
+  같다). §9 로 넘긴다
+
+#### ④ 잔재였다 — 지웠다 (1건)
+
+`ServiceAccount/openreplay-postgresql`. 매니페스트·렌더 결과 **어디에도 없고**
+(grep 0건) 쓰는 파드도 0개였다. OpenReplay 번들에서 딸려 왔다가 남은 것이다.
+
+#### 결과
+
+```
+고아 84 → 15   (①12 + ②3)
+sync=Synced · health=Healthy · 파드 149 · 이상 0 · 재시작 2912(변화 없음)
+```
+
+#### ★ `prune` 을 켜도 되는가 — 아직 아니다
+
+남은 15건은 **전부 git 에 없다.** `automated{prune}` 을 켜면 그 15건이
+"git 에 없다" 는 이유로 지워지고, 그러면 **인증서 · Elasticsearch 자격 ·
+OpenBao unseal key** 가 함께 사라진다. 켜려면 먼저 그 15건을 ArgoCD 의 비교
+대상에서 확실히 빼야 한다(`argocd.argoproj.io/compare-options: IgnoreExtraneous`
+또는 AppProject 의 예외). **판정이 끝났다는 것과 켜도 된다는 것은 다르다.**
+
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
 > **이 절은 "지금 하지 않기로 결정한 것" 의 목록이다.** §8 의 각 절 끝에
@@ -8857,6 +8942,16 @@ ArgoCD 가 실제로 바꾼 것은 대부분 **추적 어노테이션과 부트�
 | **사람에게 밀어내는 수신처** — Slack·메일 | webhook URL·SMTP 가 이 랩에 없다. 없는 것을 있는 척하면 경보가 조용히 사라진다(Gotcha 33) | Elasticsearch `alerts` 인덱스에는 남는다. Alertmanager 의 `receivers:` 에 한 항목 더하면 되도록 자리를 비워 뒀다 |
 | **규칙 확장** — 디스크·메모리·Kafka consumer lag | 지금 5개는 **실제로 겪은 실패**에서만 골랐다. 겪지 않은 실패에 규칙을 붙이면 임계값이 추측이 되고, 틀린 임계값은 경보를 무시하게 만든다 | `prometheus-rules.yaml` 에 그룹을 더하면 된다 |
 | **elasticsearch exporter** | Gotcha 32 가 지목한 셋 중 유일하게 아직 없는 것. ES 자체의 지표(힙·샤드·색인 지연)가 Prometheus 에 없다 | 미착수 |
+
+### 9-1-b. Spark executor ConfigMap 누수의 원인 (§8-85 에서 미룸)
+
+| 할 일 | 왜 미뤘나 | 지금 상태 |
+|---|---|---|
+| **왜 새는지 규명** | 재현하려면 executor 를 실제로 띄운 뒤 드라이버를 **하드 킬**해야 한다. 지금 드라이버는 유휴라(동적 할당 최소 0) executor 가 없어 재현 조건 자체가 없다 | 68건은 지웠고(§8-85) 이후 새로 생긴 것은 0건이다. 감시는 `kubectl -n local get cm -l spark-role=executor` 한 줄이면 된다 |
+| **정리 CronJob** | **일부러 붙이지 않았다.** 원인을 모른 채 청소부를 두면 "죽은 것을 건강하다고 말하는" 부류가 된다 — §8-84 에서 죽은 Ingress 를 두고 한 판단과 같다. 그리고 누수 속도가 **워크로드가 아니라 파드 재시작에 붙어 있는** 것으로 보여, 청소부를 두면 Gotcha 6 의 재시작 폭풍이 조용해진다 | 미착수 |
+
+★ 다시 쌓이기 시작하면 그것 자체가 **신호**다 — 무엇이 executor 를 죽이고
+있는지 묻는 편이 청소보다 먼저다.
 
 ### 9-2. 과금 — 계량은 끝났고 **가격이 없다**
 
