@@ -45,6 +45,11 @@ spec:
             - name: ssh
               containerPort: 22
               protocol: TCP
+            # 컨테이너 레지스트리(registry_nginx). ConfigMap 의
+            # registry_external_url 과 짝이 맞아야 한다.
+            - name: registry
+              containerPort: 5050
+              protocol: TCP
           envFrom:
             - configMapRef:
                 name: gitlab-config
@@ -70,7 +75,13 @@ spec:
               memory: 2Gi
             limits:
               cpu: 2000m
-              memory: 4Gi
+              # ★ 4Gi -> 5Gi. 레지스트리를 켜기 전 실측이 이미 3332Mi 였다
+              #   (registry + registry_nginx 가 더해진다). gitlab_kas 를 끈
+              #   것으로 일부를 상쇄했으나 4Gi 로는 OOM 여지가 남는다.
+              #   노드 여유 13Gi 기준의 판단이다 — §11-4 의 총량 산정에
+              #   1Gi 를 더 얹는 셈이므로, 프로파일 분리(§19 ③)를 할 때
+              #   GitLab 이 어느 프로파일에 가는지 함께 정할 것.
+              memory: 5Gi
           securityContext:
             allowPrivilegeEscalation: true
             capabilities:
@@ -102,7 +113,30 @@ spec:
           volumeMounts:
             - name: gitlab-data
               mountPath: /var/opt/gitlab
+            # ★★ /etc/gitlab 을 반드시 함께 보존해야 한다.
+            #   여기에 `gitlab-secrets.json` 이 있고 그 안의 `db_key_base` 가
+            #   DB 에 저장된 암호값(배포 토큰·CI 변수·2FA)의 복호화 키다.
+            #   보존하지 않으면 **파드가 뜰 때마다 새로 생성**되어
+            #   그전에 발급한 토큰이 전부 조용히 무효가 된다.
+            #   실측: 배포 토큰으로 레지스트리 로그인이 되던 것이 GitLab
+            #   재시작 뒤 `invalid username/password` 가 됐다. DB 의 토큰은
+            #   revoked=false·미만료 그대로라 **토큰 쪽을 보면 멀쩡해 보인다.**
+            #   단서는 `stat /etc/gitlab/gitlab-secrets.json` 의 생성 시각이
+            #   파드 기동 시각과 같다는 것뿐이다. 재시작 28회 동안 그랬다.
+            - name: gitlab-etc
+              mountPath: /etc/gitlab
   volumeClaimTemplates:
+    # ★ volumeClaimTemplates 는 불변이다 — 항목을 추가하려면
+    #   `kubectl delete sts --cascade=orphan` 후 재적용해야 한다(§8-72 ④).
+    - metadata:
+        name: gitlab-etc
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 1Gi
     - metadata:
         name: gitlab-data
       spec:

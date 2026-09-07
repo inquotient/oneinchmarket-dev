@@ -113,6 +113,25 @@ kubectl apply --server-side --force-conflicts \
 #   scanJob.concurrentLimit 같은 이름은 없다 — 잘못 쓰면 조용히 무시되는
 #   키가 하나 늘 뿐이고 동시 스캔은 그대로 10개다.
 kubectl -n trivy-system patch cm trivy-operator-config --type merge -p '{"data":{"OPERATOR_CONCURRENT_SCAN_JOBS_LIMIT":"2","OPERATOR_CONCURRENT_NODE_COLLECTOR_LIMIT":"1","OPERATOR_SCAN_JOB_TTL":"10m"}}' || true
+# ★ GitLab 컨테이너 레지스트리는 **평문 HTTP** 다(§8-79). Trivy 는 기본적으로
+#   HTTPS 로 붙으므로 알려 주지 않으면 스캔이 실패한다.
+#   `nonSslRegistry` 와 `insecureRegistry` 는 다른 것이다 —
+#   전자는 "평문 HTTP", 후자는 "TLS 인데 인증서를 검증하지 않음" 이다.
+#   여기는 TLS 자체가 없으므로 nonSslRegistry 가 맞다. 잘못 쓰면
+#   조용히 무시되고 스캔은 계속 실패한다.
+#   ★ 이 설정이 없으면 `docker/` 로컬 빌드 이미지 9종이 **한 번도
+#     스캔되지 않는다** — 오퍼레이터가 도는 것과 스캔이 되는 것은 다르다.
+# ★ Trivy 0.74 는 스캔 Job 에서 캐시 잠금을 놓지 않는다 —
+#     ERROR Failed to acquire cache or database lock
+#     FATAL unable to initialize fs cache: cache may be in use by another
+#           process: timeout
+#   초기화 컨테이너가 DB 를 내려받고 끝난 뒤 본 컨테이너가 같은 emptyDir 을
+#   쓰는데 거기서 걸린다(볼륨은 파드 안에서만 공유되므로 Job 간 경합이 아니다).
+#   0.66.0 으로 내리면 스캔 파드가 Error 대신 Completed 로 끝난다.
+#   ★ 실패가 **간헐적**이라 "가끔 되니 괜찮다" 로 읽히기 쉽다 — 리포트가
+#     하루 종일 드문드문 생겼다. 판정은 대상 워크로드별 리포트 유무로 할 것.
+kubectl -n trivy-system patch cm trivy-operator-trivy-config --type merge -p '{"data":{"trivy.tag":"0.66.0"}}' || true
+kubectl -n trivy-system patch cm trivy-operator-trivy-config --type merge -p '{"data":{"trivy.nonSslRegistry.gitlab":"gitlab-registry.local.svc.cluster.local:5050"}}' || true
 kubectl -n trivy-system rollout restart deploy/trivy-operator || true
 
 # 5-3. Policy Reporter (Kyverno·Trivy 결과 집계)

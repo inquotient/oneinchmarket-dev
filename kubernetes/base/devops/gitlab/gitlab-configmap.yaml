@@ -32,3 +32,61 @@ data:
 
     prometheus_monitoring['enable'] = false
     gitlab_rails['monitoring_whitelist'] = ['0.0.0.0/0', '::1/128']
+
+    # ── 컨테이너 레지스트리 ────────────────────────────────────────────
+    # 왜 여기인가 — `docker/` 9종은 로컬에서만 빌드되어 어느 레지스트리에도
+    # 없다. 그래서 **Trivy Operator 가 이 이미지들을 한 번도 스캔하지 못했다**
+    #   unable to find the specified image "oneinch/spark-iceberg:3.5.6"
+    #   in ["docker" "containerd" "podman" "remote"]
+    # 스캔 Job 은 파드라 노드의 containerd 소켓에 닿지 못하고, 이름은
+    # docker.io 로 해석되어 401 이 된다. 공급망 통제에 9종짜리 구멍이었다.
+    #
+    # ★ 클러스터 **안에만** 노출한다(`gitlab-headless:5050`). 노드 hosts·
+    #   CoreDNS·registries.yaml·NodePort 를 하나도 건드리지 않아도 되고,
+    #   Trivy 스캔 Job 이 파드라서 그대로 닿는다. 윈도우에서의 접근은
+    #   §9-8(도메인 접속)에서 다른 것들과 함께 다룬다.
+    #
+    # ★★ 순환 의존을 만들지 않는다 — GitLab 은 wave 5 인데 이 이미지를 쓰는
+    #   워크로드는 wave 3 에 있다. `build-images.sh` 가 **레지스트리에 push
+    #   하는 동시에 containerd 에도 같은 이름으로 import** 하고 모든
+    #   워크로드가 `IfNotPresent` 라, 파드는 레지스트리 없이도 뜬다.
+    #   레지스트리는 **Trivy 가 당길 때만** 필요하다.
+    #
+    # ★ registry_external_url 이 곧 토큰 realm 의 출처다. 클라이언트가
+    #   401 을 받으면 여기서 파생된 `/jwt/auth` 로 토큰을 받으러 간다 —
+    #   그 주소를 **클라이언트가 풀 수 있어야 한다.** 파드는 `gitlab-headless`
+    #   를 풀 수 있고 노드는 못 푼다. build-images.sh 가 push 할 때만
+    #   port-forward + hosts 로 그 이름을 노드에서 잠시 풀리게 한다.
+    # ★★ **FQDN 이어야 한다.** 짧은 이름 `gitlab-registry` 는 같은
+    #   네임스페이스에서만 풀린다. Trivy Operator 의 스캔 Job 은
+    #   `trivy-system` 에서 돌기 때문에 짧은 이름으로는 닿지 못한다:
+    #     remote error: Get "http://gitlab-registry:5050/v2/":
+    #       lookup gitlab-registry on 10.43.0.10:53: no such host
+    #   그리고 그 오류는 "이미지를 찾을 수 없다" 로 요약되어 나오므로
+    #   레지스트리가 아니라 **이미지 이름을 의심하게 된다.**
+    #   Gotcha 17(JWKS 의 FQDN)과 같은 부류다.
+    #   ★ 네임스페이스 `local` 이 이름에 박힌다 — 이 9종은 어차피
+    #     local/build-images.sh 로만 만들어지는 로컬 전용 이미지다.
+    # ★ 이름이 `gitlab-headless` 가 아니라 전용 ClusterIP Service 다.
+    #   headless 는 파드 IP 로 풀려 노드(podman)가 고정 주소로 가리킬 수
+    #   없다 — 재시작마다 바뀐다. 자세한 사유는 gitlab-registry-service.yaml.
+    registry_external_url 'http://gitlab-registry.local.svc.cluster.local:5050'
+    # ★★ 토큰 realm 은 registry_external_url 이 아니라 **external_url** 을
+    #   따라간다(실측: external_url 이 gitlab-headless 일 때 realm 이
+    #   `http://gitlab-headless/jwt/auth` 였다). 그대로 두면 노드가 realm 을
+    #   풀지 못해 pull 이 403 으로 끊기는데, 오류는 5050 쪽에 나와 원인이
+    #   멀다. 명시적으로 같은 Service 로 맞춘다.
+    registry['token_realm'] = 'http://gitlab-registry.local.svc.cluster.local'
+    registry['enable'] = true
+    gitlab_rails['registry_enabled'] = true
+    registry_nginx['listen_port'] = 5050
+    registry_nginx['listen_https'] = false
+    # 레지스트리 저장소는 GitLab PVC 안에 둔다(별도 PVC 를 늘리지 않는다).
+    gitlab_rails['registry_path'] = '/var/opt/gitlab/gitlab-rails/shared/registry'
+
+    # ── 메모리 ────────────────────────────────────────────────────────
+    # ★ 레지스트리를 켜면 registry + registry_nginx 두 프로세스가 는다.
+    #   켜기 전 실측이 **4Gi 상한에 3332Mi** 였다 — 그대로 켜면 OOM 이다.
+    #   상한을 5Gi 로 올리고, 쓰지 않는 KAS(Kubernetes Agent Server)를
+    #   끄는 것으로 일부를 상쇄한다. 이 클러스터에는 agentk 가 없다.
+    gitlab_kas['enable'] = false

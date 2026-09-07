@@ -23,6 +23,15 @@ spec:
         app.kubernetes.io/part-of: oneinchmarket
     spec:
       serviceAccountName: jenkins
+      # ★ 이 이미지는 `docker/` 에서 로컬 빌드해 GitLab 레지스트리에 올린다.
+      #   파드 자체는 이 시크릿 없이도 뜬다 — build-images.sh 가 containerd 에
+      #   같은 이름으로 반입하고 imagePullPolicy 가 IfNotPresent 라 당기지
+      #   않기 때문이다. 이 시크릿이 필요한 것은 **Trivy Operator** 다:
+      #   스캔 Job 은 파드라 노드의 containerd 를 볼 수 없어 레지스트리에서
+      #   직접 당기고, 그때 워크로드의 imagePullSecrets 를 자기 네임스페이스로
+      #   복사해 쓴다. 없으면 스캔이 조용히 실패한다 — §8-79
+      imagePullSecrets:
+        - name: gitlab-registry-secret
       securityContext:
         # 이미지 실측: uid/gid 1000(jenkins), /var/jenkins_home 이 jenkins 소유.
         runAsNonRoot: true
@@ -37,7 +46,7 @@ spec:
           # 관리자 계정을 선언할 수 없다(= 인증 없는 Jenkins). 상세는
           # docker/jenkins/Dockerfile 주석과 TODO-50.
           # 베이스는 `jenkins/jenkins:lts` 다 — latest 는 주간 릴리스다.
-          image: oneinch/jenkins:2.568.3-lts
+          image: gitlab-registry.local.svc.cluster.local:5050/oneinch/jenkins:2.568.3-lts
           # 레지스트리에 없다. containerd 로 직접 반입하므로 Always 면
           # ImagePullBackOff 가 난다(§8-2).
           imagePullPolicy: IfNotPresent

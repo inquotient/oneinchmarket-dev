@@ -25,3 +25,8 @@ spec:
       port: 22
       targetPort: 22
       protocol: TCP
+    # 컨테이너 레지스트리. Trivy 스캔 Job 이 여기로 당긴다.
+    - name: registry
+      port: 5050
+      targetPort: 5050
+      protocol: TCP

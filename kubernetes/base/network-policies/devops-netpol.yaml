@@ -43,8 +43,8 @@ spec:
         - protocol: TCP
           port: 50000
 ---
-# GitLab — 기존 공백 해소. 매니페스트가 실제로 여는 포트는 80·443·22 다
-# (컨테이너 포트·Service 양쪽 확인. 레지스트리 5050 은 열지 않는다).
+# GitLab — 기존 공백 해소. 매니페스트가 실제로 여는 포트는 80·443·22 이고,
+# 2026-09-07 부터 **컨테이너 레지스트리 5050** 이 더해진다.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -78,3 +78,24 @@ spec:
           port: 443
         - protocol: TCP
           port: 22
+    # ── 컨테이너 레지스트리(5050) ──────────────────────────────────────
+    # ★ 출발지가 **다른 네임스페이스**다. Trivy Operator 가 만드는 스캔
+    #   Job 은 `trivy-system` 에서 돌며 이미지를 직접 당긴다 —
+    #   podSelector 로는 표현할 수 없고 namespaceSelector 여야 한다.
+    #   이것이 없으면 스캔이 조용히 실패하고, 증상은 "이미지를 찾을 수
+    #   없다" 라 레지스트리가 아니라 이미지 이름을 의심하게 된다.
+    # ★ 토큰 realm 은 GitLab 의 **80** 이다(`/jwt/auth`). 5050 만 열면
+    #   401 을 받고 토큰을 받으러 가는 길이 막혀 pull 이 실패한다 —
+    #   두 포트를 같이 열어야 한다.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: trivy-system
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: devops
+      ports:
+        - protocol: TCP
+          port: 5050
+        - protocol: TCP
+          port: 80

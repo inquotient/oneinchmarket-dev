@@ -14,6 +14,15 @@ spec:
       labels: {app.kubernetes.io/name: hadoop-namenode, app.kubernetes.io/component: data-lakehouse, app.kubernetes.io/part-of: oneinchmarket}
     spec:
       serviceAccountName: hadoop
+      # ★ 이 이미지는 `docker/` 에서 로컬 빌드해 GitLab 레지스트리에 올린다.
+      #   파드 자체는 이 시크릿 없이도 뜬다 — build-images.sh 가 containerd 에
+      #   같은 이름으로 반입하고 imagePullPolicy 가 IfNotPresent 라 당기지
+      #   않기 때문이다. 이 시크릿이 필요한 것은 **Trivy Operator** 다:
+      #   스캔 Job 은 파드라 노드의 containerd 를 볼 수 없어 레지스트리에서
+      #   직접 당기고, 그때 워크로드의 imagePullSecrets 를 자기 네임스페이스로
+      #   복사해 쓴다. 없으면 스캔이 조용히 실패한다 — §8-79
+      imagePullSecrets:
+        - name: gitlab-registry-secret
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -43,7 +52,7 @@ spec:
           #     정책 버전이 -1 에 머문다. 후자는 add-hadoop-authorization 폴백
           #     때문에 HDFS 가 멀쩡히 돌아 **인가만 조용히 사라진다.**
           #     판정은 파드 상태가 아니라 `Switched policy engine to [N]` 으로.
-          image: oneinch/ranger-hdfs-plugin:2.9.0-jersey2
+          image: gitlab-registry.local.svc.cluster.local:5050/oneinch/ranger-hdfs-plugin:2.9.0-jersey2
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh","-c"]
           args:

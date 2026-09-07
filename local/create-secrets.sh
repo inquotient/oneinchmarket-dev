@@ -139,6 +139,14 @@ mk caldera-secret "api-key-red=$(gen 32)" \
                   "api-key-blue=$(gen 32)" \
                   "red-password=$CAL_RED" \
                   "blue-password=$CAL_BLUE"
+# ── 여기서 만들지 않는 시크릿 ──────────────────────────────────────
+# `gitlab-registry-secret`(kubernetes.io/dockerconfigjson)은 이 스크립트가
+# 만들지 않는다. 난수가 아니라 **GitLab 이 발급하는 배포 토큰**이라
+# GitLab 이 떠 있어야만 만들 수 있다:
+#     local/gitlab-registry-bootstrap.sh --secret
+# ★ GitLab 을 다시 세우면 반드시 다시 돌릴 것 — 그러지 않으면 build-images.sh
+#   의 push 가 "invalid username/password" 로 죽고, Trivy 가 로컬 빌드
+#   이미지 9종을 스캔하지 못한다(§8-79).
 echo
 echo "[secrets] 접속 정보 (이 값들은 커밋되지 않는다)"
 printf "  MinIO      oimadmin / %s\n" "$MINIO_PW"

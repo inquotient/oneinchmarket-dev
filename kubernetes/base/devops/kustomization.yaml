@@ -8,6 +8,7 @@ resources:
   - jenkins/jenkins-statefulset.yaml
   - gitlab/gitlab-statefulset.yaml
   - gitlab/gitlab-headless.yaml
+  - gitlab/gitlab-registry-service.yaml
   - gitlab/gitlab-configmap.yaml
   # - gitlab/gitlab-secret.enc.yaml  # SOPS: re-enable after ArgoCD SOPS plugin setup
 

@@ -138,6 +138,25 @@ curl -k -u "ranger-sync:$PW" \n  'https://localhost:8443/gateway/oim/webhdfs/v1/
 | 컴포넌트 | port-forward | URL | 계정 | 비밀번호 |
 |---|---|---|---|---|
 | **GitLab** | `$K port-forward gitlab-0 8090:80` | http://localhost:8090 | `root` | `pw gitlab-secret root-password` |
+
+> **GitLab 컨테이너 레지스트리 (2026-09-07)** — `docker/` 로컬 빌드 이미지 9종이
+> 여기 올라간다. UI 에서는 위 주소로 들어가 `oneinch` 그룹의 각 프로젝트
+> → *Deploy · Container Registry* 에서 보인다.
+>
+> ★ **클러스터 밖에서는 당길 수 없다.** 주소가
+> `gitlab-registry.local.svc.cluster.local:5050` 이고 평문 HTTP 라, 파드와
+> 노드에서만 닿는다. 윈도우 도커에서 쓰려는 것이 아니라 **Trivy 가 스캔할 수
+> 있게 하려고** 둔 것이다(§8-79). 외부 노출은 §9-8 로 미뤄져 있다.
+>
+> ★ 토큰은 난수가 아니라 GitLab 이 발급하는 **그룹 배포 토큰**이다 —
+> `local/gitlab-registry-bootstrap.sh --secret` 이 만들고
+> `gitlab-registry-secret` 에 들어간다. GitLab 을 다시 세우면 반드시 다시
+> 돌릴 것(그러지 않으면 push 가 `invalid username/password` 로 죽는다).
+>
+> ```bash
+> # 올라간 태그 확인 (파드 안에서)
+> $K exec gitlab-0 -- gitlab-rails runner >   'Project.find_by_full_path("oneinch/hbase").container_repositories.each { |r| puts r.tags.map(&:name).inspect }'
+> ```
 | **Jenkins** | `$K port-forward jenkins-0 8091:8080` | http://localhost:8091 | `admin` | `pw jenkins-secret admin-password` |
 | **GlitchTip** | `$K port-forward svc/glitchtip 8000:8000` | http://localhost:8000 | 가입 필요 | — |
 | admin | `$K port-forward admin-0 3001:3000` | http://localhost:3001 | — | — |

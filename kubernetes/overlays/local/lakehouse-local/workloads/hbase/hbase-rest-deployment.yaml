@@ -32,6 +32,15 @@ spec:
       labels: {app.kubernetes.io/name: hbase-rest, app.kubernetes.io/component: data-lakehouse, app.kubernetes.io/part-of: oneinchmarket}
     spec:
       serviceAccountName: hbase
+      # ★ 이 이미지는 `docker/` 에서 로컬 빌드해 GitLab 레지스트리에 올린다.
+      #   파드 자체는 이 시크릿 없이도 뜬다 — build-images.sh 가 containerd 에
+      #   같은 이름으로 반입하고 imagePullPolicy 가 IfNotPresent 라 당기지
+      #   않기 때문이다. 이 시크릿이 필요한 것은 **Trivy Operator** 다:
+      #   스캔 Job 은 파드라 노드의 containerd 를 볼 수 없어 레지스트리에서
+      #   직접 당기고, 그때 워크로드의 imagePullSecrets 를 자기 네임스페이스로
+      #   복사해 쓴다. 없으면 스캔이 조용히 실패한다 — §8-79
+      imagePullSecrets:
+        - name: gitlab-registry-secret
       securityContext:
         # 마스터와 같은 이미지라 uid 도 같다 — docker/hbase 가 1001 로 만든다.
         runAsNonRoot: true
@@ -59,7 +68,7 @@ spec:
             limits:   {cpu: 100m, memory: 64Mi}
       containers:
         - name: hbase-rest
-          image: oneinch/hbase:3.0.0
+          image: gitlab-registry.local.svc.cluster.local:5050/oneinch/hbase:3.0.0
           imagePullPolicy: IfNotPresent
           # foreground 로 띄운다 — 마스터와 같은 이유다.
           # ★ --infoport 를 반드시 함께 준다.

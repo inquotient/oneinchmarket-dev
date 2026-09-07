@@ -8016,6 +8016,139 @@ Job 은 containerd 소켓에 닿지 못하고, 그 이미지는 레지스트리�
 | ProxySQL (6033) | `cmmn-api` 로 `SELECT VERSION(), @@hostname` | `12.3.3-MariaDB-ubu2404` · `mariadb-0` — 직접 접속과 **같은 백엔드** |
 | ShardingSphere (3307) | `proxyadmin` 으로 논리 DB `oim` | `oneinchmarket` · PostgreSQL 18.6, `SHOW STORAGE UNITS` 가 `postgresql-headless:5432` |
 
+
+### 8-79. GitLab 컨테이너 레지스트리 — 로컬 빌드 이미지 9종의 스캔 사각지대 (2026-09-07)
+
+#### 무엇이 문제였나
+
+`docker/` 의 9종은 로컬에서만 빌드되어 **어느 레지스트리에도 없었다.**
+`build-images.sh` 가 podman 으로 굽고 `k3s ctr images import` 로 containerd 에
+직접 넣는 방식이라 파드는 잘 떴다. 그런데 **Trivy Operator 가 이 9종을 한 번도
+스캔하지 못하고 있었다:**
+
+```
+unable to find the specified image "oneinch/spark-iceberg:3.5.6"
+  in ["docker" "containerd" "podman" "remote"]: 4 errors occurred:
+  * containerd error: containerd socket not found: /run/containerd/containerd.sock
+  * remote error: GET https://index.docker.io/v2/oneinch/spark-iceberg/manifests/3.5.6:
+      UNAUTHORIZED
+```
+
+스캔 Job 은 **파드**라 노드의 containerd 소켓을 볼 수 없고, `oneinch/...` 는
+docker.io 로 해석된다. 공급망 통제(CLAUDE.md 4계층)에 9종짜리 구멍이었고,
+파드가 `1/1 Running` 이라 드러나지도 않았다.
+
+#### 설계 — 왜 클러스터 안에만 노출하는가
+
+GitLab 은 이미 떠 있으므로 그 레지스트리를 켠다. 다만 **클러스터 안에서만**
+노출한다(`gitlab-registry.local.svc.cluster.local:5050`). 노드 hosts·CoreDNS·
+`registries.yaml`·NodePort 를 하나도 건드리지 않아도 되고, Trivy 스캔 Job 이
+파드라서 그대로 닿는다. 윈도우에서의 접근은 §9-8 로 남긴다.
+
+★ **순환 의존을 만들지 않는다.** GitLab 은 wave 5 인데 이 이미지를 쓰는
+워크로드는 wave 3 에 있다. `build-images.sh` 가 **push 와 containerd 반입을
+둘 다** 하고 모든 워크로드가 `IfNotPresent` 라, 파드는 레지스트리 없이도 뜬다.
+레지스트리는 **Trivy 가 당길 때만** 쓰인다.
+
+| 구성요소 | 값 |
+|---|---|
+| Service | `gitlab-registry`(ClusterIP) — 80(realm) · 5050(registry) |
+| 이미지 경로 | `gitlab-registry.local.svc.cluster.local:5050/oneinch/<name>:<tag>` |
+| GitLab 쪽 | 그룹 `oneinch` + 이미지 이름과 같은 프로젝트 9개 |
+| 자격 | 그룹 범위 배포 토큰(`read_registry`·`write_registry`) → `gitlab-registry-secret` |
+| 부트스트랩 | `local/gitlab-registry-bootstrap.sh --secret` |
+
+#### 걸린 것 다섯 — 전부 "증상이 원인과 먼" 유형이다
+
+**① `/etc/gitlab` 이 PVC 밖이라 재시작마다 모든 토큰이 무효가 됐다.**
+배포 토큰을 발급하고 push 까지 성공했는데, GitLab 을 재시작한 뒤 같은 토큰이
+`invalid username/password` 가 됐다. DB 의 토큰은 `revoked=false`·미만료
+그대로여서 **토큰 쪽을 보면 멀쩡하다.** 원인은 `/etc/gitlab/gitlab-secrets.json`
+의 `db_key_base` 다 — 그 파일이 PVC 밖이라 **파드가 뜰 때마다 새로 생성**되고,
+DB 에 저장된 암호값(배포 토큰·CI 변수·2FA)이 통째로 복호화 불능이 된다.
+단서는 `stat /etc/gitlab/gitlab-secrets.json` 의 시각이 파드 기동 시각과 같다는
+것뿐이다. **재시작 28회 동안 그래 왔다.** `gitlab-etc` PVC 를 붙여 해소했고,
+재시작 전후로 같은 토큰이 통하는지로 검증했다.
+
+> ★ `volumeClaimTemplates` 는 불변이라 `kubectl delete sts --cascade=orphan`
+> 후 재적용해야 한다(§8-72 ④ 와 같은 절차).
+
+**② 노드 `/etc/hosts` 는 kubelet 도 읽는다.** push 를 하려고
+`127.0.0.1 gitlab-headless` 를 넣었더니 kubelet 의 이미지 pull 이
+`dial tcp 127.0.0.1:5050: connect: connection refused` 로 깨졌다. **루프백을
+박지 말 것.** 지금은 전용 Service 의 **ClusterIP** 를 넣는다 — 노드에서
+도달 가능한 실제 주소이므로 kubelet 이 읽어도 옳다. 그리고 ClusterIP 는
+Service 를 재생성하면 바뀌므로 `build-images.sh` 가 **매번 조회해서 다시 쓴다.**
+
+**③ 토큰 realm 은 `registry_external_url` 이 아니라 `external_url` 을 따라간다.**
+`registry_external_url` 만 바꿨더니 realm 이 여전히
+`http://gitlab-headless/jwt/auth` 였다. 레지스트리 인증은 **두 단계**다 —
+5050 에서 401 + `Www-Authenticate: Bearer realm=...` 을 받고 그 realm 으로
+토큰을 받으러 간다. realm 이 닿지 않으면 pull 이 실패하는데 **오류는 5050 쪽에
+나오므로** 원인이 멀다. `registry['token_realm']` 으로 명시해야 한다.
+
+**④ 짧은 이름은 같은 네임스페이스에서만 풀린다 — FQDN 이어야 한다.**
+`gitlab-registry:5050` 으로 두었더니 스캔 Job(네임스페이스 `trivy-system`)에서
+```
+remote error: lookup gitlab-registry on 10.43.0.10:53: no such host
+```
+가 났고, 그것이 **"이미지를 찾을 수 없다"** 로 요약되어 나온다. 레지스트리가
+아니라 이미지 이름을 의심하게 된다. Gotcha 17(JWKS 의 FQDN)과 같은 부류다.
+
+**⑤ 평문 HTTP 는 Trivy 에게 따로 알려야 한다.** ④를 고치자 이번엔
+`http: server gave HTTP response to HTTPS client` 가 났다.
+`trivy.nonSslRegistry.<키>` 를 준다(값은 호스트:포트). **`insecureRegistry` 와
+다른 것이다** — 그쪽은 "TLS 인데 인증서를 검증하지 않음" 이고 여기는 TLS 자체가
+없다. 잘못 쓰면 조용히 무시되고 스캔은 계속 실패한다.
+
+#### 검증
+
+레지스트리에서 실제로 당겨 스캔되는지를 **직접** 확인했다(오퍼레이터를 거치지
+않는 일회성 Job, `TRIVY_NON_SSL=true` + 배포 토큰):
+
+```
+$ trivy image gitlab-registry.local.svc.cluster.local:5050/oneinch/ranger-hive-plugin:2.9.0-hive4
+  plugin/ranger-hive-plugin-impl/ranger-hive-plugin-2.9.0.jar   jar   0
+  plugin/ranger-hive-plugin-shim-2.9.0.jar                      jar   0
+  ...   ← 우리가 빌드한 jar 목록이 그대로 나온다
+```
+
+그리고 오퍼레이터가 만드는 스캔 Job 에 `TRIVY_NON_SSL=true` 와 자격이 정상
+주입되는 것을 Job 스펙에서 확인했다.
+
+#### 남은 것 — 레지스트리와 무관한 별개 결함(Trivy 0.74 의 캐시 잠금)
+
+레지스트리가 해결된 뒤에도 **오퍼레이터가 만든 리포트는 아직 없다.** 막고 있는
+것은 레지스트리가 아니라 Trivy 자체다:
+
+```
+ERROR  Failed to acquire cache or database lock
+FATAL  unable to initialize fs cache: cache may be in use by another process: timeout
+```
+
+★ 처음에는 "한 Job 안의 컨테이너들이 병렬로 돌며 캐시를 다툰다" 로 읽었다.
+**틀렸다** — 컨테이너가 **하나뿐인** livy 의 스캔에서도 같은 오류가 났고,
+볼륨은 전부 emptyDir 이라 Job 사이에 공유되지도 않는다. 남는 설명은 **초기화
+컨테이너가 DB 를 내려받고 끝난 뒤 잠금을 놓지 않는 것**이다.
+
+`trivy.tag` 를 **0.66.0** 으로 내리자 스캔 파드가 `Error` 대신 `Completed` 로
+끝난다(`install-operators.sh` 에 반영). 다만 그 뒤에도 `VulnerabilityReport`
+객체가 기록되지 않아 **한 건도 확인하지 못했다.**
+
+★★ 이 실패는 **간헐적**이라 위험하다 — 리포트 40건이 하루 종일 드문드문
+생겼고, `hbase-master` 는 컨테이너 3개 중 `wait-deps`(busybox) 하나만 리포트가
+있다. **부분 성공은 "스캔되고 있다" 로 읽힌다.** 판정은 전체 건수가 아니라
+**대상 워크로드별 리포트 유무**로 할 것.
+
+문서상 처방은 `trivy.mode` 를 `ClientServer` 로 바꾸는 것이다(DB 를 서버가
+쥐고 스캔 Job 은 클라이언트가 된다). 컴포넌트가 하나 늘어나므로 **§9 로
+미룬다** — 레지스트리 도입과는 독립된 결정이다.
+
+> ★ 그래서 이 절의 성취를 정확히 적어 둔다. **레지스트리 경로는 증명됐다**
+> (일회성 Job 이 레지스트리에서 당겨 우리 jar 목록까지 스캔했고, 오퍼레이터가
+> 만드는 Job 스펙에도 `TRIVY_NON_SSL=true` 와 자격이 정상 주입된다).
+> **오퍼레이터가 리포트를 남기는 것까지는 아직 확인되지 않았다.**
+
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
 > **이 절은 "지금 하지 않기로 결정한 것" 의 목록이다.** §8 의 각 절 끝에

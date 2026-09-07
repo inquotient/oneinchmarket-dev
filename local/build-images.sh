@@ -107,32 +107,119 @@ sudo podman build --format docker --network host \
   -t oneinch/proxysql:latest -t oneinch/proxysql:4.0.11 \
   "${REPO_ROOT}/docker/proxysql"
 
-log "k3s containerd 로 반입 (namespace k8s.io)"
-# ★ 매니페스트가 참조하는 **정확한 태그**를 반입해야 한다. :latest 만 넣으면
-#   버전 태그를 쓰는 워크로드가 ImagePullBackOff 로 멈춘다 —
-#   ranger-hdfs-plugin 이 실제로 그랬다(hadoop-namenode 가 10분 Init 대기).
-#   ★★ 2026-09-06 부터 매니페스트는 **전부 버전 태그**를 쓴다(§8-72).
-#     :latest 만 반입하던 세 개(spark-iceberg·livy·ranger-usersync)가 그대로
-#     남아 있었다면 같은 증상이 났을 것이다. 목록을 매니페스트와 맞춰 둔다.
-for img in oneinch/spark-iceberg:latest oneinch/spark-iceberg:3.5.6 \
-           oneinch/livy:latest oneinch/livy:0.9.0-incubating \
-           oneinch/ranger-usersync:latest oneinch/ranger-usersync:2.9.0 \
-           oneinch/hbase:latest oneinch/hbase:3.0.0 \
-           oneinch/jenkins:latest oneinch/jenkins:2.568.3-lts \
-           oneinch/proxysql:latest oneinch/proxysql:4.0.11 \
-           oneinch/ranger-hdfs-plugin:latest oneinch/ranger-hdfs-plugin:2.9.0-jersey2 \
-           oneinch/ranger-hbase-plugin:latest oneinch/ranger-hbase-plugin:2.9.0-hbase3 \
-           oneinch/ranger-hive-plugin:latest oneinch/ranger-hive-plugin:2.9.0-hive4; do
-  sudo podman save --format docker-archive "localhost/$img" \
-    | sudo k3s ctr -n k8s.io images import --base-name "docker.io/$img" -
-  # ★ --base-name 이 항상 docker.io 이름을 만들어 주지는 않는다.
-  #   아카이브가 이미 localhost/... 이름을 갖고 있으면 그대로 들어가고
-  #   매니페스트가 참조하는 docker.io/... 는 생기지 않아 ImagePullBackOff 가
-  #   난다 — jenkins 에서 실제로 그랬다. 명시적으로 태그해 확정한다.
-  sudo k3s ctr -n k8s.io images tag --force "localhost/$img" "docker.io/$img" >/dev/null 2>&1 || true
-  log "  imported $img"
+# ── GitLab 컨테이너 레지스트리로 push ──────────────────────────────
+#
+# ★ 왜 push 하는가 — 파드를 띄우는 데는 필요 없다(아래 containerd 반입으로
+#   충분하다). 필요한 것은 **Trivy Operator** 다. 스캔 Job 은 파드라 노드의
+#   containerd 소켓을 볼 수 없어 이미지를 레지스트리에서 직접 당긴다.
+#   레지스트리에 없던 시절 이 9종은 **한 번도 스캔되지 않았다**(§8-79):
+#     unable to find the specified image "oneinch/spark-iceberg:3.5.6"
+#     in ["docker" "containerd" "podman" "remote"]
+#
+# ★ 그래서 **push 와 반입을 둘 다** 한다. 순환 의존을 피하기 위해서다 —
+#   GitLab 은 wave 5 인데 이 이미지를 쓰는 워크로드는 wave 3 에 있다.
+#   반입 덕에 파드는 레지스트리 없이도 뜨고(IfNotPresent), 레지스트리는
+#   Trivy 가 당길 때만 쓰인다.
+#
+# ★ 레지스트리가 아직 없으면 **건너뛴다.** 클러스터를 처음 세울 때는
+#   GitLab 자체가 없으므로 여기서 실패하면 안 된다.
+REGISTRY_SVC="gitlab-registry"
+REGISTRY_NS="local"
+REGISTRY_HOST="${REGISTRY_SVC}:5050"
+
+# Secret(dockerconfigjson)에서 토큰만 꺼내는 조각. 셸 따옴표 안에서
+# 한 줄로 쓰면 읽을 수 없어 변수로 뺀다.
+REG_TOKEN_PY='
+import base64, json, sys
+sec = json.load(sys.stdin)
+cfg = json.loads(base64.b64decode(sec["data"][".dockerconfigjson"]).decode())
+sys.stdout.write(list(cfg["auths"].values())[0]["password"])
+'
+
+push_to_registry() {
+  if ! kubectl get svc -n "$REGISTRY_NS" "$REGISTRY_SVC" >/dev/null 2>&1; then
+    log "레지스트리 Service 가 없다 — push 를 건너뛴다(반입만 한다)"
+    return 1
+  fi
+  if ! kubectl get secret -n "$REGISTRY_NS" gitlab-registry-secret >/dev/null 2>&1; then
+    log "gitlab-registry-secret 이 없다 — local/gitlab-registry-bootstrap.sh --secret 를 먼저 돌릴 것"
+    return 1
+  fi
+
+  # ★ 노드는 CoreDNS 를 쓰지 않으므로 이름을 스스로 풀지 못한다.
+  #   ClusterIP 를 /etc/hosts 에 박는다 — **매번 조회해서** 다시 쓴다.
+  #   Service 를 재생성하면 ClusterIP 가 바뀌는데, 낡은 값이 남으면
+  #   push 가 타임아웃으로 죽고 원인이 멀어진다.
+  #   ★★ 127.0.0.1 을 쓰지 말 것 — /etc/hosts 는 **kubelet 도 읽는다.**
+  #     루프백을 박아 두면 kubelet 의 이미지 pull 이
+  #     `dial tcp 127.0.0.1:5050: connect: connection refused` 로 깨진다.
+  local cip
+  cip="$(kubectl get svc -n "$REGISTRY_NS" "$REGISTRY_SVC" \
+          -o jsonpath='{.spec.clusterIP}')"
+  if [ -z "$cip" ] || [ "$cip" = "None" ]; then
+    log "ClusterIP 를 읽지 못했다 — push 를 건너뛴다"
+    return 1
+  fi
+  sudo sed -i "/[[:space:]]${REGISTRY_SVC}\$/d" /etc/hosts
+  echo "${cip} ${REGISTRY_SVC}" | sudo tee -a /etc/hosts >/dev/null
+  log "  ${REGISTRY_SVC} -> ${cip} (/etc/hosts)"
+
+  # 토큰은 Secret 이 정본이다 — 사본을 따로 두지 않는다.
+  local tokfile; tokfile="$(mktemp)"
+  # ★ jsonpath 의 `.dockerconfigjson` 은 앞에 역슬래시가 필요하다(키 이름에
+  #   점이 들어 있다). 빠뜨리면 **빈 문자열**이 나오고 오류는 나지 않는다 —
+  #   그대로 로그인하면 "invalid username/password" 로 엉뚱한 곳을 의심하게 된다.
+  kubectl get secret -n "$REGISTRY_NS" gitlab-registry-secret -o json \
+    | python3 -c "$REG_TOKEN_PY" > "$tokfile"
+
+  # 평문 HTTP 다 — 클러스터 안에서만 노출되고 ambient mTLS 가 감싼다.
+  if ! sudo podman login "$REGISTRY_HOST" -u k8s-image-pull         --password-stdin --tls-verify=false < "$tokfile" >/dev/null 2>&1; then
+    rm -f "$tokfile"
+    log "레지스트리 로그인 실패 — 토큰이 만료됐거나 GitLab 이 재시작하며"
+    log "  /etc/gitlab 의 db_key_base 가 바뀌었을 수 있다(§8-79)."
+    log "  local/gitlab-registry-bootstrap.sh --secret 로 재발급할 것"
+    return 1
+  fi
+  rm -f "$tokfile"
+  return 0
+}
+
+PUSH_OK=0
+if push_to_registry; then PUSH_OK=1; fi
+
+log "k3s containerd 로 반입 + 레지스트리 push"
+# ★ 매니페스트가 참조하는 **정확한 이름**을 반입해야 한다.
+#   2026-09-07 부터 그 이름에는 레지스트리 호스트가 붙는다
+#   (gitlab-registry.local.svc.cluster.local:5050/oneinch/...). 접두가 빠지면 파드가
+#   ImagePullBackOff 로 멈춘다 — 예전에 ranger-hdfs-plugin 이 그랬다.
+# ★ :latest 는 반입도 push 도 하지 않는다. 매니페스트가 쓰지 않고
+#   Kyverno disallow-latest 가 막는 이름이다.
+for img in oneinch/spark-iceberg:3.5.6 \
+           oneinch/livy:0.9.0-incubating \
+           oneinch/ranger-usersync:2.9.0 \
+           oneinch/hbase:3.0.0 \
+           oneinch/jenkins:2.568.3-lts \
+           oneinch/proxysql:4.0.11 \
+           oneinch/ranger-hdfs-plugin:2.9.0-jersey2 \
+           oneinch/ranger-hbase-plugin:2.9.0-hbase3 \
+           oneinch/ranger-hive-plugin:2.9.0-hive4; do
+  ref="${REGISTRY_HOST}/${img}"
+  sudo podman tag "localhost/${img}" "$ref"
+  sudo podman save --format docker-archive "$ref"     | sudo k3s ctr -n k8s.io images import --base-name "$ref" - >/dev/null
+  log "  imported $ref"
+  if [ "$PUSH_OK" = "1" ]; then
+    if sudo podman push --tls-verify=false "localhost/${img}" "$ref" >/dev/null 2>&1; then
+      log "  pushed   $ref"
+    else
+      log "  ★ push 실패 $ref — Trivy 가 이 이미지를 스캔하지 못한다"
+    fi
+  fi
 done
 
 log "반입 확인"
 sudo k3s ctr -n k8s.io images ls 2>/dev/null | awk '{print $1}' | grep oneinch || true
+if [ "$PUSH_OK" != "1" ]; then
+  log "★ 레지스트리 push 를 건너뛰었다 — Trivy Operator 는 이 9종을"
+  log "  스캔하지 못한다. GitLab 이 뜬 뒤 이 스크립트를 다시 돌릴 것."
+fi
 log "완료 — 상주 데몬 없음"

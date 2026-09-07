@@ -64,7 +64,7 @@ cd scripts/security-verification && ./run-all.sh [namespace]
 - `scripts/security-verification/` — 보안 검증 9종
 - `contracts/` — **API 계약 원천**(계약 우선, ADR-067). `openapi/`·`asyncapi/`·`schemas/`. CI 가 Spectral 로 린트하고 Apicurio 에 게시한다
 - `.spectral.yaml` — 계약 스타일·거버넌스 룰셋
-- `docker/` — 로컬 빌드 이미지 9종(`spark-iceberg`·`livy`·`ranger-usersync`·`hbase`·`jenkins`·`ranger-hdfs-plugin`·`ranger-hbase-plugin`·`ranger-hive-plugin`·`proxysql`). `local/build-images.sh` 가 podman 으로 빌드해 k3s containerd 로 반입한다. 레지스트리에 없으므로 클러스터 재구축 시 먼저 돌려야 한다. **매니페스트가 참조하는 버전 태그를 반입 목록에 반드시 넣을 것** — `:latest` 만 넣으면 ImagePullBackOff 다(§8-72)
+- `docker/` — 로컬 빌드 이미지 9종(`spark-iceberg`·`livy`·`ranger-usersync`·`hbase`·`jenkins`·`ranger-hdfs-plugin`·`ranger-hbase-plugin`·`ranger-hive-plugin`·`proxysql`). `local/build-images.sh` 가 podman 으로 빌드해 **GitLab 컨테이너 레지스트리에 push 하는 동시에** k3s containerd 로도 반입한다(§8-79). 둘 다 하는 이유는 순환 의존을 피하기 위해서다 — GitLab 은 wave 5 인데 이 이미지를 쓰는 워크로드는 wave 3 에 있어, 파드는 반입본으로 뜨고(`IfNotPresent`) 레지스트리는 **Trivy 가 스캔할 때만** 쓰인다. 클러스터 재구축 시 먼저 돌려야 한다. 레지스트리 자격은 `local/gitlab-registry-bootstrap.sh --secret` 이 만든다(난수가 아니라 GitLab 이 발급하는 배포 토큰이라 `create-secrets.sh` 가 만들지 못한다). **매니페스트가 참조하는 버전 태그를 반입 목록에 반드시 넣을 것** — `:latest` 만 넣으면 ImagePullBackOff 다(§8-72)
 - `v1/` — 레거시 매니페스트. **배포 금지.** 단 CI가 이 경로의 Dockerfile을 참조한다(존재하지 않음)
 
 ### ArgoCD Sync Wave (실제 값)
@@ -185,7 +185,7 @@ Stages: `validate` → `build` → `scan` → `sign` → `mirror` → `deploy`
 - **mirror** — Skopeo (schedule 전용)
 - **deploy** — ArgoCD sync. dev 자동, prod `when: manual`
 
-Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레지스트리를 참조하지 않고 `imagePullSecrets`도 없다**
+Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레지스트리를 참조하지 않는다.** 다만 `imagePullSecrets` 는 2026-09-07 부터 생겼다 — 로컬 빌드 이미지 9종이 클러스터 안의 GitLab 레지스트리(`gitlab-registry.local.svc.cluster.local:5050`)를 참조하고 `gitlab-registry-secret` 을 붙인다(§8-79). CI 레지스트리와는 별개다
 
 ## Gotchas
 
@@ -274,6 +274,12 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 
 
 50. **ztunnel 을 재시작하면 이미 떠 있던 파드가 메시 밖으로 나가고, 아무도 다시 넣어 주지 않는다.** 앰비언트에서 파드를 메시에 넣는 것은 ztunnel 이 아니라 **istio-cni** 이고, istio-cni 는 **CNI 이벤트가 있을 때만** 그 일을 한다 — 즉 새로 뜨는 파드만 등록한다. 실측: 파드 138개 중 **49개만** 프록시가 서 있었고 `mariadb-0`·`proxysql`·`postgresql-0` 이 전부 빠져 있었다. ★ **증상이 정책 문제처럼 보이지 않는다** — 오류는 `error="io error: Connection refused (os error 111)"` 이고 `dst.addr` 이 목적지 파드의 **15008** 이다(정책 거부라면 `policy rejection: allow policies exist, but none allowed` 다, Gotcha 19). 신원도 정상이고 AuthorizationPolicy 도 정상이라 그쪽을 아무리 봐도 나오지 않는다. 클라이언트 쪽 증상은 **TCP 는 열리는데 프로토콜 핸드셰이크에서 끊기는 것**(`ERROR 2013 ... reading initial communication packet`)이라 DB·자격을 의심하게 된다 — **대조군(프록시를 거치지 않는 직접 접속)을 반드시 함께 돌릴 것.** 대조군이 같이 실패하면 그 컴포넌트의 문제가 아니다. ★★ **`istioctl ztunnel-config workload` 를 판정에 쓰지 말 것** — 그것은 xDS 로 받은 목록이라 116 을 정상 보고했다(프록시가 선 파드는 49였다). 판정은 `kubectl logs -n istio-system ds/ztunnel | grep -c "pod received, starting proxy"` 를 실제 파드 수와 대조하는 것이다. 처방은 `kubectl rollout restart -n istio-system ds/istio-cni-node`(기동 시 앰비언트 파드를 전부 재열거한다). **ztunnel 을 재시작할 일이 있으면 istio-cni 도 함께 재시작할 것** — §8-78
+
+51. **GitLab 의 `/etc/gitlab` 을 보존하지 않으면 재시작마다 모든 토큰이 무효가 된다.** 거기 있는 `gitlab-secrets.json` 의 `db_key_base` 가 DB 에 저장된 암호값(배포 토큰·CI 변수·2FA)의 복호화 키다. 이 레포는 `/var/opt/gitlab` 만 PVC 에 두고 있어 **파드가 뜰 때마다 새 키가 생성**됐고, 재시작 28회 동안 그래 왔다. ★ **증상이 토큰을 가리키지 않는다** — 레지스트리 로그인이 `invalid username/password` 로 실패하는데 DB 의 배포 토큰은 `revoked=false`·미만료 그대로라 토큰 테이블만 보면 멀쩡하다. 자격을 재발급하면 잠시 되고 다음 재시작에 또 깨지므로 "토큰이 이상하다" 로 오래 헤맨다. 판정은 `stat /etc/gitlab/gitlab-secrets.json` 의 생성 시각이 **파드 기동 시각과 같은지**다. 해소는 `gitlab-etc` PVC 를 `/etc/gitlab` 에 붙이는 것이고, `volumeClaimTemplates` 가 불변이라 `kubectl delete sts --cascade=orphan` 후 재적용해야 한다(§8-72 ④ 와 같은 절차). 검증은 **재시작 전후로 같은 토큰이 통하는지**로 한다 — §8-79
+
+52. **컨테이너 레지스트리를 클러스터 안에 세울 때 걸리는 것 넷.** ① **노드의 `/etc/hosts` 는 kubelet 도 읽는다** — push 하려고 `127.0.0.1 <registry>` 를 넣으면 kubelet 의 이미지 pull 이 `dial tcp 127.0.0.1:5050: connect: connection refused` 로 깨진다. 루프백이 아니라 **ClusterIP** 를 넣을 것(노드에서 실제로 도달 가능한 주소다). ClusterIP 는 Service 재생성 시 바뀌므로 **매번 조회해 다시 쓸 것**. ② **토큰 realm 은 `registry_external_url` 이 아니라 `external_url` 을 따라간다** — 레지스트리 인증은 5050 에서 401 + `Www-Authenticate: Bearer realm=...` 을 받고 그 realm 으로 토큰을 받으러 가는 **두 단계**다. realm 이 닿지 않으면 실패는 5050 쪽에 나오므로 원인이 멀다. `registry['token_realm']` 으로 명시할 것. ③ **짧은 서비스 이름은 같은 네임스페이스에서만 풀린다** — Trivy 스캔 Job 은 `trivy-system` 에서 돌아 `lookup <registry> ... no such host` 가 나고, 그것이 **"이미지를 찾을 수 없다"** 로 요약되어 나와 이미지 이름을 의심하게 된다. **FQDN 을 쓸 것**(Gotcha 17 과 같은 부류). ④ 평문 HTTP 면 Trivy 에 `trivy.nonSslRegistry.<키>` 를 줄 것 — `insecureRegistry`(TLS 인데 검증 생략)와 **다른 설정**이고, 잘못 쓰면 조용히 무시된다 — §8-79
+
+53. **Trivy 0.74 의 스캔 Job 은 캐시 잠금을 놓지 않는다 — 그리고 실패가 간헐적이라 더 위험하다.** `ERROR Failed to acquire cache or database lock` -> `FATAL unable to initialize fs cache: cache may be in use by another process: timeout`. ★ 처음에는 "한 Job 안의 컨테이너들이 병렬로 캐시를 다툰다" 로 읽었는데 **틀렸다** — 컨테이너가 **하나뿐인** 워크로드에서도 같은 오류가 나고, 볼륨은 전부 emptyDir 이라 Job 사이에 공유되지도 않는다. 남는 설명은 초기화 컨테이너가 DB 를 내려받고 끝난 뒤 잠금을 놓지 않는 것이다. `trivy.tag` 를 **0.66.0** 으로 내리면 스캔 파드가 `Error` 대신 `Completed` 로 끝난다. ★★ **부분 성공을 성공으로 읽지 말 것** — 리포트 40건이 하루 종일 드문드문 생겼고 `hbase-master` 는 컨테이너 3개 중 `wait-deps`(busybox) 하나만 리포트가 있다. 판정은 전체 건수가 아니라 **대상 워크로드별 리포트 유무**로 한다. ★ `OPERATOR_CONCURRENT_SCAN_JOBS_LIMIT=1` 이면 **실패한 Job 이 TTL 동안 슬롯을 붙잡아** 뒤의 스캔이 전부 밀린다. 근본 처방은 `trivy.mode` 를 `ClientServer` 로 바꾸는 것이고(DB 를 서버가 쥔다) 컴포넌트가 늘어 §9 로 미뤘다 — §8-79
 ### 매니페스트 작업 시
 
 - `v1/` 매니페스트는 **배포 금지**. 단 CI가 이 경로의 Dockerfile을 참조한다는 모순이 있다
