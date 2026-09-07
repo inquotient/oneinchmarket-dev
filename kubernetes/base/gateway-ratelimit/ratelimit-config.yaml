@@ -1,0 +1,30 @@
+# ★★ 이 파일은 생성된다 — 직접 고치지 말 것.
+#   원천: local/pricing-catalog.yaml
+#   생성: local/render-ratelimit.py
+#
+#   손으로 고치면 다음 렌더에서 지워지고, 그 사이 요금제와 쿼터가 어긋난다.
+#   쿼터를 바꾸려면 카탈로그를 고치고 다시 렌더할 것.
+#
+# ★ 구조에 함정이 있다 — 중첩 descriptor 에도 key 가 필수다. key 없이
+#   value 만 주면 RLS 가
+#     Error loading new configuration: ...: descriptor has empty key
+#   를 내고 바로 다음 줄에 "Successfully loaded" 를 출력하며 설정을 통째로
+#   버린다. 그러면 모든 요청이 무제한인데 파드는 1/1 Running 이다(§8-89).
+#   판정은 기동 로그의 config_load_error 카운터로 한다.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ratelimit-config
+  labels:
+    app.kubernetes.io/name: ratelimit
+    app.kubernetes.io/component: service-mesh
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+data:
+  oim-api.yaml: "domain: oim-api\ndescriptors:\n- key: scope\n  value: api\n  descriptors:\n\
+    \  - key: tenant\n    value: acme-corp\n    rate_limit:\n      unit: minute\n\
+    \      requests_per_unit: 600\n  - key: tenant\n    value: globex-corp\n    rate_limit:\n\
+    \      unit: minute\n      requests_per_unit: 3000\n  - key: tenant\n    rate_limit:\n\
+    \      unit: minute\n      requests_per_unit: 60\n  rate_limit:\n    unit: minute\n\
+    \    requests_per_unit: 10\n"

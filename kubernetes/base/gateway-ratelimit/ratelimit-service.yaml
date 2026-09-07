@@ -29,48 +29,9 @@ metadata:
     argocd.argoproj.io/sync-wave: "2"
 automountServiceAccountToken: false
 ---
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: ratelimit-config
-  labels:
-    app.kubernetes.io/name: ratelimit
-    app.kubernetes.io/component: service-mesh
-    app.kubernetes.io/part-of: oneinchmarket
-    app.kubernetes.io/managed-by: kustomize
-  annotations:
-    argocd.argoproj.io/sync-wave: "2"
-data:
-  # ★ 파일 이름이 곧 도메인이 아니다 — 파일 안의 domain 이 도메인이고,
-  #   EnvoyFilter 의 domain 과 정확히 같아야 한다. 다르면 RLS 가 descriptor 를
-  #   못 찾아 전부 통과시킨다(오류가 나지 않는다).
-  # ★★ 구조에 함정이 있다 — **중첩 descriptor 에도 `key` 가 필수**다.
-  #   `key` 없이 `value` 만 준 항목을 넣으면 RLS 가
-  #     Error loading new configuration: oim-api.yaml: descriptor has empty key
-  #   를 내고 **바로 다음 줄에 "Successfully loaded" 를 출력한다.**
-  #   설정은 통째로 버려지고 모든 요청이 무제한이 된다(Gotcha 12 의 부류).
-  #   판정은 기동 로그에서 `config_load_error` 카운터를 보는 것이다.
-  oim-api.yaml: |
-    domain: oim-api
-    descriptors:
-      # scope 를 바깥에 둔다. 이유는 EnvoyFilter 쪽 주석 참조 —
-      # 요청마다 descriptor 가 **반드시 하나는** 만들어지게 하려는 것이다.
-      - key: scope
-        value: api
-        descriptors:
-          # 토큰에 tenant 클레임이 있는 정상 경로.
-          # ★ 값은 예시다. 요금제(§8-87)가 늘어나면 여기에 테넌트를 명시해
-          #   요금제별 쿼터를 준다 — value: acme-corp 같은 식이다.
-          - key: tenant
-            rate_limit:
-              unit: minute
-              requests_per_unit: 600
-        # tenant 클레임이 없는 토큰. 청구 대상이 아니므로(Gotcha 16) 낮게
-        # 묶는다 — 차단하지 않는 이유는 원인 파악이 어려운 429 보다
-        # 낮은 한도가 진단에 낫기 때문이다.
-        rate_limit:
-          unit: minute
-          requests_per_unit: 10
+# ★ ConfigMap 은 여기 없다 — local/pricing-catalog.yaml 에서 생성되어
+#   ratelimit-config.yaml 에 있다. 요금제와 쿼터가 어긋나지 않게 하려는
+#   것이다(§8-90). 생성기는 local/render-ratelimit.py 다.
 ---
 apiVersion: apps/v1
 kind: Deployment

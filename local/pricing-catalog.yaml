@@ -1,0 +1,67 @@
+# 요금제 카탈로그 — 가격과 쿼터의 단일 원천
+#
+# ★★ 값은 전부 테스트 데이터다. 실제 사업 가격이 아니다.
+#   가격은 소급 적용이 가능하지만 청구 이력은 불가능하다(Gotcha 15) —
+#   실제 고객이 생기기 전에 이 파일을 실제 값으로 바꿔야 한다.
+#
+# ★ 왜 이 파일이 있는가 — §8-89 가 남긴 구멍을 막는다.
+#   요금제(OpenMeter)와 쓰로틀 한도(Envoy ratelimit)가 각자 살면
+#   요금제를 바꿀 때 사람이 두 곳을 고쳐야 하고, 어긋나도 아무도
+#   알려주지 않는다. "Pro 를 샀는데 Free 한도로 막힌다" 는 조용히 생긴다.
+#   그래서 둘 다 이 파일에서 나오게 한다:
+#
+#     local/openmeter-pricing.sh   -> OpenMeter 의 plan · customer · subscription
+#     local/render-ratelimit.py    -> kubernetes/base/gateway-ratelimit/
+#                                       ratelimit-config.yaml (ConfigMap)
+#
+#   ★ 렌더 결과는 git 에 커밋한다. ArgoCD 가 그것을 적용하므로, 이 파일만
+#   고치고 렌더를 잊으면 쿼터는 그대로다 — 렌더 결과가 git 에 있으면
+#   diff 로 드러난다.
+
+currency: USD
+
+# 토큰에 tenant 클레임이 없는 경우의 한도.
+# 청구 대상이 아니므로(Gotcha 16) 낮게 묶되 차단하지는 않는다 —
+# 차단하면 원인 파악이 어려운 429 가 되고, 낮은 한도면 로그에 남는다.
+noTenantQuotaPerMinute: 10
+
+# 카탈로그에 없는 테넌트(구독은 있는데 여기 안 적힌 경우)의 기본 한도.
+# ★ 무제한이 되지 않게 하는 안전장치다.
+unknownTenantQuotaPerMinute: 60
+
+plans:
+  # ★ oim_api_standard 는 §8-87 에서 이미 만들어 게시했고 구독이 붙어 있다.
+  #   OpenMeter 는 게시된 plan 의 가격을 바꾸려면 새 버전을 만들어야 하므로,
+  #   이 카탈로그는 현재 값을 그대로 적는다 — 문서와 실제를 어긋나게 두지
+  #   않으려는 것이다.
+  - key: oim_api_free
+    name: OneinchMarket API Free
+    platformFee: "0"          # 월 구독료
+    perRequest: "0"           # 요청 1건당 (5xx 제외, §8-87)
+    quotaPerMinute: 60
+
+  - key: oim_api_standard
+    name: OneinchMarket API Standard
+    platformFee: "20"
+    perRequest: "0.001"       # 1000건당 $1
+    quotaPerMinute: 600
+
+  - key: oim_api_pro
+    name: OneinchMarket API Pro
+    platformFee: "199"
+    perRequest: "0.0005"      # 1000건당 $0.5 — 많이 쓸수록 단가가 낮다
+    quotaPerMinute: 3000
+
+tenants:
+  # ★ key 는 OpenMeter 고객 키(snake_case 강제)이고 subject 는 계량 식별자다.
+  #   둘은 다른 이름 공간이다 — 잇는 것은 usageAttribution.subjectKeys 이고
+  #   빠뜨리면 0원 인보이스가 된다(Gotcha 66).
+  - key: acme_corp
+    name: Acme Corp
+    subject: acme-corp
+    plan: oim_api_standard
+
+  - key: globex_corp
+    name: Globex Corp
+    subject: globex-corp
+    plan: oim_api_pro
