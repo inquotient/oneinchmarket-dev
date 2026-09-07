@@ -9513,6 +9513,73 @@ WRN leaks found: 9
 - 러너가 `concurrent = 1` 이라 잡이 순차로 돈다. 고장난 validate 잡이 슬롯을
   잡으면 뒤가 밀린다 — 이번 검증에서 그것들을 취소하고서야 큐가 흘렀다
 
+### 8-92. 시크릿 9건을 판정했다 — 진짜는 둘이었고, 억제 장치는 쓸 수 없었다 (2026-09-08)
+
+§8-91 이 찾은 9건을 하나씩 갈랐다. **"찾았다" 와 "위험하다" 는 다르다** —
+전부 Critical 로 보고되지만 셋은 오탐이었다.
+
+#### 판정
+
+| # | 위치 | 판정 | 조치 |
+|:-:|---|---|---|
+| 1·2 | `v1/cluster/tls.key` | **진짜** — SEC-401 | **트리에서 삭제** |
+| 3 | `openreplay` 의 `db-migration-script` ConfigMap 안 `site.key` | **진짜** — ★ Secret 도 아니고 **ConfigMap** 이었다 | **삭제**(클러스터에서도) |
+| 4·5 | `openmeter.yaml` · `openmeter-values.yaml` 의 "Password in URL" | **오탐** — `__OPENMETER_DB_PASSWORD__` 자리표시자(Gotcha 26 의 치환 방식). 실측 토큰 패턴 `__xxxxxxxx_xxxxxxxx__` | 문서에 기록 |
+| 6 | `docs/SECURITY.md` 의 PKCS8 | **오탐** — SEC-401 을 **설명하는 문장** | 마커만 제거 |
+| 7·8 | `cluster/tls.key` · `tls/gitlab-tls.key` | **진짜였다** — 이미 지워진 파일, **이력에만** | 회수 불가 |
+
+★ 진짜 둘은 **예외를 두지 않고 제거**했다. `openreplay` 쪽은 상류 차트가 넣은
+자체 서명 쌍인데 **어떤 마이그레이션 스크립트도 쓰지 않았다**(참조 0곳 확인).
+`apply` 로는 ConfigMap 의 키가 지워지지 않아 `replace` 를 썼다.
+
+★★ **재발급은 불필요로 판단했다.** 활성 인증서 6종이 전부 cert-manager 발급이라
+(`gateway-selfsigned`→`gateway-ca`, `wazuh-selfsigned`→`wazuh-ca`) 유출된 키는
+현재 TLS 경로에 없다. 다만 **키 자체는 손상된 것으로 취급**하고 재사용하지 않는다.
+
+#### ★★ 억제 장치를 만들었다가 버렸다 — Ultimate 전용이었다
+
+오탐 셋을 `.gitlab/secret-detection-ruleset.toml` 로 막으려 했다. 분석기가
+파일을 **읽고도** 이렇게 남겼다:
+
+```
+Loading project-level ruleset configuration file from '.../secret-detection-ruleset.toml'
+WARN  ruleset customization not enabled
+```
+
+**Ultimate 전용 기능이다**(Secret Push Protection 과 같다, §8-91). 이 인스턴스는
+Free 이므로 그 파일은 **영원히 아무 일도 하지 않는다.** 그런데 가만히 있지도
+않았다 — 주석에 적은 키 헤더 때문에 **탐지가 9 → 10 으로 늘었다.**
+지웠다. 켜 두고 아무것도 하지 않는 것을 남기지 않는다는 이 레포의 원칙 그대로다.
+
+★ `SECRET_DETECTION_EXCLUDED_PATHS` 로 경로를 빼는 길도 있으나 **쓰지 않았다** —
+그 파일에 진짜 시크릿이 들어와도 함께 놓친다. **오탐 둘을 감수하는 편이
+낫다**고 판단하고 `docs/SECURITY.md` 에 사유를 적었다.
+
+★ `docs/SECURITY.md` 는 마커만 뺐다(`-----BEGIN ...-----` → "PKCS8 개인키 헤더로
+시작"). 스캐너를 피하려는 것이 아니라 **기계가 읽는 표식을 산문에 심지 않는
+것**이다 — 뜻은 그대로다.
+
+#### ★★★ 이력 스캔 건수는 현재 상태의 지표가 아니다
+
+이번에 파일을 지웠는데 **이력 스캔 건수는 내려가지 않는다.** 커밋한 것은 전부
+이력에 남기 때문이다 — 실제로 지운 뒤에도 347 커밋에서 여전히 잡힌다.
+
+| 무엇을 묻나 | 어느 잡이 답하나 |
+|---|---|
+| "지금 트리가 깨끗한가" | **증분 잡**(`secret_detection`, 매 push, `allow_failure: false`) |
+| "이력에 무엇이 남아 있나" | 이력 잡(`secret_detection_historic`, schedule/manual, `allow_failure: true`) |
+
+실측: 조치 뒤 **현재 트리의 개인키 마커 0건**.
+
+#### 남는 것 — 이력 제거는 결정을 남겼다
+
+`git filter-repo` 로 이력에서 지우는 것은 **하지 않았다.** 모든 커밋 SHA 가
+바뀌고 강제 push 가 필요하며, ArgoCD 가 추적하는 리비전도 함께 깨진다.
+되돌리기 어려운 선택이라 사람이 정할 일이다.
+★ 하더라도 **유출은 회수되지 않는다** — 이미 클론한 사본에는 남는다.
+그래서 실효적인 처방은 이력 재작성이 아니라 **키를 손상된 것으로 취급하는
+것**이고, 그것은 위에서 했다.
+
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
 > **이 절은 "지금 하지 않기로 결정한 것" 의 목록이다.** §8 의 각 절 끝에
