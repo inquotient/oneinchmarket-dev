@@ -3,6 +3,18 @@
 #
 # 각 소비자의 Secret 을 읽어 같은 비밀번호로 롤을 만든다.
 # 별도 비밀번호 원천을 두지 않으므로 값이 어긋날 수 없다.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: postgres-bootstrap
+  labels:
+    app.kubernetes.io/name: postgres-bootstrap
+    app.kubernetes.io/component: bootstrap
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+automountServiceAccountToken: false
+---
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -26,6 +38,20 @@ spec:
         app.kubernetes.io/component: bootstrap
         app.kubernetes.io/part-of: oneinchmarket
     spec:
+      # ★★ 전용 SA. 이 Job 은 `default` 로 돌아 ztunnel 이 PostgreSQL 접근을
+      #   거부하고 있었다 — `allow-database-access` 는 principal 로 5432 를
+      #   허용하는데 `*/sa/default` 는 거기 없다(Gotcha 10).
+      #   증상은 오류가 아니라 **무한 대기**다: `until $PSQL ... SELECT 1`
+      #   루프가 영원히 돌아 Job 이 `Running` 인 채로 끝나지 않고,
+      #   ArgoCD 동기화가 그 훅을 기다리다 통째로 멈춘다.
+      #   실측 ztunnel 로그(§8-84):
+      #     src.workload="postgres-bootstrap-..." src.identity=".../sa/default"
+      #     dst.hbone_addr=...:5432
+      #     error="connection closed due to policy rejection:
+      #            allow policies exist, but none allowed"
+      #   Gotcha 19 의 여섯 번째 사례다(kafka-topics·ILM·마이그레이션·
+      #   hive-schematool·mariadb-bootstrap 에 이어).
+      serviceAccountName: postgres-bootstrap
       restartPolicy: OnFailure
       priorityClassName: batch-low
       securityContext:
