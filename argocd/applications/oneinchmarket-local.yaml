@@ -70,6 +70,12 @@ spec:
         factor: 2
         maxDuration: 3m
 
+  # ★★ 여기 적는 것은 전부 **서버가 채우는 스키마 기본값**이다 — 실제
+  #   드리프트가 아니다. 첫 완주 뒤 남은 OutOfSync 31건을 실측으로 분류한
+  #   결과이고(§8-84), 하나도 "고칠 수 있는데 덮는" 것이 아니다.
+  #   ★ 원칙: **경로를 좁게 적는다.** 배열째 무시하면 진짜 변경까지 가려진다 —
+  #   그래서 `jsonPointers` 로 블록을 통째로 빼는 대신 `jqPathExpressions` 로
+  #   서버가 넣은 키만 지목한다.
   ignoreDifferences:
     # ECK·cert-manager 가 채우는 필드는 diff 에서 뺀다 — 안 그러면
     # 영원히 OutOfSync 로 보인다.
@@ -77,3 +83,32 @@ spec:
       kind: Secret
       jsonPointers:
         - /data
+
+    # StatefulSet 22건 — `volumeClaimTemplates` 안에 API 서버가
+    #   `apiVersion`·`kind`·`status`·`spec.volumeMode` 를 넣는다.
+    #   ★ 이 네 개만 지목한다. `storageClassName` 이나
+    #   `resources.requests.storage` 가 바뀌면 **여전히 OutOfSync 로 보여야
+    #   한다** — 그 필드는 불변이라 동기화로는 반영되지 않고
+    #   `kubectl delete sts --cascade=orphan` 이 필요하기 때문이다(Gotcha 46 ④).
+    #   즉 여기서는 "ArgoCD 가 못 고치니 조용히 하라" 가 아니라
+    #   **"사람이 해야 할 일이 생겼다는 신호를 지우지 말라"** 가 목적이다.
+    - group: apps
+      kind: StatefulSet
+      jqPathExpressions:
+        - '.spec.volumeClaimTemplates[]?.apiVersion'
+        - '.spec.volumeClaimTemplates[]?.kind'
+        - '.spec.volumeClaimTemplates[]?.status'
+        - '.spec.volumeClaimTemplates[]?.spec.volumeMode'
+
+    # Kyverno ClusterPolicy 6건 — 웹훅이 정책에 자기 기본값을 되써 넣는다.
+    #   이 키들은 Kyverno 버전에 따라 늘어나므로 매니페스트에 박아 두면
+    #   업그레이드마다 어긋난다(Gotcha 46 의 하드코딩 부류).
+    #   ★ `validationFailureAction` 은 **여기 없다** — 그것은 우리가 정하는
+    #   값이고 dev/prod 가 서로 다르게 소유해 충돌한 전력이 있다(CLAUDE.md).
+    - group: kyverno.io
+      kind: ClusterPolicy
+      jqPathExpressions:
+        - '.spec.admission'
+        - '.spec.emitWarning'
+        - '.spec.rules[]?.skipBackgroundRequests'
+        - '.spec.rules[]?.validate.allowExistingViolations'

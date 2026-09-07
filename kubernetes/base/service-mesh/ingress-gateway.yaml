@@ -126,7 +126,10 @@ spec:
       tls:
         mode: Terminate
         certificateRefs:
-          - name: gateway-tls-cert
+          # ★ group/kind 는 서버가 채우는 기본값이다 — 명시한다(§8-84)
+          - group: ""
+            kind: Secret
+            name: gateway-tls-cert
       allowedRoutes:
         namespaces:
           from: Same
@@ -150,11 +153,21 @@ metadata:
     app.kubernetes.io/part-of: oneinchmarket
     app.kubernetes.io/managed-by: kustomize
 spec:
+  # ★ Gateway API 는 CRD 스키마 기본값이 많다 — 서버가 `group`·`kind`·
+  #   `weight`·`matches` 를 되써 넣어 **영원히 OutOfSync 로 보인다**(§8-84).
+  #   무시 규칙을 두는 대신 **명시**한다. 쓸 수 있는 값이고, 명시하면
+  #   "무엇에 붙는 경로인가" 가 매니페스트만 읽어도 드러난다.
   parentRefs:
-    - name: ingress
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
       sectionName: http
   rules:
-    - filters:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
         - type: RequestRedirect
           requestRedirect:
             scheme: https
@@ -170,12 +183,25 @@ metadata:
     app.kubernetes.io/part-of: oneinchmarket
     app.kubernetes.io/managed-by: kustomize
 spec:
+  # ★ Gateway API 는 CRD 스키마 기본값이 많다 — 서버가 `group`·`kind`·
+  #   `weight`·`matches` 를 되써 넣어 **영원히 OutOfSync 로 보인다**(§8-84).
+  #   무시 규칙을 두는 대신 **명시**한다. 쓸 수 있는 값이고, 명시하면
+  #   "무엇에 붙는 경로인가" 가 매니페스트만 읽어도 드러난다.
   parentRefs:
-    - name: ingress
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
       sectionName: https
   hostnames:
     - api.oneinchmarket.local
   rules:
-    - backendRefs:
-        - name: cmmn-api-headless
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: cmmn-api-headless
           port: 8080
+          weight: 1
