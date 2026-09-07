@@ -46,8 +46,22 @@ spec:
               args:
                 - scan
                 - framework
-                # nsa · mitre · cis 를 모두 포함한다. CLI 사용법에 명시된 값이다.
-                - all
+                # ★★ `all` 을 쓰지 않는다 — **실재하는 프레임워크 이름이 아니다.**
+                #   실측(§8-84): `Error: framework 'C-0240' not found, run
+                #   `kubescape list frameworks` for available frameworks` 로
+                #   죽는다. 컨트롤 ID 가 프레임워크 목록에 섞여 들어온 것이다.
+                #   ★ 이것은 **매니페스트를 바꾸지 않았는데 깨진** 부류다 —
+                #   프레임워크 목록은 실행할 때마다 원격에서 내려받는다.
+                #   41시간 전 실행은 전문 리포트를 내고 성공했다(Gotcha 45 와
+                #   같은 유형: 참조 뒤의 내용물이 움직인다).
+                #   ★ 증상이 실패처럼 보이지 않는다 — kubescape 가 **사용법을
+                #   출력**하고 exit 1 하므로 로그 끝이 도움말이라 "인자를 덜
+                #   줬나" 로 읽힌다. 진짜 오류는 도움말 **앞** 한 줄이다.
+                #   그래서 이름을 명시한다. `kubescape list frameworks` 로
+                #   확인한 12개 중 클라우드 전용(cis-aks/eks/gke)을 뺀 것들이다 —
+                #   이 클러스터는 k3s 라 그것들은 성립하지 않는다(41시간 전
+                #   리포트에도 `failed to get cloud provider` 가 찍혀 있다).
+                - ArmoBest,DevOpsBest,MITRE,NSA,SOC2,cis-v1.12.0
                 - --format
                 - pretty-printer
                 # ★ --keep-local — 결과를 Kubescape SaaS 로 보내지 않는다.
