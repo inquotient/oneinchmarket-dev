@@ -1,0 +1,83 @@
+# GitLab CI 러너 — 권한
+#
+# ★ SA 를 둘로 나눈다. ambient 에서 SA 는 곧 신원이고(Gotcha 10), 잡 파드에
+#   매니저와 같은 권한을 주면 **CI 잡이 파드를 만들 수 있게 된다.**
+#   CI 는 임의 코드를 돌리는 자리라 그것은 클러스터 탈취 경로다.
+#     - gitlab-runner      : 매니저. 잡 파드를 만들고 지운다
+#     - gitlab-runner-job  : 잡 파드. 권한이 하나도 없다
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gitlab-runner
+  labels:
+    app.kubernetes.io/name: gitlab-runner
+    app.kubernetes.io/component: devops
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+# ★ 매니저는 API 서버를 호출해야 하므로 토큰이 필요하다.
+automountServiceAccountToken: true
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gitlab-runner-job
+  labels:
+    app.kubernetes.io/name: gitlab-runner-job
+    app.kubernetes.io/component: devops
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+# ★ 잡 파드는 쿠버네티스 API 를 쓸 일이 없다. 토큰을 넣지 않는다.
+automountServiceAccountToken: false
+---
+# ★ Role 이지 ClusterRole 이 아니다 — 잡 파드는 이 네임스페이스에만 뜬다.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gitlab-runner
+  labels:
+    app.kubernetes.io/name: gitlab-runner
+    app.kubernetes.io/component: devops
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+rules:
+  # 잡 파드의 수명 관리
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  # 스크립트 주입과 로그 수집. exec/attach 가 없으면 잡이 시작조차 못 한다.
+  - apiGroups: [""]
+    resources: ["pods/exec", "pods/attach"]
+    verbs: ["create", "get"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get", "list"]
+  # 잡별 스크립트·자격을 넣는 자리
+  - apiGroups: [""]
+    resources: ["secrets", "configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+  # 캐시용 PVC (지금 설정은 쓰지 않으나, 켜면 즉시 필요하다)
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "create", "delete"]
+  # 실패 원인 진단
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gitlab-runner
+  labels:
+    app.kubernetes.io/name: gitlab-runner
+    app.kubernetes.io/component: devops
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: gitlab-runner
+subjects:
+  - kind: ServiceAccount
+    name: gitlab-runner

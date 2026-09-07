@@ -1,0 +1,24 @@
+# GitLab CI 러너 — 인-클러스터 GitLab 전용
+#
+# ★ 왜 base 가 아니라 오버레이인가
+#   이 러너는 클러스터 안의 GitLab(gitlab-headless.local)에 붙는다.
+#   dev/prod 는 각자의 CI 를 쓰므로 base 에 두면 그쪽이 존재하지 않는
+#   GitLab 에 등록하려 든다. openmeter·caldera 를 오버레이에 둔 것과 같은
+#   이유다.
+#
+# ★ 왜 필요한가 — 러너가 0개라 파이프라인 10건이 한 번도 실행되지
+#   않았다(잡 24건 canceled). Secret Detection 을 포함한 모든 CI 잡이
+#   여기에 얹힌다. §8-88
+#
+# 선행 조건
+#   local/gitlab-runner-bootstrap.sh 가 Secret gitlab-runner-token 을
+#   만들어야 한다. 토큰은 GitLab 이 발급하는 값이라 create-secrets.sh 가
+#   만들 수 없다(§8-79 의 레지스트리 배포 토큰과 같은 이유).
+#
+# 승격 조건 — 없다. dev/prod 는 자기 GitLab 의 러너를 따로 세운다.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - gitlab-runner-rbac.yaml
+  - gitlab-runner-deployment.yaml

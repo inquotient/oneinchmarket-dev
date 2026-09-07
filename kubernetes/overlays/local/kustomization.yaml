@@ -18,6 +18,9 @@ resources:
   #   브라우저 데이터는 아직 들어오지 않는다.
   - openreplay
   - openmeter
+  # GitLab CI 러너 — 이것이 없어서 파이프라인 10건이 한 번도 실행되지
+  #   않았다(§8-88). 인-클러스터 GitLab 전용이라 base 가 아니다.
+  - gitlab-runner
   # Caldera — ADR-030 이 prod 배포를 금지한다. base 에 두면 prod 가 상속한다.
   - caldera
   # OpenBao 로 원천이 옮겨진 시크릿의 ExternalSecret (§8-82).

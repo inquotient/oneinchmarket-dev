@@ -1,0 +1,150 @@
+# GitLab CI 러너 (Kubernetes executor)
+#
+# ★ 이것이 없어서 파이프라인 10건이 한 번도 실행되지 않았다 — 잡 24건이
+#   canceled 였다. Secret Detection 을 포함해 .gitlab-ci.yml 의 모든 잡이
+#   여기에 얹힌다.
+#
+# ★ 이미지는 GitLab 과 짝을 맞춘다 — gitlab-ee 19.3.1 <-> runner v19.3.0.
+#   :latest 를 쓰지 않는다(Gotcha 45·46).
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitlab-runner
+  labels:
+    app.kubernetes.io/name: gitlab-runner
+    app.kubernetes.io/component: devops
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    # 러너는 GitLab(wave 5) 이 떠 있어야 등록된다.
+    argocd.argoproj.io/sync-wave: "5"
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  # ★ Recreate 다. 러너 둘이 같은 인증 토큰으로 동시에 붙으면 잡을 서로
+  #   가로채고, 롤링 중 만들어진 잡 파드가 사라지는 매니저에 묶인다.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gitlab-runner
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gitlab-runner
+        app.kubernetes.io/component: devops
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      # ★ 전용 SA (Gotcha 10). 그리고 이 라벨 조합이 있어야
+      #   allow-gitlab-access NetworkPolicy 가 GitLab 으로 가는 길을 연다 —
+      #   그 정책은 component: devops + environment: local 을 본다
+      #   (environment 는 오버레이의 commonLabels 가 붙인다).
+      serviceAccountName: gitlab-runner
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      # ★ 등록을 initContainer 에서 한다. config.toml 을 자리표시자로 두고
+      #   치환하는 방식보다 낫다 — 러너가 스스로 쓰는 형식이라 버전이
+      #   올라가며 키가 늘어도 어긋나지 않는다(Gotcha 48 이 경계한 부류).
+      initContainers:
+        - name: register
+          image: gitlab/gitlab-runner:alpine-v19.3.0
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              if [ -s /etc/gitlab-runner/config.toml ]; then
+                echo "[register] config.toml 이 이미 있다"
+                exit 0
+              fi
+              echo "[register] ${CI_SERVER_URL} 에 등록"
+              gitlab-runner register \
+                --non-interactive \
+                --config /etc/gitlab-runner/config.toml \
+                --url "${CI_SERVER_URL}" \
+                --token "${RUNNER_TOKEN}" \
+                --executor kubernetes \
+                --kubernetes-namespace "${POD_NAMESPACE}" \
+                --kubernetes-service-account gitlab-runner-job \
+                --kubernetes-image "alpine:3.22" \
+                --kubernetes-poll-timeout 600 \
+                --kubernetes-cpu-request "100m" \
+                --kubernetes-memory-request "256Mi" \
+                --kubernetes-memory-limit "1Gi" \
+                --kubernetes-helper-memory-request "128Mi" \
+                --kubernetes-helper-memory-limit "256Mi"
+              # ★ 잡 파드에도 라벨을 박는다. allow-gitlab-access 가 그것을
+              #   보고 GitLab 으로 가는 길을 연다 — 없으면 잡이 아티팩트를
+              #   올리지 못하고 "왜 업로드만 실패하지" 가 된다.
+              printf '%s\n' \
+                '  [runners.kubernetes.pod_labels]' \
+                '    "app.kubernetes.io/component" = "devops"' \
+                '    "app.kubernetes.io/part-of" = "oneinchmarket"' \
+                '    "environment" = "local"' \
+                >> /etc/gitlab-runner/config.toml
+              echo "[register] 완료"
+          env:
+            - name: CI_SERVER_URL
+              valueFrom:
+                secretKeyRef: { name: gitlab-runner-token, key: ci-server-url }
+            - name: RUNNER_TOKEN
+              valueFrom:
+                secretKeyRef: { name: gitlab-runner-token, key: runner-token }
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef: { fieldPath: metadata.namespace }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { cpu: "200m", memory: "128Mi" }
+          volumeMounts:
+            - { name: config, mountPath: /etc/gitlab-runner }
+      containers:
+        - name: runner
+          image: gitlab/gitlab-runner:alpine-v19.3.0
+          args: ["run", "--config", "/etc/gitlab-runner/config.toml"]
+          env:
+            - name: KUBERNETES_NAMESPACE
+              valueFrom:
+                fieldRef: { fieldPath: metadata.namespace }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          # ★ requests 를 반드시 준다. 빠뜨리면 BestEffort 가 되어 메모리
+          #   압박 시 가장 먼저 축출된다 — §9-6 이 지적한 그 함정이고,
+          #   러너가 축출되면 CI 가 조용히 멈춘다.
+          resources:
+            requests: { cpu: "100m", memory: "128Mi" }
+            limits: { cpu: "500m", memory: "512Mi" }
+          # ★ 프로세스가 살아 있는지가 아니라 러너가 실제로 동작하는지를
+          #   본다. gitlab-runner list 는 config.toml 을 읽어야 성공한다
+          #   (Gotcha 48: 프로브는 "떠 있는가" 가 아니라 "반영됐는가").
+          livenessProbe:
+            exec:
+              command: ["/usr/bin/gitlab-runner", "list", "--config", "/etc/gitlab-runner/config.toml"]
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["/usr/bin/gitlab-runner", "list", "--config", "/etc/gitlab-runner/config.toml"]
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 15
+            failureThreshold: 3
+          volumeMounts:
+            - { name: config, mountPath: /etc/gitlab-runner }
+            - { name: home, mountPath: /home/gitlab-runner }
+      volumes:
+        # ★ emptyDir 이다 — config.toml 에 인증 토큰이 들어가므로 디스크에
+        #   영속시키지 않는다. 파드가 새로 뜨면 initContainer 가 다시 등록한다.
+        - { name: config, emptyDir: {} }
+        - { name: home, emptyDir: {} }

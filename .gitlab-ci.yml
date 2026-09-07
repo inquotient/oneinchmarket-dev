@@ -1,6 +1,21 @@
 # OneinchMarket v2 - GitLab CI/CD Pipeline
 # Trivy 이미지 스캔 + Cosign 서명 + Kustomize 검증
 
+# ──────────────────────────────────────────
+# GitLab Secret Detection (§8-88)
+#
+# ★ 이 기능은 Free 티어다 — 이 인스턴스는 라이선스가 없어(gitlab-ee 19.3.1,
+#   plan=Free) Ultimate 전용인 **Secret Push Protection**(pre-receive 차단)은
+#   쓸 수 없다. 파이프라인 방식만 가능하고, 그것이 아래 템플릿이다.
+#
+# ★★ 이것을 켜기 전에 **러너가 0개**였다. 파이프라인 10건이 만들어지고도
+#   한 번도 실행되지 않았다(잡 24건 canceled). 템플릿만 include 하면
+#   "켠 것처럼 보이고 아무것도 돌지 않는" 상태가 된다 — 러너는
+#   kubernetes/overlays/local/gitlab-runner/ 에 있다.
+# ──────────────────────────────────────────
+include:
+  - template: Jobs/Secret-Detection.gitlab-ci.yml
+
 stages:
   - validate
   - build
@@ -142,6 +157,30 @@ trivy-filesystem-scan:
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
   allow_failure: true
+
+# ──────────────────────────────────────────
+# Secret Detection — 템플릿을 이 파이프라인에 맞춘다
+#
+# ★ 템플릿의 기본 stage 는 `test` 인데 **이 파이프라인에는 그런 스테이지가
+#   없다.** 그대로 두면 잡이 만들어지지 않는다(오류도 나지 않는다).
+#   `scan` 으로 덮는다.
+#
+# ★★ `allow_failure` 를 **false 로 덮는다.** 템플릿 기본값은 true 라
+#   시크릿을 찾아내고도 파이프라인이 초록으로 끝난다 — 이 레포가 반복해서
+#   경계하는 "성공 출력이 성공을 뜻하지 않는" 부류다(Gotcha 12).
+#   시크릿이 커밋되는 것은 막아야 할 일이지 기록할 일이 아니다.
+#   ★ 다만 지금은 **이미 커밋된 개인키가 있다**(v1/cluster/tls.key, SEC-401).
+#   그래서 첫 실행은 반드시 실패한다 — 그것이 이 기능이 동작한다는 증거다.
+#   SEC-401 을 해소하기 전까지는 이 잡이 빨간불로 남는다.
+secret_detection:
+  stage: scan
+  allow_failure: false
+  variables:
+    # 기본 50 은 얕아서 오래된 커밋의 시크릿을 놓친다. 0 = 전체 이력.
+    GIT_DEPTH: "0"
+    # 스캔에서 뺄 경로. 지금은 없다 — 예외를 두기 시작하면 그 예외가
+    # 자라므로, 빼야 할 것이 생기면 사유를 여기 적을 것.
+    SECRET_DETECTION_EXCLUDED_PATHS: ""
 
 # ──────────────────────────────────────────
 # Stage: sign - Cosign 이미지 서명
