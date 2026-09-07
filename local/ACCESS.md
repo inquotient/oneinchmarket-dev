@@ -84,7 +84,7 @@ pw() { $K get secret "$1" -o jsonpath="{.data.$2}" | base64 -d; echo; }
 | 컴포넌트 | port-forward | URL | 계정 | 비밀번호 |
 |---|---|---|---|---|
 | **Keycloak** | `$K port-forward keycloak-0 8083:8080` | http://localhost:8083 | `admin` | `pw keycloak-secret admin-password` |
-| **Vault** | `$K port-forward vault-0 8200:8200` | http://localhost:8200 | 토큰 | `pw vault-init root-token` |
+| **OpenBao** | `$K port-forward openbao-0 8200:8200` | http://localhost:8200 | 토큰 | `pw openbao-keys root-token` |
 | **Ranger Admin** | `$K port-forward ranger-admin-0 6080:6080` | http://localhost:6080 | `admin` | `pw ranger-secret admin-password` |
 | **LAM**(LDAP 관리) | `$K port-forward deploy/lam 8084:80` | http://localhost:8084 | — | `pw lam-secret master-password` |
 | **Knox**(게이트웨이) | `$K port-forward svc/knox-headless 8443:8443` | https://localhost:8443/gateway/oim/ | DS389 사용자 | ★ **§1-b 참조** — WEBHDFS·HIVE·WEBHBASE 를 프록시한다 |
@@ -98,8 +98,11 @@ pw() { $K get secret "$1" -o jsonpath="{.data.$2}" | base64 -d; echo; }
 > **★ Ranger 로그인을 반복 실패하지 말 것.** 계정이 영구히 잠기고 파드를
 > 재시작해도 안 풀린다(Gotcha 11). 비밀번호를 먼저 조회한 뒤 한 번에 넣을 것.
 >
-> **★ Vault 는 재시작하면 다시 봉인된다.** `vault-0` 이 `0/1` 이면 대개
-> 이것이다 — `bash local/vault-init.sh unseal`.
+> **★ OpenBao 는 재시작해도 스스로 봉인을 푼다.** `unsealer` 사이드카가
+> 10초마다 확인해 해제하므로 `openbao-0` 은 보통 `2/2` 다(§8-80).
+> 그래도 봉인돼 있으면 `bash local/openbao-init.sh` 를 돌릴 것.
+> **★★ 이것은 봉인을 약화시킨다** — 여는 열쇠(`openbao-keys`)가 같은
+> 클러스터에 있다. 로컬 전용 타협이고 prod 에서는 KMS auto-unseal 이어야 한다.
 
 ### 1-b. Knox 게이트웨이 — HDFS·Hive·HBase 를 한 곳에서
 
@@ -467,7 +470,7 @@ Kibana(https://localhost:5601) 의 **Dev Tools** 가 가장 편하다.
 | `minio` S3 9002 | `mc` · `s3cmd` · 콘솔 UI(9001) |
 | `spark-connect` 15002 | PySpark `SparkSession.builder.remote("sc://localhost:15002")` |
 | `hadoop-namenode` 8020 | `hdfs dfs` · UI(9870) |
-| `vault` 8200 | `vault` CLI · UI |
+| `openbao` 8200 | `bao` CLI · UI |
 
 ---
 
@@ -540,7 +543,7 @@ Kibana(https://localhost:5601) 의 **Dev Tools** 가 가장 편하다.
 | UI | `spark-connect-headless` | 4040 | 4041 | Spark UI |
 | UI | `spark-history-headless` | 18080 | 18080 |  |
 | UI | `trino-headless` | 8080 | 8095 | 웹 UI + JDBC `jdbc:trino://localhost:8095/` |
-| UI | `vault-headless` | 8200 | 8200 | 토큰 `pw vault-init root-token` |
+| UI | `openbao-headless` | 8200 | 8200 | 토큰 `pw openbao-keys root-token` |
 | API | `api-openreplay` | 8080 | 8097 | OpenReplay api |
 | API | `apicurio-registry-headless` | 8080 | 8081 | Registry API — UI 와 함께 띄울 것 |
 | API | `chalice-openreplay` | 8000 | 8098 | OpenReplay chalice |
@@ -642,7 +645,7 @@ Kibana(https://localhost:5601) 의 **Dev Tools** 가 가장 편하다.
 | INT | `storage-openreplay` | 9000 | — | OpenReplay 내부 |
 | INT | `tempo-headless` | 4317 | — | OTLP gRPC 수신 |
 | INT | `tempo-headless` | 4318 | — | OTLP HTTP 수신 |
-| INT | `vault-headless` | 8201 | — | Raft 클러스터 포트(미사용) |
+| INT | `openbao-headless` | 8201 | — | raft 클러스터 포트(단일 노드라 실사용 없음) |
 | INT | `waypoint` | 15008 | — | HBONE |
 | INT | `waypoint` | 15021 | — | Istio 내부 |
 | INT | `wazuh-manager` | 1514 | — | 에이전트 수신 |
@@ -659,7 +662,7 @@ Kibana(https://localhost:5601) 의 **Dev Tools** 가 가장 편하다.
 | ES 401 | 수기 `elasticsearch-secret` 을 썼다 — ECK 시크릿을 쓸 것 |
 | MongoDB 인증 실패 | `authSource=admin` 을 안 넣었다 |
 | Ranger 401 이 계속 | **계정이 잠겼다**(Gotcha 11). DB 에서 `auth_status` 를 지워야 한다 |
-| Vault 가 `0/1` | 봉인 상태다 — `local/vault-init.sh unseal` |
+| OpenBao 가 `0/1` 또는 `1/2` | 봉인 상태다. 보통 사이드카가 10초 안에 푼다 — 안 풀리면 `openbao-keys` Secret 이 없는지 볼 것(`local/openbao-init.sh`) |
 | Apicurio UI 가 빈 화면 | Registry API 를 함께 forward 하지 않았다 |
 
 ---

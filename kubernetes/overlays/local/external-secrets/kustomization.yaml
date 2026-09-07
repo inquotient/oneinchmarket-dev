@@ -14,9 +14,35 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  - grafana-secret.yaml
   - apicurio-secret.yaml
   - caldera-secret.yaml
+  - clickhouse-secret.yaml
+  - cmmn-api-secret.yaml
+  - defectdojo-secret.yaml
+  - dependency-track-secret.yaml
+  - ds389-secret.yaml
+  - elasticsearch-secret.yaml
+  - falcosidekick-secret.yaml
+  - gitlab-deploy-token.yaml
+  - gitlab-secret.yaml
+  - glitchtip-secret.yaml
+  - grafana-secret.yaml
+  - hive-metastore-secret.yaml
+  - jenkins-secret.yaml
+  - keycloak-secret.yaml
+  - knox-secret.yaml
+  - lam-secret.yaml
+  - mariadb-secret.yaml
+  - minio-secret.yaml
+  - mongodb-secret.yaml
+  - openreplay-secret.yaml
+  - postgresql-secret.yaml
+  - proxysql-secret.yaml
+  - ranger-secret.yaml
+  - redis-secret.yaml
+  - safeline-secret.yaml
+  - shardingsphere-secret.yaml
+  - wazuh-secret.yaml
 
 commonAnnotations:
   # security 계층(4)보다 뒤여야 한다 — OpenBao 가 먼저 떠야 한다.

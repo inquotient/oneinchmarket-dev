@@ -8488,16 +8488,48 @@ caldera-secret   sha=fd406d279edd4dc2  (동일)
 
 스크립트가 이 목록을 하드코딩해 거부한다 — 실수로 옮기는 것을 막기 위해서다.
 
-#### 남은 이관 — 50종
+#### 이관 결과 — 29종
 
-지금은 `create-secrets.sh` 가 여전히 대부분의 원천이다. **한꺼번에 옮기지
-말 것** — 워크로드 40여 개가 `secretKeyRef` 로 물려 있고, 하나만 어긋나도 그
-파드가 `CreateContainerConfigError` 로 서는데 그 시점에는 무엇이 바뀌었는지
-추적하기 어렵다. 몇 개씩 옮기고 매번 해시로 확인하는 것이 맞다.
+옮길 수 있는 것을 전부 옮겼다. 판정은 매번 **이관 전후 sha256 대조**다.
+
+```
+ExternalSecret 29종 · 전부 SecretSynced
+해시 대조 26종 · 불일치 0
+클러스터 CrashLoopBackOff·CreateContainerConfigError 0건
+```
+
+#### 옮기지 않은 것과 그 이유
+
+| | 왜 |
+|---|---|
+| `openbao-keys` | **OpenBao 를 여는 열쇠다.** 넣으면 순환이다 — 봉인을 풀어야 읽는데 읽어야 봉인을 푼다 |
+| `elasticsearch-es-*` (11종) · `kibana-kb-*` | ECK 오퍼레이터가 소유·회전한다. 뺏으면 서로 되돌리며 싸운다 |
+| `*-tls` · `gateway-*-cert` · `openreplay-ssl-*` | cert-manager 가 소유한다 |
+| `gitlab-registry-secret` | `dockerconfigjson` 타입이고 GitLab 이 발급하는 배포 토큰이다(§8-79) |
+| **`openreplay-secrets` · `or-secrets`** | ★ **매니페스트가 정의한다.** ESO 로 옮기면 `kubectl apply -k` 와 ESO 가 **서로 덮으며 싸운다.** 옮기려면 매니페스트에서 먼저 빼야 한다 |
+
+★ 마지막 줄이 이 작업에서 새로 배운 것이다 — **"오퍼레이터가 소유하는가" 만
+보면 부족하다. "매니페스트가 정의하는가" 도 봐야 한다.** 판정은
+`kubectl kustomize <overlay> | grep 'kind: Secret'` 이다.
+
+#### 곁가지로 정리한 것 — 구 Vault 의 잔재
+
+`vault-init` Secret 이 남아 있었다. `root-token`·`unseal-key` 를 담은 채
+2026-09-01 에 만들어진 것으로, **구 Vault 는 초기화된 적이 있었다.**
+§8-80 에 "한 번도 초기화된 적이 없다" 고 적었는데 **그것은 확인하지 않은
+추정이었고 틀렸다.** 다만 참조하는 워크로드는 0개였고 그 Vault 는 애플리케이션
+시크릿을 담은 적이 없다(매니페스트 주석이 "올려만 둔 상태" 라고 적어 두었다).
+
+★ **삭제된 컴포넌트의 자격이 클러스터에 남는 것 자체가 위험이다.** 아무도
+쓰지 않으므로 회전되지도 감시되지도 않는다. 컴포넌트를 걷어낼 때 그 자격도
+함께 걷을 것. `local/vault-init.sh` 와 `local/ACCESS.md` 의 Vault 항목
+6곳도 이때 함께 정리했다.
+
+#### 그다음
 
 전면 이관이 끝나면 `.enc.yaml` 12개와 로테이션 CronJob 7종·git-sync 를
-제거한다(ADR-024). **그전까지는 둘 다 둔다** — 지우고 나서 이관이 덜 됐다는
-것을 알게 되면 복구할 원천이 없다.
+제거한다(ADR-024). **아직 지우지 않는다** — `openreplay-secrets`·`or-secrets`
+가 남아 있고, 지우고 나서 이관이 덜 됐다는 것을 알게 되면 복구할 원천이 없다.
 
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
