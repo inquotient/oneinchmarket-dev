@@ -57,14 +57,38 @@
 `v1/cluster/tls.key`에 RSA 개인키가 평문으로 git에 커밋되어 있다.
 
 ```
-v1/cluster/tls.key    1,736 bytes   -----BEGIN PRIVATE KEY-----   (git 추적 중)
+v1/cluster/tls.key    1,736 bytes   PKCS8 개인키 헤더로 시작   (git 추적 중)
 v1/cluster/tls.crt    1,166 bytes
 v1/tls/ca_bundle.crt  2,470 bytes
 ```
 
+> ★ 위에서 헤더 문자열을 그대로 적지 않는다. 시크릿 스캐너는 그 **마커 자체**를
+> 키로 읽어서, 문서가 사실을 설명하는 것만으로 Critical 탐지가 하나 생긴다
+> (실측: 이 줄이 §8-91 의 9건 중 하나였다). 뜻은 그대로 두고 마커만 뺀다 —
+> 스캐너를 피하려는 것이 아니라 **기계가 읽는 표식을 산문에 심지 않는 것**이다.
+
 `v1/tls/tls.sh:1`에 따르면 `*.oneinchmarket.co.kr` 와일드카드 자체서명 인증서의 키다. `.gitignore`에 `*.key`·`*.crt`가 있으나 **이미 추적 중인 파일에는 적용되지 않는다.**
 
 **조치**: ① 사용처 확인 → ② `git rm --cached` + `git filter-repo`로 이력 제거 → ③ 리모트 강제 갱신 → ④ 재발급 → ⑤ Gitleaks를 CI 게이트로 추가.
+
+#### 알려진 오탐 — 예외를 두지 않는다 (2026-09-08)
+
+§8-91 의 이력 스캔 9건 중 셋은 오탐이었다. **억제 장치를 두지 않고 여기 적는다.**
+
+| 탐지 | 왜 오탐인가 |
+|---|---|
+| `kubernetes/overlays/local/openmeter/openmeter.yaml` · `local/openmeter-values.yaml` 의 "Password in URL" | 토큰이 `__OPENMETER_DB_PASSWORD__` 형태의 **자리표시자**다. OpenMeter 는 환경변수 오버라이드가 먹지 않아(Gotcha 26) 평문을 두지 않으려고 initContainer 치환을 쓴다. 실측으로 토큰 패턴이 `__xxxxxxxx_xxxxxxxx__` 임을 확인했다 |
+| 이 문서의 PKCS8 탐지 | SEC-401 을 설명하는 문장이었다. 위에서 마커를 뺐다 |
+
+★★ **`.gitlab/secret-detection-ruleset.toml` 을 쓰지 않는다.** 만들어 봤으나
+분석기가 `ruleset customization not enabled` 를 남기고 무시했다 — 이 기능은
+**Ultimate 전용**이고 이 인스턴스는 Free 다(Secret Push Protection 과 같다).
+그 파일은 아무 일도 하지 않으면서 **자기 주석의 마커 때문에 탐지를 하나 더
+만들었다.** 지웠다.
+
+★ `SECRET_DETECTION_EXCLUDED_PATHS` 로 경로를 빼는 길도 있으나 **쓰지 않는다** —
+그 파일들에 진짜 시크릿이 들어와도 함께 놓치게 된다. 오탐 두 건을 감수하는
+편이 낫다고 판단했다. 그 파일을 고치는 커밋에서 증분 잡이 걸리면 이 표를 볼 것.
 
 #### 진행 상황 (2026-09-08, §8-92)
 
