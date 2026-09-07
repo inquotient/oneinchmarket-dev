@@ -8950,6 +8950,128 @@ phase: Succeeded | successfully synced (no more tasks)
 "같은 것이 같은 수만큼 실패하면 일시적이 아니다"). 파괴적 옵션을 논할 때는
 **그 옵션을 켠 dry-run 을 먼저 돌릴 것.**
 
+### 8-86. 자동 동기화를 켰다 — 그리고 `prune` 에 대한 내 판단이 틀렸었다 (2026-09-07)
+
+§8-83 이 정한 순서의 마지막이다. 수동으로 두었던 이유 둘이 모두 해소됐다:
+OutOfSync 389건은 §8-84 에서 0이 됐고, 고아 84건은 §8-85 에서 판정을 마쳤다.
+
+#### ★★ 먼저 고칠 것이 있었다 — §8-85 에 틀린 답이 적혀 있었다
+
+§8-85 는 이렇게 끝났다: *"남은 15건은 전부 git 에 없다. `prune` 을 켜면
+인증서·ES 자격·OpenBao unseal key 가 함께 사라진다."* **둘 다 틀렸다.**
+
+| 내가 믿은 것 | 실제 |
+|---|---|
+| prune 은 "git 에 없는 것" 을 지운다 | prune 은 **"ArgoCD 가 추적하는 것 중 git 에 없는 것"** 을 지운다. 고아 15건에는 `argocd.argoproj.io/tracking-id` 가 **없어** 애초에 후보가 아니다 — `orphanedResources` 가 별도 기능이고 **warn 만 하는 이유가 이것이다** |
+| 그래서 15건이 지워진다 | 실제 `requiresPruning=true` 는 **훅 16건뿐**(Job 12 · ConfigMap 2 · Secret 2, 전부 `argocd.argoproj.io/hook` 또는 `helm.sh/hook`). 훅의 수명은 `hook-delete-policy` 가 관리하므로 ArgoCD 는 prune 하지 않는다 |
+
+그리고 **추측을 멈추고 쟀다** — `prune=true` + `dryRun=true` 로 동기화를 걸면
+ArgoCD 가 무엇을 지울지 스스로 말해 준다:
+
+```
+phase: Succeeded | successfully synced (no more tasks)
+결과: {'Synced': 490}
+★ 지워질 것: 0
+```
+
+★ **교훈: "git 에 없으니 지워질 것" 은 추론이고 `dryRun` 은 측정이다.**
+파괴적 옵션을 논할 때는 **그 옵션을 켠 dry-run 을 먼저 돌릴 것.** 이 레포가
+반복해서 밟은 부류다(§8-57 의 측정 방법 결함, §8-84 의 curl 없는 프로브).
+
+#### 켠 것과 켜지 않은 것
+
+```yaml
+automated:
+  prune: true        # 측정: 지워질 것 0
+  selfHeal: false    # ← 일부러 끈다
+  allowEmpty: false  # 렌더가 비면 전부 지우는 사고 방지
+```
+
+★★ **`selfHeal` 을 끄는 것이 이 랩에서는 옳다.** 켜면 클러스터가 git 과
+어긋나는 즉시 되돌린다. 그런데 여기서는 **진단하려고 손으로 자주 고친다** —
+오늘만 해도 kubescape 의 `args` 를 패치해 통과를 확인한 뒤에 커밋했다(§8-84).
+selfHeal 이 켜져 있었다면 그 패치가 몇 초 만에 사라지고, **관측값이 왜 그런지
+알 수 없게 된다.** 이 레포가 반복해서 경계하는 "관측 행위 자체를 의심하라"
+부류(Gotcha 6·25)를 스스로 만드는 셈이다.
+
+`selfHeal: false` 면 손으로 고친 것은 **OutOfSync 로 보이되 되돌아가지 않는다**
+— ArgoCD 는 이미 동기화한 리비전을 다시 동기화하지 않기 때문이다. 즉
+"git 이 정답" 은 유지하면서 드리프트를 **신호로 남긴다.** 운영 성격이 되면
+그때 켤 것이고, 그 판단은 ADR-068 의 머지 관문(§9-4)과 같은 순서다.
+
+#### 검증 — 두 번에 나눠서 했다
+
+**① 매니페스트가 바뀌지 않은 커밋** (`10a8795`, argocd/·docs/ 만 변경):
+
+```
+[1] rev=edbd0f9f sync=Synced   ...
+[8] rev=10a87953 sync=Synced   ← 약 2분 30초 뒤 스스로 집었다
+```
+
+리비전만 올라가고 **동기화는 돌지 않았다.** ArgoCD 는 git SHA 가 아니라
+**렌더 결과**를 비교하므로, 문서만 고친 커밋은 훅을 재실행시키지 않는다.
+이 레포처럼 문서 커밋이 잦은 곳에서 중요한 성질이다.
+
+**② 매니페스트가 바뀐 커밋** (`eae3540`, Job 3종에 전용 SA):
+
+```
+rev=eae3540963b983cc606b6f86357e7856fd8c7b21
+op=Running | initiatedBy.automated=true      ← 수동 개입 0
+msg=waiting for completion of hook batch/Job/hive-schematool and 1 more hooks
+```
+
+`initiatedBy.automated=true` 가 결정적이다 — 사람이 부른 동기화가 아니다.
+그대로 두었더니 끝까지 혼자 돌았다:
+
+```
+rev=eae3540963b983cc606b6f86357e7856fd8c7b21
+sync=Synced health=Healthy
+auto=true
+msg=successfully synced (no more tasks)
+--- 새 SA (내가 apply 한 적 없다) ---
+apicurio-rules    3m48s
+ds389-bootstrap   3m48s
+hdfs-bootstrap    3m1s
+--- Job 이 실제로 그 SA 로 돌았나 ---
+apicurio-rules  -> apicurio-rules  succeeded=1
+ds389-bootstrap -> ds389-bootstrap succeeded=1
+hdfs-bootstrap  -> hdfs-bootstrap  succeeded=1
+```
+
+★ **판정을 "SA 가 생겼다" 로 끝내지 않았다** — SA 는 있는데 Job 이 여전히
+`default` 로 도는 경우가 있을 수 있어(렌더와 클러스터가 다를 때), Job 의
+`spec.template.spec.serviceAccountName` 과 `succeeded` 를 함께 봤다.
+
+★ 한 번 헷갈렸다: `status.reconciledAt` 이 5분 넘게 멈춰 있어 "컨트롤러가
+죽었나" 로 읽었는데, **동기화가 도는 동안에는 그 필드가 갱신되지 않는다.**
+판정은 컨트롤러 로그의 `syncId` 와 `initiatedBy.automated` 로 한다.
+
+#### 같이 끝낸 것 — Gotcha 19 를 닫았다
+
+②의 커밋 내용이 그것이다. `apicurio-rules` · `ds389-bootstrap` ·
+`hdfs-bootstrap` 에 전용 SA 를 주어 **렌더 결과에 `default` SA 로 도는 Job 이
+0건**이 됐다(열 건째다).
+
+★★ **이 셋은 고장나기 전에 고쳤다.** 목적지(Apicurio 8080 · DS389 3389 ·
+HDFS 8020)가 제한적인 ALLOW 정책에 선택되지 않아 `default` 로도 성공하고
+있었다. 어떤 정책도 `sa/default` 를 허용하지 않으므로(확인함) 바꿔도 지금
+동작이 달라지지 않고, 나중에 그 정책에 워크로드가 하나 추가되는 순간 함께
+끊기는 일만 사라진다. 그때 증상은 오류가 아니라 **무한 대기**다.
+
+★ 그리고 그 목록은 오래 잘못 적혀 있었다 — 한때 셋으로 적었고
+`apicurio-rules`·`hdfs-bootstrap` 이 빠져 있었으며, `minio-bootstrap` 은
+고친 뒤에도 "남은 것" 에 남아 있었다. **기억이 아니라 렌더에서 셀 것:**
+`kubectl kustomize kubernetes/overlays/local` 의 `kind: Job` 중
+`serviceAccountName` 이 없는 것.
+
+#### 남는 것
+
+- `selfHeal` 은 여전히 꺼져 있다. 켜는 조건은 "손으로 고칠 일이 없어지는 것"
+  이지 시간이 지나는 것이 아니다
+- ArgoCD Application 에 **finalizer 를 달지 않았다** — Application 을 지워도
+  클러스터 리소스는 남는다. 의도한 것이다(이 랩에서 Application 을 지우는 것은
+  대개 실험이지 철거가 아니다)
+
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
 > **이 절은 "지금 하지 않기로 결정한 것" 의 목록이다.** §8 의 각 절 끝에
