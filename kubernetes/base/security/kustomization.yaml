@@ -11,4 +11,6 @@ resources:
   - openbao/
   # 인가(ReBAC) — WSO2-OSS-MAPPING Phase 2 ⑧
   - openfga/
+  # IGA(SCIM · 승인 워크플로우) — Phase 2 ⑨
+  - midpoint/
   - wazuh/

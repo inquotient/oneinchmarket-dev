@@ -166,6 +166,17 @@ spec:
               # OpenFGA — 인가 저장소(WSO2-OSS-MAPPING Phase 2 ⑧, §8-102)
               ensure openfga        openfga        "$OPENFGA_DB_PASSWORD"
 
+              # midPoint — IGA(Phase 2 ⑨, §8-103)
+              ensure midpoint       midpoint       "$MIDPOINT_DB_PASSWORD"
+              # ★★ 확장 셋은 **superuser 권한**이 필요해 여기서 만든다.
+              #   midPoint 의 postgres.sql 이 이것들을 요구하는데, 그 SQL 은
+              #   **midpoint 롤로** 들어가야 한다(아니면 테이블이 postgres 소유가
+              #   된다). 이미 있으면 CREATE EXTENSION IF NOT EXISTS 는 무상이다.
+              for ext in intarray pg_trgm fuzzystrmatch; do
+                $PSQL -d midpoint -c "CREATE EXTENSION IF NOT EXISTS ${ext}" >/dev/null
+              done
+              echo "[postgres-bootstrap] midpoint 확장 3종 준비됨"
+
               echo "[postgres-bootstrap] 완료"
               $PSQL -d postgres -c "\l"
           env:
@@ -193,6 +204,8 @@ spec:
               valueFrom: { secretKeyRef: { name: safeline-secret, key: db-password } }
             - name: OPENFGA_DB_PASSWORD
               valueFrom: { secretKeyRef: { name: openfga-secret, key: db-password } }
+            - name: MIDPOINT_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: midpoint-secret, key: db-password } }
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

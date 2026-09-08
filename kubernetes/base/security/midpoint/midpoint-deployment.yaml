@@ -1,0 +1,189 @@
+# ─────────────────────────────────────────────────────────────────────────
+# midPoint — IGA(Identity Governance & Administration).
+# WSO2-OSS-MAPPING Phase 2 ⑨. §3 의 "못 메우는 칸" 중 **두 개**를 덮는다:
+#   #1 SCIM 2.0 프로비저닝   (Keycloak 에 네이티브 SCIM 서버가 없다)
+#   #5 ID 운영 승인 워크플로 (아이덴티티와 워크플로가 붙어 있어야 한다)
+#
+# ★ Keycloak 을 대체하지 않는다. Keycloak 은 **인증**(OIDC·SAML)이고
+#   midPoint 는 **거버넌스**다 — 누가 어떤 계정을 왜 갖는지, 승인은 누가
+#   했는지. 둘은 층이 다르다.
+#
+# ★★ 스키마를 앱이 만들지 않는다 — 네이티브 PostgreSQL 저장소는 SQL 을
+#   미리 넣어야 한다. 그런데 그 SQL 이 **확장 세 개**를 요구하고
+#   (intarray · pg_trgm · fuzzystrmatch) CREATE EXTENSION 은 superuser
+#   권한이다. 그래서 나눴다:
+#     · 확장 생성   -> postgres-bootstrap 이 postgres 로 미리 만든다
+#     · 스키마 생성 -> 여기 initContainer 가 **midpoint 롤로** 넣는다
+#   순서를 바꾸면(스키마를 superuser 로 넣으면) 테이블이 postgres 소유로
+#   남아 앱이 쓰지 못한다 — postgres-bootstrap 주석이 같은 함정을 적어 뒀다.
+#
+# ★ psql 은 midPoint 이미지에 없고 SQL 은 그 이미지에만 있다. 그래서
+#   initContainer 가 둘이다 — 하나는 SQL 을 꺼내고 하나는 넣는다.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: midpoint
+  labels:
+    app.kubernetes.io/name: midpoint
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: midpoint
+  labels:
+    app.kubernetes.io/name: midpoint
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: midpoint
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: midpoint
+        app.kubernetes.io/component: security
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/managed-by: kustomize
+    spec:
+      serviceAccountName: midpoint
+      # ★★ 4.10 이미지는 root 로 돌게 되어 있지만 비-root 로 세울 수 있다.
+      #   엔트리 스크립트가 확인하는 것은 /opt/midpoint/var 쓰기 가능 여부
+      #   하나뿐이고(4.11 부터 UID 1000 이 기본이라 그 안내가 스크립트에
+      #   그대로 적혀 있다), emptyDir + fsGroup 1000 이면 통과한다.
+      #   /opt/midpoint 자체는 이미 midpoint(1000) 소유다 — 실측했다.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # 1) SQL 을 이미지에서 꺼낸다.
+        - name: fetch-schema
+          image: evolveum/midpoint:4.10.4-alpine
+          command: ["/bin/sh", "-c"]
+          args:
+            - cp /opt/midpoint/doc/config/sql/native/postgres.sql
+                 /opt/midpoint/doc/config/sql/native/postgres-audit.sql
+                 /opt/midpoint/doc/config/sql/native/postgres-quartz.sql /sql/
+          volumeMounts:
+            - {name: sql, mountPath: /sql}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            readOnlyRootFilesystem: true
+          resources:
+            requests: {cpu: 20m, memory: 64Mi}
+            limits: {memory: 128Mi}
+        # 2) midpoint 롤로 넣는다. 이미 있으면 건너뛴다.
+        - name: init-schema
+          image: postgres:18.6
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              export PGPASSWORD="$MIDPOINT_DB_PASSWORD"
+              PSQL="psql -h postgresql-headless -U midpoint -d midpoint -v ON_ERROR_STOP=1"
+              echo "[midpoint-init] PostgreSQL 대기"
+              until $PSQL -c "SELECT 1" >/dev/null 2>&1; do sleep 3; done
+              # 멱등 — m_object 는 postgres.sql 이 만드는 핵심 테이블이다.
+              # 있으면 스키마가 이미 서 있는 것이므로 아무것도 하지 않는다.
+              if $PSQL -tc "SELECT 1 FROM information_schema.tables WHERE table_name='m_object'" | grep -q 1; then
+                echo "[midpoint-init] 스키마가 이미 있다 - 건너뛴다"
+                exit 0
+              fi
+              echo "[midpoint-init] 스키마 생성"
+              $PSQL -f /sql/postgres.sql
+              $PSQL -f /sql/postgres-audit.sql
+              $PSQL -f /sql/postgres-quartz.sql
+              echo "[midpoint-init] 완료"
+          env:
+            - name: MIDPOINT_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: midpoint-secret, key: db-password } }
+          volumeMounts:
+            - {name: sql, mountPath: /sql}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            readOnlyRootFilesystem: true
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {memory: 256Mi}
+      containers:
+        - name: midpoint
+          image: evolveum/midpoint:4.10.4-alpine
+          env:
+            # ★★ 기본값이 MP_MEM_MAX=2048m · MP_MEM_INIT=1024m 이다(실측).
+            #   이 노드 여유가 2.2 GiB 라 그대로 두면 들어가지 않는다.
+            #   request(1280Mi) 를 힙(1024m) 위로 둔다 — 힙이 request 아래면
+            #   GC 가 스왑을 훑어 성능이 무너진다(§8-103).
+            - {name: MP_MEM_MAX,  value: "1024m"}
+            - {name: MP_MEM_INIT, value: "256m"}
+            - {name: MP_SET_midpoint_repository_database, value: postgresql}
+            - name: MP_SET_midpoint_repository_jdbcUrl
+              value: jdbc:postgresql://postgresql-headless:5432/midpoint
+            - {name: MP_SET_midpoint_repository_jdbcUsername, value: midpoint}
+            - name: MP_SET_midpoint_repository_jdbcPassword
+              valueFrom: { secretKeyRef: { name: midpoint-secret, key: db-password } }
+            # H2 폴백을 끈다 — DB 가 안 붙으면 조용히 H2 로 뜨는 것보다
+            # 죽는 편이 낫다("성공 출력이 성공이 아닌" 부류를 만들지 않는다).
+            - {name: MP_H2_DEFAULTS, value: "false"}
+          ports:
+            - {containerPort: 8080, name: http, protocol: TCP}
+          # ★ 기동이 느리다(JVM + 초기 저장소 구성). startupProbe 로 여유를 준다.
+          startupProbe:
+            httpGet: {path: /midpoint/actuator/health, port: http}
+            periodSeconds: 10
+            failureThreshold: 60
+          livenessProbe:
+            httpGet: {path: /midpoint/actuator/health, port: http}
+            periodSeconds: 30
+          readinessProbe:
+            httpGet: {path: /midpoint/actuator/health, port: http}
+            periodSeconds: 15
+          volumeMounts:
+            # ★ 엔트리 스크립트가 쓰기 가능을 요구하는 유일한 경로다.
+            - {name: var, mountPath: /opt/midpoint/var}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 100m, memory: 1280Mi}
+            limits: {memory: 2Gi}
+      volumes:
+        - {name: sql, emptyDir: {}}
+        # ★ emptyDir 이다 — 재시작하면 비워진다. midPoint 의 상태는 전부
+        #   PostgreSQL 에 있으므로 var 는 로그·작업 디렉터리다. 영속이
+        #   필요해지면 PVC 로 바꿀 것.
+        - {name: var, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: midpoint-headless
+  labels:
+    app.kubernetes.io/name: midpoint
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: midpoint
+  ports:
+    - {name: http, port: 8080, targetPort: http, protocol: TCP}
