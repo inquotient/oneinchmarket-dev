@@ -10255,6 +10255,81 @@ GET /api/v1/meters -> 200 (feature 필터 status<500 그대로)
 로그의 "read-only file system"·"permission denied" 0건
 ```
 
+### 8-101. readOnlyRootFilesystem 2·3차 트랜치 — 그리고 예고한 사각지대가 실제로 물렸다 (2026-09-08)
+
+§8-100 이 만든 도구로 계속 켠다. **측정을 통과한 것만** 켠다는 규칙은 그대로다.
+
+| 트랜치 | 대상 | 방법 |
+|---|---|---|
+| 1 (§8-100) | openmeter 5 | 생성 파일 → kustomization patch |
+| **2** | **openreplay 14** | 생성 파일 → kustomization patch (이름 정규식) |
+| **3** | **prometheus · grafana · alertmanager** | base 매니페스트(dev/prod 에도 적용) |
+
+openreplay 에서 **세 종을 뺐고 이유를 남겼다**:
+
+| 뺀 것 | 왜 |
+|---|---|
+| `assist` | `/home/openreplay/.npm/_logs/...` 를 쓴다 |
+| `sourcemapreader` | 같은 이유 |
+| `frontend` | 셸이 없어 **측정 자체가 불가**했다. 측정 못한 것은 켜지 않는다 |
+
+라벨 셀렉터 대신 **이름 정규식**을 쓴 이유가 이것이다 — 라벨로 잡으면 셋이
+함께 들어온다.
+
+관측 3종을 base 에 넣은 근거: **측정은 이미지 수준**이라 환경이 달라도 같은
+결과다. 그래서 dev/prod 의 지적도 함께 줄어든다(렌더: local 7→29 ·
+dev/prod 7→10, openreplay·openmeter 가 local 전용이라 수치가 서로 맞는다).
+
+#### ★★ 그리고 grafana 가 깨졌다 — 예고한 그 방식으로
+
+`check-readonly-rootfs.sh` 는 grafana 를 "쓰기 0건" 으로 판정했다. 그런데:
+
+```
+logger=plugin.backgroundinstaller level=error msg="Failed to install plugin"
+  pluginId=mysql
+  error="failed to create temporary file: open /tmp/232714125.zip:
+         read-only file system"
+```
+
+**플러그인 설치가 기동 직후에 일어나** 기준 파일(`/etc/hostname`)과 시각이
+겹쳐 `-newer` 에 잡히지 않았다. §8-100 이 "이 도구는 보증이 아니다" 라고
+적어 둔 바로 그 부류이고, 이번에는 예고가 맞았다.
+
+★ **증상이 조용하다** — 파드는 `Ready` 이고 `/api/health` 는 `database: ok`
+다. 로그에만 18건이 남는다(mysql · elasticsearch · pyroscope-app ·
+postgresql-datasource · metricsdrilldown-app · stackdriver 등).
+
+처방은 하드닝을 되돌리는 것이 **아니라 쓰는 곳을 볼륨으로 빼는 것**이다 —
+`/tmp` 에 emptyDir 을 붙였다. `readOnlyRootFilesystem` 은 유지된다.
+
+```
+정정 후: read-only 오류 0건 · "Plugin successfully installed" 다수 ·
+        ready=true · restarts=0 · ro=true
+```
+
+#### 22종 전수 검사
+
+같은 검사를 이번에 켠 전부에 돌렸고 **오류가 있는 것은 grafana 하나뿐**이었다.
+openreplay 14 · openmeter 5 · prometheus · alertmanager 는 `restarts=0`,
+read-only 오류 0건.
+
+★ 확인 중 **내 측정이 한 번 틀렸다** — prometheus·grafana 가 HTTP `000` 으로
+보여 잠깐 죽은 줄 알았으나 port-forward 실패였고, 파드 안에서 직접 물으니
+둘 다 정상이었다(Gotcha 25 의 부류. 이 세션에서만 세 번째다).
+
+★ 그리고 `frontend-openreplay`(restarts 15) · `sourcemapreader`(16)는 **이번
+변경과 무관하다** — 둘 다 `ro` 가 설정되지 않았고 이전부터 재시작하고 있었다.
+openreplay 스택이 아직 동작하지 않는다는 기존 상태 그대로다.
+
+#### 진행 상황
+
+| | 건수 |
+|---|---|
+| 켜짐 (local 렌더) | **29** / 컨테이너 93 |
+| 남은 측정 통과 후보 | 약 14종 (admin · cmmn-api · ds389 · falco · gitlab-runner · mariadb · openbao · postgresql · redis · defectdojo 2 등) |
+| 측정 불가 | 18종(셸 없는 이미지) |
+| 불가 판정 | 37종 — 쓰는 경로를 emptyDir 로 빼야 한다 |
+
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
 > **이 절은 "지금 하지 않기로 결정한 것" 의 목록이다.** §8 의 각 절 끝에
@@ -10553,10 +10628,15 @@ local 실측: **가능 34 · 불가 37 · 측정 불가 18**.
 
 | | 상태 |
 |---|---|
-| 첫 트랜치 | openmeter 5종 — 적용하고 동작까지 확인(§8-100) |
-| 남은 후보 | 29종. **한 번에 켜지 말 것** — 묶음별로 켜고 기동 로그를 볼 것 |
+| 켜진 것 | **29 / 컨테이너 93**(local 렌더). 1차 openmeter 5(§8-100) · 2차 openreplay 14 · 3차 관측 3(§8-101) |
+| 남은 후보 | 약 14종(admin · cmmn-api · ds389 · falco · gitlab-runner · mariadb · openbao · postgresql · redis · defectdojo 2 등). **한 번에 켜지 말 것** — 묶음별로 켜고 기동 로그를 볼 것 |
 | 측정 불가 18종 | 셸이 없는 이미지(distroless)다. 다른 방법이 필요하고 미착수 |
-| 불가 37종 | 쓰는 경로를 emptyDir 로 빼야 한다 — 컨테이너마다 다른 일이다 |
+| 불가 37종 | 쓰는 경로를 emptyDir 로 빼야 한다 — grafana 가 그 본보기다(/tmp, §8-101) |
+
+★★ **2차·3차에서 사각지대가 실제로 물렸다** — grafana 는 검사를
+통과했는데 플러그인 설치가 깨졌다(기동 직후 쓰기라 놓친다). 파드는
+Ready 였고 /api/health 도 ok 였으며 **로그에만** 남았다. 그래서 결론은
+롯아웃 뒤 로그를 본 뒤에만 낼 수 있다 — 파드 상태는 답이 아니다.
 
 ★★ **이 도구가 "쓰기 0건" 이라고 말해도 보증이 아니다.** 기동 중의 쓰기는
 기준 파일과 시각이 겹쳐 놓친다 — `dependency-track-frontend` 가 그 반례다
