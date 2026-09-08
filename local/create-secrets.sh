@@ -122,6 +122,13 @@ mk dependency-track-secret "db-password=$(gen)" \
 # SafeLine WAF — 공용 PG 롤 비밀번호. 관리자 계정은 mgt 가 첫 기동에
 # 생성하고 로그에 1회만 출력한다.
 mk safeline-secret "db-password=$(gen)"
+# OpenFGA — 인가(WSO2-OSS-MAPPING Phase 2 ⑧, §8-102).
+#   ★ datastore-uri 에 비밀번호가 들어간다 — db-password 와 **반드시 같은 값**이어야
+#   한다. postgres-bootstrap 은 db-password 로 롤을 만들고 OpenFGA 는 URI 로
+#   접속하므로, 둘이 어긋나면 인증 실패가 난다.
+#   ★ preshared-key 가 없으면 OPENFGA_AUTHN_METHOD=preshared 가 기동하지 않는다.
+OPENFGA_PW=$(gen)
+mk openfga-secret     "db-password=$OPENFGA_PW" \n                      "datastore-uri=postgres://openfga:${OPENFGA_PW}@postgresql-headless:5432/openfga?sslmode=disable" \n                      "preshared-key=$(gen 32)"
 
 # DefectDojo — Django SECRET_KEY 와 자격 3종.
 #   credential-aes-256-key 는 DB 에 저장하는 연동 자격을 암호화하는 키다.

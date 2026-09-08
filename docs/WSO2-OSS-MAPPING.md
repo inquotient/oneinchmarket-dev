@@ -76,7 +76,7 @@ B2B 멀티테넌시가 네이티브로 된다) · **389DS**(사용자 저장소)
 | **적응형 인증**(스크립트 조건부) | ⚠️ Keycloak Authenticator SPI(Java) · Zitadel Actions(JS) · Authentik Expression(Python) | ❌ **약한 칸** |
 | 사용자 저장소(LDAP) | ★ **389DS + LAM** | ✅ |
 | **SCIM 2.0 프로비저닝** | ⚠️ Keycloak SCIM 확장(커뮤니티) · **midPoint**(IGA 로 상위 대체) | ❌ **공백** |
-| XACML 엔타이틀먼트 (PDP) | ★ **OpenFGA**(ReBAC) / **OPA**(Rego) / Cerbos / Permify / SpiceDB | ❌ |
+| XACML 엔타이틀먼트 (PDP) | ★ **OpenFGA**(ReBAC) / **OPA**(Rego) / Cerbos / Permify / SpiceDB | ✅ **OpenFGA v1.19.0**(§8-102) |
 | 조직 · B2B 멀티테넌시 | ★ **Keycloak Organizations**(26.x GA) / Zitadel | ✅ 버전 충족 |
 | 계정 셀프서비스(가입·복구·잠금) | ★ Keycloak | ✅ |
 | **ID 운영 승인 워크플로** | ★ **midPoint** / Temporal | ❌ |
@@ -239,10 +239,12 @@ Gotcha 15 가 말한 "이미 청구한 이력" 이 아직 없으므로, **바꾼
 
 ### Phase 0 — 전제 (지금 깨져 있다)
 
-1. **시크릿** — OpenBao + External Secrets (ADR-024). 모든 것이 여기 얹힌다.
-   현재 Vault 는 `0/1`(봉인)이고 시크릿 관리는 미작동이다(CLAUDE.md).
-2. **ArgoCD** — Multi-environment · API Promotion 두 칸과 ADR-068 머지 관문이
-   전부 여기 달려 있다. **현재 CRD 0 · 파드 0 · 네임스페이스 없음.**
+1. ~~**시크릿**~~ — **끝났다**(§8-82). OpenBao 가 `2/2 Running · Sealed=false` 이고
+   External Secrets 오퍼레이터 3파드가 돌며 **ExternalSecret 29건이 전부
+   `SecretSynced`** 다(2026-09-08 실측). 위의 "Vault 는 0/1 봉인" 은 낡은 서술이었다.
+2. ~~**ArgoCD**~~ — **끝났다**(§8-83·§8-84·§8-86). 네임스페이스·파드 7개·
+   Application 1개가 있고 자동 동기화가 돌고 있다. 위의 "CRD 0 · 파드 0" 은
+   낡은 서술이었다.
 3. **메모리 여유** — 프로파일 분리(§19 ③). §11-4 가 이미 `필요 56.6 vs 가용 47.6` 이다.
 
 ### Phase 1 — API Manager 완성 (절반은 이미 있다)
@@ -250,15 +252,27 @@ Gotcha 15 가 말한 "이미 청구한 이력" 이 아직 없으므로, **바꾼
 4. ~~**쓰로틀링**~~ — **끝났다**(§8-89). `envoyproxy/ratelimit` + 기존 Redis.
    descriptor 키는 토큰의 tenant 클레임이고, 실측으로 650회 버스트에서
    **600번째부터 429** 를 받았다. 요금제별 쿼터는 ConfigMap 의 `descriptors` 에
-   테넌트를 명시해 준다 — 다만 **요금제와 한도를 잇는 자동화는 아직 없다**
-5. **Apicurio 채우기** — `contracts/openapi/` 작성. 지금 **0건**이라
-   Publisher · Compatibility · Governance **세 칸이 동시에 껍데기**다
-6. **요금제 정의**(§9-2) — 제품 추가가 아니라 OpenMeter 설정
+   테넌트를 명시해 준다. ~~요금제와 한도를 잇는 자동화는 아직 없다~~ —
+   **§8-90 에서 생겼다.** local/pricing-catalog.yaml 이 가격과 쿼터의 단일
+   원천이고, render-ratelimit.py --check 가 뒤처지면 CI 가 멈춘다
+5. **Apicurio 채우기** — `contracts/openapi/` 작성. ~~지금 0건~~ — **1건이
+   생겼다**(`cmmn-api.yaml`, §8-99). 실측으로 썼고 spectral 을 0 errors 로
+   통과한다. 남은 것: menu 이벤트 Avro 스키마·`asyncapi/cmmn-api.yaml`.
+   ★ 그리고 `publish-contracts` 이 `v2` 브랜치 전용이어서 **클러스터가 있는
+   `local` 에서는 돌지 않았다** — 그것도 함께 고쳤다
+6. ~~**요금제 정의**~~(§9-2) — **끝났다**(§8-87·§8-90). 3단 요금제·고객·구독이
+   서고 인보이스가 나온다. 5xx 가 청구되지 않는 것까지 확인했다
 7. **Gravitee CE** — 소비자 셀프서비스가 필요하다는 전제라면 여기. §5 를 볼 것
 
 ### Phase 2 — Identity Server 완성
 
-8. **OpenFGA 또는 OPA** — 엔타이틀먼트. **둘 다가 아니라 하나**
+8. ~~**OpenFGA 또는 OPA**~~ — **OpenFGA 로 도입했다**(2026-09-08, §8-102).
+   PostgreSQL 을 재사용하고 wave 4 에 선다. 인증(preshared)을 켜고
+   플레이그라운드를 꿼다. 검증은 관계 추론까지 했다 — alice 를 editor 로만
+   썼는데 viewer 질의가 True 였고(union 규칙) bob 은 False 였다.
+   ★ OPA 를 고르지 않은 이유 — 이 플랫폼에는 규칙 기반 정책 엔진이 이미
+   둘 있다(Kyverno = 어드미션, Istio AuthorizationPolicy = 서비스 간). 비어
+   있는 칸은 **앱 데이터에 대한 인가**이고 그것은 관계로 표현된다
 9. **midPoint** — SCIM · ID 운영 워크플로
 
 ### Phase 3 — Integrator · Streaming
@@ -289,10 +303,10 @@ Gotcha 15 가 말한 "이미 청구한 이력" 이 아직 없으므로, **바꾼
 | Flowable / Temporal | 0.5 ~ 0.8 GiB | |
 | Camel K (operator + 통합 몇 개) | 0.5 ~ 1.0 GiB | 통합 개수에 비례 |
 | OpenBao + External Secrets | 0.4 GiB | |
-| OpenFGA | 0.15 ~ 0.25 GiB | Go |
+| OpenFGA | ~~0.15 ~ 0.25 GiB~~ **실측 17Mi** | Go. 추정의 **10분의 1** 이었다(§8-102) |
 | Envoy ratelimit | 0.1 GiB | Redis 재사용 |
 | Coraza | 0.0 ~ 0.25 GiB | Envoy Wasm 이면 무시 가능 |
-| **합계** | **8 ~ 14 GiB** | |
+| **합계** | **8 ~ 14 GiB** | ★ 이 숫자를 그대로 믿지 말 것 — 첫 실측에서 OpenFGA 가 추정의 1/10 이었다. **Go 서비스는 부풀려 있고 JVM 은 그렇지 않을 것이다** — 도입할 때마다 칸을 실측으로 교체할 것 |
 
 **Phase 0 의 프로파일 분리가 선행되지 않으면 들어갈 자리가 없다.** 이것은
 취향이 아니라 산술이다.

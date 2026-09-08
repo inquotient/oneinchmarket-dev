@@ -35,6 +35,7 @@ resources:
   - mariadb-secret.yaml
   - minio-secret.yaml
   - mongodb-secret.yaml
+  - openfga-secret.yaml
   - openreplay-secret.yaml
   - postgresql-secret.yaml
   - proxysql-secret.yaml

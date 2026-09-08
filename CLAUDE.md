@@ -99,6 +99,7 @@ cd scripts/security-verification && ./run-all.sh [namespace]
 1. **Admission** — Kyverno 6정책 (disallow-root, disallow-latest, disallow-privilege-escalation, require-labels, require-probes, require-resources). base는 Audit, prod는 4종만 Enforce
 2. **Network** — default-deny **ingress**(egress 차단 없음) + allow 13종 + Istio AuthorizationPolicy 4종
 3. **Runtime** — Falco DaemonSet(modern_ebpf) → Falcosidekick → Elasticsearch/Kafka. **L0 랩은 Suricata(인라인·ET Open 36,818 규칙) · Zeek(포트 미러링) · ntopng 셋을 동시에 돌린다** — Suricata 는 `suricata`, Zeek 는 `zeek` 인덱스로 들어온다(§8-51). **local 에서도 Falco 가 돈다(§8-64).** 오래도록 "WSL2 커널에서 modern_ebpf 가 `scap_init` 에 실패한다" 로 비활성돼 있었으나, 원인은 커널이 아니라 **이미지가 2024년판에 멈춰 있었던 것**이다 — `falcosecurity/falco-no-driver` 는 0.39.2(2024-11-21) 에서 버려졌고 유지되는 저장소는 `falcosecurity/falco`(0.44.1)다. Tetragon 도 계속 돈다(ADR-025) — 둘은 대체재가 아니라 병행이다. Slack 출력은 webhook URL 이 비어 있어 켜지지 않는다. **Falcosidekick 은 `args: ["-c", "/etc/falcosidekick/config.yaml"]` 이 없으면 설정을 읽지 못해 출력이 0개가 된다** — 파드는 Ready 로 보이고 단서는 기동 로그의 `Enabled Outputs: []` 뿐이다(§8-35)
+5. **인가(앱 데이터)** — **OpenFGA v1.19.0**(ReBAC, wave 4). PostgreSQL 을 재사용하고 `openfga-headless:8080`(HTTP) · `:8081`(gRPC) 로 든는다. ★ Kyverno·Istio 정책과 역할이 다르다 — 그 둘은 **규칙**(어드미션·서비스 간)이고 이것은 **관계**다("이 사용자가 이 문서의 편집자인가"). ★★ `OPENFGA_AUTHN_METHOD=preshared` 를 반드시 유지할 것 — 기본값 `none` 이면 메시 안 누구나 인가 결정을 바꿔 **인가 서버가 인가되지 않는 상태**가 된다(§8-102)
 4. **Supply Chain** — CI의 Trivy 3잡 + Cosign 서명. **서명 검증 정책은 없다**
 
 ## 환경별 차이
@@ -342,6 +343,10 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 
 96. **`readOnlyRootFilesystem` 을 켜면 깨지는 것은 CrashLoop 이 아니라 **로그 한 줄**일 수 있다.** grafana 는 검사(Gotcha 92)를 "쓰기 0건" 으로 통과했는데 켜자 **플러그인 설치가 전부 실패**했다 — `Failed to install plugin ... open /tmp/xxx.zip: read-only file system` 18건. 그런데 **파드는 Ready 이고 `/api/health` 는 `database: ok`** 다. 플러그인 설치는 **기동 직후**라 기준 파일과 시각이 겹쳐 검사에 잡히지 않는다. ★ 그래서 켠 뒤 판정은 **파드 상태가 아니라 로그**로 한다: `kubectl logs <wl> | grep -i "read-only file system\|EROFS"`. ★★ 처방은 하드닝을 되돌리는 것이 아니라 **쓰는 곳을 emptyDir 로 빼는 것**이다(grafana → `/tmp`). 그러면 설정을 유지한 채 고쳐진다 — §8-101
 97. **켤 대상을 라벨 셀렉터로 잡지 말 것 — 빼야 할 것이 섞인다.** openreplay 17종 중 3종을 빼야 했다(`assist`·`sourcemapreader` 는 `~/.npm/_logs` 를 쓰고, `frontend` 는 셸이 없어 **측정 자체가 불가**했다). kustomize `patches` 의 `target.name` 에 정규식을 써서 통과한 14종만 이름으로 나열했다. ★ **측정하지 못한 것을 켜지 않는다** — "아마 괜찮겠지" 가 들어오는 자리가 정확히 거기다 — §8-101
+
+98. **낡은 계획서는 계획을 막는다 — 도입 작업의 절반은 문서를 사실로 되돌리는 것이었다.** `WSO2-OSS-MAPPING.md` 는 Phase 0 을 "지금 깨져 있다" 로 적어 두었는데 실측은 정반대였다: OpenBao `2/2 · Sealed=false` · ExternalSecret **29건 전부 SecretSynced** · ArgoCD 파드 7개 · Application 1개가 자동 동기화 중이었다. Phase 1 의 "요금제와 한도를 잇는 자동화는 아직 없다"·"계약 0건"·"요금제 미완" 도 전부 이미 끝난 것이었다. ★ 그 상태로는 **Phase 2 로 갈 수 없다고 읽힌다** — 전제가 깨져 있다고 문서가 말하니까. 새 컴포넌트를 도입하기 전에 **문서가 말하는 전제를 하나씩 실측할 것** — §8-102
+99. **무엇을 도입할지는 취향이 아니라 산술로 정해진다.** 남은 도입 합계가 §7 추정으로 **8~14 GiB** 인데 노드 여유는 **1.2 GiB** 였다. 그래서 들어갈 수 있는 것은 OpenFGA(0.15~0.25) 하나뿐이고 나머지(Gravitee 2~2.5 · Flink 2~3 · midPoint 1~1.5 · Debezium 1.0)는 프로파일 분리가 선행되어야 한다. ★ 그리고 도입 뒤 **추정을 실측으로 갈 것** — OpenFGA 는 추정의 **10분의 1**(17Mi)이었다. ★★ 다만 그것으로 합계를 낮춰 읽지 말 것: Go 정적 바이너리라 그런 것이고 **남은 큰 항목은 전부 JVM 이라 같은 배율이 아니다** — §8-102
+100. **인가 엔진을 더할 때는 이미 있는 정책 엔진과 무엇이 다른지 먼저 말할 것.** 이 플랫폼에는 규칙 기반이 이미 둘 있었다 — Kyverno(어드미션: "이 매니페스트를 받아도 되나")와 Istio AuthorizationPolicy(서비스 간: "이 SA 가 이 포트에 붙어도 되나"). 비어 있던 칸은 **애플리케이션 데이터**("이 사용자가 이 문서를 고쳐도 되나")이고 그것은 규칙이 아니라 **관계**로 표현된다 — 그래서 OPA(Rego)가 아니라 OpenFGA(ReBAC)다. OPA 를 더했으면 규칙 엔진이 셋이 됐을 것이다. ★ 검증도 "파드 Ready" 가 아니라 **추론으로** 한다: alice 를 `editor` 로만 썼는데 `viewer` 질의가 True 여야 한다(union 규칙). 그것이 안 되면 저장만 되고 인가는 안 되는 것이다. ★★ 그리고 인가 서버는 **자기 자신이 인가되어야 한다** — `OPENFGA_AUTHN_METHOD` 기본값이 `none` 이라 그대로 두면 메시 안 누구나 인가 결정을 바꾼다. 플레이그라운드도 끌 것 — §8-102
 
 ### 매니페스트 작업 시
 
