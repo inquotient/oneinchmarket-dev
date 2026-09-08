@@ -10102,6 +10102,159 @@ trivy-config-report   success   (HIGH 를 계속 보고 · 비차단)
 `readOnlyRootFilesystem` 312건과 kubeconform 의 `Skipped` 95건은
 **갚지 않은 부채다.** 게이트를 통과시킨 것이지 없앤 것이 아니다.
 
+### 8-98. §9-12 를 갚는다 ① — kubeconform Skipped 0 · 동작할 수 없던 build/sign 제거 (2026-09-08)
+
+#### kubeconform: 95건이 "검사 없이 통과" 하고 있었다
+
+`-ignore-missing-schemas` 는 스키마가 없는 종류를 **조용히 건너뛴다.**
+건너뛴 것이 무엇인지 세어 보니 CRD 였다:
+
+| 오버레이 | Skipped | 무엇이 |
+|---|---|---|
+| local | 62 | external-secrets 30 · cert-manager 10 · istio 9 · kyverno 6 · gateway-api 4 · ECK 2 |
+| dev · prod | 33 · 33 | 같은 계열 |
+
+`-schema-location` 에 CRD 카탈로그(datreeio/CRDs-catalog)를 붙이자
+**local 503 · dev 357 · prod 365 가 전부 Valid, Skipped 0** 이 됐다.
+
+★ 카탈로그는 원격이라 못 받으면 예전처럼 건너뛴다 — **게이트가 조용히
+약해진다**(Gotcha 60). 그래서 판정을 로그의 **Skipped 건수**로 하라고
+잡 주석에 적었다. 0 이 아니면 카탈로그가 안 닿았거나 새 CRD 가 들어온 것이다.
+
+#### build → sign 사슬은 세 겹으로 동작할 수 없었다
+
+| 겹 | 무엇이 |
+|---|---|
+| ① | `v1/admin/Dockerfile` · `v1/cmmn-api/Dockerfile` 이 **없다.** 그 디렉터리에는 레거시 매니페스트만 있고 앱 소스는 이 레포에 없다 |
+| ② | `docker:dind` 는 privileged 가 필요한데 이 러너는 주지 않는다 |
+| ③ | push 대상 `registry.oneinchmarket.co.kr` 는 **존재하지 않는다** |
+
+배포되는 것은 Docker Hub 의 `inquotient/*@sha256:` 다이제스트다.
+
+★ **이미지 스캔 능력을 지운 것이 아니다** — Trivy Operator 가 클러스터에서
+`admin`·`cmmn-api` 를 상시 스캔하고 VulnerabilityReport 가 실재한다(§8-79).
+동작하지 않는 중복을 지우고 진짜 있는 곳을 가리켰다. 새 앱을 이 레포에서
+빌드하게 되면 그때 사실에 맞는 모양으로 다시 세울 것.
+
+★ 이 작업 중 `spectral-lint` 을 한 번 잘못 지웠다 — 잘라낸 시작점이 한 블록
+위였다. `Gitlab::Ci::Lint` 의 잡 수가 12가 아니라 11로 나와 드러났고
+복원했다. **린터를 매번 돌린 것이 유일한 방어였다.**
+
+### 8-99. §9-12 를 갚는다 ② — 계약이 비어 있던 진짜 이유 (2026-09-08)
+
+`contracts/openapi/` 가 왜 비어 있는지 파고들다 그보다 큰 것을 찾았다.
+
+#### ★★ cmmn-api 는 6일째 Ready 인 채 모든 업무 엔드포인트가 500 이었다
+
+```
+GET /api/menu            -> 500
+GET /api/multiLanguage   -> 500
+GET /api/multiLanguageAll-> 500
+  Table 'cmmn.multi_language' doesn't exist
+```
+
+`cmmn` 데이터베이스는 있는데 **테이블이 0개**였다. health 프로브가 DB 를
+보지 않아 파드는 `1/1 Running` 이었다 — Gotcha 3(부트스트랩 부재)의 사례이고,
+이 세션이 반복해 만난 "Ready 인데 죽어 있다" 그 패턴이다.
+
+레포에 `.sql` 이 **0건**이고 앱 소스도 밖에 있어 스키마 원천이 없다. 유일한
+정본은 이미지 안의 엔티티 매핑이므로 Hibernate 에게 만들게 했다
+(`SPRING_JPA_HIBERNATE_DDL_AUTO=update`, **local 오버레이 전용 임시방편**).
+
+#### 지어내지 않고 계약을 얻은 순서
+
+| | 무엇을 했나 | 무엇을 얻었나 |
+|:-:|---|---|
+| ① | `/actuator/mappings` 를 일시적으로 노출 | 실제 라우트 6개(되돌렸다) |
+| ② | Hibernate 로 스키마 생성 | GET 셋이 200 이 됐다 |
+| ③ | 각 엔드포인트를 실제 호출 | 응답 본문의 **정확한 필드 이름** |
+| ④ | MariaDB 컬럼·enum 조회 | 타입과 enum 값(`TITLE\|VIEW`, `EN\|KO`, `LABEL\|MESSAGE`) |
+
+앱이 스스로 알려준 것들:
+
+- **POST 는 객체가 아니라 배열을 받는다** — `ArrayList<MultiLanguageDTO>`.
+  객체를 보내면 400 이고, 그 이유는 오직 앱 로그에만 있다.
+- 쓰기에는 **CSRF 토큰**이 필요하다(`GET /csrf` → `X-CSRF-TOKEN`).
+- 필드는 `menuUrlPath` 가 아니라 **`menuURLPath`** 다. 틀린 이름은 오류 없이
+  무시되고 null 로 남는다 — 계약이 없으면 알 수 없는 종류의 함정이다.
+- `/api/multiLanguage` 와 `/api/multiLanguageAll` 은 **같은 핸들러**다.
+
+#### ★★ 실패한 요청이 스키마를 통째로 알려줬다
+
+`POST /api/multiLanguage` 는 **DB 에는 쓰고 500 을 낸다.** 예외에 직렬화기가
+찍은 **Avro 스키마 전문**이 들어 있었고, 실패 사유도 함께였다:
+
+```
+Subject 'dev.api.cmmn.multilanguage-refresh-value' not found.; error code: 40401
+```
+
+`AUTO_REGISTER_SCHEMAS=false` 라 앱은 스스로 등록하지 않는다. 그 스키마를
+`contracts/schemas/dev.api.cmmn.multilanguage-refresh-value.avsc` 로 넣었다 —
+**파일명이 곧 ccompat subject** 이므로 실제 subject 이름을 그대로 썼다.
+
+★ `contracts/README.md` 의 토픽 목록이 틀렸다 — 게시 토픽에는 **`-refresh`
+접미**가 붙는다. 소비 토픽만 적혀 있었다.
+
+★★ menu 쪽 스키마는 **받지 못했다.** `POST /api/menu` 가 201 로 성공해 예외가
+없었기 때문이다. **추정으로 쓰지 않고 비워 뒀다** — 틀린 계약은 없는 계약보다
+나쁘다(계약이 원천이 되기 때문이다).
+
+#### 그리고 계약을 써도 등록되지 않는 이유가 하나 더 있었다
+
+`publish-contracts` 잡은 레지스트리 주소가 `…dev.svc.cluster.local` 로 박혀
+있고 `rules` 가 **`v2` 브랜치에서만** 돈다. 즉 **실제 클러스터가 있는 `local`
+에서는 영영 돌지 않는다.** 브랜치에서 네임스페이스를 뽑도록 고쳤다.
+
+#### 검증
+
+```
+spectral lint (CI 와 같은 이미지·룰셋)  → 0 errors (새 계약 지적 0건)
+GET /api/menu · /api/multiLanguage      → 200
+POST /api/menu (배열 + CSRF)            → 201
+```
+
+### 8-100. §9-12 를 갚는다 ③ — readOnlyRootFilesystem 은 도구부터 만들었다 (2026-09-08)
+
+Trivy 가 `KSV-0014` 로 312건을 지적하지만 **켜면 조용히 깨지는 것이 있다** —
+Dependency-Track 프런트가 그랬다(Gotcha 48). 그래서 추측하지 않고 물어본다:
+
+```sh
+find / -xdev -newer /etc/hostname -type f     # local/check-readonly-rootfs.sh
+```
+
+`-xdev` 가 마운트된 볼륨을 빼주므로 **순수 rootfs 쓰기만** 남는다.
+
+★ **첫 판은 틀렸다.** `/etc/hosts`·`/etc/resolv.conf`·SA 토큰은 kubelet 이
+바인드 마운트하는 것이라 이 설정과 무관한데 세고 있었다. 그 탓에
+kafka·grafana·hbase 가 전부 "깨진다" 로 나왔다 — 측정이 아니라 소음이었다.
+
+걸러내고 다시 잰 결과(local):
+
+| | 건수 |
+|---|---|
+| 켤 수 있다(쓰기 0건) | **34** |
+| 켜면 깨진다 | **37** |
+| 측정 불가(셸 없음) | 18 |
+
+★ 측정이 값을 했다 — "안전해 보이는" 후보였던 **caldera** 는
+`/usr/src/app/conf/local.yml` 을, **hive-server** 는
+`/opt/hive/conf/hiveserver2.pid` 를 쓴다. 추측했으면 둘 다 깼다.
+
+★★★ **그리고 이 도구는 보증이 아니다.** 기준 파일이 기동 순간에 쓰이므로
+**엔트리포인트가 거의 동시에 고친 파일은 잡히지 않는다.** 실제 반례가
+`dependency-track-frontend` 다 — 이 검사에서 "쓰기 0건" 인데 실제로는 깨진다.
+목록은 **후보이지 결론이 아니다.** 스크립트 머리말에 적어 두었다.
+
+#### 첫 트랜치 — openmeter 5종
+
+측정을 통과했고 HTTP API 로 동작을 확인할 수 있어 골랐다.
+
+```
+5종 모두 ready=1/1 · restarts=0 · readOnlyRootFilesystem=true
+GET /api/v1/meters -> 200 (feature 필터 status<500 그대로)
+로그의 "read-only file system"·"permission denied" 0건
+```
+
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
 > **이 절은 "지금 하지 않기로 결정한 것" 의 목록이다.** §8 의 각 절 끝에
@@ -10384,18 +10537,49 @@ Gotcha 33(Alertmanager receiver 비어 있음) · Gotcha 48(Dependency-Track 이
 ★ ②를 고르더라도 **어노테이션 65개는 남는다.** 그 자체가 "동작한다" 는
 잘못된 신호이므로, 어느 안을 고르든 `CLAUDE.md` 의 규약 문장을 함께 고칠 것.
 
-### 9-12. 게이트를 통과시킨 것이지 부채를 갚은 것이 아니다 (§8-97 에서 미룸)
+### 9-12. §8-97 이 남긴 네 가지 — **셋을 갚았고 하나는 캠페인이 되었다**
 
-| 남은 것 | 규모 | 왜 미뤘나 | 지금 상태 |
-|---|---|---|---|
-| **`readOnlyRootFilesystem` 미설정**(KSV-0014) | **312건** | 워크로드 대부분이 대상이라 한 번에 갚을 수 없다. 그리고 **켜면 조용히 깨지는 것이 있다** — Dependency-Track 프런트가 정확히 그랬다(엔트리포인트가 자기 config.json 을 제자리에서 고친다, Gotcha 48). 하나씩 켜고 기동을 확인해야 하는 일이다 | `trivy-config-report`(비차단)가 매 파이프라인에 숫자를 찍는다. **이 숫자가 줄지 않으면 갚고 있지 않은 것이다** |
-| **kubeconform `Skipped`** | dev 33 · prod 33 · local 62 | `-ignore-missing-schemas` 로 넘긴 CRD 들이다(Istio·ECK·Kyverno·cert-manager 등). 스키마를 받아오려면 `-schema-location` 에 CRD 스키마 저장소를 붙여야 하고, 버전이 어긋나면 **없는 검사를 있는 것처럼** 만든다 | 이 게이트는 "전부 검사했다" 가 아니라 **"내장 스키마가 있는 것은 맞다"** 다. 그렇게 읽을 것 |
-| **`spectral-lint`** | 계약 0건 | `contracts/openapi/` 가 **빈 디렉터리**다. 잡은 파일이 없으면 통과하되 에코를 남긴다. 게이트가 무의미한 것이 아니라 **먹일 것이 없다** | WSO2 Phase 1 ⑤ 의 선행 조건이다 |
-| **`build-*` · `trivy-image-scan`** | 2종 | `v1/admin/Dockerfile` · `v1/cmmn-api/Dockerfile` 이 **존재하지 않는다**(CLAUDE.md 가 이미 지적한 모순). push 파이프라인에서는 `changes:` 로 걸러져 돌지 않지만, **web 파이프라인에서는 돈다** — 실제로 이번 검증에서 `skipped` 로 남았다 | 미착수. `v1/` 배포 금지 결정과 함께 정리할 일이다 |
+| 남긴 것 | 상태 | 기록 |
+|---|---|---|
+| kubeconform `Skipped` 95건 | **해소 — 0건** | CRD 카탈로그를 붙였다. local 503 · dev 357 · prod 365 전부 Valid(§8-98) |
+| `build-*` 가 없는 Dockerfile 참조 | **해소 — 사슬 제거** | 세 겹으로 동작 불가였다. 이미지 스캔은 Trivy Operator 가 이미 하고 있다(§8-98) |
+| `contracts/openapi/` 가 비어 있다 | **해소 — 실측으로 작성** | 그 과정에서 cmmn-api 가 6일째 500 이었던 것을 찾아 고쳤다(§8-99) |
+| `readOnlyRootFilesystem` 312건 | **캠페인이다 — 도구 + 첫 트랜치 완료** | 아래 |
 
-★ 이 절의 목적은 **초록불이 무엇을 보증하고 무엇을 보증하지 않는지**를
-적어 두는 것이다. §8-97 이후 파이프라인은 초록이지만, 그것은
-"CRITICAL 미스컨피그 0 · 내장 스키마 위반 0" 까지다.
+#### ★ readOnlyRootFilesystem — 진행 상황과 다음 할 일
+
+`local/check-readonly-rootfs.sh` 가 도는 컨테이너에 직접 물어 후보를 가른다.
+local 실측: **가능 34 · 불가 37 · 측정 불가 18**.
+
+| | 상태 |
+|---|---|
+| 첫 트랜치 | openmeter 5종 — 적용하고 동작까지 확인(§8-100) |
+| 남은 후보 | 29종. **한 번에 켜지 말 것** — 묶음별로 켜고 기동 로그를 볼 것 |
+| 측정 불가 18종 | 셸이 없는 이미지(distroless)다. 다른 방법이 필요하고 미착수 |
+| 불가 37종 | 쓰는 경로를 emptyDir 로 빼야 한다 — 컨테이너마다 다른 일이다 |
+
+★★ **이 도구가 "쓰기 0건" 이라고 말해도 보증이 아니다.** 기동 중의 쓰기는
+기준 파일과 시각이 겹쳐 놓친다 — `dependency-track-frontend` 가 그 반례다
+(검사는 0건인데 실제로는 깨진다, Gotcha 48).
+
+#### 그 밖에 이번에 새로 생긴 것
+
+| 항목 | 내용 |
+|---|---|
+| **menu 이벤트 Avro 스키마** | `POST /api/menu` 가 201 로 성공해 예외가 없었고, 그래서 스키마를 받지 못했다. **추정으로 쓰지 않았다** |
+| **`asyncapi/cmmn-api.yaml`** | 채널 계약이 아직 없다. 토픽 이름은 확인됐으니 쓸 수 있다 |
+| **`spectral-lint` 기존 경고 4건** | `api-usage.yaml` 에 tags·contact·operation description 이 빠졌다. error 가 아니라 게이트를 막지 않는다 |
+| **cmmn-api 의 DDL** | 지금은 Hibernate 가 만든다(local 전용). §9-13 |
+
+### 9-13. cmmn-api 스키마를 ddl-auto 에서 떼어내기 (§8-99 에서 미룸)
+
+| 할 일 | 왜 미뤘나 | 지금 상태 |
+|---|---|---|
+| 마이그레이션 도입 | 앱 소스가 이 레포 밖에 있어 Flyway/Liquibase 를 넣을 자리가 여기가 아니다 | `SPRING_JPA_HIBERNATE_DDL_AUTO=update` — **local 전용**. dev/prod 로 올리지 말 것 |
+| 대안 — DDL 추출 후 Job | 한 번 만들어진 스키마를 `mysqldump --no-data` 로 떠 `base/bootstrap/` 에 두면 된다. 다만 그러면 **앱과 스키마가 두 곳에서 따로 진화**해 어느 쪽이 정본인지 흐려진다 | 미착수. 사람이 정할 일이다 |
+
+★ ddl-auto 가 위험한 이유 — 스키마를 **조용히** 바꾸고 이력이 남지 않는다.
+지금은 빈 DB 에 처음 만드는 상황이라 잃을 것이 없었을 뿐이다.
 
 ## 10. Hyper-V 배포(ADR-051 A안) 재검토 — 2026-09-05 실측
 
