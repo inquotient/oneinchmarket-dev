@@ -20,16 +20,28 @@ contracts/
 
 | 주체 | 성격 | 계약 |
 |---|---|---|
-| `cmmn-api` | Spring Boot REST | `openapi/cmmn-api.yaml` — **아직 없다** |
-| `cmmn-api` ↔ Kafka | 토픽 2개 | `asyncapi/cmmn-api.yaml` + `schemas/*.avsc` — **아직 없다** |
+| `cmmn-api` | Spring Boot REST | **`openapi/cmmn-api.yaml`** — 2026-09-08 작성(§8-99) |
+| `cmmn-api` → Kafka | 변경 이벤트 | **`schemas/dev.api.cmmn.multilanguage-refresh-value.avsc`** — 작성됨. `asyncapi/cmmn-api.yaml` 과 menu 쪽 스키마는 **아직 없다** |
 | `admin` | 프론트엔드(포트 3000) | 없음. REST 계약 주체가 아니다 |
 
-Kafka 토픽:
+Kafka 토픽 — **이 목록은 틀렸다**(2026-09-08 정정, §8-99).
+소비 그룹은 `dev.api.cmmn.menu` · `dev.api.cmmn.multilanguage` 를 읽지만,
+**게시하는 토픽에는 `-refresh` 접미가 붙는다.** 앱이 낸 예외가
+그렇게 말했다 — `Subject 'dev.api.cmmn.multilanguage-refresh-value' not found`.
 
 ```
-dev.api.cmmn.menu
-dev.api.cmmn.multilanguage
+dev.api.cmmn.menu                    (소비)
+dev.api.cmmn.multilanguage           (소비)
+dev.api.cmmn.multilanguage-refresh   (게시)  -> subject ...-refresh-value
+dev.api.cmmn.menu-refresh            (추정 — menu POST 는 201 로 성공해
+                                       예외가 없었고, 그래서 스키마를 받지
+                                       못했다. **확인 전에 쓰지 말 것**)
 ```
+
+★★ 지금 `POST /api/multiLanguage` 는 **DB 에는 쓰고 500 을 낸다** —
+위 subject 가 레지스트리에 없기 때문이다. `AUTO_REGISTER_SCHEMAS=false`
+이므로 앱은 스스로 등록하지 않는다. **`publish-contracts` 잡이 돌면
+해소된다** — 그것이 이 디렉터리가 존재하는 이유다.
 
 ## 명명 — ccompat subject 와 맞춘다
 

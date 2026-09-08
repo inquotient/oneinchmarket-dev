@@ -1,0 +1,28 @@
+# cmmn-api 스키마 생성 — **local 전용 스톱갦7갭**(§8-99)
+#
+# ★★ 왜 필요한가 — `cmmn` 데이터베이스는 있는데 **테이블이 0개**였다.
+#   그래서 cmmn-api 는 6일동안 `1/1 Running` · health 통과인 채로
+#   **모든 업무 엔드포인트가 500** 이었다:
+#     Table 'cmmn.multi_language' doesn't exist
+#   health 프로브가 DB 를 보지 않아 드러나지 않았다(Gotcha 3 의 사례).
+#
+# ★ 왜 DDL 을 직접 두지 않는가 — **이 레포에 스키마 원천이 없다.**
+#   `find . -name '*.sql'` 가 0건이고 앱 소스도 밖에 있다. 유일한 정본은
+#   이미지 안의 엔티티 매핑이므로 Hibernate 에게 만들게 한다.
+#
+# ★★ **이것은 임시방편이다.** dev/prod 로 올리지 말 것 — ddl-auto 는
+#   스키마를 조용히 바꿀 수 있고 이력이 남지 않는다. 제대로 된 해법은
+#   마이그레이션(Flyway/Liquibase)을 앱 쪽에 두거나, 추출한 DDL 을
+#   부트스트랩 Job 으로 옮기는 것이다(§9-13).
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: cmmn-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: cmmn-api
+          env:
+            - name: SPRING_JPA_HIBERNATE_DDL_AUTO
+              value: update

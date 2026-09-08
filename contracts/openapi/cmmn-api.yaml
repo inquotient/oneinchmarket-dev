@@ -1,0 +1,345 @@
+# ─────────────────────────────────────────────────────────────────────────
+# cmmn-api REST 계약
+#
+# ★★ 이 문서는 **실측에서 나왔다**(2026-09-08, §8-99). 지어낸 항목이 없다.
+#   앱 소스가 이 레포에 없어 계약을 쓸 근거가 없었는데, 다음 순서로 얻었다:
+#     ① `/actuator/mappings` 를 일시적으로 열어 실제 라우트 6개를 열거
+#     ② 각 엔드포인트를 실제로 호출해 응답 본문을 관찰
+#     ③ MariaDB `cmmn` 스키마의 컬럼·enum 으로 필드 타입 확정
+#   ①의 노출은 되돌렸다.
+#
+# ★ 계약 우선(ADR-067)의 예외적 출발점이다 — 원래는 계약이 먼저이고 구현이
+#   따라와야 한다. 여기서는 구현이 먼저 있었고 계약이 **없었으므로**, 관찰로
+#   현재 상태를 고정한 뒤 앞으로의 변경을 이 문서가 이끈다.
+# ─────────────────────────────────────────────────────────────────────────
+openapi: 3.0.3
+
+info:
+  title: cmmn-api
+  version: 0.1.0
+  description: |
+    공통 메뉴·다국어 리소스를 제공하는 내부 REST API.
+
+    게이트웨이는 `api.oneinchmarket.local` 을 `cmmn-api-headless:8080` 으로
+    보낸다(HTTPRoute `api`).
+
+    **쓰기에는 CSRF 토큰이 필요하다.** `GET /csrf` 로 토큰과 헤더 이름을 받아
+    같은 쿠키 세션으로 POST 할 것. 토큰 없이 POST 하면 403 이다.
+
+    ## 알려진 상태 (2026-09-08 실측)
+
+    - `POST /api/multiLanguage` 는 **DB 에는 쓰고 500 을 낸다.** 변경 이벤트를
+      Avro 로 Kafka 에 게시하는데 스키마 레지스트리에 해당 subject
+      (`dev.api.cmmn.multilanguage-refresh-value`)가 등록되어 있지 않다.
+      `SPRING_KAFKA_PROPERTIES_AUTO_REGISTER_SCHEMAS=false` 이므로 누군가
+      먼저 등록해야 한다 — `contracts/schemas/multi-language-changed.avsc` 와
+      CI 의 `publish-contracts` 잡이 그 자리다.
+    - `POST /api/menu` 는 201 로 성공한다.
+  contact:
+    name: OneinchMarket Platform
+    url: https://gitlab.oneinchmarket.co.kr/infra/oneinchmarket-infra
+  license:
+    name: Proprietary
+    url: https://oneinchmarket.co.kr
+
+servers:
+  - url: https://api.oneinchmarket.local
+    description: local — Istio ingress gateway (HTTPRoute `api`)
+  - url: http://cmmn-api-headless:8080
+    description: 클러스터 내부 직접 호출
+
+tags:
+  - name: menu
+    description: 메뉴 트리
+  - name: multi-language
+    description: 다국어 라벨·메시지
+  - name: security
+    description: CSRF 토큰 발급
+
+paths:
+  /csrf:
+    get:
+      tags: [security]
+      operationId: getCsrfToken
+      summary: CSRF 토큰 발급
+      description: |
+        쓰기 요청에 필요한 토큰을 발급한다. 응답의 `headerName` 이 지정하는
+        헤더에 `token` 을 실어 보내야 하며, **같은 쿠키 세션이어야 한다**.
+      responses:
+        "200":
+          description: 토큰
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CsrfToken"
+
+  /api/menu:
+    get:
+      tags: [menu]
+      operationId: getMenu
+      summary: 메뉴 목록
+      description: 등록된 메뉴를 배열로 돌려준다. 없으면 빈 배열이다.
+      responses:
+        "200":
+          description: 메뉴 배열
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Menu"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    post:
+      tags: [menu]
+      operationId: postMenu
+      summary: 메뉴 일괄 등록
+      description: |
+        **본문은 객체가 아니라 배열이다.** 단건도 배열로 감싸 보낼 것 —
+        객체를 보내면 400 이다(실측).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/Menu"
+      responses:
+        "201":
+          description: 등록됨
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/CsrfMissing"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /api/multiLanguage:
+    get:
+      tags: [multi-language]
+      operationId: getMultiLanguage
+      summary: 다국어 항목 목록
+      description: 등록된 다국어 항목을 배열로 돌려준다. 없으면 빈 배열이다.
+      responses:
+        "200":
+          description: 다국어 배열
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MultiLanguage"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    post:
+      tags: [multi-language]
+      operationId: postMultiLanguage
+      summary: 다국어 항목 일괄 등록
+      description: |
+        본문은 배열이다. **지금은 DB 에 쓴 뒤 500 을 낸다** — Avro 스키마가
+        레지스트리에 없어 변경 이벤트 게시가 실패한다(info 의 "알려진 상태").
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/MultiLanguage"
+      responses:
+        "201":
+          description: 등록됨
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/CsrfMissing"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /api/multiLanguageAll:
+    get:
+      tags: [multi-language]
+      operationId: getMultiLanguageAll
+      summary: 다국어 항목 전체 목록
+      description: |
+        `GET /api/multiLanguage` 와 **같은 핸들러**(`MultiLanguageResource.
+        getMultiLanguage`)에 매핑되어 있다. 구현상 차이가 계약으로 드러나지
+        않으므로 둘 중 하나로 정리하는 것이 옳다.
+      responses:
+        "200":
+          description: 다국어 배열
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MultiLanguage"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+components:
+  responses:
+    BadRequest:
+      description: 본문을 읽을 수 없다 — 예를 들어 배열이 아니라 객체를 보냈다
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SpringError"
+    CsrfMissing:
+      description: CSRF 토큰이 없거나 세션과 맞지 않는다
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SpringError"
+    ServerError:
+      description: 서버 오류
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SpringError"
+
+  schemas:
+    CsrfToken:
+      type: object
+      description: Spring Security 가 발급하는 CSRF 토큰
+      properties:
+        parameterName:
+          type: string
+          example: _csrf
+        token:
+          type: string
+        headerName:
+          type: string
+          example: X-CSRF-TOKEN
+      required: [parameterName, token, headerName]
+
+    SpringError:
+      type: object
+      description: Spring Boot 기본 오류 표현
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: integer
+          format: int32
+        error:
+          type: string
+        path:
+          type: string
+
+    CommonFields:
+      type: object
+      description: 두 리소스가 공유하는 감사 필드
+      properties:
+        enabled:
+          type: boolean
+          nullable: true
+        deleted:
+          type: boolean
+          nullable: true
+        creatorNo:
+          type: integer
+          format: int64
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+          nullable: true
+        modifierNo:
+          type: integer
+          format: int64
+          nullable: true
+        modifiedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    Menu:
+      description: 메뉴 항목
+      allOf:
+        - $ref: "#/components/schemas/CommonFields"
+        - type: object
+          properties:
+            menuNo:
+              type: integer
+              format: int64
+              description: 서버가 매긴다. 등록 시 보내지 않는다
+              readOnly: true
+            menuId:
+              type: string
+              maxLength: 255
+              description: 메뉴 식별자
+            menuName:
+              type: string
+              maxLength: 255
+              description: 표시 이름
+            menuDescription:
+              type: string
+              maxLength: 255
+              nullable: true
+            menuSequenceNo:
+              type: integer
+              format: int32
+              nullable: true
+              description: 형제 사이의 정렬 순서
+            menuType:
+              type: string
+              enum: [TITLE, VIEW]
+              nullable: true
+            menuURLPath:
+              type: string
+              maxLength: 255
+              nullable: true
+              description: |
+                ★ 대소문자에 주의 — `menuUrlPath` 가 아니라 **`menuURLPath`** 다.
+                틀린 이름으로 보내면 오류 없이 무시되고 null 로 남는다(실측).
+            multiLanguageId:
+              type: string
+              maxLength: 255
+              nullable: true
+              description: MultiLanguage.multiLanguageId 를 가리킨다
+            parentMenuNo:
+              type: integer
+              format: int64
+              nullable: true
+              description: 상위 메뉴의 menuNo
+            attachFileGroupNo:
+              type: integer
+              format: int64
+              nullable: true
+
+    MultiLanguage:
+      description: 다국어 라벨·메시지 한 건
+      allOf:
+        - $ref: "#/components/schemas/CommonFields"
+        - type: object
+          properties:
+            multiLanguageNo:
+              type: integer
+              format: int64
+              description: 서버가 매긴다. 등록 시 보내지 않는다
+              readOnly: true
+            multiLanguageId:
+              type: string
+              maxLength: 255
+              description: 다국어 식별자
+            multiLanguage:
+              type: string
+              maxLength: 255
+              description: 표시 문자열
+            multiLanguageDescription:
+              type: string
+              maxLength: 255
+              nullable: true
+            multiLanguageType:
+              type: string
+              enum: [EN, KO]
+              nullable: true
+              description: 언어
+            multiLanguageUsageType:
+              type: string
+              enum: [LABEL, MESSAGE]
+              nullable: true
+              description: 쓰임새
