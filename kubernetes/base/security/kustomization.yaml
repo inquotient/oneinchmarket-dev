@@ -9,4 +9,6 @@ resources:
   - defectdojo/
   - safeline/
   - openbao/
+  # 인가(ReBAC) — WSO2-OSS-MAPPING Phase 2 ⑧
+  - openfga/
   - wazuh/

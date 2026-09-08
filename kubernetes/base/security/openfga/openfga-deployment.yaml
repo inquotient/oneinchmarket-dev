@@ -1,0 +1,154 @@
+# ─────────────────────────────────────────────────────────────────────────
+# OpenFGA — 관계 기반 인가(ReBAC). WSO2-OSS-MAPPING §4 의 "인가" 칸.
+#
+# ★ 왜 OpenFGA 인가 — 그 문서의 Phase 2 ⑧ 이 "OpenFGA 또는 OPA. **둘 다가
+#   아니라 하나**" 라고 못박았다. 이 플랫폼에는 이미 정책 엔진이 둘 있다
+#   (Kyverno = 어드미션, Istio AuthorizationPolicy = 서비스 간 L4/L7).
+#   비어 있는 칸은 **애플리케이션 데이터에 대한 인가**이고, 그것은 규칙이
+#   아니라 관계로 표현된다("이 문서의 편집자인가") — ReBAC 쪽이 맞다.
+#
+# ★ 왜 지금 이것만 도입하는가 — §7 의 산정이 남은 도입 합계를 8~14 GiB 로
+#   본다. 노드 여유는 1.2 GiB 다. 그 안에 들어가는 것은 OpenFGA(0.15~0.25)
+#   뿐이고, 나머지는 Phase 0 ③(프로파일 분리)이 선행되어야 한다.
+#
+# ★★ PostgreSQL 을 쓴다. 그래서 두 가지가 반드시 함께 있어야 한다:
+#     ① postgres-bootstrap 이 openfga 롤·DB 를 만든다
+#     ② service-mesh 의 allow-database-access 5432·3307 목록에
+#        `*/sa/openfga` 가 있어야 한다 — 없으면 ALLOW 정책이 이 워크로드를
+#        선택하지 않아서가 아니라, **선택된 뒤 매칭되지 않아 전면 거부**된다
+#        (Gotcha 9). 증상은 오류가 아니라 커넥션 리셋이다.
+#
+# ★ 마이그레이션은 서버 기동 전에 끝나야 한다. initContainer 로 둔다 —
+#   별도 Job 으로 두면 ArgoCD wave 안에서 순서가 보장되지 않는다.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: openfga
+  labels:
+    app.kubernetes.io/name: openfga
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openfga
+  labels:
+    app.kubernetes.io/name: openfga
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  # ★ maxSurge: 0 — 이 노드에서 surge 는 무중단이 아니라 교착이다(Gotcha 87).
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: openfga
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: openfga
+        app.kubernetes.io/component: security
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/managed-by: kustomize
+    spec:
+      # ★ 전용 SA — ambient 에서 SA 는 곧 신원이다(Gotcha 10).
+      #   default 로 두면 정책을 쓸 수 없다.
+      serviceAccountName: openfga
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # ★ 스키마를 만든다. 멱등하다 — 이미 최신이면 아무 일도 하지 않는다.
+        - name: migrate
+          image: openfga/openfga:v1.19.0
+          command: ["/openfga", "migrate"]
+          env:
+            - name: OPENFGA_DATASTORE_ENGINE
+              value: postgres
+            - name: OPENFGA_DATASTORE_URI
+              valueFrom:
+                secretKeyRef: { name: openfga-secret, key: datastore-uri }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            readOnlyRootFilesystem: true
+          resources:
+            requests: {cpu: 20m, memory: 64Mi}
+            limits: {memory: 192Mi}
+      containers:
+        - name: openfga
+          image: openfga/openfga:v1.19.0
+          command: ["/openfga", "run"]
+          env:
+            - name: OPENFGA_DATASTORE_ENGINE
+              value: postgres
+            - name: OPENFGA_DATASTORE_URI
+              valueFrom:
+                secretKeyRef: { name: openfga-secret, key: datastore-uri }
+            # ★ 플레이그라운드를 끈다 — 인증 없이 전체 저장소를 조작할 수 있다.
+            #   개발 편의 기능이고 이 클러스터에서는 공격면일 뿐이다.
+            - name: OPENFGA_PLAYGROUND_ENABLED
+              value: "false"
+            - name: OPENFGA_LOG_FORMAT
+              value: json
+            # ★ 인증을 켠다. `none` 이면 메시 안 누구나 인가 결정을 바꿀 수
+            #   있다 — 인가 서버가 인가되지 않는 상태가 된다.
+            - name: OPENFGA_AUTHN_METHOD
+              value: preshared
+            - name: OPENFGA_AUTHN_PRESHARED_KEYS
+              valueFrom:
+                secretKeyRef: { name: openfga-secret, key: preshared-key }
+          ports:
+            - {containerPort: 8080, name: http, protocol: TCP}
+            - {containerPort: 8081, name: grpc, protocol: TCP}
+            - {containerPort: 3000, name: metrics, protocol: TCP}
+          # ★ Kyverno require-probes 가 둘 다 요구한다. /healthz 는 인증
+          #   없이 응답한다(authn 은 API 경로에만 걸린다).
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            # ★ Go 정적 바이너리이고 쓰는 곳이 DB 뿐이다.
+            readOnlyRootFilesystem: true
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {memory: 256Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openfga-headless
+  labels:
+    app.kubernetes.io/name: openfga
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: openfga
+  ports:
+    - {name: http, port: 8080, targetPort: http, protocol: TCP}
+    - {name: grpc, port: 8081, targetPort: grpc, protocol: TCP}
+    - {name: metrics, port: 3000, targetPort: metrics, protocol: TCP}

@@ -163,6 +163,9 @@ spec:
               # 7단계 — SafeLine WAF. 상류는 자체 postgres 를 번들하나 공용을 쓴다.
               ensure safeline       safeline       "$SAFELINE_DB_PASSWORD"
 
+              # OpenFGA — 인가 저장소(WSO2-OSS-MAPPING Phase 2 ⑧, §8-102)
+              ensure openfga        openfga        "$OPENFGA_DB_PASSWORD"
+
               echo "[postgres-bootstrap] 완료"
               $PSQL -d postgres -c "\l"
           env:
@@ -188,6 +191,8 @@ spec:
               valueFrom: { secretKeyRef: { name: defectdojo-secret, key: db-password } }
             - name: SAFELINE_DB_PASSWORD
               valueFrom: { secretKeyRef: { name: safeline-secret, key: db-password } }
+            - name: OPENFGA_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: openfga-secret, key: db-password } }
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

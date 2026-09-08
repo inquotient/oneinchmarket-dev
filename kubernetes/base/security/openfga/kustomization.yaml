@@ -1,0 +1,12 @@
+# OpenFGA — 인가(ReBAC). WSO2-OSS-MAPPING Phase 2 ⑧.
+#
+# wave 4 인 이유: PostgreSQL(wave 1) 과 postgres-bootstrap 이 끝난 뒤여야
+# 한다. keycloak·openbao 와 같은 wave 다.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - openfga-deployment.yaml
+
+commonAnnotations:
+  argocd.argoproj.io/sync-wave: "4"

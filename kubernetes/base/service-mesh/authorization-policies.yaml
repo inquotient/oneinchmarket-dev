@@ -69,6 +69,8 @@ spec:
               # ★ OpenMeter — 요금제·구독·인보이스 메타데이터를 PostgreSQL 에 둔다.
               #   ClickHouse 는 집계용이고 엔터티는 여기다(§8-58).
               - "*/sa/openmeter"
+              # OpenFGA — 인가 저장소(§8-102). 5432·3307 두 목록은 같은 집합을 유지한다.
+              - "*/sa/openfga"
               # OpenReplay 는 파드마다 별도 SA 를 쓴다(alerts-openreplay ·
               # chalice-openreplay · db-openreplay …). 15개를 나열하는 대신
               # 접미 매칭으로 묶는다. `*/sa/*-openreplay` 는 `*` 가 둘이라
@@ -103,6 +105,8 @@ spec:
               - "*/sa/defectdojo"
               - "*/sa/safeline"
               - "*/sa/openmeter"
+              # OpenFGA — 인가 저장소(§8-102). 5432·3307 두 목록은 같은 집합을 유지한다.
+              - "*/sa/openfga"
               - "*-openreplay"
       to:
         - operation:
