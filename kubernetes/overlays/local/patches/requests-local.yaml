@@ -53,7 +53,10 @@ spec:
             requests: {memory: 1024Mi}
         - name: detector
           resources:
-            requests: {memory: 256Mi}
+            requests: {memory: 160Mi}
+        - name: mgt
+          resources:
+            requests: {memory: 112Mi}   # 실사용 61Mi
 ---
 # 실사용 1357Mi / 예약 1024Mi. 파드 수에 비례해 수집량이 늘어난다.
 apiVersion: apps/v1
@@ -316,7 +319,7 @@ spec:
       containers:
         - name: celery-worker
           resources:
-            requests: {memory: 320Mi}
+            requests: {memory: 144Mi}
 ---
 # 73Mi — 훈련 실행 전에는 유휴다
 apiVersion: apps/v1
@@ -355,7 +358,7 @@ spec:
       containers:
         - name: glitchtip
           resources:
-            requests: {memory: 256Mi}
+            requests: {memory: 192Mi}
 ---
 # 130Mi
 apiVersion: apps/v1
@@ -368,7 +371,7 @@ spec:
       containers:
         - name: glitchtip
           resources:
-            requests: {memory: 256Mi}
+            requests: {memory: 64Mi}
 ---
 # 148Mi
 apiVersion: apps/v1
@@ -410,3 +413,75 @@ spec:
         - name: uwsgi
           resources:
             requests: {memory: 384Mi}
+# ★★ 2026-09-08 — midPoint 를 넣을 자리를 만든다(§8-103).
+#   규칙은 이 파일 머릿말이 정한 그대로 **실사용의 2배**다(상한).
+#   ★ JVM 은 건드리지 않았다 — 힙은 언제든 -Xmx 까지 자라고, 힙이
+#     스왜되면 GC 가 스왝을 훑어 성능이 무너진다(§8-94 에서 힙을 다 재 두었다).
+#   ★★ 놀고 있는 스택도 건드리지 않았다 — openreplay · 레이크하우스v1 등은
+#     유휴값이 작은 것이지 효율적인 것이 아니다. spot-openreplay 는 28배였다 —
+#     그 유휴값을 기준으로 깎으면 스택이 살아나는 날 전부 축출된다.
+---
+# 실사용 30Mi
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: defectdojo-celery-beat
+spec:
+  template:
+    spec:
+      containers:
+        - name: celery-beat
+          resources:
+            requests: {memory: 64Mi}
+---
+# 실사용 68Mi
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: tempo
+spec:
+  template:
+    spec:
+      containers:
+        - name: tempo
+          resources:
+            requests: {memory: 128Mi}
+---
+# 실사용 96Mi
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: admin
+spec:
+  template:
+    spec:
+      containers:
+        - name: admin
+          resources:
+            requests: {memory: 192Mi}
+---
+# 실사용 16Mi
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+spec:
+  template:
+    spec:
+      containers:
+        - name: nginx
+          resources:
+            requests: {memory: 64Mi}
+---
+# 실사용 43Mi
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: safeline-luigi
+spec:
+  template:
+    spec:
+      containers:
+        - name: luigi
+          resources:
+            requests: {memory: 80Mi}
