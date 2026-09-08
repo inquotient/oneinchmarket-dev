@@ -179,7 +179,7 @@ sops --decrypt secret.enc.yaml > secret.dec.yaml
 
 Stages: `validate` → `build` → `scan` → `sign` → `mirror` → `deploy`
 
-- **validate** — `kustomize build` + `kubeconform`. **kubeconform 잡은 kubeconform 이미지 안에서 `kustomize`를 실행하고 `allow_failure: true`라 게이트가 무력하다**
+- **validate** — `kustomize-validate` 가 dev·prod·local 을 렌더해 `rendered/` **아티팩트**로 남기고, `kubeconform-validate` · `trivy-config-*` 가 그것을 읽는다(§8-97). ~~kubeconform 잡은 이미지 안에서 kustomize 를 실행하고 allow_failure 라 무력하다~~ — **실은 그보다 앞에서 셸이 없어 실행조차 되지 않았고**, 지금은 `-alpine` 변종으로 돌며 `allow_failure: false` 다(Invalid 0 을 확인한 뒤 걷었다, Gotcha 91)
 - **build** — `inquotient/admin`·`inquotient/cmmn-api` 빌드. **참조하는 `v1/admin/Dockerfile`·`v1/cmmn-api/Dockerfile`이 존재하지 않는다**
 - **scan** — Trivy image/config/filesystem
 - **sign** — Cosign (Trivy 통과 후)
@@ -330,6 +330,10 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 
 87. **이 노드에서 `maxSurge` 기본값은 무중단이 아니라 교착이다.** Deployment 기본값(`maxSurge 25% · maxUnavailable 0`)은 replicas 1 에서 **"새 파드가 Ready 된 뒤에야 헌 파드를 죽인다"** 를 뜻한다. 여유가 없으면 새 파드가 `Insufficient memory` 로 Pending 에 머물고 **헌 파드는 죽지 않아** 롯아웃이 영영 끝나지 않는다(§8-93 에서 실제로 밟았다). ★★ 이것이 **날짜를 가진 장애**가 될 수 있다 — 로테이션 CronJob 이 03:15 에 redis·minio Secret 을 바꾸면 reloader 가 Deployment **26개를 동시에** 굴리고, surge 로만 **3648Mi** 가 필요한데 여유는 1.14 GiB 였다. 그러면 이미 바뀐 비밀번호 때문에 **헌 파드는 DB 에 붙지 못하면서 교체도 되지 않는다.** replicas 1 에서 surge 가 사주는 무중단은 어차피 한 파드뿐이니 **`maxSurge: 0 · maxUnavailable: 1`** 을 줄 것. ★ 이미 `Recreate` 인 것(defectdojo 3종)은 surge 하지 않는다 — 함께 세면 소요량을 과대계상한다(실제로 896Mi 틀렸다) — §8-96
 88. **`helm --set` 은 없는 키를 조용히 받아든다.** `reloader.watchNamespaces={local}` 로 썼는데 실제 키는 `reloader.namespaces` 였다 — 오류 없이 무시되고 Role 이 `local` 에 생성되지 않았다. 그대로 적용했으면 **"설치했는데 아무 일도 안 한다"** 가 됐을 것이다(Gotcha 26·77 과 같은 부류). ★ 방어는 하나뿐이다 — **`kubectl apply` 전에 `helm template` 출력을 읽을 것.** 무엇을 볼 것인가: 생성된 오브젝트의 **네임스페이스**, ClusterRole 생성 여부, 그리고 즉처에서 온 **컨테이너 args** — §8-96
+
+89. **러너 로그의 Kyverno WARNING 을 켓지 말 것 — 소음이다.** GitLab 러너는 잔 파드에 붙은 클러스터 이벤트를 그대로 옮겨 적는다. local 의 Kyverno 는 **Audit** 이라 아무것도 막지 않는데, 로그만 보면 정책이 잔을 죽인 것처럼 읽힌다. 진짜 단서는 `failure_reason=` 과 `exit_code=` 두 줄이다 — §8-97
+90. **`trivy config` 를 소스 트리에 대고 돌리지 말 것 — kustomize 패치 조각을 완성된 매니페스트로 읽는다.** 패치에는 securityContext·probe 가 없으니 전부 지적된다 — 실측 338건 중 **149건이 패치 파일 3개**에서 나왔고, 렌더 결과로 바꾸자 KSV-0118 이 116 -> 5 로 떨어졌다. **렌더를 아티팩트로 남기고 그것을 스캔할 것**(같은 아티팩트를 kubeconform 도 쓴다). ★★ 그리고 **달성할 수 없는 게이트는 없는 게이트보다 나쁘다** — 렌더로 바꿔도 372건이고 그중 312건이 readOnlyRootFilesystem 미설정이라, 빨간불이 상수가 되면 사람이 배경으로 읽는다(Gotcha 73 과 같은 구조). 차단은 CRITICAL 로 좁히고 HIGH 는 **비차단 잡으로 계속 보이게** 할 것 — §8-97
+91. **셸이 없는 이미지를 CI 잡에 쓰면 잡이 실행조차 되지 않는다 — 그런데 `allow_failure` 가 그것을 덮는다.** `ghcr.io/yannh/kubeconform:latest` 는 distroless 라 `exec: "sh": executable file not found in $PATH` / `Job failed (system failure): prepare environment` 로 죽는다. 로그에 스키마 오류가 **한 건도 없어** 검사가 도는 줄 알게 된다. `-alpine` 변종 + `entrypoint: [""]` 로 고치되, ★ 그 다음에 `kubeconform: not found`(exit 127)가 온다 — **바이너리는 PATH 가 아니라 `/kubeconform`** 에 있다(원래 ENTRYPOINT). Gotcha 74 의 `/analyzer run` 과 같다. ★★ **`allow_failure` 를 걷는 순서**: 먼저 잡이 돌게 하고, 숫자(Invalid 0)를 본 뒤에 걷는다 — 숫자 없이 게이트를 세우는 것은 추측이다 — §8-97
 
 ### 매니페스트 작업 시
 

@@ -9979,6 +9979,129 @@ Gotcha 58 이 "GitOps 를 켜는 것은 평소에 돌지 않던 것을 전부 �
 이후에 확인할 것 — Job 7종의 성공 여부, 재시작된 워크로드 수, 그리고
 DB 접속이 실제로 되는지.
 
+### 8-97. 러너가 이상한 게 아니었다 — 검증 게이트 둘이 처음부터 죽어 있었다 (2026-09-08)
+
+`runner-*` 파드가 `StartError` 로 계속 새로 뜨는 것을 보다 들어갔다.
+러너 결함이 아니었고, 결론은 **검증 게이트 두 개가 한 번도 제 일을 한 적이
+없다** 는 것이다.
+
+#### ★ 먼저 버릴 것 — 러너 로그의 Kyverno WARNING 은 소음이다
+
+러너 로그가 정책 위반을 잔뜩 찍는다:
+
+```
+WARNING: Event retrieved from the cluster: policy disallow-root-user/... fail
+WARNING: Event retrieved from the cluster: policy require-health-probes/... fail
+```
+
+**local 의 Kyverno 는 Audit 이라 아무것도 막지 않는다.** 러너는 잡 파드에
+붙은 클러스터 이벤트를 그대로 옮겨 적을 뿐이다. 여기서 시작하면 정책을
+고치러 가게 되고, 그것은 원인이 아니다. 진짜 단서는 두 줄이었다:
+
+```
+failure_reason=script_failure  exit_code=1  job=169  pipeline_id=33
+0/1 nodes are available: 1 Insufficient memory
+```
+
+#### 결함 ① — `trivy-config-scan` 은 한 번도 성공한 적이 없다
+
+`allow_failure: false` 인 차단 게이트인데 **실제로 돈 4번이 전부 실패**다
+(#23·#29·#32·#33). `rules: changes: kubernetes/**/*` 라 매니페스트가 바뀔
+때만 돌아서, 문서 커밋이 이어지는 동안은 드러나지 않았다.
+
+원인 셋을 갈랐다.
+
+**(1) 대상이 틀렸다.** `trivy config kubernetes/` 는 **kustomize 패치 조각**을
+완성된 매니페스트로 읽는다. 패치에는 securityContext·probe 가 없으니
+당연히 걸린다 — 배포되지 않는 조각인데도.
+
+| 스캔 대상 | 지적 | 상위 파일 |
+|---|---|---|
+| 소스 트리 `kubernetes/` | **338건** | requests-local 86 · limits-local 39 · qos-guaranteed 24 = **149건이 패치 조각** |
+| 렌더 결과(dev·prod·local) | 372건 | KSV-0118(기본 securityContext)이 **116 → 5** 로 떨어진다 |
+
+그래서 `kustomize-validate` 가 렌더 결과를 `rendered/` 아티팩트로 남기고
+뒤의 잡들이 그것을 읽게 했다.
+
+**(2) 임계가 달성 불가였다.** 렌더로 바꿔도 372건이고 **그중 312건이
+`KSV-0014`(readOnlyRootFilesystem 미설정)** 다. 진짜 부채이지만 한 번에
+갚을 수 없다.
+
+> **달성할 수 없는 게이트는 없는 게이트보다 나쁘다.** 빨간불이 상수가 되면
+> 사람이 그것을 배경으로 읽는다 — Gotcha 73 이 `allow_failure` 에 대해 한
+> 말과 같은 구조다.
+
+차단은 **CRITICAL** 만으로 좁히고, HIGH 는 `trivy-config-report`(비차단)가
+계속 보고하게 했다. **숫자를 숨기지 않으면서 게이트는 성립시킨다.**
+
+**(3) CRITICAL 6건은 사실 한 가지였다.** 오버레이 3 × 중복 2 로 전부
+`kubescape-reader` ClusterRole(`KSV-0046`)이다. 규칙이 verbs 를 보지 않는데
+실제 정의는
+
+```yaml
+resources: ["*"]
+verbs: ["get", "list"]
+```
+
+**읽기 전용**이다. kubescape 는 자세 스캐너라 모든 종류를 읽어야 성립하고,
+좁히면 스캔 범위가 조용히 줄어든다 — Gotcha 39 가 경계하는 "통제되는 것처럼
+보이지만 아닌" 상태다. `.trivyignore.yaml` 에 근거와 **되돌아볼 조건**
+(verbs 에 get/list 외가 추가되면 예외 무효)을 적어 예외로 뒀다.
+
+★ 확인차 `KSV-0109`(ConfigMap with secrets) 29건도 열어봤다 — §8-92 가 실제
+개인키를 찾아낸 그 부류라서다. 결과는 전부 **키 이름**에 걸린 것이었다
+(`CH_PASSWORD` · `password`). 값이 아니고, 자리표시자 치환 방식(Gotcha 26)이
+낳는 오탐이다. 실제 유출은 없다.
+
+#### 결함 ② — `kubeconform-validate` 는 실행조차 되지 않았다
+
+`CLAUDE.md` 는 이 잡을 "이미지 안에서 kustomize 를 실행하고 `allow_failure`
+라 무력하다" 고 적어 두었다. **그보다 앞에서 죽고 있었다.** 이번 파이프라인
+로그에 처음 찍혔다:
+
+```
+exec: "sh": executable file not found in $PATH
+ERROR: Job failed (system failure): prepare environment
+```
+
+`ghcr.io/yannh/kubeconform:latest` 는 distroless 라 셸이 없고, GitLab 러너는
+`script` 를 셸로 실행한다. 즉 kustomize 호출까지 **가지도 못했고**, 로그에
+스키마 오류가 한 건도 없는 채로 `allow_failure` 가 그것을 덮어 **검사가 도는
+줄 알았다.**
+
+고치는 데 두 걸음이 걸렸고, 두 번째가 배울 만하다:
+
+1. `-alpine` 변종으로 바꾸고 `entrypoint: [""]` — 셸이 생겼다.
+2. 그랬더니 `kubeconform: not found`(exit 127). **바이너리는 PATH 가 아니라
+   `/kubeconform` 에 있다** — 그것이 원래 ENTRYPOINT 였기 때문이다.
+   GitLab 보안 템플릿의 `/analyzer run` 과 같은 모양이다(Gotcha 74).
+
+그리고 렌더는 `kustomize-validate` 아티팩트를 쓰므로 이 이미지 안에서
+kustomize 를 부를 이유 자체가 사라졌다 — CLAUDE.md 가 지적한 모순도 함께
+없어진다.
+
+#### 검증 — 처음으로 초록불
+
+```
+kustomize-validate    success   (dev·prod·local 을 rendered/ 아티팩트로)
+kubeconform-validate  success   dev  Valid 324 Invalid 0 Skipped 33
+                                prod Valid 332 Invalid 0 Skipped 33
+                                local Valid 441 Invalid 0 Skipped 62
+trivy-config-scan     success   "Clean (no security findings detected)"
+trivy-config-report   success   (HIGH 를 계속 보고 · 비차단)
+```
+
+**Invalid 0** 을 확인한 뒤에야 `kubeconform-validate` 의 `allow_failure` 를
+걷었다 — 숫자를 보기 전에 게이트를 세우면 그것이야말로 추측이다.
+
+★ trivy 이미지를 `0.74.0` 으로 고정했다. `:latest` 는 매니페스트를 바꾸지
+않아도 결과가 변한다(Gotcha 45·60).
+
+#### 남는 것 — §9-12
+
+`readOnlyRootFilesystem` 312건과 kubeconform 의 `Skipped` 95건은
+**갚지 않은 부채다.** 게이트를 통과시킨 것이지 없앤 것이 아니다.
+
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
 > **이 절은 "지금 하지 않기로 결정한 것" 의 목록이다.** §8 의 각 절 끝에
@@ -10260,6 +10383,19 @@ Gotcha 33(Alertmanager receiver 비어 있음) · Gotcha 48(Dependency-Track 이
 
 ★ ②를 고르더라도 **어노테이션 65개는 남는다.** 그 자체가 "동작한다" 는
 잘못된 신호이므로, 어느 안을 고르든 `CLAUDE.md` 의 규약 문장을 함께 고칠 것.
+
+### 9-12. 게이트를 통과시킨 것이지 부채를 갚은 것이 아니다 (§8-97 에서 미룸)
+
+| 남은 것 | 규모 | 왜 미뤘나 | 지금 상태 |
+|---|---|---|---|
+| **`readOnlyRootFilesystem` 미설정**(KSV-0014) | **312건** | 워크로드 대부분이 대상이라 한 번에 갚을 수 없다. 그리고 **켜면 조용히 깨지는 것이 있다** — Dependency-Track 프런트가 정확히 그랬다(엔트리포인트가 자기 config.json 을 제자리에서 고친다, Gotcha 48). 하나씩 켜고 기동을 확인해야 하는 일이다 | `trivy-config-report`(비차단)가 매 파이프라인에 숫자를 찍는다. **이 숫자가 줄지 않으면 갚고 있지 않은 것이다** |
+| **kubeconform `Skipped`** | dev 33 · prod 33 · local 62 | `-ignore-missing-schemas` 로 넘긴 CRD 들이다(Istio·ECK·Kyverno·cert-manager 등). 스키마를 받아오려면 `-schema-location` 에 CRD 스키마 저장소를 붙여야 하고, 버전이 어긋나면 **없는 검사를 있는 것처럼** 만든다 | 이 게이트는 "전부 검사했다" 가 아니라 **"내장 스키마가 있는 것은 맞다"** 다. 그렇게 읽을 것 |
+| **`spectral-lint`** | 계약 0건 | `contracts/openapi/` 가 **빈 디렉터리**다. 잡은 파일이 없으면 통과하되 에코를 남긴다. 게이트가 무의미한 것이 아니라 **먹일 것이 없다** | WSO2 Phase 1 ⑤ 의 선행 조건이다 |
+| **`build-*` · `trivy-image-scan`** | 2종 | `v1/admin/Dockerfile` · `v1/cmmn-api/Dockerfile` 이 **존재하지 않는다**(CLAUDE.md 가 이미 지적한 모순). push 파이프라인에서는 `changes:` 로 걸러져 돌지 않지만, **web 파이프라인에서는 돈다** — 실제로 이번 검증에서 `skipped` 로 남았다 | 미착수. `v1/` 배포 금지 결정과 함께 정리할 일이다 |
+
+★ 이 절의 목적은 **초록불이 무엇을 보증하고 무엇을 보증하지 않는지**를
+적어 두는 것이다. §8-97 이후 파이프라인은 초록이지만, 그것은
+"CRITICAL 미스컨피그 0 · 내장 스키마 위반 0" 까지다.
 
 ## 10. Hyper-V 배포(ADR-051 A안) 재검토 — 2026-09-05 실측
 
