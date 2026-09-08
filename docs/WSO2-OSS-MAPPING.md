@@ -75,11 +75,11 @@ B2B 멀티테넌시가 네이티브로 된다) · **389DS**(사용자 저장소)
 | MFA (TOTP·WebAuthn·FIDO2) | ★ Keycloak | ✅ 가능 |
 | **적응형 인증**(스크립트 조건부) | ⚠️ Keycloak Authenticator SPI(Java) · Zitadel Actions(JS) · Authentik Expression(Python) | ❌ **약한 칸** |
 | 사용자 저장소(LDAP) | ★ **389DS + LAM** | ✅ |
-| **SCIM 2.0 프로비저닝** | ⚠️ Keycloak SCIM 확장(커뮤니티) · **midPoint**(IGA 로 상위 대체) | ❌ **공백** |
+| **SCIM 2.0 프로비저닝** | ⚠️ Keycloak SCIM 확장(커뮤니티) · **midPoint**(IGA 로 상위 대체) | ⚠ **midPoint 도입됨**(§8-103) — 연동은 미수 |
 | XACML 엔타이틀먼트 (PDP) | ★ **OpenFGA**(ReBAC) / **OPA**(Rego) / Cerbos / Permify / SpiceDB | ✅ **OpenFGA v1.19.0**(§8-102) |
 | 조직 · B2B 멀티테넌시 | ★ **Keycloak Organizations**(26.x GA) / Zitadel | ✅ 버전 충족 |
 | 계정 셀프서비스(가입·복구·잠금) | ★ Keycloak | ✅ |
-| **ID 운영 승인 워크플로** | ★ **midPoint** / Temporal | ❌ |
+| **ID 운영 승인 워크플로** | ★ **midPoint** / Temporal | ⚠ **midPoint 도입됨**(§8-103) — 정책은 미작성 |
 | **동의 관리(GDPR)** | ⚠️ Keycloak 기본 · midPoint · 자체 구현 | ❌ **약한 칸** |
 | 감사 로그 | ★ Keycloak Event SPI → Kafka → ES/Loki | ⚠️ 미배선 |
 
@@ -273,7 +273,9 @@ Gotcha 15 가 말한 "이미 청구한 이력" 이 아직 없으므로, **바꾼
    ★ OPA 를 고르지 않은 이유 — 이 플랫폼에는 규칙 기반 정책 엔진이 이미
    둘 있다(Kyverno = 어드미션, Istio AuthorizationPolicy = 서비스 간). 비어
    있는 칸은 **앱 데이터에 대한 인가**이고 그것은 관계로 표현된다
-9. **midPoint** — SCIM · ID 운영 워크플로
+9. ~~**midPoint**~~ — **도입했다**(2026-09-08, §8-103). 4.10.4-alpine, wave 4,
+   비-root(1000). 네이티브 PostgreSQL 저장소(테이블 100개 · 전부 midpoint
+   소유)이고 `/actuator/health` 가 UP 이다. 실측 **1203Mi**
 
 ### Phase 3 — Integrator · Streaming
 
@@ -295,7 +297,7 @@ Gotcha 15 가 말한 "이미 청구한 이력" 이 아직 없으므로, **바꾼
 |---|---|---|
 | Gravitee CE (gateway·mgmt API·console·portal) | 2.0 ~ 2.5 GiB | JVM 3종. MongoDB·ES 는 재사용 |
 | Flink (JobManager + TaskManager) | 2.0 ~ 3.0 GiB | |
-| midPoint | 1.0 ~ 1.5 GiB | JVM |
+| midPoint | 1.0 ~ 1.5 GiB → **실측 1203Mi** | JVM. 이번엔 추정이 맞았다 — Go 와 달리 JVM 은 부풀려 있지 않다(§8-103) |
 | Debezium (Kafka Connect) | 1.0 GiB | |
 | ArgoCD (4 컴포넌트) | 0.5 ~ 1.0 GiB | |
 | Backstage | 0.7 ~ 1.0 GiB | |

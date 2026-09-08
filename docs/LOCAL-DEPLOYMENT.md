@@ -10428,6 +10428,121 @@ OpenFGA 추정 0.15~0.25 GiB  →  실측 17Mi
 읽지 말 것** — OpenFGA 는 Go 정적 바이너리이고, 남은 큰 항목(Gravitee ·
 Flink · midPoint)은 JVM 이라 같은 배율이 적용되지 않는다.
 
+### 8-103. zram 은 자리를 만들지 않는다 — requests 를 깎아 midPoint 를 넣었다 (2026-09-08)
+
+"zram 을 쓰면 되지 않나" 라는 물음에서 시작했다. **답은 아니오이고, 이유가
+중요하다.**
+
+#### ★★ 스케줄러는 zram 을 모른다
+
+파드가 뜨지 못한 이유는 RAM 이 없어서가 아니었다 — 물리 43 GiB 중 31 GiB
+사용에 available 이 11 GiB 였다. 스케줄러는 `allocatable` 과 `requests` **장부**
+만 본다. 그 장부가 꽉 찼던 것이다.
+
+zram 이 하는 일은 따로 있다. kubelet 이 `NodeSwap: true` · `swapBehavior:
+LimitedSwap` 이라 **Burstable 파드는 스왑을 쓴다** — 즉 zram 은
+**requests 를 실사용보다 낮게 잡는 것을 안전하게** 만든다. 자리를 만드는 것은
+여전히 requests 를 깎는 일이다.
+
+#### 얼마나 깎을 수 있었나 — 겉보기 14.5 GiB, 실제 1.1 GiB
+
+```
+요청 39.66 GiB · 실사용 25.14 GiB · 차이 14.52 GiB
+```
+
+이 차이를 그대로 쓰면 안 된다. 두 덩이를 뺐다.
+
+**① JVM 6종** — shardingsphere · jenkins · keycloak · dependency-track ·
+akhq · ranger-usersync. 힙은 언제든 `-Xmx` 까지 자라고, **힙이 스왑되면
+GC 가 스왑을 훑어** 성능이 무너진다. §8-94 에서 그 힙들을 전부 재 두었다.
+
+**② 놀고 있는 스택** — 배율이 가장 큰 것들이 사실은 일을 안 하고 있었다:
+
+| | 요청/실사용 |
+|---|---|
+| `spot-openreplay` | **28.4배** |
+| `assist-openreplay` | 16.0배 |
+| `api-openreplay` · `ds389` | 14.2배 |
+
+OpenReplay 는 Ingress 12개가 죽어 브라우저 데이터를 못 받고, 레이크하우스
+v1 은 질의가 없다. **효율적인 것이 아니라 멈춰 있는 것**이다. 그 유휴값으로
+깎으면 스택이 살아나는 날 전부 축출된다 — §8-93 의 safeline(유휴 122Mi vs
+피크 1783Mi = **14배**)이 정확히 그 함정이었다.
+
+```
+2배 상한 회수 5.69 GiB
+  ├ 놀고 있는 스택 몫    2.97 GiB   ← 쓰면 안 된다
+  └ 실제로 일하는 것에서  2.72 GiB   ← 정직한 몫
+```
+
+거기서 JVM 을 더 빼고 실제로 깎은 것이 **10종 · 약 1.1 GiB** 다.
+
+```
+여유 1.23 -> 2.22 GiB
+```
+
+#### midPoint — Phase 2 ⑨
+
+§3 의 "못 메우는 칸 6개" 중 **둘**을 덮는다: #1 SCIM 2.0 프로비저닝,
+#5 ID 운영 승인 워크플로. Keycloak 을 대체하지 않는다 — Keycloak 은
+**인증**이고 midPoint 는 **거버넌스**다(누가 어떤 계정을 왜 갖는지).
+
+**추측하지 않고 이미지를 열어서 짰다:**
+
+| 실측한 것 | 그래서 |
+|---|---|
+| 엔트리포인트가 확인하는 것은 `/opt/midpoint/var` 쓰기 가능 여부 **하나뿐** | emptyDir + `fsGroup: 1000` 으로 **비-root(1000)** 로 세웠다. 4.11 부터 UID 1000 이 기본이라는 안내가 그 스크립트에 그대로 있었다 |
+| `MP_MEM_MAX=2048m` 이 기본 | 1024m 으로 낮췄다. 그대로면 이 노드에 들어가지 않는다 |
+| `/opt/midpoint` 는 이미 `midpoint(1000)` 소유 | 비-root 가 가능하다는 근거 |
+| SQL 이 확장 셋을 요구(`intarray`·`pg_trgm`·`fuzzystrmatch`) | `CREATE EXTENSION` 은 superuser 라 postgres-bootstrap 이 만든다 |
+| midPoint 이미지에 `psql` 이 **없다** | initContainer 를 둘로 나눴다 — 하나는 SQL 을 꺼내고 하나는 넣는다 |
+
+★★ **스키마를 누가 넣느냐가 함정이다.** 확장은 superuser 가 만들어야 하지만
+테이블은 **midpoint 롤 소유**여야 한다 — superuser 로 넣으면 앱이 쓰지 못한다.
+그래서 확장과 스키마를 **다른 주체로** 나눴다. 결과:
+
+```
+테이블 100개 · 전부 midpoint 소유 · 스키마 midpoint
+감사 6 · quartz 11 · 스키마 버전 51
+확장 fuzzystrmatch · intarray · pg_trgm
+```
+
+★ `MP_H2_DEFAULTS=false` 로 뒀다. DB 가 안 붙을 때 **조용히 H2 로 뜨는 것**은
+이 레포가 반복해 만난 "성공 출력이 성공이 아닌" 부류다. 죽는 편이 낫다.
+
+#### 검증
+
+```
+파드            ready=true · restarts=0
+저장소          SqaleAuditService  <- 네이티브 PostgreSQL. H2 폴백이 없었다는 증거
+초기 임포트     archetype 등 생성 완료
+/actuator/health -> 200 {"status":"UP"}
+/midpoint/       -> 302 (로그인으로 이동)
+```
+
+#### ★ 메모리 추정이 이번에는 맞았다
+
+```
+midPoint 추정 1.0~1.5 GiB  ->  실측 1203Mi
+```
+
+§8-102 에서 OpenFGA 가 추정의 **10분의 1**(17Mi)이었던 것과 대조된다.
+그때 적어 둔 단서가 맞았다 — **Go 정적 바이너리는 추정이 부풀려져 있고
+JVM 은 그렇지 않다.** 남은 큰 항목(Gravitee · Flink)도 JVM 이므로 §7 의
+숫자를 그대로 봐야 한다.
+
+#### 지금 상태
+
+```
+여유 2.22 -> 0.97 GiB
+zram  원본 9899Mi -> 압축 3272Mi (3.13:1) · 절약 6626Mi
+물리  43Gi 중 31Gi 사용 · available 11Gi
+```
+
+★ **다음 하나를 더 넣으려면 또 깎아야 한다.** 그리고 정직하게 깎을 몫은
+이미 거의 다 썼다 — 남은 것은 "놀고 있는 스택" 몫(2.97 GiB)인데 그것은
+쓰면 안 되는 돈이다. 여기서부터는 §22 의 베어메탈이나 메모리 증설이 답이다.
+
 ## 9. 뒤로 미룬 일 — 전부 끝난 뒤에 한다
 
 > **이 절은 "지금 하지 않기로 결정한 것" 의 목록이다.** §8 의 각 절 끝에
