@@ -78,3 +78,25 @@ patches:
           rollingUpdate:
             maxSurge: 0
             maxUnavailable: 1
+
+# ★★ readOnlyRootFilesystem — **측정을 통과한 14종만** 켜다(§8-101).
+#   `local/check-readonly-rootfs.sh` 가 도는 컨테이너에 직접 물어
+#   rootfs 쓰기가 0건인 것만 골랐다.
+#
+# ★ 이름을 정규식으로 모두 나열한다 — 라벨 셀렉터로 잡으면
+#   아래 세 종이 함께 들어온다. **제외한 이유를 남긴다:**
+#     assist          /home/openreplay/.npm/_logs/... 을 쓴다 (npm 로그)
+#     sourcemapreader 같은 이유
+#     frontend        셸이 없어 **측정 자체가 불가**했다. 측정 못한 것을
+#                     켜지 않는다 — nginx 계열은 임시 디렉터리를 쓴다
+#
+# ★★ 이 목록은 보증이 아니다 — 검사가 **기동 중의 쓰기를 놓친다**
+#   (dependency-track-frontend 가 그 반례, Gotcha 92). 켜진 뒤 기동 로그와
+#   재시작 횟수를 반드시 확인할 것.
+  - target:
+      kind: Deployment
+      name: "^(alerts|api|assets|canvases|chalice|db|ender|heuristics|http|images|integrations|sink|spot|storage)-openreplay$"
+    patch: |
+      - op: add
+        path: /spec/template/spec/containers/0/securityContext/readOnlyRootFilesystem
+        value: true

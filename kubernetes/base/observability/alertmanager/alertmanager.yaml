@@ -100,6 +100,10 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: {drop: ["ALL"]}
+            # ★ rootfs 쓰기 0건을 측정하고 켜다(§8-101).
+            #   쓰는 곳은 /alertmanager (emptyDir) 이고 그것은 볼륨이다.
+            #   판정은 local/check-readonly-rootfs.sh 가 했다 — 추측이 아니다.
+            readOnlyRootFilesystem: true
           resources:
             requests: {cpu: 20m, memory: 64Mi}
             limits:   {cpu: 200m, memory: 192Mi}
