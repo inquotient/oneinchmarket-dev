@@ -72,3 +72,20 @@ patches:
           rollingUpdate:
             maxSurge: 0
             maxUnavailable: 1
+
+# ★★ readOnlyRootFilesystem 을 켜는 첫 트랜치다(§8-99).
+#   Trivy 가 KSV-0014 로 312건을 지적하지만 켜면 조용히 깨지는 것이 있어
+#   추측으로 켜지 않았다. `local/check-readonly-rootfs.sh` 가 도는
+#   컨테이너에 직접 물어 **rootfs 쓰기 0건**을 확인한 것만 골랐다.
+#   openmeter 5종은 그 검사를 통과했고, HTTP API 로 동작까지 확인된다.
+#
+# ★ 같은 검사에서 'caldera · hive-server' 는 쓴다고 나왔다
+#   (/usr/src/app/conf/local.yml · /opt/hive/conf/hiveserver2.pid). 둘 다
+#   "안전해 보이는" 후보였으므로, 측정 없이 허욠으면 깨졌을 것이다.
+  - target:
+      kind: Deployment
+      labelSelector: app.kubernetes.io/name=openmeter
+    patch: |
+      - op: add
+        path: /spec/template/spec/containers/0/securityContext/readOnlyRootFilesystem
+        value: true

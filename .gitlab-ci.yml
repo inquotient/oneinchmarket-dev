@@ -323,9 +323,14 @@ deploy-dev:
 publish-contracts:
   stage: deploy
   image: curlimages/curl:8.11.1
+  # ★★ 네임스페이스를 브랜치에서 뽑는다 — 이전에는 `dev` 로 박혀 있었고
+  #   잡도 `v2` 브랜치에서만 돌았다. 그러면 **실제 클러스터가 있는
+  #   `local` 에서는 영영 돌지 않는다** — 계약을 써 두고도 등록되지
+  #   않아 cmmn-api 의 POST 가 500 으로 남는다(§8-99).
   variables:
-    REGISTRY_V3: "http://apicurio-registry-headless.dev.svc.cluster.local:8080/apis/registry/v3"
-    REGISTRY_CCOMPAT: "http://apicurio-registry-headless.dev.svc.cluster.local:8080/apis/ccompat/v7"
+    CONTRACTS_NS: dev
+    REGISTRY_V3: "http://apicurio-registry-headless.${CONTRACTS_NS}.svc.cluster.local:8080/apis/registry/v3"
+    REGISTRY_CCOMPAT: "http://apicurio-registry-headless.${CONTRACTS_NS}.svc.cluster.local:8080/apis/ccompat/v7"
   script:
     - |
       set -eu
@@ -369,6 +374,11 @@ publish-contracts:
     - if: '$CI_COMMIT_BRANCH == "v2"'
       changes:
         - contracts/**/*
+    - if: '$CI_COMMIT_BRANCH == "local"'
+      changes:
+        - contracts/**/*
+      variables:
+        CONTRACTS_NS: local
 
 deploy-prod:
   stage: deploy
