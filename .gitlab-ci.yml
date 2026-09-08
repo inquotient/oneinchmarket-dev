@@ -73,10 +73,13 @@ kubeconform-validate:
     entrypoint: [""]
   needs:
     - kustomize-validate
+  # ★ 바이너리는 PATH 에 없고 `/kubeconform` 에 있다(그것이 원래 ENTRYPOINT 다).
+  #   entrypoint 를 비우면 셸은 돌지만 `kubeconform: not found` 가 된다 —
+  #   GitLab 보안 템플릿의 `/analyzer run` 과 같은 모양이다(Gotcha 74).
   script:
-    - kubeconform -strict -summary -ignore-missing-schemas rendered/dev.yaml
-    - kubeconform -strict -summary -ignore-missing-schemas rendered/prod.yaml
-    - kubeconform -strict -summary -ignore-missing-schemas rendered/local.yaml
+    - /kubeconform -strict -summary -ignore-missing-schemas rendered/dev.yaml
+    - /kubeconform -strict -summary -ignore-missing-schemas rendered/prod.yaml
+    - /kubeconform -strict -summary -ignore-missing-schemas rendered/local.yaml
   rules:
     - changes:
         - kubernetes/**/*
