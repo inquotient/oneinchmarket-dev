@@ -16,11 +16,22 @@
 include:
   - template: Jobs/Secret-Detection.gitlab-ci.yml
 
+# ★★ build·sign 스테이지를 걷었다(§8-98). 그 안의 잡들은 **세 겹으로
+#   동작할 수 없는** 상태였다:
+#     ① `v1/admin/Dockerfile` · `v1/cmmn-api/Dockerfile` 이 **없다.** 그 디렉터리에는
+#        레거시 매니페스트만 있고 앱 소스는 이 레포에 없다.
+#     ② `docker:dind` 는 privileged 가 필요한데 이 러너는 그것을 주지 않는다.
+#     ③ push 대상 `registry.oneinchmarket.co.kr` 는 **존재하지 않는다**(CLAUDE.md).
+#   그리고 배포되는 이미지는 Docker Hub 의 `inquotient/*@sha256:` 다이제스트다.
+#
+#   ★ 이미지 취약점 스캔은 없어지지 않았다 — **Trivy Operator 가 클러스터에서
+#   실제로 도는 워크로드를 상시 스캔한다**(§8-79). admin·cmmn-api 둘 다
+#   VulnerabilityReport 가 있다. 즉 능력을 지운 것이 아니라 **동작하지 않는
+#   중복을 지우고 진짜 있는 곳을 가리키는 것**이다.
+#   새 앱을 이 레포에서 빌드하게 되면 그때 사실에 맞는 모양으로 다시 세울 것.
 stages:
   - validate
-  - build
   - scan
-  - sign
   - mirror
   - deploy
 
@@ -79,111 +90,29 @@ kubeconform-validate:
   # ★ 바이너리는 PATH 에 없고 `/kubeconform` 에 있다(그것이 원래 ENTRYPOINT 다).
   #   entrypoint 를 비우면 셸은 돌지만 `kubeconform: not found` 가 된다 —
   #   GitLab 보안 템플릿의 `/analyzer run` 과 같은 모양이다(Gotcha 74).
+  # ★★ CRD 스키마를 붙여 **Skipped 를 0 으로 만들었다**(§8-98).
+  #   이전에는 local 62 · dev 33 · prod 33 건이 **검사 없이 통과**했다 —
+  #   external-secrets 30 · cert-manager 10 · istio 9 · kyverno 6 · gateway-api 4 · ECK 2.
+  #   이제 local 503 · dev 357 · prod 365 가 전부 Valid 다.
+  # ★ 카탈로그는 원격에서 받는다. 닿지 않으면 `-ignore-missing-schemas` 가
+  #   예전처럼 **건너뛰 뿐**이라 게이트가 조용히 약해진다(Gotcha 60).
+  #   판정은 로그의 **Skipped 건수**로 한다 — 0 이 아니면 카탈로그가 안 닿았거나
+  #   카탈로그에 없는 새 CRD 가 들어온 것이다.
+  variables:
+    CRD_SCHEMAS: "https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
   script:
-    - /kubeconform -strict -summary -ignore-missing-schemas rendered/dev.yaml
-    - /kubeconform -strict -summary -ignore-missing-schemas rendered/prod.yaml
-    - /kubeconform -strict -summary -ignore-missing-schemas rendered/local.yaml
+    - /kubeconform -strict -summary -ignore-missing-schemas
+        -schema-location default -schema-location "$CRD_SCHEMAS" rendered/dev.yaml
+    - /kubeconform -strict -summary -ignore-missing-schemas
+        -schema-location default -schema-location "$CRD_SCHEMAS" rendered/prod.yaml
+    - /kubeconform -strict -summary -ignore-missing-schemas
+        -schema-location default -schema-location "$CRD_SCHEMAS" rendered/local.yaml
   rules:
     - changes:
         - kubernetes/**/*
   allow_failure: false
 
 
-# ──────────────────────────────────────────
-# Stage: validate - API 계약 린트 (계약 우선, ADR-067)
-# ──────────────────────────────────────────
-# contracts/ 가 원천이다. 레지스트리 규칙(VALIDITY·COMPATIBILITY)이
-# 구문·호환을 보고, Spectral 이 스타일·거버넌스를 본다.
-#
-# 계약이 아직 하나도 없다. 그래서 파일이 없으면 조용히 통과한다 —
-# 다만 **에코로 분명히 남긴다.** 아무것도 안 한 잡이 초록색으로만 남으면
-# 검사가 도는 줄 착각하게 된다(ds389-bootstrap 에서 겪은 것과 같은 계열).
-spectral-lint:
-  stage: validate
-  image: stoplight/spectral:6.16.3
-  script:
-    - |
-      set -e
-      found=$(find contracts/openapi contracts/asyncapi -type f \( -name '*.yaml' -o -name '*.yml' -o -name '*.json' \) 2>/dev/null | sort)
-      if [ -z "$found" ]; then
-        echo "[spectral] contracts/ 에 계약 파일이 없다 — 검사할 것이 없다."
-        echo "[spectral] 계약이 들어오면 이 잡이 자동으로 검사한다. contracts/README.md 참조."
-        exit 0
-      fi
-      echo "[spectral] 대상:"; echo "$found" | sed 's/^/  /'
-      echo "$found" | xargs spectral lint --ruleset .spectral.yaml --fail-severity=error
-  rules:
-    - changes:
-        - contracts/**/*
-        - .spectral.yaml
-# ──────────────────────────────────────────
-# Stage: build - 자체 이미지 빌드
-# ──────────────────────────────────────────
-.build-template: &build-template
-  stage: build
-  image: docker:latest
-  services:
-    - docker:dind
-  before_script:
-    - docker login -u "${CI_REGISTRY_USER}" -p "${CI_REGISTRY_PASSWORD}" "${REGISTRY}"
-  script:
-    - docker build -t "${REGISTRY}/${IMAGE_NAME}:${CI_COMMIT_SHA}" -f "${DOCKERFILE}" "${CONTEXT}"
-    - docker push "${REGISTRY}/${IMAGE_NAME}:${CI_COMMIT_SHA}"
-    - docker tag "${REGISTRY}/${IMAGE_NAME}:${CI_COMMIT_SHA}" "${REGISTRY}/${IMAGE_NAME}:latest"
-    - docker push "${REGISTRY}/${IMAGE_NAME}:latest"
-
-build-admin:
-  <<: *build-template
-  variables:
-    IMAGE_NAME: inquotient/admin
-    DOCKERFILE: v1/admin/Dockerfile
-    CONTEXT: v1/admin
-  rules:
-    - changes:
-        - v1/admin/**/*
-
-build-cmmn-api:
-  <<: *build-template
-  variables:
-    IMAGE_NAME: inquotient/cmmn-api
-    DOCKERFILE: v1/cmmn-api/Dockerfile
-    CONTEXT: v1/cmmn-api
-  rules:
-    - changes:
-        - v1/cmmn-api/**/*
-
-# ──────────────────────────────────────────
-# Stage: scan - Trivy 이미지/매니페스트 취약점 스캔
-# ──────────────────────────────────────────
-trivy-image-scan:
-  stage: scan
-  image: aquasec/trivy:latest
-  script:
-    - trivy image --severity ${TRIVY_SEVERITY} --exit-code ${TRIVY_EXIT_CODE}
-        --format table "${REGISTRY}/${IMAGE_NAME}:${CI_COMMIT_SHA}"
-  parallel:
-    matrix:
-      - IMAGE_NAME:
-          - inquotient/admin
-          - inquotient/cmmn-api
-  rules:
-    - changes:
-        - v1/admin/**/*
-        - v1/cmmn-api/**/*
-  allow_failure: false
-
-# ★★ 이 잡은 **한 번도 성공한 적이 없었다**(실제로 돌은 4번 전부 실패).
-#   매니페스트가 바뀔 때만 돌아서 오래 드러나지 않았다. 고친 것 셋:
-#
-#   ① 대상 — 소스 트리 대신 **렌더 결과**를 읽는다(kustomize-validate 의
-#      아티팩트). 패치 조각에서 나오던 구조적 오탐 149건이 사라진다.
-#   ② 임계 — 차단은 **CRITICAL** 만. HIGH 는 아래 report 잡이 비차단으로
-#      계속 보고한다. ★ 이유: HIGH 가 366건이고 그중 312건이
-#      readOnlyRootFilesystem 미설정이다 — 진짜 부채이지만 한 번에 갑을 수
-#      없다. **달성할 수 없는 게이트는 없는 게이트보다 나쁘다** —
-#      무시하는 버릇을 기른다(Gotcha 73 이 allow_failure 에 대해 한 말과 같다).
-#   ③ 예외 — .trivyignore.yaml 에 **근거를 적어** 둔다(지금 1건).
-#   ④ 버전 고정 — :latest 는 결과가 조용히 변한다(Gotcha 45·60).
 trivy-config-scan:
   stage: scan
   image: aquasec/trivy:0.74.0
@@ -221,6 +150,36 @@ trivy-filesystem-scan:
     - if: $CI_PIPELINE_SOURCE == "schedule"
   allow_failure: true
 
+
+# ──────────────────────────────────────────
+# Stage: validate - API 계약 린트 (계약 우선, ADR-067)
+# ──────────────────────────────────────────
+# contracts/ 가 원천이다. 레지스트리 규칙(VALIDITY·COMPATIBILITY)이
+# 구문·호환을 보고, Spectral 이 스타일·거버넌스를 본다.
+#
+# 계약이 아직 하나도 없다. 그래서 파일이 없으면 조용히 통과한다 —
+# 다만 **에코로 분명히 남긴다.** 아무것도 안 한 잡이 초록색으로만 남으면
+# 검사가 도는 줄 착각하게 된다(ds389-bootstrap 에서 겪은 것과 같은 계열).
+spectral-lint:
+  stage: validate
+  image: stoplight/spectral:6.16.3
+  script:
+    - |
+      set -e
+      found=$(find contracts/openapi contracts/asyncapi -type f \( -name '*.yaml' -o -name '*.yml' -o -name '*.json' \) 2>/dev/null | sort)
+      if [ -z "$found" ]; then
+        echo "[spectral] contracts/ 에 계약 파일이 없다 — 검사할 것이 없다."
+        echo "[spectral] 계약이 들어오면 이 잡이 자동으로 검사한다. contracts/README.md 참조."
+        exit 0
+      fi
+      echo "[spectral] 대상:"; echo "$found" | sed 's/^/  /'
+      echo "$found" | xargs spectral lint --ruleset .spectral.yaml --fail-severity=error
+  rules:
+    - changes:
+        - contracts/**/*
+        - .spectral.yaml
+
+
 # ──────────────────────────────────────────
 # Secret Detection — 템플릿을 이 파이프라인에 맞춘다
 #
@@ -238,10 +197,11 @@ trivy-filesystem-scan:
 secret_detection:
   stage: scan
   # ★★ needs: [] 로 앞 스테이지에서 떼어낸다.
-  #   스테이지 순서상 scan 은 validate 뒤인데, 이 레포의 validate 3종은
-  #   따로 고장나 있다(kubeconform 잡이 kubeconform 이미지 안에서 kustomize 를
-  #   실행한다 — CLAUDE.md). 그러면 secret_detection 이 skipped 가 되어
-  #   **켜 두고도 한 번도 돌지 않는다.**
+  #   스테이지 순서상 scan 은 validate 뒤라, validate 가 깨지면
+  #   secret_detection 이 skipped 가 되어 **켜 두고도 한 번도 돌지 않는다.**
+  #   ★ 예전에 실제로 그랬다 — kubeconform 은 셸이 없어 실행조차 못 했고
+  #   trivy-config-scan 은 한 번도 성공한 적이 없었다(§8-97 에서 둘 다 고쳤다).
+  #   고쳐도 이 분리는 유지한다 — 앞이 깨졌을 때야말로 돌아야 하는 검사다.
   #   시크릿 검사는 매니페스트 검증에 의존할 이유가 없다 — 오히려 앞이
   #   깨졌을 때야말로 돌아야 한다.
   needs: []
@@ -296,29 +256,6 @@ secret_detection_historic:
 
 # ──────────────────────────────────────────
 # Stage: sign - Cosign 이미지 서명
-# ──────────────────────────────────────────
-cosign-sign:
-  stage: sign
-  image: bitnami/cosign:latest
-  script:
-    - echo "${COSIGN_KEY}" > /tmp/cosign.key
-    - cosign sign --key /tmp/cosign.key
-        "${REGISTRY}/${IMAGE_NAME}:${CI_COMMIT_SHA}"
-    - rm -f /tmp/cosign.key
-  parallel:
-    matrix:
-      - IMAGE_NAME:
-          - inquotient/admin
-          - inquotient/cmmn-api
-  variables:
-    COSIGN_PASSWORD: "${COSIGN_KEY_PASSWORD}"
-  rules:
-    - changes:
-        - v1/admin/**/*
-        - v1/cmmn-api/**/*
-  needs:
-    - trivy-image-scan
-
 # ──────────────────────────────────────────
 # Stage: mirror - 외부 이미지 미러링
 # ──────────────────────────────────────────
