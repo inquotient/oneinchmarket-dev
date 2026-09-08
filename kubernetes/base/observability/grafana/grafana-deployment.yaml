@@ -56,8 +56,19 @@ spec:
           volumeMounts:
             - {name: config, mountPath: /etc/grafana/provisioning/datasources}
             - {name: data, mountPath: /var/lib/grafana}
+            # ★ readOnlyRootFilesystem 을 켜면 grafana 의 플러그인 설치가
+            #   깨진다 — backgroundinstaller 가 /tmp 에 zip 을 받아 푸는데
+            #   rootfs 에 못 쓴다:
+            #     Failed to install plugin ... open /tmp/232714125.zip: read-only file system
+            #   실측으로 mysql·elasticsearch·pyroscope 등 18건이 실패했다.
+            #   ★★ 이것이 `check-readonly-rootfs.sh` 가 놓치는 부류다 —
+            #   플러그인 설치는 **기동 직후**에 일어나 기준 파일과 시각이
+            #   겹친다(Gotcha 92). 파드는 Ready 였고 /api/health 도 ok 였다.
+            - {name: tmp, mountPath: /tmp}
       volumes:
         - name: config
           configMap: {name: grafana-config}
         - name: data
+          emptyDir: {}
+        - name: tmp
           emptyDir: {}
