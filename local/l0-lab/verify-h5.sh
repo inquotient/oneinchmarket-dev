@@ -32,12 +32,20 @@ bad()  { echo "  [FAIL] $*"; FAIL=$((FAIL+1)); }
 info() { echo "  [ .. ] $*"; }
 
 echo "══════ 0. 전제 — 합성 NIC 과 커널 기능"
-drv=$(basename "$(readlink -f /sys/class/net/eth0/device/driver 2>/dev/null)" 2>/dev/null)
+# ★ NIC 이름을 하드코딩하지 말 것 — 이미지마다 다르다. Hyper-V 게스트는 eth0
+#   였지만 Ubuntu 클라우드 이미지는 예측 가능 이름(enp0s2)을 쓴다. 실측
+#   (2026-09-10): eth0 로 박혀 있어 드라이버가 **빈 값**으로 나왔고, 그러면
+#   "게스트가 아니다" 로 오독된다 — 실제 드라이버는 virtio_net 이었다.
+#   기본 경로가 쓰는 NIC 을 고른다.
+NIC="${NIC:-$(ip -o route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}')}"
+NIC="${NIC:-eth0}"
+drv=$(basename "$(readlink -f "/sys/class/net/$NIC/device/driver" 2>/dev/null)" 2>/dev/null)
+[ -n "$drv" ] || drv="(불명)"
 EXPECT_DRV="${EXPECT_DRV:-hv_netvsc}"
 if [ "$drv" = "$EXPECT_DRV" ]; then
-  ok "NIC 드라이버 $drv — 기대값($EXPECT_DRV)과 일치"
+  ok "NIC $NIC 드라이버 $drv — 기대값($EXPECT_DRV)과 일치"
 else
-  bad "NIC 드라이버가 $drv 다(기대 $EXPECT_DRV). 게스트가 아니거나 EXPECT_DRV 가 틀렸다"
+  bad "NIC $NIC 의 드라이버가 $drv 다(기대 $EXPECT_DRV). 게스트가 아니거나 EXPECT_DRV 가 틀렸다"
 fi
 [ -f /sys/kernel/btf/vmlinux ] && ok "BTF 존재 ($(stat -c%s /sys/kernel/btf/vmlinux) 바이트) — CO-RE 가능" \
                                || bad "BTF 없음 — Cilium·Tetragon CO-RE 불가. 이것만으로 이설 중단 사유다"
