@@ -12,7 +12,22 @@
 #   ZooKeeper + Hadoop 4종 + HBase 2종 + Hive Server 로 대부분 JVM 이라
 #   최소 6~8 GiB 가 더 필요하다. 실사용 상위(GitLab 2987Mi · Logstash
 #   1835Mi · ES 1695Mi)는 전부 실제로 쓰는 값이라 더 깎을 여지가 없었다.
-#   Windows 데스크톱에 약 7 GB 를 남긴다.
+#
+# ★★ 그 56GB 는 2026-09-05 에 한 번 **실패했다** — 그때는 Hyper-V L0 랩
+#   (OPNsense 6.0 + Target 2.2 = 8.4 GiB)이 함께 돌고 있어서 Windows 가
+#   먼저 무너졌다. 그래서 한동안 44GB 로 내려 두었다.
+#
+#   2026-09-10 에 다시 56GB 로 올려 **성립했다.** 통한 이유는 상한이 아니라
+#   **랩이 꺼져 있었다는 것**이다(§23-3: 랩을 끈 WSL2 의 allocatable 52.62 는
+#   랩을 유지한 베어메탈 ~50.7 보다 크다).
+#
+#   ▸ 전제  : L0 랩이 꺼져 있을 것. 랩을 다시 켜면 **48GB 로 내릴 것.**
+#   ▸ 대가  : 호스트 커밋이 79.5 GiB 로 물리 63.4 를 넘어 Windows 가
+#             페이징한다. 데스크톱 반응성과 클러스터 용량의 교환이다.
+#   ▸ 산수  : allocatable = 상한 - 2.29 GiB (kubelet 예약은 비율이 아니라
+#             **고정값**이다 — Gotcha 104). 목표 allocatable + 2.29 를 넣으면 된다.
+#   ▸ 판정  : wsl.exe -- free -g 의 MemTotal 과
+#             kubectl get node -o jsonpath={.items[0].status.allocatable.memory}
 memory=56GB
 
 # ★ 20 → 24 (2026-09-02)

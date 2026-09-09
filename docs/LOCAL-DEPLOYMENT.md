@@ -133,6 +133,43 @@ kubectl kustomize kubernetes/overlays/local | kubectl apply -f -
 --kubelet-arg=config=/etc/rancher/k3s/kubelet-config.yaml   # 스왑 설정 일체
 ```
 
+### 3-1. 콜드 부팅 뒤에 반드시 할 것 (2026-09-10 추가)
+
+WSL 이 꺼졌다 켜지면 — `wsl --shutdown` 이든 Gotcha 6 의 유휴 종료든 —
+**클러스터가 스스로 원래대로 돌아오지 않는다.** 순서대로 할 것.
+
+```powershell
+# ① keepalive 먼저. 이것이 없으면 진단하는 동안 또 꺼진다(Gotcha 6)
+powershell -File local\keepalive.ps1
+powershell -File local\keepalive.ps1 -Status     # "실행 중" 을 확인할 것
+```
+
+```bash
+# ② ambient 재편입 — 이것이 빠지면 파드 수십 개가 CrashLoop 에 남는다
+#    ztunnel 이 부팅 중 재시작하는데, 앰비언트 편입을 하는 것은 istio-cni 이고
+#    그것은 CNI 이벤트가 있을 때만 일한다. 이미 떠 있던 파드는 아무도 다시
+#    넣어 주지 않는다(Gotcha 50 · §23-5).
+kubectl -n istio-system rollout restart ds/istio-cni-node
+
+#    판정: 아래 두 수가 비슷해야 한다. 크게 벌어지면 아직 밖에 있는 것이다.
+kubectl -n istio-system logs ds/ztunnel --tail=-1 | grep -c "pod received, starting proxy"
+kubectl -n local get pod --field-selector status.phase=Running --no-headers | wc -l
+```
+
+```bash
+# ③ 롤오버로 생긴 인덱스가 yellow 로 클러스터를 묶고 있지 않은지
+#    yellow 면 ECK 가 파드를 롤링하지 않는다(Gotcha 14·34·59)
+curl -sk -u elastic:<pw> https://localhost:9200/_cat/indices?h=health,index,rep | grep -v '^green'
+
+# ④ 장애 구간에 스케줄된 CronJob 은 성공을 한 번 만들어 줘야 Degraded 가 풀린다
+#    (§23-6 ②) — ownerReferences 가 붙는 --from 을 쓸 것
+kubectl -n local get cronjob -o custom-columns=\
+NAME:.metadata.name,SCHED:.status.lastScheduleTime,OK:.status.lastSuccessfulTime
+```
+
+★ **"기다리면 낫는다" 를 기대하지 말 것.** 비정상 파드 수가 오르내리기만 하고
+줄지 않으면 그것은 자가 복구가 아니라 재시작 루프다 — §23-5 에서 25분을 버렸다.
+
 ---
 
 ## 4. 모니터링 — 반드시 볼 것
@@ -12844,6 +12881,12 @@ Proxmox 를 ZFS 로 설치하면 **ARC 기본값이 물리 RAM 의 50%** 다. 63
 
 ## 22. 베어메탈 리눅스로 옮기면 남은 도입이 들어가는가 (2026-09-08 실측)
 
+> ★★ **이 절의 결론은 §23 이 뒤집었다(2026-09-10).** 여기서는 랩 8.4 GiB 를
+> 고정 비용으로 두고 Windows 몫만 따졌는데, 실제로 가장 큰 레버는 **랩**이었다 —
+> 랩을 끄고  상한만 올려 **+11.8 GiB** 를 얻었고, 그것은
+> **랩을 유지한 베어메탈보다 크다.** 22-2 의 "호스트 예약 94.7%" 도 틀렸다:
+> 예약은 비율이 아니라 **고정 2.29 GiB** 다(§23-2). 22-4·22-5 는 그대로 유효하다.
+
 > §21 이 Proxmox 를 따졌다면 이것은 **하이퍼바이저를 아예 없애는** 경우다.
 > §21 과 달리 **호스트 쪽 숫자는 실측이다**(Windows `Win32_ComputerSystem` ·
 > `Get-VM` · `vmmemWSL` 작업 집합). 옮긴 뒤의 숫자만 산술이다.
@@ -12927,6 +12970,217 @@ allocatable   42794636Ki   = capacity 의 94.7%
 
 **풀 HA 가 목적이라면 여전히 답이 아니다** — 그것은 노드 수의 문제이고
 메모리 증설이나 두 번째 기기가 필요하다.
+
+## 23. `.wslconfig` 상한을 56GB 로 올렸다 — 랩을 끄니 베어메탈보다 벌었다 (2026-09-10 실측)
+
+> §22 는 "베어메탈 리눅스로 가야 +9.4 ~ +17.4" 라고 적었다. 그런데 **랩을 끄고
+> 상한만 올려 +11.8 을 얻었다.** 진짜 비용은 Windows 가 아니라 **L0 랩**이었다.
+> 이 절은 그 실측이고, §22 의 전제 하나를 정정한다.
+
+### 23-1. 무엇을 바꿨나
+
+`C:\Users\darka\.wslconfig` 한 줄이다.
+
+```ini
+memory=44GB   →   memory=56GB
+```
+
+**전제**: Hyper-V L0 랩(OPNsense 6.0 + Target 2.2 = 8.4 GiB)이 꺼져 있어야 한다.
+랩이 돌아오면 이 상한으로는 호스트가 버티지 못한다 — 되돌리는 조건은 23-6.
+
+이 값은 **한 번 실패한 적이 있다**(2026-09-05). 그때는 랩이 돌고 있었고
+Windows 가 먼저 무너졌다. 이번에 통한 이유는 상한이 아니라 **랩이 꺼져
+있었다는 것**이다. `.wslconfig` 주석에 그 경위를 적어 두었다.
+
+### 23-2. 실측
+
+| | 44GB (랩 on) | **56GB (랩 off)** | 차 |
+|---|---:|---:|---:|
+| `MemTotal` | 43.11 GiB | **54.92 GiB** | +11.81 |
+| node `capacity` | 45198988Ki | **57585292Ki** | — |
+| node `allocatable` | 42794636Ki (40.81 GiB) | **55180940Ki (52.62 GiB)** | **+11.81** |
+| `requests` 합계 | 40.22 GiB (98%) | **39.84 GiB (75%)** | — |
+| **여유** | **+0.97 GiB** | **+12.78 GiB** | **+11.81** |
+
+★★ **여기서 §22 의 산식 하나가 틀렸다는 것이 드러났다.** §22 는 kubelet 예약을
+**94.7% 라는 비율**로 잡았는데, 두 측정을 빼 보면 예약은 비율이 아니라
+**고정값 2404352Ki = 2.29 GiB** 다 — 44GB 일 때도 56GB 일 때도 **정확히 같다.**
+
+```
+45198988 - 42794636 = 2404352Ki
+57585292 - 55180940 = 2404352Ki   ← 같다
+```
+
+비율로 잡으면 큰 쪽을 과소평가한다. 아래 23-3 의 표는 고정값으로 다시 계산한
+것이다.
+
+### 23-3. §22 를 정정한다
+
+§22-2 의 표를 **고정 예약 2.29 GiB** 로 다시 계산하고, **오늘 실측한 행을
+추가**한다.
+
+| 구성 | 호스트 OS | L0 랩 | k3s 원시 | allocatable | 지금(44GB) 대비 |
+|---|---:|---:|---:|---:|---:|
+| §22 의 출발점 (WSL2 44GB · 랩 on) | Windows ~14 | 8.4 | 43.1 | 40.81 | — |
+| **★ WSL2 56GB · 랩 off (오늘 실측)** | Windows ~24 | 0 | 54.9 | **52.62** | **+11.81** |
+| 베어 리눅스 · 랩 유지(KVM) | ~2 | 8.4 | 53.0 | ~50.7 | +9.9 |
+| 베어 리눅스 · 랩 이전 | ~2 | 0 | 61.4 | ~59.1 | +18.3 |
+
+**정정 내용 셋:**
+
+1. ★★ **"베어메탈로 가야 얻는다" 는 틀렸다.** 랩을 끈 WSL2(52.62)가
+   **랩을 유지한 베어메탈(~50.7)보다 크다.** §22 는 랩 8.4 GiB 를 고정 비용으로
+   두고 Windows 몫만 따졌는데, 실제로 가장 큰 레버는 **랩이었다.**
+2. **§22-2 의 94.7% 는 비율이 아니라 고정값이다**(23-2). 그 탓에 베어메탈
+   행이 0.5 ~ 0.9 GiB 씩 과소평가돼 있었다.
+3. **§22-3 의 판정표는 유효하다** — 남은 도입 8~11 GiB 는 오늘 여유
+   **12.78 GiB** 에 들어간다. 다만 그 결론에 이르는 경로가 "베어메탈 이전" 이
+   아니라 **"랩을 끄고 상한을 올리는 것"** 이었다.
+
+★ §22 가 여전히 옳은 것: **22-4 의 이득**(Gotcha 6·49·55 가 사라진다)은 그대로
+남는다. 오늘 그중 Gotcha 6 계열을 **또 밟았다**(23-5).
+
+### 23-4. 대가 — 호스트가 페이징한다
+
+```
+물리 총량   63.4 GiB
+vmmemWSL    39.1 GiB   (작업 집합. 상한 56GB 를 아직 다 잡지 않았다)
+Windows 가용 5.3 GiB
+커밋        79.5 GiB   ← 물리(63.4)를 넘는다. 페이지 파일을 쓰고 있다
+```
+
+★ **이것은 결함이 아니라 선택이다.** 사용자가 "최대한 밀어붙인다" 로 정했고,
+Windows 데스크톱의 반응성을 클러스터 용량과 맞바꾼 것이다. 편집기·브라우저를
+많이 띄우면 체감된다.
+
+★★ **클러스터 쪽 스왑은 거의 쓰이지 않는다** — zram0 32 GiB 중 **382.9 MiB**,
+`/dev/sdc` 8 GiB 중 **0 B**. 즉 오늘의 페이징은 **Windows 쪽**이다. §19-3 이
+"zram 은 이 문제를 못 푼다" 고 적은 것과 같은 이야기다 — 스케줄러는
+`allocatable` 만 보고(Gotcha 101), 자리를 만든 것은 상한이지 압축이 아니다.
+
+### 23-5. 콜드 부팅이 드러낸 것 — ambient 는 스스로 복구되지 않는다
+
+`.wslconfig` 를 고치려면 `wsl --shutdown` 이 필요하고, 그것은 **콜드 부팅**이다.
+기동 직후 상태는 이랬다:
+
+```
+171 파드 — Running 107 · Error 24 · CrashLoopBackOff 19 · Completed 20 · Unknown 1
+```
+
+25분을 기다려도 **비정상이 54 ~ 59 에서 평평했다.** 증상만 보면 "메모리가
+모자라 의존 순서가 안 풀린다" 로 읽힌다 — openreplay·openmeter·defectdojo 가
+전부 DB 에 못 붙고 있었으니까. **틀린 진단이다.**
+
+판정은 Gotcha 50 의 방법으로 했다:
+
+```
+ztunnel 로그의 "pod received, starting proxy"   48건
+ambient 네임스페이스(local · elastic-system)의 Running 파드   ~75개
+```
+
+**27개가 메시 밖에 있었다.** ztunnel 이 부팅 중 재시작했고, 앰비언트 편입을
+하는 것은 ztunnel 이 아니라 **istio-cni** 인데 그것은 CNI 이벤트가 있을 때만
+일한다 — 이미 떠 있던 파드는 아무도 다시 넣어 주지 않는다.
+
+```bash
+kubectl -n istio-system rollout restart ds/istio-cni-node
+```
+
+10분 뒤 **CrashLoopBackOff 17 → 0.** 남은 것은 장애 구간에 돈 Job 시체뿐이었다.
+
+★★ **새로 알게 된 것: 이것은 콜드 부팅마다 재현된다.** Gotcha 50 은 "ztunnel 을
+재시작할 일이 있으면" 이라고 조건부로 적었는데, WSL2 에서는 **부팅 자체가 그
+조건**이다. 그래서 기동 절차에 넣어야 한다 — **§3-1 로 넣었다.**
+
+★ 그리고 이것은 **"기다리면 낫는다" 가 통하지 않는 부류**다. 25분을 기다린 것은
+버린 시간이었다. 평평한 곡선(54 → 59 → 54)은 자가 복구 중이 아니라 **아무 일도
+일어나지 않고 있다**는 뜻이다. 파드 수가 **오르내리기만 하고 줄지 않으면**
+재시작 루프이지 회복이 아니다.
+
+### 23-6. 그 아래에서 드러난 두 가지 — 그리고 계측 실수 하나
+
+**① Elasticsearch 가 yellow 였다** — Gotcha 14·34·59 의 재발이다.
+
+```
+.ds-filebeat-9.5.3-2026.09.08-000003   rep=1   생성 2026-09-08 17:54 KST
+```
+
+지금 설치된 `filebeat-9.5.3` 인덱스 템플릿에는 `number_of_replicas: "0"` 이
+**있다**(§8-84 에서 밀어 넣었다). 그런데 이 백킹 인덱스는 그 **이전에** 롤오버로
+만들어져 rep=1 을 물고 있었다. 템플릿은 **생성 시점에만** 적용되므로 이미 만들어진
+인덱스는 따로 밀어야 한다:
+
+```bash
+curl -XPUT .../.ds-filebeat-9.5.3-2026.09.08-000003/_settings \
+     -d '{"index":{"number_of_replicas":0}}'
+```
+
+→ `status: green · unassigned_shards: 0`. ECK 가 파드를 롤링하지 못하던 상태가
+함께 풀렸다.
+
+**② ArgoCD 가 `Degraded` 였다 — 원인은 CronJob 하나였다.**
+
+```
+batch  CronJob  local  openbao-snapshot  Synced  Degraded
+       "CronJob has completed its last execution successfully"
+```
+
+★★ **메시지가 상태와 정반대다.** "마지막 실행이 성공했다" 고 써 놓고 Degraded 다.
+진짜 근거는 status 두 필드다:
+
+```
+lastScheduleTime   2026-09-09T15:17:00Z
+lastSuccessfulTime 2026-09-09T03:23:12Z   ← 스케줄보다 뒤처져 있다
+```
+
+15:17 회차가 `.wslconfig` 작업으로 죽었고, 그 뒤로 6시간 주기라 다음 성공까지
+계속 Degraded 로 남는다. 성공을 한 번 만들면 풀린다:
+
+```bash
+kubectl -n local create job --from=cronjob/openbao-snapshot openbao-snapshot-manual-1
+```
+
+★ `--from=cronjob/` 은 **ownerReferences 를 붙인다** — 그래서 `lastSuccessfulTime`
+이 실제로 갱신된다(수기 Job 을 따로 만들면 갱신되지 않아 헛수고가 된다).
+결과: `Synced/Healthy`.
+
+**③ ★★ 그런데 그 CronJob 을 찾는 데 시간을 버렸다 — 계측이 먼저 틀렸다.**
+
+`.status.resources[]` 를 훑어 "비정상 0" 을 얻고 **두 번** 그렇게 보고했다.
+실제로는 530건 **전부가 `health` 필드 자체를 갖고 있지 않았다** — ArgoCD 3.x 는
+리소스별 health 를 그 배열에 적지 않는다. 즉 "비정상 0" 은 **"아무것도 재지
+않았다"** 였다.
+
+권위 있는 출처는 `argocd app get <app>` 이다(리소스 트리 캐시에서 온다). 그리고
+그 CLI 는 `argocd-server` 파드 안에 있다 — REST API 를 직접 치려다 `curl: not
+found` 를 만났다(§8-84 의 프로브와 같은 부류).
+
+**판정: 앱이 Degraded 인데 리소스가 전부 Healthy 로 보이면, 리소스를 의심하기
+전에 그 목록이 실제로 health 를 담고 있는지부터 볼 것.**
+
+### 23-7. 최종 상태
+
+```
+allocatable   52.62 GiB
+requests      39.84 GiB (75%)   ← 여유 +12.78
+파드          Running 128 · Completed 19
+QoS           Burstable 140 · Guaranteed 8 · BestEffort 0
+ArgoCD        Synced / Healthy
+Elasticsearch green
+zram          32 GiB 중 382.9 MiB 사용
+```
+
+### 23-8. 되돌리는 조건
+
+| 조건 | 조치 |
+|---|---|
+| **L0 랩을 다시 켠다** | `memory=48GB` 로 낮출 것. 56 + 8.4 는 이 호스트에서 성립하지 않는다(2026-09-05 에 실패했다) |
+| Windows 가 체감될 만큼 느리다 | `memory=52GB`. 그 아래로 내리면 남은 도입이 다시 안 들어간다 |
+| 남은 도입이 끝났다 | 그대로 두어도 되고, 프로파일 분리(§19)를 하면 더 내릴 수 있다 |
+
+판정법: `wsl.exe -- free -g` 의 `MemTotal` 과 `kubectl get node -o
+jsonpath={.items[0].status.allocatable.memory}` 를 함께 볼 것. 둘의 차가
+**2.29 GiB 고정**이라, allocatable 목표에서 2.29 를 더하면 필요한 상한이 나온다.
 
 ## 관련 문서
 
