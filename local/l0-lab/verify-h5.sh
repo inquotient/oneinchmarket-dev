@@ -9,8 +9,19 @@
 #   **데이터를 날린 뒤에 H5 실패를 알게 되는 것보다, 랩 VM 한 대에서 먼저
 #   확인하는 편이 훨씬 싸다.**
 #
-# 실행 위치: Hyper-V Ubuntu 게스트(L0-Target) 안. 호스트가 아니다.
-# 전제: 이 VM 의 NIC 이 hv_netvsc 여야 한다(Hyper-V 합성 NIC).
+# 실행 위치: 리눅스 게스트 VM 안. 호스트가 아니다.
+#
+# ★ 하이퍼바이저 무관하게 고쳤다(2026-09-10). 1~4 단계는 전부 NIC 드라이버와
+#   무관하다 — BTF·커널 모듈은 커널 속성이고, socketLB 는 connect() 시점의
+#   **cgroup BPF 훅**이라 NIC 을 아예 거치지 않으며, NetworkPolicy 는 tc/BPF 다.
+#   실제로 드라이버에 매인 것은 아래 0단계 한 줄과 5단계(XDP)뿐이고,
+#   5단계는 애초에 "미지원 전제"로 적혀 있다.
+#
+# ★★ 그래도 **어느 드라이버에서 돌았는지는 결과에 남긴다.** "H5 통과" 만 보고
+#   다른 하이퍼바이저가 보증됐다고 읽으면 PVC 27개를 걸고 이설했다가 깨진다.
+#   기대 드라이버는 EXPECT_DRV 로 준다:
+#       EXPECT_DRV=hv_netvsc   (기본 · Hyper-V — ADR-051 A안을 답한다)
+#       EXPECT_DRV=virtio_net  (KVM — 베어메탈 리눅스 경로, §22 를 답한다)
 set -uo pipefail
 
 K3S_VERSION="${K3S_VERSION:-v1.31.4+k3s1}"
@@ -22,8 +33,12 @@ info() { echo "  [ .. ] $*"; }
 
 echo "══════ 0. 전제 — 합성 NIC 과 커널 기능"
 drv=$(basename "$(readlink -f /sys/class/net/eth0/device/driver 2>/dev/null)" 2>/dev/null)
-[ "$drv" = "hv_netvsc" ] && ok "NIC 드라이버 hv_netvsc — Hyper-V 합성 NIC 맞음" \
-                         || bad "NIC 드라이버가 '$drv' 다. Hyper-V 게스트가 아니면 이 검증은 의미가 없다"
+EXPECT_DRV="${EXPECT_DRV:-hv_netvsc}"
+if [ "$drv" = "$EXPECT_DRV" ]; then
+  ok "NIC 드라이버 $drv — 기대값($EXPECT_DRV)과 일치"
+else
+  bad "NIC 드라이버가 $drv 다(기대 $EXPECT_DRV). 게스트가 아니거나 EXPECT_DRV 가 틀렸다"
+fi
 [ -f /sys/kernel/btf/vmlinux ] && ok "BTF 존재 ($(stat -c%s /sys/kernel/btf/vmlinux) 바이트) — CO-RE 가능" \
                                || bad "BTF 없음 — Cilium·Tetragon CO-RE 불가. 이것만으로 이설 중단 사유다"
 for m in xt_TPROXY xt_socket nf_conntrack; do
@@ -130,9 +145,18 @@ info "성능은 여기서 재지 않는다 — XDP 오프로드가 없으므로 
 echo "══════ 정리"
 kubectl delete deploy h5web >/dev/null 2>&1; kubectl delete svc h5web >/dev/null 2>&1
 echo "  PASS $PASS · FAIL $FAIL"
+echo "  드라이버 $drv 기준 — 이 결과는 다른 드라이버를 보증하지 않는다."
 if [ "$FAIL" -eq 0 ]; then
-  echo "  → H5 해소. ADR-051(A안) 이설의 기술 위험이 제거된다."
-  echo "    남는 판단은 비용이다: PVC 27개 재생성 · 정적 메모리 분할 · 클러스터 재구축."
+  echo "  → 1~4 단계 통과."
+  if [ "$drv" = "hv_netvsc" ]; then
+    echo "    H5 해소. ADR-051(A안) 이설의 기술 위험이 제거된다."
+    echo "    남는 판단은 비용이다: PVC 27개 재생성 · 정적 메모리 분할 · 클러스터 재구축."
+  else
+    echo "    ★ 다만 ADR-051(A안)은 Hyper-V 다중 노드다. 이 실행은 $drv 라"
+    echo "      A안을 보증하지 않는다 — 재검토하려면 EXPECT_DRV=hv_netvsc 로 다시 돌릴 것."
+    echo "    이 결과가 답하는 것: $drv 위에서 k3s+Cilium 의 eBPF 데이터패스가 선다."
+    echo "      (베어메탈 리눅스 + KVM 경로 — LOCAL-DEPLOYMENT §22)"
+  fi
 else
-  echo "  → H5 미해소. 이 상태로 이설하면 PVC 27개를 날린 뒤 같은 실패를 만난다."
+  echo "  → 1~4 단계 미통과($drv 기준). 이 상태로 이설하면 PVC 27개를 날린 뒤 같은 실패를 만난다."
 fi
