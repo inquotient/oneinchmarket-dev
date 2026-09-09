@@ -13192,6 +13192,157 @@ zram          32 GiB 중 382.9 MiB 사용
 jsonpath={.items[0].status.allocatable.memory}` 를 함께 볼 것. 둘의 차가
 **2.29 GiB 고정**이라, allocatable 목표에서 2.29 를 더하면 필요한 상한이 나온다.
 
+## 24. L0 랩을 WSL 안 KVM 으로 옮긴다 (2026-09-10, 진행 중)
+
+> §23 이 "메모리가 있는 곳" 을 물었다면 이것은 그 답을 랩에 적용한 것이다.
+> **아직 끝나지 않았다** — 24-6 이 남은 단계다.
+
+### 24-1. 왜 옮기는가 — 세 가지, 그리고 그중 하나만 메모리다
+
+| | |
+|---|---|
+| **메모리 출처** | 랩은 Windows 에서 나오는데 거기 여유가 없다(§23-4: 커밋 79.5 / 물리 63.4). WSL 쪽은 zram 32 GiB 중 435 MiB 만 쓴다 |
+| **선할당 vs demand paging** | Hyper-V 는 `DynamicMemoryEnabled $false` 로 **할당한 만큼** 잡는다. KVM 은 **만진 만큼**만 쓴다 |
+| ★ **파이프라인** | 2026-09-05 부터 죽어 있다. 랩이 WSL 안에 있으면 경로 자체가 없어진다 |
+
+### 24-2. 실측 — "6 GiB 가 필요하다" 는 한 번도 재본 적이 없었다
+
+랩이 돌고 있어서 게스트에 직접 물었다(`ssh root@10.77.0.1`).
+
+```
+할당      5.96 GiB (hw.physmem)          uptime 16시간 32분
+실사용    Active 235M + Inact 2190M + Wired 907M = 3.25 GiB
+놀고 있음 2.83 GiB
+  suricata (netmap · ET Open 36,818 규칙 전량)   RSS 1.15 GiB
+  ntopng                                          242 MiB
+  나머지(configd·unbound·syslog-ng)              각 50 MiB 미만
+```
+
+**전량 룰셋을 인라인으로 돌리면서 3.25 GiB 다.** 6 GiB 는 할당값이었지
+측정값이 아니었다.
+
+### 24-3. Hyper-V 는 선할당한다 — 재서 확인했다
+
+6 → 4 GiB 로 내리며 정지 구간을 측정했다.
+
+| | 할당 | Windows 여유 | 커밋 |
+|---|---:|---:|---:|
+| 전 | 6.00 | 10.08 | 78.07 |
+| **정지** | 0 | **16.10** | 72.00 |
+| 후 | 4.00 | 11.56 | 75.85 |
+
+★ 게스트가 **3.25 GiB 만 만졌는데 정지하니 6.02 GiB 가 돌아왔다.** 선할당
+확정이다. 그리고 여유는 1.48 만 올랐는데, 차액 0.48 은 **WSL 이 페이지 아웃돼
+있던 클러스터 메모리를 도로 가져간 것**이라 손해가 아니다.
+
+★★ 4 GiB 로 내린 뒤에도 **규칙 36,818 줄이 그대로 로드**되고 Suricata RSS 도
+1.14 GiB 로 같다. 여유는 1.49 GiB 남는다.
+
+**3 GiB 로 더 내리지 말 것** — 게스트에 스왑이 없다(`swapinfo` 가 비어 있다).
+압박이 오면 페이징이 아니라 **프로세스가 죽는다**(Suricata 가 조용히 사라진다).
+
+### 24-4. 옮긴 뒤의 구조
+
+```
+KVM 게스트   OPNsense                        ~2.4~3.0 GiB  (상시)
+netns        l0target (10.77.0.191)          ~0            (상시)
+파드         zeek-capture + zeek-ship        ~0.5~1.0      (상시)
+일회성 VM    h5-probe                        0             (시험 때만)
+```
+
+★ **표적을 파드로 만들지 않는다.** 파드의 egress 는 Cilium 을 타고 WSL eth0 로
+나가 **OPNsense 를 우회한다** — 격리를 검증하려고 만든 랩에서 격리가 사라진다.
+손으로 만든 netns 는 veth 하나 말고 경로가 물리적으로 없다. 실측으로 경로가
+정확히 2개(`default via 10.77.0.1`·로컬 /24)뿐이고 8.8.8.8 도 호스트도
+못 닿는다. **VM 과 같은 격리를 0 비용으로 얻는다.**
+
+★ **ntopng 는 옮기지 않는다.** OPNsense 에서 242 MiB 인데 파드로 빼면 Redis
+의존이 새로 생긴다. 이득보다 결합이 크다.
+
+### 24-5. H5 검증 — 상시 VM 을 일회성 게스트로 (완료)
+
+`L0-Target` 은 세 가지 일을 했다: ① 인라인 차단 검증의 트래픽원 ② Zeek 호스트
+③ `verify-h5.sh` 실행. ③ 때문에 **4 GB 를 상시** 물고 있었는데(README 가
+"2GB 로는 빠듯하다" 며 올려 뒀다) H5 는 본래 일회성이다.
+
+`local/l0-lab/h5-probe.sh` 가 띄우고 → 검증하고 → **즉시 파기**한다.
+
+**결과 (virtio_net 기준) — PASS 12 · FAIL 0**
+
+```
+[PASS] NIC enp0s2 드라이버 virtio_net
+[PASS] BTF(6101239B) · xt_TPROXY · xt_socket · nf_conntrack
+[PASS] k3s v1.31.4+k3s1 API 응답
+[PASS] Cilium 1.16.5 정상          <- 스크립트가 "H5 의 핵심" 이라 부르는 지점
+[PASS] Service DNS + socketLB 경유 200
+[PASS] default-deny 차단(200 -> 000) 및 제거 후 복귀
+```
+
+★★ **이 결과는 ADR-051 A안(Hyper-V 다중 노드)을 보증하지 않는다.**
+`virtio_net` 기준이다. 답하는 것은 "베어메탈 리눅스 + KVM 에서 k3s+Cilium 의
+eBPF 데이터패스가 서는가"(§22)이고, §23-3 이 그쪽을 가리키므로 지금은 이 질문이
+더 쓸모 있다. A안을 재검토하려면 `EXPECT_DRV=hv_netvsc` 로 Hyper-V 게스트에서
+다시 돌릴 것.
+
+★ 1~4 단계가 드라이버와 무관한 근거: BTF·모듈은 커널 속성, **socketLB 는
+connect() 시점 cgroup BPF 훅**이라 NIC 을 아예 거치지 않고, NetworkPolicy 는
+tc/BPF 다. 매인 것은 0단계 한 줄과 5단계(XDP)뿐이며 5단계는 애초에
+"미지원 전제" 로 적혀 있다.
+
+★ 파기 검증: qemu 프로세스 0 · 오버레이/시드/키 삭제 · **베이스 이미지 무손상** ·
+WSL free 1514 → 6005 MB. 결과와 콘솔 로그만 남긴다.
+
+### 24-6. 남은 단계 — OPNsense 전환
+
+**아직 하지 않았다.** 랩은 지금도 Hyper-V 에서 돌고 있다. 걸림돌이 둘이다.
+
+**① 인터페이스 이름이 바뀐다.**
+
+```
+Hyper-V:  hn0(LAN) · hn1(WAN)     <- netvsc
+KVM:      vtnet0   · vtnet1       <- virtio
+```
+
+`config.xml` 이 `<if>hn0</if>` 로 박혀 있어 그대로 부팅하면 인터페이스를 못 찾고
+**콘솔 할당 메뉴로 떨어진다.** 시리얼 콘솔에서 재할당하는 편이 낫다 — 다른 길은
+FreeBSD UFS 를 리눅스에서 쓰기 모드로 마운트하는 것인데 위험하다.
+
+**② 체크포인트(`.avhdx`)를 먼저 병합해야 한다.** 실제 상태가 체크포인트 쪽에
+있어서 베이스 `.vhdx` 만 변환하면 **2026-09-04 상태로 돌아간다.**
+
+### 24-7. 옮기면서 드러난 것
+
+**① `set -o pipefail` + `grep -q` 는 긴 출력에서 거짓 음성을 낸다.**
+`ip netns list | grep -qw` 가 **있는데 없다고** 답했다 — grep 이 첫 매치에서
+끝나며 `ip` 가 SIGPIPE 로 죽어 파이프라인이 실패로 판정된다. 이 노드는 netns 가
+**128개**(파드마다 하나)라 반드시 재현된다. 그 탓에 "멱등" 이라 적어 둔 `up` 이
+실제로는 재실행 시 죽었을 것이다. 존재 판정은 파일 검사로 바꿀 것.
+
+**② NIC 이름을 하드코딩하면 이미지가 바뀔 때 조용히 어긋난다.**
+`verify-h5.sh` 가 `/sys/class/net/eth0/...` 로 박혀 있어 Ubuntu 클라우드
+이미지에서 드라이버가 **빈 값**으로 나왔고, 그러면 "게스트가 아니면 이 검증은
+의미가 없다" 로 오독된다 — 실제로는 `enp0s2` / `virtio_net` 으로 멀쩡했다.
+기본 경로가 쓰는 NIC 을 고르게 고쳤다.
+
+**③ ★★ Logstash 5141 이 애초에 열려 있지 않았다.**
+`allow-logstash-access` 는 **5044(filebeat)** 와 **5140(ipBlock 10.77.0.0/24)**
+만 연다. Zeek 이 쓰는 **5141 은 어디에서도 허용되지 않는다.** 파이프라인이 죽은
+원인이 `kubectl port-forward` 만이 아니었던 것이다 — 직접 경로는 정책에서
+막혀 있었고 그래서 port-forward 로 우회하고 있었다. Zeek 을 파드로 옮길 때
+5141 을 여는 정책을 **함께** 넣어야 한다.
+
+**④ hostNetwork 파드는 메시 밖이라 신원이 없다.** 그래서 Zeek 을 한 파드에
+넣으면 shipper 까지 신원을 잃어 정책을 쓸 수 없다(Gotcha 10). `zeek-capture`
+(hostNetwork · 브리지 청취)와 `zeek-ship`(메시 안 · 전용 SA)으로 쪼갤 것.
+
+**⑤ OPNsense 의 root 셸은 tcsh 다.** `2>/dev/null` 이
+`Ambiguous output redirect`, `[s]uricata` 가 `Badly placed ()'s` 로 죽는다.
+스크립트를 `/bin/sh` 에 stdin 으로 흘려넣을 것.
+
+**⑥ zram 이 실제로 일했다.** 2.5 GB 짜리 h5-probe 게스트가 뜨자 스왑 사용이
+0 → 1332 MB 로 올랐고 **클러스터는 128 Running 그대로**였다. Hyper-V 였다면
+같은 2.5 GB 가 Windows 물리에서 나왔고 압축도 되지 않는다.
+
 ## 관련 문서
 
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx, 배포 절차, 배포 블로커, 용량·비용
