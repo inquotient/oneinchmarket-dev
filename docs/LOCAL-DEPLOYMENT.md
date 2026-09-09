@@ -167,6 +167,16 @@ kubectl -n local get cronjob -o custom-columns=\
 NAME:.metadata.name,SCHED:.status.lastScheduleTime,OK:.status.lastSuccessfulTime
 ```
 
+```bash
+# ⑤ /etc/hosts 의 레지스트리 항목은 **부팅마다 사라진다** — WSL 이 그 파일을
+#    다시 생성한다. GitLab 으로 push 하거나 이미지를 반입하려면 다시 박아야
+#    한다(§8-79, Gotcha 52 ①). ★ ClusterIP 는 Service 재생성 시 바뀌므로
+#    **매번 조회**할 것. ★★ 127.0.0.1 을 쓰지 말 것 — kubelet 도 이 파일을 읽어
+#    이미지 pull 이 깨진다.
+CIP=$(kubectl -n local get svc gitlab-registry -o jsonpath='{.spec.clusterIP}')
+echo "$CIP gitlab-registry.local.svc.cluster.local gitlab-registry" | sudo tee -a /etc/hosts
+```
+
 ★ **"기다리면 낫는다" 를 기대하지 말 것.** 비정상 파드 수가 오르내리기만 하고
 줄지 않으면 그것은 자가 복구가 아니라 재시작 루프다 — §23-5 에서 25분을 버렸다.
 
