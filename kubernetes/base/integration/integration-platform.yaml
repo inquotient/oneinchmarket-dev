@@ -43,6 +43,17 @@ spec:
     maxRunningBuilds: 1
 
     buildConfiguration:
+      # ★★★ `pod` 로 명시한다. 기본값은 `routine` 이고 그것은 빌드를
+      #   **오퍼레이터 프로세스 안에서** 돌린다 — 그러면 아래 request/limit 이
+      #   적용되지 않고 오퍼레이터의 512Mi 안에서 Maven 빌드를 하게 되어
+      #   첫 Integration 에서 OOM 이 난다.
+      #   ★ 처음에 이 줄 없이 넣었더니 플랫폼이 Ready 인데 전략은 routine 이고
+      #     limitMemory 는 저장만 된 채 쓰이지 않는 **스스로 모순인 상태**가
+      #     됐다. Ready 를 성공으로 읽으면 놓친다(Gotcha 12 와 같은 부류).
+      #   ★★ `pod` 면 빌드가 별도 파드로 격리되어 오퍼레이터가 함께 죽지 않고,
+      #     축출 판단도 빌드 파드에만 걸린다.
+      strategy: pod
+
       # 빌드 파드의 예산. 명시하지 않으면 BestEffort 가 되어
       # 노드가 압박받을 때 가장 먼저 축출된다(Gotcha 78 과 같은 이유).
       requestCPU: "200m"
