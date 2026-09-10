@@ -74,7 +74,7 @@ spec:
           volumeMounts:
             - {name: ranger-plugin, mountPath: /ranger}
         - name: format-namenode
-          image: apache/hadoop:3.5.0
+          image: docker.io/apache/hadoop:3.5.0
           command: ["/bin/bash","-c"]
           args:
             - |
@@ -101,7 +101,7 @@ spec:
             - {name: config, mountPath: /opt/hadoop/etc/hadoop/hdfs-site.xml, subPath: hdfs-site.xml}
       containers:
         - name: hadoop-namenode
-          image: apache/hadoop:3.5.0
+          image: docker.io/apache/hadoop:3.5.0
           command: ["hdfs", "namenode"]
           env:
             - {name: HADOOP_CONF_DIR, value: /opt/hadoop/etc/hadoop}

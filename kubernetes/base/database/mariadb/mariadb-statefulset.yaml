@@ -34,7 +34,7 @@ spec:
         - name: mariadb
           # 공식 이미지. MARIADB_* 환경변수 규약은 bitnami 와 같으나
           # 데이터 경로(/var/lib/mysql)와 uid(999)가 다르다.
-          image: mariadb:12.3.3
+          image: docker.io/library/mariadb:12.3.3
           ports:
             - containerPort: 3306
               name: mariadb

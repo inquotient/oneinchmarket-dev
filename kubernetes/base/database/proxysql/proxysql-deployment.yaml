@@ -70,7 +70,7 @@ spec:
         # 설정 템플릿의 자리표시자를 Secret 값으로 치환한다
         # (ShardingSphere·ranger-usersync 와 같은 패턴).
         - name: render-config
-          image: busybox:1.38.0
+          image: docker.io/library/busybox:1.38.0
           command: ["/bin/sh", "-c"]
           args:
             - |

@@ -85,7 +85,7 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: jobmanager
-          image: flink:1.20.2
+          image: docker.io/library/flink:1.20.2
           args: ["jobmanager"]
           env:
             # ★ 여기 값이 conf/config.yaml 로 병합된다(실측 확인).

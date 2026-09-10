@@ -53,7 +53,7 @@ spec:
         # ★★ 치환 결과를 **되읽어 확인하고 다르면 기동을 거부**한다(Gotcha 86).
         #   sed 가 조용히 빗나가면 아무 일도 하지 않은 것과 같은데 파드는 뜬다.
         - name: render-config
-          image: busybox:1.37.0
+          image: docker.io/library/busybox:1.37.0
           command:
             - /bin/sh
             - -c
@@ -85,7 +85,7 @@ spec:
         # MongoDB 가 없으면 기동에 실패한다. 기다린다.
         # ★ 대기 루프에서 -q 로 출력을 죽이지 않는다(Gotcha 120).
         - name: wait-mongodb
-          image: percona/percona-server-mongodb:8.0.29-13
+          image: docker.io/percona/percona-server-mongodb:8.0.29-13
           command:
             - /bin/sh
             - -c
@@ -108,7 +108,7 @@ spec:
             limits:   { cpu: 300m, memory: 192Mi }
       containers:
         - name: management-api
-          image: graviteeio/apim-management-api:4.12.19
+          image: docker.io/graviteeio/apim-management-api:4.12.19
           imagePullPolicy: IfNotPresent
           env:
             # ★ 힙을 명시한다 — limit 의 62.5%(Gotcha 81·82).

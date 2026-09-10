@@ -97,7 +97,7 @@ spec:
           #   고쳐도 반영되지 않는다(조용한 드리프트가 된다).
           #   새 이미지를 끌어오지 않고 이미 클러스터에 있는 것을 쓴다 —
           #   apicurio-rules.yaml 이 같은 이유로 같은 선택을 했다.
-          image: apicurio/apicurio-registry:3.3.2
+          image: docker.io/apicurio/apicurio-registry:3.3.2
           command: ["/bin/bash", "-c"]
           args:
             - |

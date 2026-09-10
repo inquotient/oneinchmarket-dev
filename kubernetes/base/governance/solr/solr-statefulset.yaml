@@ -25,7 +25,7 @@ spec:
         - name: solr
           # ★ `apache/solr` 가 아니라 `library/solr` 다. v1 이 적은
           #   apache/solr:9.10.0-slim 은 저장소에 존재하지 않는 태그다.
-          image: solr:10.0.0-slim
+          image: docker.io/library/solr:10.0.0-slim
           # solr-precreate 는 코어가 없을 때만 만든다. 재시작에 안전하다.
           # 별도 configset 없이 _default 스키마리스로 만든다 — Ranger 가
           # 감사 문서를 넣으면 필드가 동적으로 생긴다. 운영 규모에서는

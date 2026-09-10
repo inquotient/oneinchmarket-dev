@@ -28,7 +28,7 @@ spec:
       containers:
         - name: loki
           # 스키마 v13 · OTLP 수집 경로가 이 버전에 묶인다.
-          image: grafana/loki:3.7.7
+          image: docker.io/grafana/loki:3.7.7
           args:
             - -config.file=/etc/loki/loki.yaml
           ports:

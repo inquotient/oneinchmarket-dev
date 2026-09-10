@@ -35,7 +35,7 @@ spec:
         - name: cmmn-api
           # 레지스트리에 버전 태그가 없다(G9 — Dockerfile 부재로 CI 빌드 불가).
           # 재현 가능한 유일한 핀은 다이제스트다.
-          image: inquotient/cmmn-api@sha256:a81293108c297974c5d9cbab37b4f52b830c30fec81000d10b3ee4c97edb850f
+          image: docker.io/inquotient/cmmn-api@sha256:a81293108c297974c5d9cbab37b4f52b830c30fec81000d10b3ee4c97edb850f
           ports:
             - name: http
               containerPort: 8080

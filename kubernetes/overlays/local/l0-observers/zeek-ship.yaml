@@ -162,7 +162,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: ship
-          image: python:3.12-alpine
+          image: docker.io/library/python:3.12-alpine
           command: ["python3", "-u", "/opt/ship/zeek-ship.py"]
           env:
             - {name: LOGDIR,    value: "/var/log/zeek"}

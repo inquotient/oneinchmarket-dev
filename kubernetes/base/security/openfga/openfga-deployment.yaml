@@ -74,7 +74,7 @@ spec:
       initContainers:
         # ★ 스키마를 만든다. 멱등하다 — 이미 최신이면 아무 일도 하지 않는다.
         - name: migrate
-          image: openfga/openfga:v1.19.0
+          image: docker.io/openfga/openfga:v1.19.0
           command: ["/openfga", "migrate"]
           env:
             - name: OPENFGA_DATASTORE_ENGINE
@@ -91,7 +91,7 @@ spec:
             limits: {memory: 192Mi}
       containers:
         - name: openfga
-          image: openfga/openfga:v1.19.0
+          image: docker.io/openfga/openfga:v1.19.0
           command: ["/openfga", "run"]
           env:
             - name: OPENFGA_DATASTORE_ENGINE

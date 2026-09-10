@@ -45,7 +45,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: migrate
-          image: glitchtip/glitchtip:v6.0.3
+          image: docker.io/glitchtip/glitchtip:v6.0.3
           command: ["/bin/sh", "-c"]
           args:
             - |

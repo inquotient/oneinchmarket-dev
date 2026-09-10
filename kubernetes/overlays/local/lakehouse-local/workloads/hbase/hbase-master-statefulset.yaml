@@ -33,7 +33,7 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       initContainers:
         - name: wait-deps
-          image: busybox:1.38.0
+          image: docker.io/library/busybox:1.38.0
           command: ["/bin/sh","-c"]
           args:
             - |

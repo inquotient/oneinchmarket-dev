@@ -59,7 +59,7 @@ spec:
       # StatefulSet 과 동일하게 initContainer 로 받는다 (SEC-512 는 그대로 남는다).
       initContainers:
         - name: download-postgres-driver
-          image: busybox:1.38.0
+          image: docker.io/library/busybox:1.38.0
           command: ["/bin/sh", "-c"]
           args:
             - wget -O /driver/postgresql-42.7.3.jar https://jdbc.postgresql.org/download/postgresql-42.7.3.jar
@@ -79,7 +79,7 @@ spec:
           #   Hadoop 이 3.3.6 -> 3.4.1 로, AWS SDK 가 v1 -> v2 로 갈렸다.
           #   메타스토어·HiveServer2 와 **같은 다이제스트**여야 한다 —
           #   스키마 도구와 서버의 버전이 갈리면 스키마 검사가 어긋난다.
-          image: apache/hive@sha256:b19bb5bd01f233a3f99d941ebf08acaff68c55911dd5fa42ea03928e51860b91
+          image: docker.io/apache/hive@sha256:b19bb5bd01f233a3f99d941ebf08acaff68c55911dd5fa42ea03928e51860b91
           command: ["/bin/bash", "-c"]
           args:
             - |

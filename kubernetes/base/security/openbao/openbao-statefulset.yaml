@@ -24,7 +24,7 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: openbao
-          image: openbao/openbao:2.4.1
+          image: docker.io/openbao/openbao:2.4.1
           # ★★ args 를 반드시 덮을 것. 이미지 기본 CMD 는
           #   `server -dev -dev-no-store-token` 이라(실측) 그대로 두면
           #   **조용히 dev 모드로 뜬다** — 메모리 저장이라 재시작마다 데이터가
@@ -100,7 +100,7 @@ spec:
         #   ★ Secret 은 optional 이다 — 최초 기동 시점에는 아직 없다.
         #     local/openbao-init.sh 가 init 하면서 만든다.
         - name: unsealer
-          image: openbao/openbao:2.4.1
+          image: docker.io/openbao/openbao:2.4.1
           command: ["/bin/sh", "-c"]
           args:
             - |

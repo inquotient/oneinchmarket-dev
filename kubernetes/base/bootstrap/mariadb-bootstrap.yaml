@@ -57,7 +57,7 @@ spec:
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: bootstrap
-          image: mariadb:12.3.3
+          image: docker.io/library/mariadb:12.3.3
           command: ["/bin/bash", "-c"]
           args:
             - |

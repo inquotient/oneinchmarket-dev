@@ -91,7 +91,7 @@ spec:
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: console
-          image: graviteeio/apim-management-ui:4.12.19
+          image: docker.io/graviteeio/apim-management-ui:4.12.19
           imagePullPolicy: IfNotPresent
           env:
             - { name: HTTP_PORT, value: "8080" }
@@ -159,7 +159,7 @@ spec:
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: portal
-          image: graviteeio/apim-portal-ui:4.12.19
+          image: docker.io/graviteeio/apim-portal-ui:4.12.19
           imagePullPolicy: IfNotPresent
           env:
             - { name: HTTP_PORT, value: "8080" }

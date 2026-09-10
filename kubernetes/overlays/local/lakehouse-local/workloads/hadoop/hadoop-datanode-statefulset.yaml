@@ -22,7 +22,7 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       initContainers:
         - name: wait-namenode
-          image: busybox:1.38.0
+          image: docker.io/library/busybox:1.38.0
           command: ["/bin/sh","-c"]
           args:
             - |
@@ -38,7 +38,7 @@ spec:
             limits:   {cpu: 100m, memory: 64Mi}
       containers:
         - name: hadoop-datanode
-          image: apache/hadoop:3.5.0
+          image: docker.io/apache/hadoop:3.5.0
           command: ["hdfs", "datanode"]
           env:
             - {name: HADOOP_CONF_DIR, value: /opt/hadoop/etc/hadoop}

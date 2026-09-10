@@ -36,7 +36,7 @@ spec:
       containers:
         - name: nginx
           # django 이미지와 반드시 같은 버전이어야 한다(정적 파일이 함께 빌드된다).
-          image: defectdojo/defectdojo-nginx:3.2.400
+          image: docker.io/defectdojo/defectdojo-nginx:3.2.400
           ports:
             - containerPort: 8080
               name: http

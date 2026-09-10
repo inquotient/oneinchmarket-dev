@@ -60,7 +60,7 @@ spec:
       containers:
         - name: bootstrap
           # NameNode 와 같은 이미지를 쓴다. 그 안의 hadoop 사용자가 HDFS 슈퍼유저다.
-          image: apache/hadoop:3.5.0
+          image: docker.io/apache/hadoop:3.5.0
           command: ["/bin/bash", "-c"]
           args:
             - |

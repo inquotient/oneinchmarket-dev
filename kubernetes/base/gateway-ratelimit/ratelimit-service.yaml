@@ -81,7 +81,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: ratelimit
-          image: envoyproxy/ratelimit:80b15778
+          image: docker.io/envoyproxy/ratelimit:80b15778
           command: ["/bin/ratelimit"]
           env:
             # 설정 파일 위치. RUNTIME_ROOT/RUNTIME_SUBDIRECTORY/config 아래를 읽는다.

@@ -52,7 +52,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: glitchtip
-          image: glitchtip/glitchtip:v6.0.3
+          image: docker.io/glitchtip/glitchtip:v6.0.3
           env:
             - name: SERVER_ROLE
               value: worker

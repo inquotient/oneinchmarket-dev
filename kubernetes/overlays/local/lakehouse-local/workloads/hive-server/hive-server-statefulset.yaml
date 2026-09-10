@@ -74,7 +74,7 @@ spec:
         - name: hive-server
           # ★★ 4.2.1 = sha256:b19bb5bd… — 다이제스트로 고정한다(§8-72).
           #   메타스토어·schematool 과 **같은 다이제스트**여야 한다.
-          image: apache/hive@sha256:b19bb5bd01f233a3f99d941ebf08acaff68c55911dd5fa42ea03928e51860b91
+          image: docker.io/apache/hive@sha256:b19bb5bd01f233a3f99d941ebf08acaff68c55911dd5fa42ea03928e51860b91
           ports:
             - containerPort: 10000
               name: thrift

@@ -35,7 +35,7 @@ spec:
       containers:
         - name: frontend
           # apiserver 와 같은 버전으로 맞춘다(§8-74).
-          image: dependencytrack/frontend:5.1.0
+          image: docker.io/dependencytrack/frontend:5.1.0
           ports:
             - containerPort: 8080
               name: http

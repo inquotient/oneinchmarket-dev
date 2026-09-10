@@ -123,7 +123,15 @@ kubectl apply --server-side --force-conflicts \
 #   끝나지 않는다. 증상은 "스캔이 안 된다" 가 아니라 **"내 워크로드 차례가
 #   영영 오지 않는다"** 라 오퍼레이터가 도는 것만 보고는 알 수 없다.
 #   1m 로 줄인다 — 실패한 Job 을 들여다볼 시간이 짧아지는 것이 대가다.
-kubectl -n trivy-system patch cm trivy-operator-config --type merge -p '{"data":{"OPERATOR_CONCURRENT_SCAN_JOBS_LIMIT":"2","OPERATOR_CONCURRENT_NODE_COLLECTOR_LIMIT":"1","OPERATOR_SCAN_JOB_TTL":"1m"}}' || true
+kubectl -n trivy-system patch cm trivy-operator-config --type merge -p '{"data":{"OPERATOR_CONCURRENT_SCAN_JOBS_LIMIT":"2","OPERATOR_CONCURRENT_NODE_COLLECTOR_LIMIT":"1","OPERATOR_SCAN_JOB_TTL":"1m","OPERATOR_SCAN_JOB_TIMEOUT":"25m"}}' || true
+
+# ★ 스캔 예산 — 노드 containerd 에서 읽게 바꾸면서(§9-14 ①) 비용 구조가 바뀌었다.
+#   원격일 때는 "받다가 끊기는" 것이 문제였고, 로컬은 **푸는 데 시간이 든다**:
+#   실측으로 745MB 이미지 하나가 export + walk 에 **429초**였다(cpu 2000m).
+#   기본값(트리비 5m · Job 5m · cpu 500m)으로는 큰 이미지가 반드시 타임아웃이다.
+#   ★ Job 타임아웃(25m)은 trivy 타임아웃(20m)보다 커야 한다 — 반대면 trivy 가
+#     자기 오류를 남기기 전에 Job 이 먼저 죽어 **메시지 없는 실패**가 된다.
+kubectl -n trivy-system patch cm trivy-operator-trivy-config --type merge -p '{"data":{"trivy.timeout":"20m0s","trivy.resources.limits.cpu":"2000m","trivy.resources.limits.memory":"1500M"}}' || true
 # ★ GitLab 컨테이너 레지스트리는 **평문 HTTP** 다(§8-79). Trivy 는 기본적으로
 #   HTTPS 로 붙으므로 알려 주지 않으면 스캔이 실패한다.
 #   `nonSslRegistry` 와 `insecureRegistry` 는 다른 것이다 —
@@ -159,6 +167,24 @@ kubectl -n trivy-system patch cm trivy-operator-config --type merge -p '{"data":
 #   ★ 서버와 클라이언트 **버전이 같아야 한다** — trivy-server.yaml 을 함께 옮길 것.
 kubectl -n trivy-system patch cm trivy-operator-trivy-config --type merge -p '{"data":{"trivy.tag":"0.74.0"}}' || true
 kubectl -n trivy-system patch cm trivy-operator-trivy-config --type merge -p '{"data":{"trivy.nonSslRegistry.gitlab":"gitlab-registry.local.svc.cluster.local:5050"}}' || true
+
+# 5-2-b. 스캔 Job 이 **노드 containerd 에서** 이미지를 읽게 한다 (§9-14 ①)
+#
+# ★ Trivy 는 노드에 이미 있는 이미지를 인터넷에서 다시 받는다. 이 호스트에서는
+#   큰 이미지가 `connection reset by peer` 로 끊겨, 본 컨테이너만 골라 스캔이
+#   실패했다(Gotcha 132). trivy 는 이미 containerd 를 후보로 시도하므로
+#   **소켓만 붙여 주면** 원격으로 떨어지지 않는다.
+# ★ 소켓 주소는 env(`CONTAINERD_ADDRESS`)로만 바꿀 수 있는데 오퍼레이터에 그
+#   손잡이가 없다 — 그래서 **마운트 경로를 trivy 기본값에 맞춘다**(/run/containerd/…).
+#   k3s 의 실제 경로는 /run/k3s/containerd/… 다.
+# ★★ readOnly 를 주지 말 것 — 유닉스 소켓 connect() 는 쓰기 권한을 요구한다.
+# ★ 남는 한 칸(네임스페이스 `k8s.io`)은 env 라 Kyverno mutate 로 채운다 —
+#   trivy-scanjob-containerd.yaml 참조. **둘 중 하나만 하면 아무 효과가 없다**
+#   (목록이 비어 조용히 remote 로 되돌아간다).
+log "Trivy 스캔 Job 에 containerd 소켓"
+kubectl -n trivy-system patch cm trivy-operator --type merge -p '{"data":{"scanJob.customVolumes":"[{\"name\":\"containerd-sock\",\"hostPath\":{\"path\":\"/run/k3s/containerd/containerd.sock\",\"type\":\"Socket\"}}]","scanJob.customVolumesMount":"[{\"name\":\"containerd-sock\",\"mountPath\":\"/run/containerd/containerd.sock\"}]"}}' || true
+kubectl apply -f "$(dirname "$0")/trivy-scanjob-containerd.yaml"
+
 
 # 5-2-a. Trivy 서버 — ClientServer 모드 (§8-79)
 #

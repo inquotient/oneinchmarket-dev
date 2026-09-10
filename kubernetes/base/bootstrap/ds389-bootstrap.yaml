@@ -64,7 +64,7 @@ spec:
       containers:
         - name: bootstrap
           # ldapadd·dsconf 가 들어 있는 이미지를 새로 끌어오지 않고 ds389 이미지를 쓴다.
-          image: 389ds/dirsrv:3.1
+          image: docker.io/389ds/dirsrv:3.1
           command: ["/bin/bash", "-c"]
           args:
             - |

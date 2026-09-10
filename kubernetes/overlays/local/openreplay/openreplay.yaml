@@ -2942,7 +2942,7 @@ spec:
           containers:
           - name: efs-cleaner
             # `stable-slim` 은 Debian 메이저가 바뀌면 조용히 따라간다 — 고정한다.
-            image: debian:13.6-slim
+            image: docker.io/library/debian:13.6-slim
             command:
             - /bin/sh
             - -c
@@ -3336,7 +3336,7 @@ spec:
             #   충분하다 — 일회성 파드로 실측했다(§8-49).
             drop: ["ALL"]
             add: ["CHOWN"]
-        image: alpine/git:2.52.0
+        image: docker.io/alpine/git:2.52.0
         env:
         - name: SKIP_PERMISSION_CHANGE
           value: 'false'

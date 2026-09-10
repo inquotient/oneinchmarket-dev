@@ -37,7 +37,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: celery-worker
-          image: defectdojo/defectdojo-django:3.2.400
+          image: docker.io/defectdojo/defectdojo-django:3.2.400
           command: ["/entrypoint-celery-worker.sh"]
           env:
             - name: DD_DATABASE_PASSWORD
@@ -124,7 +124,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: celery-beat
-          image: defectdojo/defectdojo-django:3.2.400
+          image: docker.io/defectdojo/defectdojo-django:3.2.400
           command: ["/entrypoint-celery-beat.sh"]
           env:
             - name: DD_DATABASE_PASSWORD

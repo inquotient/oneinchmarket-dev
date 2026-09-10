@@ -32,7 +32,7 @@ spec:
           type: RuntimeDefault
       initContainers:
         - name: download-postgres-driver
-          image: busybox:1.38.0
+          image: docker.io/library/busybox:1.38.0
           command:
             - /bin/sh
             - -c
@@ -53,7 +53,7 @@ spec:
           #   3.3.6 -> 3.4.1, AWS SDK 가 v1 -> v2. 아래 HADOOP_CLASSPATH 가
           #   jar 파일명을 적고 있으므로 그 순간 S3A 가 조용히 깨진다.
           #   **다이제스트로 고정해야 비로소 파일명 하드코딩이 안전해진다.**
-          image: apache/hive@sha256:b19bb5bd01f233a3f99d941ebf08acaff68c55911dd5fa42ea03928e51860b91
+          image: docker.io/apache/hive@sha256:b19bb5bd01f233a3f99d941ebf08acaff68c55911dd5fa42ea03928e51860b91
           ports:
             - containerPort: 9083
               name: thrift

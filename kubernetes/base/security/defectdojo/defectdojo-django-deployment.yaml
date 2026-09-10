@@ -37,7 +37,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: uwsgi
-          image: defectdojo/defectdojo-django:3.2.400
+          image: docker.io/defectdojo/defectdojo-django:3.2.400
           command: ["/entrypoint-uwsgi.sh"]
           ports:
             - containerPort: 3031

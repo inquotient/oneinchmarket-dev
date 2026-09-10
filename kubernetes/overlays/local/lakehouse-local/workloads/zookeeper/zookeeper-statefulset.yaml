@@ -31,7 +31,7 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: zookeeper
-          image: zookeeper:3.9.5
+          image: docker.io/library/zookeeper:3.9.5
           env:
             - {name: ZOO_MY_ID, value: "1"}
             - {name: ZOO_SERVERS, value: "server.1=0.0.0.0:2888:3888;2181"}

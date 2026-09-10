@@ -32,7 +32,7 @@ spec:
         #   덮어쓴다. 디렉터리째 마운트하면 roles.yml·config.yml 등
         #   나머지가 가려져 플러그인이 뜨지 않는다.
         - name: render-security-config
-          image: wazuh/wazuh-indexer:4.14.7
+          image: docker.io/wazuh/wazuh-indexer:4.14.7
           command: ["/bin/bash","-c"]
           args:
             - |
@@ -106,7 +106,7 @@ spec:
             - {name: security-config, mountPath: /security-config}
       containers:
         - name: wazuh-indexer
-          image: wazuh/wazuh-indexer:4.14.7
+          image: docker.io/wazuh/wazuh-indexer:4.14.7
           env:
             # Xms == Xmx. JVM 은 힙이 커질 때 GC 가 요동친다.
             - {name: OPENSEARCH_JAVA_OPTS, value: "-Xms512m -Xmx512m"}

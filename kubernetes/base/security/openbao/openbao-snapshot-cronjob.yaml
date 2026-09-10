@@ -52,7 +52,7 @@ spec:
             seccompProfile: {type: RuntimeDefault}
           initContainers:
             - name: snapshot
-              image: openbao/openbao:2.4.1
+              image: docker.io/openbao/openbao:2.4.1
               command: ["/bin/sh", "-c"]
               args:
                 - |
@@ -80,7 +80,7 @@ spec:
                 - {name: snap, mountPath: /snap}
           containers:
             - name: upload
-              image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+              image: docker.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
               command: ["/bin/sh", "-c"]
               args:
                 - |

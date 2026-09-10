@@ -29,7 +29,7 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: ds389
-          image: 389ds/dirsrv:3.1
+          image: docker.io/389ds/dirsrv:3.1
           envFrom:
             - configMapRef: {name: ds389-config}
           env:

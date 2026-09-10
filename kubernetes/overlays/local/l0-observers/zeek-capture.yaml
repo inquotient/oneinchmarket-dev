@@ -65,7 +65,7 @@ spec:
       dnsPolicy: ClusterFirstWithHostNet
       containers:
         - name: zeek
-          image: zeek/zeek:7.0.10
+          image: docker.io/zeek/zeek:7.0.10
           command: ["/bin/bash", "-c"]
           args:
             - |

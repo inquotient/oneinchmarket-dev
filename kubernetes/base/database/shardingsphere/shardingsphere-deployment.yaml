@@ -71,7 +71,7 @@ spec:
         #   없어서(OpenMeter 와 같은 제약, Gotcha 26) 이 방법 외에는 ConfigMap 에
         #   평문 비밀번호를 두게 된다. ranger-usersync 와 같은 패턴이다.
         - name: render-config
-          image: busybox:1.38.0
+          image: docker.io/library/busybox:1.38.0
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -104,7 +104,7 @@ spec:
             - { name: conf, mountPath: /conf }
       containers:
         - name: shardingsphere
-          image: apache/shardingsphere-proxy:5.5.3
+          image: docker.io/apache/shardingsphere-proxy:5.5.3
           ports:
             - containerPort: 3307
               name: pgwire

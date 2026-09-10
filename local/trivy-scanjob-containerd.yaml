@@ -1,0 +1,69 @@
+# Trivy 스캔 Job 이 노드 containerd 에서 이미지를 읽게 한다 (§9-14 ①)
+#
+# ★ 왜 필요한가
+#   Trivy 는 **노드에 이미 있는 이미지를 인터넷에서 다시 받는다.** 이 호스트에서
+#   큰 이미지는 그 경로가 끊긴다:
+#     walk error: failed to extract the archive:
+#       read tcp ...->143.204.4.32:443: read: connection reset by peer
+#   작은 초기화 컨테이너는 전부 성공하고 backstage·gravitee·gitlab·jenkins·
+#   trino·elasticsearch 같은 수백 MB 본 컨테이너만 실패한다(Gotcha 132).
+#   kubelet 은 같은 이미지를 잘 받으므로 망이 아니라 trivy 의 단발 읽기 문제다.
+#
+# ★ trivy 는 이미 containerd 를 우선 후보로 시도한다 — 실패 메시지의
+#   `in ["docker" "containerd" "podman" "remote"]` 가 그 순서다. 소켓이 없으니
+#   조용히 remote 로 떨어졌을 뿐이다. 두 가지만 채우면 된다:
+#     ① 소켓        -> trivy-operator 의 `scanJob.customVolumes` (install-operators.sh)
+#     ② 네임스페이스 -> **이 파일**
+#
+# ★★ 왜 Kyverno 인가 — trivy 는 containerd 주소·네임스페이스를 **오직 환경변수로만**
+#   받는다(`CONTAINERD_ADDRESS`·`CONTAINERD_NAMESPACE`). 소스로 확인했다:
+#   `pkg/fanal/image/daemon/containerd.go` 가 `os.Getenv` 를 쓰고,
+#   `pkg/flag/image_flags.go` 에는 docker/podman 호스트 키만 있으며
+#   `ContainerdOptions` 구조체는 **비어 있다** — 설정 파일로는 줄 수 없다.
+#   그런데 trivy-operator 는 스캔 컨테이너에 임의 env 를 넣는 손잡이가 없다
+#   (`scanJob.*` 키 15개 중 env 관련이 없다). 그래서 남는 자리가 어드미션이다.
+#   주소는 마운트 **경로**로 우회되므로(기본값 /run/containerd/containerd.sock)
+#   여기서 채우는 것은 네임스페이스 하나다.
+#
+# ★ 값이 `k8s.io` 인 이유 — k3s 는 이미지를 그 네임스페이스에 둔다(실측:
+#   `k8s.io` 726개 · `default` 0개). trivy 기본값은 `default` 라 소켓만 붙이면
+#   **목록이 비어 조용히 remote 로 되돌아간다** — 고친 티가 안 난다.
+#
+# ★★ Kyverno 가 local 에서 Audit 인 것과 무관하다 — `validationFailureAction` 은
+#   validate 규칙에만 걸리고 **mutate 는 언제나 적용된다.**
+#
+# ★ 판정: 스캔 파드에 이 env 가 붙었는지 + 스캔 로그에 원격 다운로드가 사라졌는지.
+#   `trivy.registry.mirror.*` 로 가는 ②안은 이것이 되면 필요 없다.
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: trivy-scanjob-containerd-namespace
+  labels:
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/component: security
+spec:
+  # 이미 있는 파드를 건드릴 이유가 없다 — 스캔 파드는 매번 새로 생긴다.
+  background: false
+  rules:
+    - name: containerd-namespace-env
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - trivy-system
+              selector:
+                matchLabels:
+                  app.kubernetes.io/managed-by: trivy-operator
+      mutate:
+        patchStrategicMerge:
+          spec:
+            containers:
+              # (name) 은 조건부 앵커다 — 이름이 무엇이든 전부 고른다.
+              # 스캔 Job 은 대상 컨테이너마다 trivy 컨테이너를 하나씩 만든다.
+              - (name): "?*"
+                env:
+                  - name: CONTAINERD_NAMESPACE
+                    value: k8s.io

@@ -37,7 +37,7 @@ spec:
         #   Knox 는 이미 있는 것을 그대로 쓴다.
         - name: gateway-identity
           # 아래 본 컨테이너와 같은 다이제스트여야 한다(keytool 버전 일치).
-          image: apache/knox@sha256:5f90c6b5b36dd2b2afffbcb358689b9fe87ecf413ae7aa53f208610872cb1ac5
+          image: docker.io/apache/knox@sha256:5f90c6b5b36dd2b2afffbcb358689b9fe87ecf413ae7aa53f208610872cb1ac5
           command: ["/bin/bash","-c"]
           args:
             - |
@@ -72,7 +72,7 @@ spec:
           #   다이제스트뿐이므로 전 환경에서 다이제스트를 쓴다.
           #   (예전에는 prod 오버레이만 다이제스트였다 — 그래서 local·dev 는
           #    같은 매니페스트로 다른 바이너리를 돌리고 있었다.)
-          image: apache/knox@sha256:5f90c6b5b36dd2b2afffbcb358689b9fe87ecf413ae7aa53f208610872cb1ac5
+          image: docker.io/apache/knox@sha256:5f90c6b5b36dd2b2afffbcb358689b9fe87ecf413ae7aa53f208610872cb1ac5
           env:
             # ★ 기본값이 true 다. 켜져 있으면 기동 시 Let's Encrypt 스테이징
             #   루트 CA 를 인터넷에서 내려받는다. 폐쇄망·egress 정책 아래에서는

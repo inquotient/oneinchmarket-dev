@@ -31,7 +31,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: falcosidekick
-          image: falcosecurity/falcosidekick:2.35.0
+          image: docker.io/falcosecurity/falcosidekick:2.35.0
           # ★ 설정 경로를 명시해야 한다.
           #
           #   이미지 엔트리포인트는 /app 에서 `./falcosidekick` 이고, 인자가

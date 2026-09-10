@@ -20,7 +20,7 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: lam
-          image: ldapaccountmanager/lam:8.3
+          image: docker.io/ldapaccountmanager/lam:8.3
           env:
             # 최초 기동 시 이 값들로 LAM 프로파일을 자동 생성한다.
             - {name: LDAP_SERVER, value: "ldap://ds389-headless:3389"}

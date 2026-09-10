@@ -68,7 +68,7 @@ spec:
         - name: bootstrap
           # curl 이 들어 있는 이미지를 새로 끌어오지 않고 레지스트리 이미지를 쓴다
           # (ds389-bootstrap 이 ds389 이미지를 쓰는 것과 같은 이유).
-          image: apicurio/apicurio-registry:3.3.2
+          image: docker.io/apicurio/apicurio-registry:3.3.2
           command: ["/bin/bash", "-c"]
           args:
             - |
