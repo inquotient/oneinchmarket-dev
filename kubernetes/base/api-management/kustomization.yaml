@@ -5,9 +5,14 @@
 #   이력**이 함께 흔들린다(Gotcha 15). 지금 외부 진입점은 Istio Gateway 다.
 #
 # ★ wave 5 인 이유: MongoDB(1)와 그 부트스트랩 Job(1) 뒤여야 한다.
-#   UI 둘(console·portal)은 아직 없다 — 그 이미지는 80 포트를 쓰고
-#   비-root 로 바인딩하려면 NET_BIND_SERVICE 예외가 필요하다.
-#   **측정하지 않은 예외를 만들지 않는다**(Gotcha 97). 실측 뒤에 더한다.
+#   ★ UI 둘(console·portal)은 처음에 **무기연했다** — 이미지 config 의
+#   `ExposedPorts: 80/tcp` 를 보고 NET_BIND_SERVICE 예외가 필요하다고
+#   판단했기 때문이다. **그 판단이 틀렸다** — 이미지를 열어 재보니
+#   nginx 설정이 `listen $HTTP_PORT` 이고 그 **기본값이 이미 8080** 이며
+#   사용자도 uid 101 로 비-root 였다. 예외 없이 들어간다.
+#   ★★ 교훈은 "예외를 만들지 않았다" 가 아니라 **재기 전에는 빼는 것도
+#   틀릴 수 있다** 는 것이다 — config 의 ExposedPorts·User 는 **선언**이지
+#   동작이 아니다(Gotcha 122).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
@@ -16,6 +21,7 @@ resources:
   - gravitee-headless.yaml
   - gravitee-management-api.yaml
   - gravitee-gateway.yaml
+  - gravitee-ui.yaml
 
 commonAnnotations:
   argocd.argoproj.io/sync-wave: "5"

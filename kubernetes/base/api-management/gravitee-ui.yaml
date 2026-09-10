@@ -1,0 +1,190 @@
+# Gravitee UI 2종 — console(management-ui) · portal(portal-ui)
+#
+# ★★ 처음에는 "80 포트라 NET_BIND_SERVICE 예외가 필요하다" 고 판단해 **뺐다.**
+#   근거는 이미지 config 의 `ExposedPorts: 80/tcp` 였는데, **그것이 실제
+#   리스닝 포트가 아니었다.** 이미지를 열어 재보니:
+#     · nginx 설정이 `listen $HTTP_PORT` 이고 run.sh 가 envsubst 로 치환한다
+#     · `HTTP_PORT` **기본값이 이미 8080** 이다
+#     · 실행 사용자는 uid 101(nginx)로 **이미 비-root** 다
+#   즉 예외가 전혀 필요 없다. Gotcha 122 와 같은 부류다 — 이미지 config 의
+#   필드(User·ExposedPorts)는 **선언**이지 동작이 아니다. 실제로 물어봐야 한다.
+#
+# ★ /rw.mount 가 쓰기 가능해야 한다 — run.sh 가 www 를 거기로 복사하고
+#   nginx 설정·pid 를 거기 쓴다. emptyDir 로 주면 rootfs 는 읽기 전용으로
+#   둘 수 있다(Gotcha 96 의 처방: 하드닝을 되돌리지 말고 쓰는 곳을 뺀다).
+#
+# ★★ API URL 은 **브라우저가 보는 주소**다(파드가 아니라). 이 클러스터의
+#   접근 관례는 port-forward 이므로 기본값 `http://localhost:8083/...` 가
+#   그대로 맞다 — management-api 를 8083 으로 포워드하면 된다.
+#   게이트웨이 경로에 올릴 때 함께 바꿀 값이다(ADR-079).
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gravitee-console-headless
+  labels:
+    app.kubernetes.io/name: gravitee
+    app.kubernetes.io/component: api-management
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: gravitee
+    app.kubernetes.io/instance: console
+  ports:
+    - { name: http, port: 8080, targetPort: http, protocol: TCP }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gravitee-portal-headless
+  labels:
+    app.kubernetes.io/name: gravitee
+    app.kubernetes.io/component: api-management
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: gravitee
+    app.kubernetes.io/instance: portal
+  ports:
+    - { name: http, port: 8080, targetPort: http, protocol: TCP }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gravitee-console
+  labels:
+    app.kubernetes.io/name: gravitee
+    app.kubernetes.io/instance: console
+    app.kubernetes.io/component: api-management
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 0, maxUnavailable: 1 }
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gravitee
+      app.kubernetes.io/instance: console
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gravitee
+        app.kubernetes.io/instance: console
+        app.kubernetes.io/component: api-management
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/managed-by: kustomize
+    spec:
+      serviceAccountName: gravitee
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        # 이미지의 nginx 사용자 — /etc/passwd 에서 확인했다(Gotcha 122).
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: console
+          image: graviteeio/apim-management-ui:4.12.19
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: HTTP_PORT, value: "8080" }
+            - { name: MGMT_API_URL, value: "http://localhost:8083/management" }
+          ports:
+            - { name: http, containerPort: 8080, protocol: TCP }
+          readinessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 15
+          livenessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 30
+            failureThreshold: 5
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits:   { cpu: 200m, memory: 96Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: rw, mountPath: /rw.mount }
+            - { name: cache, mountPath: /var/cache/nginx }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: rw, emptyDir: {} }
+        - { name: cache, emptyDir: {} }
+        - { name: tmp, emptyDir: {} }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gravitee-portal
+  labels:
+    app.kubernetes.io/name: gravitee
+    app.kubernetes.io/instance: portal
+    app.kubernetes.io/component: api-management
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 0, maxUnavailable: 1 }
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gravitee
+      app.kubernetes.io/instance: portal
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gravitee
+        app.kubernetes.io/instance: portal
+        app.kubernetes.io/component: api-management
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/managed-by: kustomize
+    spec:
+      serviceAccountName: gravitee
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: portal
+          image: graviteeio/apim-portal-ui:4.12.19
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: HTTP_PORT, value: "8080" }
+            - { name: PORTAL_API_URL, value: "http://localhost:8083/portal" }
+          ports:
+            - { name: http, containerPort: 8080, protocol: TCP }
+          readinessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 15
+          livenessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 30
+            failureThreshold: 5
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits:   { cpu: 200m, memory: 96Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: rw, mountPath: /rw.mount }
+            - { name: cache, mountPath: /var/cache/nginx }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: rw, emptyDir: {} }
+        - { name: cache, emptyDir: {} }
+        - { name: tmp, emptyDir: {} }
