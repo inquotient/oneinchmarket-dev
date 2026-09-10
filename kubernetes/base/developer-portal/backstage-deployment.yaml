@@ -48,7 +48,15 @@ spec:
             - |
               set -eu
               i=0
-              until pg_isready -h postgresql-headless -p 5432 -q; do
+              # ★ `-U` 를 반드시 줄 것. 이 파드는 uid 1000 으로 도는데
+              #   그 uid 가 이미지의 /etc/passwd 에 없어 pg_isready 가 기본
+              #   사용자명을 정하지 못하고 **연결을 시도조차 하지 않는다**
+              #   (`no attempt`, exit=3). ★★ 증상이 네트워크 차단과
+              #   구분되지 않아 메시·정책을 먼저 의심하게 된다 — 실제로
+              #   그러다 2분을 썼다. `-q` 를 빼고 돌려 exit 코드를 읽어야
+              #   갈린다(3 = 시도 안 함, 2 = 응답 없음).
+              #   인증은 하지 않는다 — 이름은 연결 문자열을 만들 때만 쓰인다.
+              until pg_isready -h postgresql-headless -p 5432 -U postgres -q; do
                 i=$((i+1))
                 [ "$i" -gt 60 ] && { echo "PostgreSQL 이 5분 안에 응답하지 않았다"; exit 1; }
                 echo "  PostgreSQL 대기 ($i/60)"; sleep 5
