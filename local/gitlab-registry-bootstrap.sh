@@ -33,9 +33,24 @@ TOKEN_NAME="${TOKEN_NAME:-k8s-image-pull}"
 REGISTRY_HOST="${REGISTRY_HOST:-gitlab-registry.local.svc.cluster.local:5050}"
 SECRET_NAME="${SECRET_NAME:-gitlab-registry-secret}"
 
-# ★ 매니페스트가 참조하는 이미지 이름과 **같아야 한다.**
-#   build-images.sh 의 목록과 어긋나면 push 가 404 로 거부된다.
-IMAGES="spark-iceberg livy ranger-usersync hbase jenkins proxysql ranger-hdfs-plugin ranger-hbase-plugin ranger-hive-plugin"
+# ★★ 목록을 **여기 적지 않는다** — build-images.sh 의 ALL_IMAGES 를
+#   그대로 읽는다. 예전에는 같은 목록을 두 파일에 적어 두고
+#   "어긋나면 push 가 거부된다" 는 주석만 붙여 두었는데,
+#   **실제로 어긋났다**: kafka-connect 를 10번째로 더하면서 이쪽을
+#   빼뜨렸고, GitLab 은 실재하지 않는 프로젝트 경로로의 push 를
+#   `requested access to the resource is denied` 로 거부했다.
+#   ★ 그 증상이 고약하다 — 빌드도 반입도 성공하고 파드는 잘 뜨며,
+#   빠진 것은 **Trivy 스캔뿐**이다(build-images.sh 는 한 줄 로그만 남긴다).
+#   원천을 하나로 두어 그 종류의 버그를 없앤다.
+_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+IMAGES="$(grep -o 'ALL_IMAGES="[^"]*"' "$_HERE/build-images.sh" | head -1 | cut -d'"' -f2)"
+# ★ 가드는 "비어 있지 않다" 로는 부족하다 — 치환이 어긋나 제어문자 하나만
+#   담겨도 그 검사는 통과한다(실제로 그렇게 한 번 틀렸다). 알려진 이름이
+#   실제로 들어 있는지로 판정한다.
+case " $IMAGES " in
+  *" spark-iceberg "*) : ;;
+  *) echo "[gl-reg] build-images.sh 의 ALL_IMAGES 를 제대로 읽지 못했다: $(printf %q "$IMAGES")" >&2; exit 1 ;;
+esac
 
 K() { kubectl -n "$NS" "$@"; }
 log() { echo "[gl-reg] $*"; }
@@ -115,6 +130,20 @@ RUBY
 
 [ -n "$TOKEN" ] || { echo "[gl-reg] 토큰이 비었다" >&2; exit 1; }
 log "토큰 발급 완료 (길이 ${#TOKEN})"
+
+# ★★ 토큰을 회전시켰으면 Secret 을 방치하면 안 된다.
+#   위의 Ruby 가 `deploy_tokens.where(name:).destroy_all` 로 **기존 토큰을
+#   폐기**하고 새로 발급한다. 그러므로 이 스크립트를 그냥 다시 돌리면
+#   클러스터의 imagePullSecret 은 **이미 폐기된 값**을 들게 된다.
+#   실측(2026-09-10): 프로젝트 하나를 더하려고 재실행했다가 그 자리에서
+#   `레지스트리 로그인 실패` 가 났고, push 가 또 건너뛰었다.
+#   ★ 그래서 **Secret 이 이미 있으면 --secret 없이도 갱신한다.**
+#     없는 것을 만드는 것만 명시적 플래그로 남긴다 — 낡은 것을
+#     그대로 두는 것은 선택지가 아니다.
+if [ "${1:-}" != "--secret" ] && K get secret "$SECRET_NAME" >/dev/null 2>&1; then
+  log "★ ${SECRET_NAME} 이 이미 있고 방금 토큰을 회전했다 — 함께 갱신한다"
+  set -- --secret
+fi
 
 if [ "${1:-}" = "--secret" ]; then
   log "Secret 생성: ${SECRET_NAME} (kubernetes.io/dockerconfigjson)"
