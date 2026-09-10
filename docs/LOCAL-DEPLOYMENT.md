@@ -177,6 +177,15 @@ CIP=$(kubectl -n local get svc gitlab-registry -o jsonpath='{.spec.clusterIP}')
 echo "$CIP gitlab-registry.local.svc.cluster.local gitlab-registry" | sudo tee -a /etc/hosts
 ```
 
+```bash
+# ⑥ L0 랩은 **자동으로 뜬다** — systemd 유닛이 있다(§24-9). 다만 확인은 할 것.
+#    랩의 런타임 상태는 전부 휘발성인데(브리지·netns·nft·qemu) **Zeek 파드는
+#    살아남는다.** 유닛이 실패하면 파드는 `1/1 Running` 인데 볼 트래픽이 없고
+#    아무 오류도 나지 않는다.
+systemctl is-active l0-lab-net l0-opnsense      # 둘 다 active 여야 한다
+sudo ip netns exec l0target ping -c2 8.8.8.8    # 표적이 OPNsense 로 나가는가
+```
+
 ★ **"기다리면 낫는다" 를 기대하지 말 것.** 비정상 파드 수가 오르내리기만 하고
 줄지 않으면 그것은 자가 복구가 아니라 재시작 루프다 — §23-5 에서 25분을 버렸다.
 
@@ -13601,6 +13610,49 @@ Windows `vEthernet (L0-LAN)` 어댑터
 
 ★★ 되돌리려면: `chattr -i /etc/resolv.conf` 후 원하는 값으로. `/etc/wsl.conf`
 의 두 줄을 지우면 WSL 이 다시 관리한다.
+
+### 24-9. 랩을 재부팅에서 살린다 — systemd 유닛
+
+★★ **랩의 런타임 상태는 전부 휘발성이다.** 실측으로 확인한 것:
+
+| | 재부팅 뒤 |
+|---|---|
+| 브리지 `l0-lan`·`l0-wan` · netns `l0target` · `nft l0lab` · iptables FORWARD · dnsmasq · qemu | **전부 사라진다** |
+| `/var/lib/l0/opnsense.qcow2` · `/etc/netns/l0target/resolv.conf` · `chattr +i` 한 `/etc/resolv.conf` | 남는다 |
+| `/etc/hosts` 의 레지스트리 항목 | 사라진다(§3-1 ⑤) |
+
+**그런데 Zeek 파드는 살아남는다.** 그러면 파드는 `1/1 Running` 인데 볼 트래픽이
+없고 **아무 오류도 나지 않는다** — 이 레포가 반복해서 경계하는 형태다
+(Gotcha 33·84·95). WSL 은 유휴 시 배포판을 종료하므로(Gotcha 6) 재부팅이 잦아
+사람이 기억하는 것에 맡길 수 없다.
+
+`local/l0-lab/install-units.sh` 가 유닛 둘을 넣는다:
+
+```
+l0-lab-net.service    oneshot·RemainAfterExit — kvm-net.sh up + cutover / down
+l0-opnsense.service   forking·PIDFile        — run-opnsense.sh start / stop
+                      Requires=l0-lab-net · Restart=on-failure
+```
+
+★ **기준을 하나 세웠다 — 조용히 실패하는 것은 자동화하고, 시끄럽게 실패하는
+것은 문서로 둔다.** `/etc/hosts` 의 레지스트리 항목도 부팅마다 사라지지만
+그쪽은 `Could not resolve host` 로 즉시 드러나므로 §3-1 ⑤ 로 남겼다.
+
+★★ **만들면서 결함을 하나 잡았다 — `After=local-fs.target` 으로는 부족하다.**
+스크립트가 `/mnt/c`(9p drvfs)에 있는데, 실측하니 그것은 systemd 마운트
+유닛(`mnt-c.mount`)이면서도 **`local-fs.target` 에는 포함되지 않는다.** 그대로
+두었으면 부팅 시 스크립트가 아직 없어 `ConditionPathExists` 가 실패하고
+**유닛이 조용히 건너뛰어졌을 것이다.** `RequiresMountsFor=` 로 고쳤다 —
+경로에서 필요한 마운트 유닛을 systemd 가 스스로 찾아 건다. 확인은
+`systemctl show <unit> -p After | grep mount` 로 `mnt-c.mount` 가 있는지 본다.
+
+**검증** — 설치 스크립트가 이미 도는 랩을 **내렸다 다시 세우므로** 그 자체가
+실전 시험이다. 두 번 돌려 두 번 다 통과했다:
+표적 → 8.8.8.8 (48ms · 46ms) · 격리 유지 · Suricata 규칙 36,818 · Zeek 파드 정상.
+
+★ **다만 실제 콜드 부팅은 아직 밟지 않았다.** `enabled` 는 "부팅 시 시도한다"
+이지 "부팅 시 성공한다" 가 아니다 — 이 레포가 반복해서 구분해 온 것이다.
+다음 재부팅 때 §3-1 ⑥ 으로 확인할 것.
 
 
 ## 관련 문서
