@@ -85,21 +85,23 @@ spec:
             - name: http
               containerPort: 7007
               protocol: TCP
-          # ★ 프로브를 추측으로 정하지 않았다. 지금은 `/` 로 둔다 — 백엔드가
-          #   프런트를 함께 서빙하므로 뜨면 200 이다. 다만 그것은 "떠 있는가"
-          #   이지 "설정이 반영됐는가" 가 아니다(Gotcha 48). 기동 뒤
-          #   `/.backstage/health/v1/readiness` 가 실제로 있는지 확인해
-          #   그쪽으로 좁힐 것 — 있는지 모른 채 적으면 조용히 실패한다.
+          # ★ 추측하지 않고 **띄운 뒤 실측해서** 좁혔다. 2026-09-10 확인:
+          #     /.backstage/health/v1/readiness -> 200
+          #     /.backstage/health/v1/liveness  -> 200
+          #     /healthcheck                    -> 200 (구판 별칭)
+          #   `/` 는 백엔드가 프런트를 서빙하기만 해도 200 이라 "떠 있는가"
+          #   밖에 보지 못한다(Gotcha 48). readiness 는 플러그인 초기화와
+          #   DB 마이그레이션이 끝난 뒤에야 200 이 된다.
           startupProbe:
-            httpGet: { path: /, port: http }
+            httpGet: { path: /.backstage/health/v1/readiness, port: http }
             periodSeconds: 10
             failureThreshold: 60
           readinessProbe:
-            httpGet: { path: /, port: http }
+            httpGet: { path: /.backstage/health/v1/readiness, port: http }
             periodSeconds: 15
             timeoutSeconds: 5
           livenessProbe:
-            httpGet: { path: /, port: http }
+            httpGet: { path: /.backstage/health/v1/liveness, port: http }
             periodSeconds: 30
             timeoutSeconds: 5
             failureThreshold: 5
@@ -112,10 +114,16 @@ spec:
               memory: 1Gi
           securityContext:
             allowPrivilegeEscalation: false
-            # ★★ 일부러 켜지 않았다. Node 앱이 어디에 쓰는지 **재기 전에는
-            #   모른다**(Gotcha 92: "/tmp 가 emptyDir 이니 안전하겠지" 로
-            #   고른 것들이 실제로는 다른 곳을 썼다). 기동 뒤
-            #   local/check-readonly-rootfs.sh 로 재서 켤 것.
+            # ★★★ **재보고 끈다** — 켜서는 안 된다. 2026-09-10 실측:
+            #   rootfs 쓰기가 정확히 **1건**이고 그것이
+            #   `/app/packages/app/dist/static/module-backstage.*.js` 다.
+            #   파드 기동 13:17:36 → 파일 mtime 13:17:41 (5초 뒤)이고
+            #   내용에 `app.baseUrl`(localhost:7007)이 들어 있다 — 즉
+            #   **백엔드가 기동 시 프런트 번들에 런타임 설정을 주입한다.**
+            #   켜면 그 쓰기가 실패하고 전례대로 **조용히** 깨진다 —
+            #   파드는 Ready 이고 프런트만 잘못된 설정을 쓴다.
+            #   Dependency-Track 프런트(Gotcha 48)·Grafana(Gotcha 96)에 이은
+            #   **세 번째** 사례다 — 이미지가 자기 정적 파일을 고치는 부류.
             readOnlyRootFilesystem: false
             capabilities:
               drop: ["ALL"]

@@ -38,8 +38,18 @@ spec:
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
-        # 이미지의 `graviteeio` 사용자. 이미지 config 에서 확인했다.
-        runAsUser: 1000
+        # ★★ 이미지의 `graviteeio` 사용자는 **uid 1001 · gid 1000** 이다.
+        #   이미지 config 의 `User` 필드는 **이름**이라 숫자를 알려 주지
+        #   않는다 — `/etc/passwd` 를 직접 봐야 한다.
+        #   ★ 처음에 1000 으로 가정했다가 management-api 가 CrashLoop 했다:
+        #     java.nio.file.AccessDeniedException:
+        #       /opt/graviteeio-management-api/data/write.lock
+        #   (Lucene 인덱스를 그 디렉터리에 쓴다. 그 디렉터리는 1001 소유다.)
+        #   ★★ 증상이 멀다 — Spring 의 의존성 사슬이 10단계 넘게 찍히고
+        #     진짜 오류는 **맨 끝의 Caused by** 에만 있다.
+        #   ★ gateway 는 data 에 쓰지 않아 1000 으로도 떴었다 — 같은 가정이
+        #     한 쪽에서만 드러난 것이므로 둘 다 바로잡는다.
+        runAsUser: 1001
         runAsGroup: 1000
         fsGroup: 1000
         seccompProfile: { type: RuntimeDefault }
