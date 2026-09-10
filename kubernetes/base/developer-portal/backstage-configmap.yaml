@@ -43,6 +43,18 @@ data:
           - secret: ${BACKSTAGE_BACKEND_SECRET}
       database:
         client: pg
+        # ★★★ Backstage 는 기본적으로 **플러그인마다 데이터베이스를 하나씩
+        #   만든다**(backstage_plugin_app · _catalog · _auth …). 그러려면
+        #   롤에 CREATEDB 권한이 필요하다 — 앱 하나에게 주기에는 넓다.
+        #   실측 오류:
+        #     CREATE DATABASE "backstage_plugin_app" - permission denied
+        #   ★ 연결·인증은 성공한 뒤에 나는 오류라 자격 문제로
+        #     읽히기 쉽다 — 문구를 끝까지 읽을 것.
+        #
+        #   `schema` 로 두면 **한 데이터베이스 안의 스키마**로 나누므로
+        #   CREATEDB 가 필요 없다. 롤은 그 DB 의 소유자라 스키마를
+        #   만들 수 있다 — 권한을 넓히는 대신 범위를 옆으로 옥긴 것이다.
+        pluginDivisionMode: schema
         connection:
           host: postgresql-headless
           port: 5432
