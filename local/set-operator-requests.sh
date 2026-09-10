@@ -35,7 +35,17 @@ log() { echo "[req] $*"; }
 
 # ns  kind         name                              container                         cpuReq memReq memLim
 TARGETS="
-argocd          statefulset argocd-application-controller     argocd-application-controller     100m 512Mi 1Gi
+# ★★★ 2026-09-10: 1Gi 에서 **OOMKilled 가 96회** 일어났다(17시간간).
+#   증상이 원인과 아주 멀다 — 파드는 `Running` 으로 보이고(0/1 이지만),
+#   드러나는 것은 **동기화가 끝나지 않는 것**이다: 작업이 옛 리비전에
+#   고정된 채 Running 으로 남고, 이미 끝난 훅을 기다린다고 말하며,
+#   새 커밋을 집어 들지 않는다. 컨트롤러가 매번 동기화 도중에
+#   죽었기 때문이다. 판정은 `restartCount` 와 `lastState.terminated.reason`
+#   (=OOMKilled, exitCode 137)로 한다.
+#   ★ 컬러스터가 커지면 이 값을 다시 봐야 한다 — 컨트롤러는 클러스터
+#     전체를 캐시하므로 CRD·리소스 수에 비례해 자란다(이때 실측:
+#     CRD 112 · 관리 리소스 541 · 파드 130여).
+argocd          statefulset argocd-application-controller     argocd-application-controller     100m 768Mi 2Gi
 argocd          deployment  argocd-repo-server                argocd-repo-server                50m  192Mi 512Mi
 argocd          deployment  argocd-server                     argocd-server                     50m  128Mi 256Mi
 argocd          deployment  argocd-applicationset-controller  argocd-applicationset-controller  20m  64Mi  128Mi
