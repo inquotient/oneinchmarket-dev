@@ -123,8 +123,10 @@ kubectl apply --server-side --force-conflicts \
 #   끝나지 않는다. 증상은 "스캔이 안 된다" 가 아니라 **"내 워크로드 차례가
 #   영영 오지 않는다"** 라 오퍼레이터가 도는 것만 보고는 알 수 없다.
 #   1m 로 줄인다 — 실패한 Job 을 들여다볼 시간이 짧아지는 것이 대가다.
-kubectl -n trivy-system patch cm trivy-operator-config --type merge -p '{"data":{"OPERATOR_CONCURRENT_SCAN_JOBS_LIMIT":"2","OPERATOR_CONCURRENT_NODE_COLLECTOR_LIMIT":"1","OPERATOR_SCAN_JOB_TTL":"1m","OPERATOR_SCAN_JOB_TIMEOUT":"25m"}}' || true
+kubectl -n trivy-system patch cm trivy-operator-config --type merge -p '{"data":{"OPERATOR_CONCURRENT_SCAN_JOBS_LIMIT":"4","OPERATOR_CONCURRENT_NODE_COLLECTOR_LIMIT":"1","OPERATOR_SCAN_JOB_TTL":"1m","OPERATOR_SCAN_JOB_TIMEOUT":"25m"}}' || true
 
+# ★ 동시 실행을 2 -> 4 로 올렸다 — 로컬로 바꾸면서 **건당 시간이 늘었기** 때문이다
+#   (실측 워크로드 하나에 8~10분). 노드 CPU 는 11% 라 병목이 아니었다.
 # ★ 스캔 예산 — 노드 containerd 에서 읽게 바꾸면서(§9-14 ①) 비용 구조가 바뀌었다.
 #   원격일 때는 "받다가 끊기는" 것이 문제였고, 로컬은 **푸는 데 시간이 든다**:
 #   실측으로 745MB 이미지 하나가 export + walk 에 **429초**였다(cpu 2000m).
