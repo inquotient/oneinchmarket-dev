@@ -114,7 +114,10 @@ spec:
       containers:
         - name: trivy-server
           # ★ trivy-operator 의 `trivy.tag` 와 **같은 값**이어야 한다.
-          image: mirror.gcr.io/aquasec/trivy:0.66.0
+          # ★★ 0.66.0 -> 0.74.0 (2026-09-11) — 0.66 은 임시 디렉터리 이름이
+          #   `/tmp/trivy-<pid>` 로 결정적이라 같은 파드의 스캔 컨테이너끼리
+          #   서로의 디렉터리를 지운다(install-operators.sh §5-2 참조).
+          image: mirror.gcr.io/aquasec/trivy:0.74.0
           imagePullPolicy: IfNotPresent
           args:
             - server

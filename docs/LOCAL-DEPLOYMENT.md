@@ -10935,6 +10935,39 @@ Ready 였고 /api/health 도 ok 였으며 **로그에만** 남았다. 그래서 
 ★ ddl-auto 가 위험한 이유 — 스키마를 **조용히** 바꾸고 이력이 남지 않는다.
 지금은 빈 DB 에 처음 만드는 상황이라 잃을 것이 없었을 뿐이다.
 
+### 9-14. Trivy 가 이미지를 인터넷에서 다시 받는다 (2026-09-11 에서 미룸)
+
+실측 출발점: `local` 컨테이너 **144개 중 30개(21%)가 취약점 리포트를 갖고 있지
+않았다.** 48시간 로그를 유형별로 세어 넷으로 갈랐고, 그중 가장 큰 것(**225건**,
+임시 디렉터리 충돌)은 **고쳤다** — trivy 0.66 -> 0.74.0(Gotcha 131). 30분 관찰에서
+그 유형은 0건이 됐다.
+
+**그 아래에서 드러난 것이 이 항목이다.** 남은 실패는 전부 이 모양이다:
+
+```
+walk error: failed to extract the archive:
+  read tcp ...->143.204.4.32:443: read: connection reset by peer
+... stream ID 5; PROTOCOL_ERROR; received from peer
+```
+
+★ **큰 이미지에서만 난다.** 작은 초기화 컨테이너는 전부 성공하고, backstage ·
+gravitee gateway/management-api · gitlab · jenkins · trino · elasticsearch 처럼
+수백 MB 짜리 **본 컨테이너**만 실패한다. 실측으로 한 스캔이 7분 27초를 끌다 끊겼다.
+
+★★ **kubelet 은 같은 이미지를 문제없이 받는다** — 즉 "망이 안 된다" 가 아니라
+trivy 의 단발 읽기가 이 회선의 리셋을 견디지 못하는 것이다. 그리고 더 근본적으로
+이상한 것은 **이미 노드 containerd 에 있는 이미지를 왜 다시 받는가** 이다.
+
+| 후보 | 무엇이 필요한가 | 왜 지금 안 했나 |
+|---|---|---|
+| ① 노드 containerd 에서 스캔 (`--image-src containerd`) | 스캔 Job 에 containerd 소켓을 물려야 한다 | **trivy-operator 0.34 가 스캔 Job 볼륨 커스터마이즈를 지원하는지 확인이 먼저다.** 키 이름을 추측해 넣으면 조용히 무시된다(Gotcha 88) |
+| ② 클러스터 안 pull-through 미러 + `trivy.registry.mirror.*` | 미러 레지스트리를 하나 더 세운다 | 메모리와 운영 부담이 는다. ①이 되면 필요 없다 |
+| ③ 그냥 두기 | — | 커버리지가 **작은 이미지 쪽만 참**인 상태가 남는다 |
+
+★ 그때까지 판정은 **건수가 아니라 본 컨테이너에 리포트가 있는지**로 할 것
+(Gotcha 53 ★ · 130).
+
+
 ## 10. Hyper-V 배포(ADR-051 A안) 재검토 — 2026-09-05 실측
 
 §8-31 에서 H5(Hyper-V 합성 NIC 의 Cilium eBPF)가 해소되어 **기술적 중단 사유는

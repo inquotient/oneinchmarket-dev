@@ -132,16 +132,32 @@ kubectl -n trivy-system patch cm trivy-operator-config --type merge -p '{"data":
 #   조용히 무시되고 스캔은 계속 실패한다.
 #   ★ 이 설정이 없으면 `docker/` 로컬 빌드 이미지 9종이 **한 번도
 #     스캔되지 않는다** — 오퍼레이터가 도는 것과 스캔이 되는 것은 다르다.
-# ★ Trivy 0.74 는 스캔 Job 에서 캐시 잠금을 놓지 않는다 —
-#     ERROR Failed to acquire cache or database lock
-#     FATAL unable to initialize fs cache: cache may be in use by another
-#           process: timeout
-#   초기화 컨테이너가 DB 를 내려받고 끝난 뒤 본 컨테이너가 같은 emptyDir 을
-#   쓰는데 거기서 걸린다(볼륨은 파드 안에서만 공유되므로 Job 간 경합이 아니다).
-#   0.66.0 으로 내리면 스캔 파드가 Error 대신 Completed 로 끝난다.
-#   ★ 실패가 **간헐적**이라 "가끔 되니 괜찮다" 로 읽히기 쉽다 — 리포트가
-#     하루 종일 드문드문 생겼다. 판정은 대상 워크로드별 리포트 유무로 할 것.
-kubectl -n trivy-system patch cm trivy-operator-trivy-config --type merge -p '{"data":{"trivy.tag":"0.66.0"}}' || true
+# ★★ 버전을 0.66.0 -> 0.74.0 으로 **되올렸다**(2026-09-11). 아래 두 문단은
+#   판단이 뒤집힌 경위다 — 지우지 말 것.
+#
+#   ① 원래 0.74 를 쓰다 "캐시 잠금" 때문에 0.66 으로 내렸었다:
+#        ERROR Failed to acquire cache or database lock
+#        FATAL unable to initialize fs cache: cache may be in use by another
+#              process: timeout
+#      그때는 **Standalone** 이라 컨테이너마다 111MB DB 를 내려받아 같은
+#      emptyDir 에서 다퉜다. 바로 아래에서 ClientServer 로 바꾸면서 그 경합의
+#      원인이 사라졌는데, 태그는 내려간 채로 남아 있었다.
+#
+#   ② 그리고 0.66 에는 **더 나쁜 결함**이 있다 — 임시 디렉터리 이름이
+#      `/tmp/trivy-<pid>` 로 **결정적**이고, 끝날 때 그것을 지운다.
+#      스캔 Job 의 컨테이너들은 `/tmp` emptyDir 하나를 공유하는데 **컨테이너마다
+#      PID 가 다시 1부터** 매겨지므로 서로 같은 이름을 고른다. 먼저 끝난
+#      컨테이너가 남의 임시 디렉터리를 지워 큰 이미지 쪽이 죽는다:
+#        FATAL ... unable to create temporary directory:
+#              stat /tmp/trivy-7: no such file or directory
+#      실측(2026-09-11): 48시간 로그에서 **225건**으로 가장 큰 실패 유형이었고,
+#      local 컨테이너 144개 중 30개가 리포트를 못 갖고 있었다.
+#      한 셸에서 두 개를 돌려 보면 `trivy-7`·`trivy-8` 로 갈리지만(PID 가 다르다)
+#      컨테이너가 다르면 둘 다 `trivy-7` 이다 — 그래서 **재현이 어렵다**.
+#      0.74 는 난수 이름(`/tmp/trivy-2350274864`)이라 이 결함이 없다.
+#
+#   ★ 서버와 클라이언트 **버전이 같아야 한다** — trivy-server.yaml 을 함께 옮길 것.
+kubectl -n trivy-system patch cm trivy-operator-trivy-config --type merge -p '{"data":{"trivy.tag":"0.74.0"}}' || true
 kubectl -n trivy-system patch cm trivy-operator-trivy-config --type merge -p '{"data":{"trivy.nonSslRegistry.gitlab":"gitlab-registry.local.svc.cluster.local:5050"}}' || true
 
 # 5-2-a. Trivy 서버 — ClientServer 모드 (§8-79)
