@@ -24,11 +24,11 @@ log() { echo "[build] $*"; }
 #   파드는 옛 이미지로 계속 돈다(IfNotPresent 다).
 #
 # 사용
-#   local/build-images.sh                      # 9종 전부
+#   local/build-images.sh                      # 10종 전부
 #   local/build-images.sh ranger-usersync      # 하나만
 #   local/build-images.sh livy jenkins         # 여럿
 #   local/build-images.sh --list               # 이름 목록
-ALL_IMAGES="spark-iceberg livy ranger-usersync hbase ranger-hdfs-plugin ranger-hbase-plugin ranger-hive-plugin jenkins proxysql"
+ALL_IMAGES="spark-iceberg livy ranger-usersync hbase ranger-hdfs-plugin ranger-hbase-plugin ranger-hive-plugin jenkins proxysql kafka-connect"
 if [ "${1:-}" = "--list" ]; then
   for n in $ALL_IMAGES; do echo "  $n"; done
   exit 0
@@ -156,6 +156,22 @@ if want proxysql; then
     "${REPO_ROOT}/docker/proxysql"
 fi
 
+if want kafka-connect; then
+  log "oneinch/kafka-connect 빌드"
+  # 브로커와 **같은 베이스**(apache/kafka:4.3.1) 위에 Debezium MariaDB
+  # 커넥터만 얹는다. 상류의 quay.io/debezium/connect 는 715 MiB 에 쓰지 않는
+  # 커넥터가 14종 더 들어 있어 취약점 표면만 늘린다 — 이 클러스터는 Trivy
+  # Operator·Dependency-Track 이 상시로 돈다. 상세는
+  # docker/kafka-connect/Dockerfile 주석.
+  #
+  # ★ 태그가 두 버전을 함께 담는 이유: 이 이미지는 **조합**이라 어느 한쪽만
+  #   올려도 다른 이미지가 된다. kafka-statefulset.yaml 의 image 를 올릴 때
+  #   이 태그와 Dockerfile 의 FROM 을 함께 움직일 것.
+  sudo podman build --format docker --network host \
+    -t oneinch/kafka-connect:latest -t oneinch/kafka-connect:4.3.1-dbz3.6.2 \
+    "${REPO_ROOT}/docker/kafka-connect"
+fi
+
 # ── GitLab 컨테이너 레지스트리로 push ──────────────────────────────
 #
 # ★ 왜 push 하는가 — 파드를 띄우는 데는 필요 없다(아래 containerd 반입으로
@@ -271,6 +287,7 @@ for img in oneinch/spark-iceberg:3.5.6 \
            oneinch/proxysql:4.0.11 \
            oneinch/ranger-hdfs-plugin:2.9.0-jersey2 \
            oneinch/ranger-hbase-plugin:2.9.0-hbase3 \
+           oneinch/kafka-connect:4.3.1-dbz3.6.2 \
            oneinch/ranger-hive-plugin:2.9.0-hive4; do
   # ★ 빌드하지 않은 것을 반입하면 옛 레이어가 그대로 올라간다.
   base="${img%%:*}"; want "${base#oneinch/}" || continue

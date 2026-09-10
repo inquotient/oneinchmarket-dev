@@ -1,0 +1,18 @@
+# Kafka Connect — CDC 플랫폼 (WSO2-OSS-MAPPING §D · §9-3)
+#
+# ★ wave 3 인 이유: Kafka(messaging, wave 2)와 MariaDB(database, wave 1)
+#   뒤여야 한다. messaging/ 에 넣지 않은 이유는 그쪽 commonAnnotations 가
+#   wave 를 2 로 덮기 때문이다(Gotcha 67) — 디렉터리를 나누는 것이 처방이다.
+#
+# ★★ streaming/ 과 다른 디렉터리인 이유: 그쪽은 Flink 보류분을 담아 두는
+#   곳이고 **연결되어 있지 않다**(§9-1). 여기는 실제로 배포한다.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - kafka-connect-configmap.yaml
+  - kafka-connect-headless.yaml
+  - kafka-connect-deployment.yaml
+
+commonAnnotations:
+  argocd.argoproj.io/sync-wave: "3"

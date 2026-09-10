@@ -83,6 +83,12 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: cmmn-api
+        # ★ Debezium — binlog 를 읽는다. 읽기 전용이지만 REPLICATION
+        #   권한이 필요해 전용 DB 사용자를 쓴다(cmmn-api 자격을 빌리지
+        #   않는다 — ambient 에서 신원이 곧 권한이기 때문이다).
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: kafka-connect
       ports:
         - protocol: TCP
           port: 3306

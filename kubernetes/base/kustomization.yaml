@@ -18,5 +18,8 @@ resources:
   # ★ service-mesh/ 와 분리한다 — 그쪽 commonAnnotations 가 wave 를 0 으로
   #   덮어쓰는데, 이 RLS 는 Redis(wave 1) 뒤에 떠야 한다(§8-89).
   - gateway-ratelimit/
+  # ★ messaging/ 과 분리한다 — 그쪽 commonAnnotations 가 wave 를 2 로
+  #   덮는데, Connect 는 Kafka(2)·MariaDB(1) 뒤인 3 이어야 한다(Gotcha 67).
+  - kafka-connect/
   - network-policies/
   - rotation/

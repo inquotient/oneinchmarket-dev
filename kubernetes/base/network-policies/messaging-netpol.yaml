@@ -21,6 +21,13 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: akhq
+        # ★ Kafka Connect — 내부 토픽 3종(offsets·configs·status)을 만들고
+        #   읽고 쓰며, CDC 결과도 여기로 넣는다. Istio allow-messaging-access
+        #   에도 같은 신원이 있어야 한다 — 한쪽만 고치면 Cilium 은
+        #   통과시키고 ztunnel 이 끊는다(§8-64 가 그 예다).
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: kafka-connect
         # ADR-032 — kafka-rest(Confluent REST Proxy) 를 Strimzi Kafka Bridge 로
         # 교체했다. v1 셀렉터 이름을 개명해 기존 규칙을 되살린다.
         - podSelector:

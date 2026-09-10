@@ -1,0 +1,170 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-connect
+  labels:
+    app.kubernetes.io/name: kafka-connect
+    app.kubernetes.io/component: kafka-connect
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  # ★ 이 노드에서 maxSurge 기본값은 무중단이 아니라 교착이다(Gotcha 87).
+  #   replicas 1 에서 surge 가 사주는 무중단은 어차피 없으므로 0 으로 둔다.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafka-connect
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kafka-connect
+        app.kubernetes.io/component: kafka-connect
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/managed-by: kustomize
+    spec:
+      # ★ ambient 에서 ServiceAccount 는 곧 신원이다(Gotcha 10).
+      #   Kafka·MariaDB 접근 권한이 이 이름에 걸려 있다.
+      serviceAccountName: kafka-connect
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # Kafka 가 뜨기 전에 Connect 가 붙으면 내부 토픽 생성에 실패하고
+        # CrashLoop 한다. 재시도는 하지만 로그가 지저분해진다.
+        - name: wait-kafka
+          image: gitlab-registry.local.svc.cluster.local:5050/oneinch/kafka-connect:4.3.1-dbz3.6.2
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              i=0
+              until /opt/kafka/bin/kafka-broker-api-versions.sh \
+                      --bootstrap-server kafka-headless:9092 >/dev/null 2>&1; do
+                i=$((i+1))
+                [ "$i" -gt 60 ] && { echo "Kafka 가 5분 안에 응답하지 않았다"; exit 1; }
+                echo "  Kafka 대기 ($i/60)"; sleep 5
+              done
+              echo "Kafka 응답함"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 20m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      containers:
+        - name: kafka-connect
+          image: gitlab-registry.local.svc.cluster.local:5050/oneinch/kafka-connect:4.3.1-dbz3.6.2
+          imagePullPolicy: IfNotPresent
+          # ★ 기동 래퍼 — ConfigMap 은 읽기 전용이므로 /tmp 로 복사해
+          #   파드 IP 를 덧붙인다. 그러지 않으면 워커가 자기 주소를
+          #   0.0.0.0 으로 광고해 워커를 늘리는 날 요청 전달이 깨진다.
+          #
+          # ★★ 고친 값을 **되읽어 확인하고 다르면 기동을 거부**한다
+          #   (Gotcha 86). 조용한 오설정보다 CrashLoop 이 낫다 — 이 값은
+          #   틀려도 파드가 Ready 로 보이는 종류의 설정이다.
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              CONF=/tmp/connect-distributed.properties
+              cp /etc/kafka-connect/connect-distributed.properties "$CONF"
+              echo "rest.advertised.host.name=$POD_IP" >> "$CONF"
+              got=$(sed -n 's/^rest\.advertised\.host\.name=//p' "$CONF")
+              if [ "$got" != "$POD_IP" ]; then
+                echo "advertised host 주입 실패: 기대 '$POD_IP' 실제 '$got'" >&2
+                exit 1
+              fi
+              echo "rest.advertised.host.name=$got"
+              exec /opt/kafka/bin/connect-distributed.sh "$CONF"
+          env:
+            # ★ 힙을 명시한다 — limit 의 62.5% 다(Gotcha 81·82).
+            #   퍼센트 기반(MaxRAMPercentage)을 쓰지 않는 이유: JDK 버전에
+            #   따라 컨테이너 한도를 못 읽고 호스트 크기를 읽는 일이 있다.
+            #   힙을 limit 과 같게 두면 메타스페이스·코드캐시·스레드 스택이
+            #   들어갈 자리가 0 이 되어 힙이 차기 전에 커널이 죽인다.
+            - name: KAFKA_HEAP_OPTS
+              value: "-Xms256m -Xmx640m"
+            # 기동 래퍼가 이것을 프로퍼티 파일에 덧붙인다.
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          ports:
+            - name: rest
+              containerPort: 8083
+              protocol: TCP
+          # ★ 프로브가 "떠 있는가" 가 아니라 "일할 수 있는가" 를 보게 한다
+          #   (Gotcha 48). /connectors 는 워커가 그룹에 합류하고 내부 토픽을
+          #   읽은 뒤에야 200 을 준다 — TCP 검사로는 그것을 알 수 없다.
+          startupProbe:
+            httpGet:
+              path: /connectors
+              port: rest
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /connectors
+              port: rest
+            periodSeconds: 15
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: rest
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 768Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            # ★ Connect 는 로그 설정을 제자리에서 고치지 않지만 JVM 이
+            #   /tmp 를 쓴다 — emptyDir 로 빼고 rootfs 는 읽기 전용으로 둔다
+            #   (Gotcha 96 의 처방: 하드닝을 되돌리지 말고 쓰는 곳을 뺀다).
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/kafka-connect
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            # Kafka 기동 스크립트가 로그를 여기에 쓴다.
+            - name: logs
+              mountPath: /opt/kafka/logs
+      volumes:
+        - name: config
+          configMap:
+            name: kafka-connect-config
+        - name: tmp
+          emptyDir: {}
+        - name: logs
+          emptyDir: {}
