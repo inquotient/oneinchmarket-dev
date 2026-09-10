@@ -1,0 +1,21 @@
+# API 관리 — Gravitee APIM CE (WSO2-OSS-MAPPING §A · §9-3)
+#
+# ★★ **배포만 한다 — 트래픽 경로에 넣지 않는다.** 게이트웨이 선택은 ADR-079
+#   가 미결이고, 계량 지점을 함부로 옮기면 이벤트 스키마와 **이미 청구한
+#   이력**이 함께 흔들린다(Gotcha 15). 지금 외부 진입점은 Istio Gateway 다.
+#
+# ★ wave 5 인 이유: MongoDB(1)와 그 부트스트랩 Job(1) 뒤여야 한다.
+#   UI 둘(console·portal)은 아직 없다 — 그 이미지는 80 포트를 쓰고
+#   비-root 로 바인딩하려면 NET_BIND_SERVICE 예외가 필요하다.
+#   **측정하지 않은 예외를 만들지 않는다**(Gotcha 97). 실측 뒤에 더한다.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - gravitee-configmap.yaml
+  - gravitee-headless.yaml
+  - gravitee-management-api.yaml
+  - gravitee-gateway.yaml
+
+commonAnnotations:
+  argocd.argoproj.io/sync-wave: "5"

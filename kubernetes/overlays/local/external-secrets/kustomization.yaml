@@ -33,6 +33,7 @@ resources:
   - knox-secret.yaml
   - lam-secret.yaml
   - backstage-secret.yaml
+  - gravitee-secret.yaml
   - mariadb-secret.yaml
   - minio-secret.yaml
   - mongodb-secret.yaml

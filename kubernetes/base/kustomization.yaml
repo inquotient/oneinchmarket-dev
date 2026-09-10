@@ -26,5 +26,7 @@ resources:
   - integration/
   # ★ wave 4 — PostgreSQL 부트스트랩 Job 뒤여야 한다.
   - developer-portal/
+  # ★ 배포만 한다 — 트래픽 경로에 넣지 않는다(ADR-079 미결, Gotcha 15).
+  - api-management/
   - network-policies/
   - rotation/
