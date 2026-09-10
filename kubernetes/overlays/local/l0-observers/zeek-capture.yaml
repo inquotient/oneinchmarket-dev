@@ -1,0 +1,111 @@
+# ─────────────────────────────────────────────────────────────────────────
+# zeek-capture — L0 랩의 LAN 브리지를 청취한다
+#
+# Hyper-V 판에서는 **L0-Target VM 안**에서 systemd 유닛으로 돌았고, 그것 하나
+# 때문에 Ubuntu VM 이 상시 2~4 GB 를 물고 있었다(README 가 "2GB 로는 빠듯하다"
+# 며 올려 뒀다). OPNsense 가 WSL 안 KVM 으로 오면서 LAN 이 **호스트 네임스페이스의
+# 리눅스 브리지**가 되었으므로, 파드가 그것을 직접 들으면 VM 이 통째로 필요 없다.
+# 자세한 것은 LOCAL-DEPLOYMENT §24-4.
+#
+# ★ hostNetwork 가 필수다 — 브리지는 호스트 netns 에 있고 파드 netns 에서는
+#   보이지 않는다. Hyper-V vSwitch 의 포트 미러링 구성도 함께 사라진다.
+#
+# ★★ 그 대가로 **메시 신원이 없다**(Gotcha 10). 그래서 전송은 이 파드가 하지
+#   않는다 — `zeek-ship` 이 메시 안에서 전용 SA 로 돈다. 둘은 hostPath 로
+#   로그를 주고받는다. 한 파드에 합치면 전송 쪽까지 신원을 잃어
+#   AuthorizationPolicy 를 쓸 수 없다.
+#
+# ★ 이미지에서 확인한 것(추측하지 않았다):
+#     · 바이너리는 /usr/local/zeek/bin/zeek — **/opt/zeek 이 아니다**
+#       (옛 systemd 유닛이 /opt/zeek 을 쓰고 있어 그대로 옮겼으면 CrashLoop 다)
+#     · `ip` 명령이 **없다** — promisc 은 libpcap 이 소켓으로 설정하므로
+#       NET_ADMIN 만 있으면 되고 `ip link set promisc` 는 필요 없다
+#     · pgrep 은 있다(프로브에 쓴다) · 기본 사용자는 root
+#
+# ★ 이것이 `overlays/local` 에만 있는 이유: hostNetwork + NET_ADMIN 은 prod 가
+#   상속하면 안 되는 권한이고, 애초에 L0 랩은 로컬에만 있다(caldera 와 같은 이유).
+# ─────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: zeek-capture
+  labels:
+    app.kubernetes.io/name: zeek-capture
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zeek-capture
+  labels:
+    app.kubernetes.io/name: zeek-capture
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  replicas: 1
+  # ★ 같은 인터페이스를 두 프로세스가 잡을 수 없으므로 surge 하지 않는다.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: zeek-capture
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: zeek-capture
+        app.kubernetes.io/component: security
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/managed-by: kustomize
+    spec:
+      serviceAccountName: zeek-capture
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: zeek
+          image: zeek/zeek:7.0.10
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -eu
+              mkdir -p "$LOGDIR"
+              cd "$LOGDIR"
+              echo "[zeek-capture] $IFACE 청취 시작 (로그: $LOGDIR)"
+              # ★ -C = 체크섬 검증 끄기. 브리지/virtio 구간은 오프로드 때문에
+              #   체크섬이 맞지 않는 프레임이 정상적으로 존재한다. 켜 두면
+              #   Zeek 이 그것을 전부 버려 **로그가 조용히 비어 있다.**
+              exec /usr/local/zeek/bin/zeek -i "$IFACE" -C LogAscii::use_json=T
+          env:
+            - {name: IFACE,  value: "l0-lan"}
+            - {name: LOGDIR, value: "/var/log/zeek"}
+          securityContext:
+            # root 가 필요하다 — AF_PACKET 과 promisc.
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["NET_RAW", "NET_ADMIN"]
+          livenessProbe:
+            exec:
+              command: ["pgrep", "-x", "zeek"]
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          readinessProbe:
+            exec:
+              command: ["pgrep", "-x", "zeek"]
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          volumeMounts:
+            - {name: logs, mountPath: /var/log/zeek}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {memory: 512Mi}
+      volumes:
+        # ★ emptyDir 이 아니라 hostPath 다 — zeek-ship 이 **다른 파드**에서
+        #   같은 파일을 읽어야 하기 때문이다.
+        - name: logs
+          hostPath:
+            path: /var/log/zeek
+            type: DirectoryOrCreate

@@ -1,0 +1,23 @@
+# L0 랩 관측 계층 — Zeek 을 VM 에서 파드로 (LOCAL-DEPLOYMENT §24-4)
+#
+# ★ 왜 base 가 아니라 오버레이인가
+#   ① L0 랩 자체가 local 전용이다(ADR-028 의 검증 환경)
+#   ② `zeek-capture` 는 **hostNetwork + NET_ADMIN** 이다. base 에 두면 prod 가
+#      그대로 상속하는데, 그 권한을 상속시킬 이유가 없다. caldera·
+#      lakehouse-local 과 같은 이유다(ADR-030·ADR-068).
+#
+# ★ ntopng 는 옮기지 않는다 — OPNsense 에서 242 MiB 이고, 파드로 빼면 Redis
+#   의존이 새로 생긴다. 이득보다 결합이 크다(§24-4).
+#
+# 승격 조건 — 없다. L0 랩이 있는 환경에만 의미가 있다.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - zeek-capture.yaml
+  - zeek-ship.yaml
+  - zeek-netpol.yaml
+
+commonAnnotations:
+  # Logstash(wave 7) 가 선 뒤여야 한다.
+  argocd.argoproj.io/sync-wave: "8"

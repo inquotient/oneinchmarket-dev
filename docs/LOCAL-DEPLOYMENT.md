@@ -13341,11 +13341,24 @@ jsonpath={.items[0].status.allocatable.memory}` 를 함께 볼 것. 둘의 차�
 ### 24-4. 옮긴 뒤의 구조
 
 ```
-KVM 게스트   OPNsense                        ~2.4~3.0 GiB  (상시)
-netns        l0target (10.77.0.191)          ~0            (상시)
-파드         zeek-capture + zeek-ship        ~0.5~1.0      (상시)
-일회성 VM    h5-probe                        0             (시험 때만)
+                                   추정        실측(2026-09-10)
+KVM 게스트   OPNsense              ~2.4~3.0    1.76 GiB
+파드         zeek-capture          ~0.3~0.7      89 MiB
+파드         zeek-ship             ~0.1           7 MiB
+netns        l0target (10.77.0.191)  ~0           0
+일회성 VM    h5-probe                 0           0  (시험 때만)
+                                   ────────    ────────
+                                                **~1.86 GiB**
 ```
+
+★ **Hyper-V 시절과 비교**: OPNsense 6.0(뒤에 4.0) + L0-Target 2.85 =
+**6.85~8.85 GiB 를 Windows 에서 선할당**했다. 지금은 **1.86 GiB 를 WSL 에서
+만진 만큼만** 쓰고 그 아래를 zram 이 받친다. 약 5 GiB 가 줄었고, 무엇보다
+**여유가 없는 쪽(Windows)에서 있는 쪽(WSL)으로 옮겼다.**
+
+★ 추정이 또 컸다 — OpenFGA(§8-102)에서 겪은 것과 같은 부류다. Zeek 을
+"0.5~1.0 GiB" 로 잡았는데 실측 **89 MiB** 다. 랩 링크가 한산해서다 —
+트래픽이 늘면 올라간다.
 
 ★ **표적을 파드로 만들지 않는다.** 파드의 egress 는 Cilium 을 타고 WSL eth0 로
 나가 **OPNsense 를 우회한다** — 격리를 검증하려고 만든 랩에서 격리가 사라진다.
@@ -13458,6 +13471,47 @@ Hyper-V 정적 4.00 GiB  →  KVM qemu RSS 2.41~2.95 GiB
 ```
 
 **할당이 아니라 만진 만큼만** 쓰고, 그 아래를 zram 이 받친다.
+
+### 24-6-b. Zeek 을 VM 에서 파드로 — 파이프라인이 살아났다
+
+`kubernetes/overlays/local/l0-observers/` 로 넣었다(base 가 아닌 이유는 그
+`kustomization.yaml` 머리말에 있다 — hostNetwork + NET_ADMIN 을 prod 가
+상속하면 안 된다).
+
+**두 워크로드로 쪼갠 이유**는 §24-7 ④ 다 — hostNetwork 파드는 메시 밖이라
+신원이 없다.
+
+| | 네트워크 | 하는 일 |
+|---|---|---|
+| `zeek-capture` | hostNetwork · `NET_RAW`+`NET_ADMIN` | `l0-lan` 청취 → hostPath `/var/log/zeek` |
+| `zeek-ship` | 일반 파드 · 전용 SA · 비-root 1000 | 그 파일을 읽어 `logstash-headless:5141` |
+
+★ **이미지를 열어 보고 짰다**(Gotcha 103). 바이너리가
+`/usr/local/zeek/bin/zeek` 다 — **`/opt/zeek` 이 아니다.** 옛 systemd 유닛이
+`/opt/zeek` 를 쓰고 있어 그대로 옮겼으면 CrashLoop 였다. 그리고 이미지에
+`ip` 가 **없다** — promisc 은 libpcap 이 소켓으로 설정하므로 `NET_ADMIN` 만
+있으면 되고 `ip link set promisc` 는 필요 없다.
+
+★★ `-C`(체크섬 검증 끄기)가 필수다. 브리지·virtio 구간은 오프로드 때문에
+체크섬이 맞지 않는 프레임이 정상적으로 존재하고, 켜 두면 Zeek 이 그것을 전부
+버려 **로그가 조용히 비어 있다.**
+
+★★ **`5141` 을 여는 NetworkPolicy 를 함께 넣었다** — §24-7 ③ 참조. 그것이
+없으면 shipper 가 붙지 못한다.
+
+**검증 — 건수가 아니라 최신 문서 시각으로**(Gotcha 12):
+
+```json
+{"zeek_log":"dns","@timestamp":"2026-09-10T07:12:51.991Z",
+ "id.orig_h":"10.77.0.191","id.resp_h":"10.77.0.1"}
+```
+
+`zeek` 인덱스 **green · 111,970 문서**, 최신 문서가 **방금 시각**이고 출처가
+**표적 netns** 다. **2026-09-05 07:52 부터 죽어 있던 경로가 살아났고,
+`kubectl port-forward` 가 경로에서 사라졌다.**
+
+★ 이로써 `L0-Target` VM 의 세 역할이 전부 대체됐다 — ①표적은 netns,
+②Zeek 은 파드, ③H5 는 일회성 게스트(§24-5). **상시 점유가 0 이 됐다.**
 
 ### 24-7. 옮기면서 드러난 것
 

@@ -1,0 +1,37 @@
+# ─────────────────────────────────────────────────────────────────────────
+# zeek-ship -> Logstash 5141 을 연다
+#
+# ★★ base 의 `allow-logstash-access` 는 **5044(filebeat)와 5140(ipBlock
+#   10.77.0.0/24)만** 연다. Zeek 이 쓰는 **5141 은 어디에서도 허용되지 않았다.**
+#   L0 파이프라인이 2026-09-05 부터 죽어 있던 원인이 `kubectl port-forward`
+#   만이 아니었던 것이다(Gotcha 12) — 직접 경로는 애초에 정책에서 막혀 있었고,
+#   그래서 port-forward 로 우회하고 있었다.
+#
+# ★ NetworkPolicy 는 **합집합**이다 — base 를 고치지 않고 규칙을 더한다.
+#   base 를 건드리면 dev/prod 가 함께 바뀌는데, 그쪽에는 Zeek 이 없다.
+#
+# ★ 대상을 podSelector 로 좁힌다. `zeek-capture` 는 hostNetwork 이라 이 규칙의
+#   대상이 아니고(그쪽은 로그를 파일로만 넘긴다), 그래서 신원을 가진 이 파드만
+#   Logstash 에 닿는다.
+# ─────────────────────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-zeek-ship-to-logstash
+  labels:
+    app.kubernetes.io/name: zeek-ship
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: logstash
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: zeek-ship
+      ports:
+        - {port: 5141, protocol: TCP}
