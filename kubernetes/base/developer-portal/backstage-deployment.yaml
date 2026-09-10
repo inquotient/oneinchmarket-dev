@@ -1,0 +1,134 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backstage
+  labels:
+    app.kubernetes.io/name: backstage
+    app.kubernetes.io/component: developer-portal
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  # 이 노드에서 maxSurge 기본값은 무중단이 아니라 교착이다(Gotcha 87).
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: backstage
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: backstage
+        app.kubernetes.io/component: developer-portal
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/managed-by: kustomize
+    spec:
+      serviceAccountName: backstage
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        # 이미지의 `node` 사용자다(이미지 config 에서 확인).
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # DB 가 없으면 Backstage 는 마이그레이션에서 죽는다. 기다린다.
+        - name: wait-postgres
+          image: postgres:18.6
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              i=0
+              until pg_isready -h postgresql-headless -p 5432 -q; do
+                i=$((i+1))
+                [ "$i" -gt 60 ] && { echo "PostgreSQL 이 5분 안에 응답하지 않았다"; exit 1; }
+                echo "  PostgreSQL 대기 ($i/60)"; sleep 5
+              done
+              echo "PostgreSQL 응답함"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 20m, memory: 64Mi }
+            limits:   { cpu: 200m, memory: 128Mi }
+      containers:
+        - name: backstage
+          # ★ 태그와 다이제스트를 함께 적는다 — 태그는 읽기 위한 것이고
+          #   고정하는 것은 다이제스트다. 버전 태그도 내용이 바뀔 수 있다
+          #   (Gotcha 45: apache/hive:4.2.1 이 한 세션 안에서 바뀌었다).
+          image: ghcr.io/backstage/backstage:1.30.2@sha256:f97ddd6e96558e0262a98d1b045e89691b417a44dcc9a0a81414cbdeed358e7a
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: BACKSTAGE_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: backstage-secret, key: db-password } }
+            - name: BACKSTAGE_BACKEND_SECRET
+              valueFrom: { secretKeyRef: { name: backstage-secret, key: backend-secret } }
+          ports:
+            - name: http
+              containerPort: 7007
+              protocol: TCP
+          # ★ 프로브를 추측으로 정하지 않았다. 지금은 `/` 로 둔다 — 백엔드가
+          #   프런트를 함께 서빙하므로 뜨면 200 이다. 다만 그것은 "떠 있는가"
+          #   이지 "설정이 반영됐는가" 가 아니다(Gotcha 48). 기동 뒤
+          #   `/.backstage/health/v1/readiness` 가 실제로 있는지 확인해
+          #   그쪽으로 좁힐 것 — 있는지 모른 채 적으면 조용히 실패한다.
+          startupProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 15
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 640Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            # ★★ 일부러 켜지 않았다. Node 앱이 어디에 쓰는지 **재기 전에는
+            #   모른다**(Gotcha 92: "/tmp 가 emptyDir 이니 안전하겠지" 로
+            #   고른 것들이 실제로는 다른 곳을 썼다). 기동 뒤
+            #   local/check-readonly-rootfs.sh 로 재서 켤 것.
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            # ★ subPath 로 **그 한 파일만** 갈아끼운다. 디렉터리째 마운트하면
+            #   이미지가 들고 온 app-config.yaml 까지 가려져 기동하지 않는다.
+            - name: config
+              mountPath: /app/app-config.production.yaml
+              subPath: app-config.production.yaml
+              readOnly: true
+            - name: catalog
+              mountPath: /app/catalog
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: backstage-config
+        - name: catalog
+          configMap:
+            name: backstage-catalog
+        - name: tmp
+          emptyDir: {}

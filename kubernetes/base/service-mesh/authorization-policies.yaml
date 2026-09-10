@@ -77,6 +77,9 @@ spec:
               # 접미 매칭으로 묶는다. `*/sa/*-openreplay` 는 `*` 가 둘이라
               # 쓸 수 없다 — 위 머리말 참조.
               - "*-openreplay"
+              # ★ Backstage — 카탈로그·세션을 PostgreSQL 에 둔다.
+              #   5432 규칙에만 넣는다 — 3306·6033·27017 에는 볼 일이 없다.
+              - "*/sa/backstage"
       to:
         - operation:
             ports: ["5432"]

@@ -1,0 +1,124 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backstage-catalog
+  labels:
+    app.kubernetes.io/name: backstage
+    app.kubernetes.io/component: developer-portal
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+data:
+  # ── 카탈로그 시드 ──────────────────────────────────────────────────────
+  #
+  # ★ 지어내지 않았다. 여기 있는 것은 전부 클러스터에서 실측한 것이다:
+  #     admin · cmmn-api · nginx  = application 카테고리의 실제 워크로드
+  #     토픽 3종                   = 실제로 존재하는 Kafka 토픽
+  #     MariaDB cmmn               = cmmn-api 가 붙는 DB(테이블 menu·multi_language)
+  #   없는 것을 적으면 카탈로그가 곧 거짓말이 된다 — 계약을 추정으로 쓰지
+  #   말라는 §8-99 와 같은 이유다.
+  #
+  # ★★ 정적 파일인 것이 한계다. GitLab 연동(catalog.providers.gitlab)으로
+  #   옮기면 각 레포의 catalog-info.yaml 이 원천이 되어 이 파일이 필요
+  #   없어진다. 그때까지는 **사람이 손으로 맞춰야 하고, 어긋나도 아무도
+  #   말해 주지 않는다** — 그 사실을 알고 쓸 것.
+  entities.yaml: |
+    ---
+    apiVersion: backstage.io/v1alpha1
+    kind: Domain
+    metadata:
+      name: oneinchmarket
+      description: k3s 기반 데이터 레이크하우스 플랫폼
+    spec:
+      owner: platform
+    ---
+    apiVersion: backstage.io/v1alpha1
+    kind: System
+    metadata:
+      name: cmmn
+      description: 공통 업무 서비스 — 메뉴·다국어
+    spec:
+      owner: platform
+      domain: oneinchmarket
+    ---
+    apiVersion: backstage.io/v1alpha1
+    kind: Group
+    metadata:
+      name: platform
+      description: 플랫폼 운영
+    spec:
+      type: team
+      children: []
+    ---
+    apiVersion: backstage.io/v1alpha1
+    kind: Component
+    metadata:
+      name: cmmn-api
+      description: Spring Boot API. MariaDB `cmmn` 을 읽고 Kafka 로 변경을 알린다.
+      annotations:
+        backstage.io/kubernetes-id: cmmn-api
+    spec:
+      type: service
+      lifecycle: production
+      owner: platform
+      system: cmmn
+      providesApis: [cmmn-api-rest]
+      dependsOn: [resource:default/mariadb-cmmn]
+    ---
+    apiVersion: backstage.io/v1alpha1
+    kind: Component
+    metadata:
+      name: admin
+      description: 관리 화면
+      annotations:
+        backstage.io/kubernetes-id: admin
+    spec:
+      type: service
+      lifecycle: production
+      owner: platform
+      system: cmmn
+      consumesApis: [cmmn-api-rest]
+    ---
+    apiVersion: backstage.io/v1alpha1
+    kind: Component
+    metadata:
+      name: nginx
+      description: 리버스 프록시. 도메인 서비스가 아니라 웹 서버다.
+      annotations:
+        backstage.io/kubernetes-id: nginx
+    spec:
+      type: website
+      lifecycle: production
+      owner: platform
+      system: cmmn
+    ---
+    apiVersion: backstage.io/v1alpha1
+    kind: API
+    metadata:
+      name: cmmn-api-rest
+      description: |
+        메뉴·다국어 REST. ★ 필드 이름에 함정이 있다 — `menuUrlPath` 가 아니라
+        `menuURLPath` 이고, 틀리면 오류 없이 무시된다(§8-99).
+        POST 는 객체가 아니라 **배열**을 받고 쓰기에 CSRF 가 필요하다.
+    spec:
+      type: openapi
+      lifecycle: production
+      owner: platform
+      system: cmmn
+      definition: |
+        openapi: 3.0.0
+        info:
+          title: cmmn-api
+          version: "1.0"
+        paths: {}
+    ---
+    apiVersion: backstage.io/v1alpha1
+    kind: Resource
+    metadata:
+      name: mariadb-cmmn
+      description: |
+        MariaDB `cmmn` (테이블 menu · multi_language).
+        2026-09-10 부터 binlog 가 켜져 Debezium 이 CDC 를 읽는다.
+    spec:
+      type: database
+      owner: platform
+      system: cmmn

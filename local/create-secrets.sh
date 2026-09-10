@@ -49,6 +49,10 @@ mk mongodb-secret     "root-password=$MONGO"         "mongodb-root-password=$MON
 mk redis-secret       "redis-password=$REDIS"
 # ShardingSphere-Proxy 의 프록시 사용자(proxyadmin). 뒤쪽 PostgreSQL 자격과
 # **별개**여야 한다 — 프록시 자격이 새도 DB 자격은 지켜진다(§8-44 와 같은 이유).
+# Backstage — db-password 는 PostgreSQL 롬, backend-secret 은 세션·토큰
+# 서명 키다. 둘을 같은 값으로 쓰지 않는다 — 역할이 다르고
+# 하나가 새면 둘 다 새는 구조를 만들지 않는다(§8-44).
+mk backstage-secret "db-password=$(gen)" "backend-secret=$(gen 32)"
 mk shardingsphere-secret "proxy-password=$(gen)"
 # ProxySQL (§8-76). admin 은 런타임 설정 인터페이스(6032), monitor 는 백엔드
 # 헬스체크용 계정이다 — mariadb-bootstrap 이 'proxysql-monitor'@'%' 를

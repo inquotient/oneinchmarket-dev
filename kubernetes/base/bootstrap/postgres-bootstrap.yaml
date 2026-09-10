@@ -168,6 +168,9 @@ spec:
 
               # midPoint — IGA(Phase 2 ⑨, §8-103)
               ensure midpoint       midpoint       "$MIDPOINT_DB_PASSWORD"
+              # ★ Backstage — 카탈로그·세션을 여기 둔다. 자체
+              #   마이그레이션이 테이블을 만든다(knex).
+              ensure backstage      backstage      "$BACKSTAGE_DB_PASSWORD"
               # ★★ 확장 셋은 **superuser 권한**이 필요해 여기서 만든다.
               #   midPoint 의 postgres.sql 이 이것들을 요구하는데, 그 SQL 은
               #   **midpoint 롤로** 들어가야 한다(아니면 테이블이 postgres 소유가
@@ -204,6 +207,8 @@ spec:
               valueFrom: { secretKeyRef: { name: safeline-secret, key: db-password } }
             - name: OPENFGA_DB_PASSWORD
               valueFrom: { secretKeyRef: { name: openfga-secret, key: db-password } }
+            - name: BACKSTAGE_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: backstage-secret, key: db-password } }
             - name: MIDPOINT_DB_PASSWORD
               valueFrom: { secretKeyRef: { name: midpoint-secret, key: db-password } }
           securityContext:

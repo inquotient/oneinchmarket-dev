@@ -32,6 +32,7 @@ resources:
   - keycloak-secret.yaml
   - knox-secret.yaml
   - lam-secret.yaml
+  - backstage-secret.yaml
   - mariadb-secret.yaml
   - minio-secret.yaml
   - mongodb-secret.yaml

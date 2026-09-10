@@ -24,5 +24,7 @@ resources:
   # ★ Camel K 의 IntegrationPlatform 만 여기 있다 — 오퍼레이터와 CRD 는
   #   ArgoCD 밖의 오퍼레이터 계층이다(local/install-operators.sh §9).
   - integration/
+  # ★ wave 4 — PostgreSQL 부트스트랩 Job 뒤여야 한다.
+  - developer-portal/
   - network-policies/
   - rotation/

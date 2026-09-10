@@ -1,0 +1,20 @@
+# 개발자 포털 — Backstage (WSO2-OSS-MAPPING §G · §9-3)
+#
+# ★ wave 4 인 이유: PostgreSQL(1)과 그 부트스트랩 Job 뒤여야 한다.
+#   Job 이 `backstage` DB·롤을 만들기 전에 뜨면 마이그레이션에서 죽는다.
+#
+# ★★ 이 포털은 **게이트웨이 경로에 없다.** NetworkPolicy 가 ingress 를
+#   전면 차단하고 접근은 port-forward 로만 한다 — guest 인증이라
+#   도달할 수 있는 사람은 전부 같은 익명 사용자이기 때문이다.
+#   승격 조건은 backstage-configmap.yaml 의 auth 블록 주석에 있다.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - backstage-configmap.yaml
+  - backstage-catalog-configmap.yaml
+  - backstage-headless.yaml
+  - backstage-deployment.yaml
+
+commonAnnotations:
+  argocd.argoproj.io/sync-wave: "4"

@@ -27,6 +27,12 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: apicurio-registry
+        # ★ Backstage — 카탈로그와 세션을 PostgreSQL 에 둔다.
+        #   Istio allow-database-access 의 5432 규칙에도 같은 신원이
+        #   있어야 한다 — 한쪽만 고치면 connection reset 이다.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: backstage
         # 3단계 — Ranger admin 이 `ranger` DB 를 쓴다(별칭 서비스 ranger-db).
         - podSelector:
             matchLabels:

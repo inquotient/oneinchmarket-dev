@@ -1,0 +1,84 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backstage-config
+  labels:
+    app.kubernetes.io/name: backstage
+    app.kubernetes.io/component: developer-portal
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+data:
+  # ── app-config.production.yaml ────────────────────────────────────────
+  #
+  # ★ 이 이미지는 `node packages/backend --config app-config.yaml
+  #   --config app-config.production.yaml` 로 뜬다(이미지 config 에서 직접
+  #   확인했다). 뒤 파일이 앞을 덮으므로 **여기서 필요한 것만** 적는다.
+  #   subPath 로 그 한 파일만 갈아끼운다 — 디렉터리째 마운트하면 이미지가
+  #   들고 온 app-config.yaml 까지 가려진다.
+  #
+  # ★★ 비밀번호는 값이 아니라 **환경변수 참조**로 적는다. 이 ConfigMap 은
+  #   git 에 있고 ArgoCD 가 렌더한다 — 값을 적으면 그대로 커밋된다.
+  app-config.production.yaml: |
+    app:
+      # ★ port-forward 로만 접근한다(local/ACCESS.md 규약). 게이트웨이
+      #   경로에 올리려면 이 값과 backend.baseUrl·cors 를 함께 바꿔야 한다.
+      baseUrl: http://localhost:7007
+      title: OneinchMarket Developer Portal
+
+    organization:
+      name: OneinchMarket
+
+    backend:
+      baseUrl: http://localhost:7007
+      listen:
+        host: 0.0.0.0
+        port: 7007
+      cors:
+        origin: http://localhost:7007
+        methods: [GET, HEAD, PATCH, POST, PUT, DELETE]
+        credentials: true
+      # 세션·토큰 서명 키. 없으면 기동하지 않는다.
+      auth:
+        keys:
+          - secret: ${BACKSTAGE_BACKEND_SECRET}
+      database:
+        client: pg
+        connection:
+          host: postgresql-headless
+          port: 5432
+          user: backstage
+          password: ${BACKSTAGE_DB_PASSWORD}
+          # 이 클러스터의 PostgreSQL 은 TLS 를 쓰지 않는다.
+          ssl: false
+
+    auth:
+      providers:
+        # ★★★ 알고 쓰는 설정이다. 이미지가 `NODE_ENV=production` 이라
+        #   guest 제공자는 이 플래그 없이는 거부된다. 즉 **여기 접근할 수
+        #   있는 사람은 전부 같은 익명 사용자**다.
+        #
+        #   그래서 두 가지를 함께 둔다:
+        #     ① NetworkPolicy 가 ingress 를 전면 차단한다(default-deny 유지,
+        #        허용 규칙을 만들지 않는다) → 메시 안에서도 아무도 못 붙는다
+        #     ② 접근은 `kubectl port-forward` 로만 한다 — 그것은 kubelet 을
+        #        거치므로 NetworkPolicy 와 무관하고, 클러스터 자격이 있는
+        #        사람만 할 수 있다
+        #
+        #   ★ 승격(게이트웨이 노출) 전에 반드시 바꿀 것:
+        #     이 블록을 지우고 Keycloak OIDC 제공자로 교체해야 한다.
+        #     그러려면 이 예제 이미지가 아니라 OIDC 모듈을 포함한 자체
+        #     Backstage 앱을 빌드해야 한다 — 별건이다.
+        guest:
+          dangerouslyAllowOutsideDevelopment: true
+
+    catalog:
+      # 스캐폴더가 만드는 엔티티 종류. 예제 앱 기본값을 그대로 둔다.
+      rules:
+        - allow: [Component, System, API, Resource, Location, Domain, Group, User]
+      locations:
+        # ★ 카탈로그가 비어 있으면 이 도구는 아무 값도 하지 않는다.
+        #   이 플랫폼의 실제 워크로드를 정적 엔티티로 넣어 둔다.
+        #   나중에 GitLab 연동(catalog.providers.gitlab)으로 옮길 때
+        #   이 파일이 그 형식의 본보기가 된다.
+        - type: file
+          target: /app/catalog/entities.yaml
