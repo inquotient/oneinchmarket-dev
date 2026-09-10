@@ -54,7 +54,7 @@ mk redis-secret       "redis-password=$REDIS"
 # 하나가 새면 둘 다 새는 구조를 만들지 않는다(§8-44).
 mk backstage-secret "db-password=$(gen)" "backend-secret=$(gen 32)"
 # Gravitee — MongoDB 전용 사용자(mongodb-bootstrap 이 만든다).
-mk gravitee-secret "db-password=$(gen)"
+mk gravitee-secret "db-password=$(gen)" "jwt-secret=$(gen 32)"
 mk shardingsphere-secret "proxy-password=$(gen)"
 # ProxySQL (§8-76). admin 은 런타임 설정 인터페이스(6032), monitor 는 백엔드
 # 헬스체크용 계정이다 — mariadb-bootstrap 이 'proxysql-monitor'@'%' 를

@@ -59,9 +59,8 @@ spec:
             - -c
             - |
               set -eu
-              sed "s|__GRAVITEE_DB_PASSWORD__|${GRAVITEE_DB_PASSWORD}|" \
-                /etc/gravitee-src/gravitee.yml > /etc/gravitee/gravitee.yml
-              if grep -q "__GRAVITEE_DB_PASSWORD__" /etc/gravitee/gravitee.yml; then
+              sed -e "s|__GRAVITEE_DB_PASSWORD__|${GRAVITEE_DB_PASSWORD}|" \n                  -e "s|__GRAVITEE_JWT_SECRET__|${GRAVITEE_JWT_SECRET}|" \n                /etc/gravitee-src/gravitee.yml > /etc/gravitee/gravitee.yml
+              if grep -q "__GRAVITEE_" /etc/gravitee/gravitee.yml; then
                 echo "치환 실패: 자리표시자가 남아 있다" >&2; exit 1
               fi
               if ! grep -q "mongodb://gravitee:" /etc/gravitee/gravitee.yml; then
@@ -71,6 +70,8 @@ spec:
           env:
             - name: GRAVITEE_DB_PASSWORD
               valueFrom: { secretKeyRef: { name: gravitee-secret, key: db-password } }
+            - name: GRAVITEE_JWT_SECRET
+              valueFrom: { secretKeyRef: { name: gravitee-secret, key: jwt-secret } }
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -112,8 +113,15 @@ spec:
           env:
             # ★ 힙을 명시한다 — limit 의 62.5%(Gotcha 81·82).
             #   퍼센트 기반은 JDK 가 컨테이너 한도를 못 읽는 경우 통째로 무너진다.
-            - name: JAVA_OPTS
-              value: "-Xms256m -Xmx960m"
+            # ★★ JAVA_OPTS 로 힙을 주면 **진다.** 이미지의 bin/gravitee 가
+            #   우리 값 뒤에 자기 -Xms${GIO_MIN_MEM} -Xmx${GIO_MAX_MEM}(기본 256m)을 붙이고,
+            #   java 는 **마지막 -Xmx** 를 취한다. 실측 로그:
+            #     JAVA_OPTS: -Xms192m -Xmx640m -Xms256m -Xmx256m ...
+            #   Gotcha 82 의 ★★ 사례다 — 이미지가 주는 손잡이를 쓴다.
+            - name: GIO_MIN_MEM
+              value: "256m"
+            - name: GIO_MAX_MEM
+              value: "960m"
           ports:
             - { name: http, containerPort: 8083, protocol: TCP }
           # ★ 프로브를 추측하지 않았다. 기동 뒤 실제 헬스 엔드포인트를 확인해

@@ -42,6 +42,16 @@ data:
       analytics:
         type: none
 
+    # ── JWT ──
+    # ★★ **필수다.** 없으면 management-api 가
+    #   `java.lang.IllegalStateException: JWT secret is mandatory` 로 죽는다.
+    #   ★ 그 오류는 Spring 의존성 사슬 속에 묻혀 나오고, 앱은
+    #     그 뒤 **정상 종료 절차를 밟는다** — 로그 끝에는
+    #     "Rest APIs stopped" 만 보여 깨끗하게 종료한 것처럼 읽힌다.
+    #     파드는 Running 이고 포트만 안 열린다.
+    jwt:
+      secret: __GRAVITEE_JWT_SECRET__
+
     # ── HTTP ──
     # 포트는 이미지 기본값을 그대로 둔다(management-api 8083 · gateway 8082).
     # 이미지 config 의 ExposedPorts 에서 확인했다.
