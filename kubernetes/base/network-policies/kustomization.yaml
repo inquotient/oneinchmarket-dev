@@ -5,6 +5,7 @@ resources:
   - default-deny.yaml
   - database-netpol.yaml
   - messaging-netpol.yaml
+  - kafka-connect-netpol.yaml
   - observability-netpol.yaml
   - application-netpol.yaml
   - data-lakehouse-netpol.yaml

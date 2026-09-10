@@ -1,0 +1,165 @@
+# Debezium 커넥터 등록 — WSO2-OSS-MAPPING §D(CDC) · §9-3
+#
+# ★ 왜 Job 인가: 커넥터는 Connect 의 REST API 로만 등록된다. 손으로 POST 하면
+#   그 설정은 git 밖에 살고, 클러스터를 다시 세우면 사라진다. 여기 두면
+#   ArgoCD 가 동기화할 때마다 **선언된 상태로 되돌린다.**
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kafka-connect-bootstrap
+  labels:
+    app.kubernetes.io/name: kafka-connect-bootstrap
+    app.kubernetes.io/component: bootstrap
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-connect-connectors
+  labels:
+    app.kubernetes.io/name: kafka-connect-bootstrap
+    app.kubernetes.io/component: bootstrap
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+data:
+  # ★★ 비밀번호를 여기 적지 않는다 — 이 설정은 그대로 `connect-configs`
+  #   토픽에 저장되고 그 토픽은 지울 수 없다(Gotcha 23 과 같은 구조).
+  #   `${secrets:...}` 는 Connect 의 DirectoryConfigProvider 가 **워커
+  #   안에서** 푼다. 토픽에 남는 것은 이 참조 문자열이다.
+  cmmn-mariadb-cdc.json: |
+    {
+      "connector.class": "io.debezium.connector.mariadb.MariaDbConnector",
+      "tasks.max": "1",
+
+      "database.hostname": "mariadb-headless",
+      "database.port": "3306",
+      "database.user": "debezium",
+      "database.password": "${secrets:/etc/connect-secrets:debezium-password}",
+
+      "database.server.id": "184054",
+
+      "topic.prefix": "cdc",
+      "database.include.list": "cmmn",
+      "table.include.list": "cmmn.menu,cmmn.multi_language",
+
+      "schema.history.internal.kafka.bootstrap.servers": "kafka-headless:9092",
+      "schema.history.internal.kafka.topic": "cdc.__schema-history",
+
+      "topic.creation.enable": "true",
+      "topic.creation.default.replication.factor": "1",
+      "topic.creation.default.partitions": "1",
+
+      "snapshot.mode": "initial",
+      "include.schema.changes": "false"
+    }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kafka-connect-connectors
+  labels:
+    app.kubernetes.io/name: kafka-connect-bootstrap
+    app.kubernetes.io/component: bootstrap
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    # ★ wave 4 — kafka-connect Deployment 가 wave 3 이다. 같은 wave 안에서는
+    #   순서가 보장되지 않으므로 한 칸 뒤에 둔다.
+    argocd.argoproj.io/sync-wave: "4"
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 10
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kafka-connect-bootstrap
+        app.kubernetes.io/component: bootstrap
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      # ★ 전용 SA — ambient 에서 신원이 곧 권한이다(Gotcha 10·19).
+      serviceAccountName: kafka-connect-bootstrap
+      restartPolicy: OnFailure
+      priorityClassName: batch-low
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: register
+          # ★ curl 이 필요하다. 우리 kafka-connect 이미지에는 BusyBox wget 뿐이고
+          #   그것은 PUT 을 못 한다 — POST 만 되면 **갱신이 불가능**해서 설정을
+          #   고쳐도 반영되지 않는다(조용한 드리프트가 된다).
+          #   새 이미지를 끌어오지 않고 이미 클러스터에 있는 것을 쓴다 —
+          #   apicurio-rules.yaml 이 같은 이유로 같은 선택을 했다.
+          image: apicurio/apicurio-registry:3.3.2
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              API="http://kafka-connect-headless:8083"
+
+              echo "[connectors] Connect 워커 대기"
+              i=0
+              until curl -sf "$API/connectors" >/dev/null 2>&1; do
+                i=$((i+1))
+                [ "$i" -gt 100 ] && { echo "Connect 가 5분 안에 응답하지 않았다"; exit 1; }
+                sleep 3
+              done
+
+              for f in /etc/connectors/*.json; do
+                name=$(basename "$f" .json)
+                echo "[connectors] ── $name"
+                # ★ PUT /connectors/<name>/config 는 **생성과 갱신이 같은 호출**이다.
+                #   POST /connectors 는 이미 있으면 409 라 재실행이 실패한다.
+                code=$(curl -s -o /tmp/resp.json -w '%{http_code}' \
+                         -X PUT "$API/connectors/$name/config" \
+                         -H 'Content-Type: application/json' --data-binary "@$f")
+                echo "  HTTP $code"
+                if [ "$code" != "200" ] && [ "$code" != "201" ]; then
+                  echo "  ★ 등록 실패 — 응답:"; cat /tmp/resp.json; echo; exit 1
+                fi
+
+                # ★★ 201 을 성공으로 읽지 말 것 — Connect 는 설정을 받아 두고
+                #   태스크가 그 뒤에 죽을 수 있다(자격·권한·binlog 미설정).
+                #   그러면 커넥터는 RUNNING 인데 태스크가 FAILED 이고,
+                #   등록만 보면 성공으로 보인다(Gotcha 12 와 같은 부류).
+                echo "  상태 확인"
+                for j in $(seq 1 20); do
+                  st=$(curl -s "$API/connectors/$name/status" || true)
+                  cs=$(echo "$st" | sed -n 's/.*"connector":{"state":"\([A-Z]*\)".*/\1/p')
+                  ts=$(echo "$st" | grep -o '"state":"[A-Z]*"' | tail -n +2 | head -1 | cut -d'"' -f4)
+                  echo "    connector=$cs task=${ts:-<없음>}"
+                  case "$cs/${ts:-}" in
+                    RUNNING/RUNNING) echo "  정상"; break;;
+                    */FAILED|FAILED/*)
+                      echo "  ★ 실패 — 전문:"; echo "$st"; exit 1;;
+                  esac
+                  sleep 3
+                done
+              done
+              echo "[connectors] 완료"
+          volumeMounts:
+            - name: connectors
+              mountPath: /etc/connectors
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits:   { cpu: 500m, memory: 256Mi }
+      volumes:
+        - name: connectors
+          configMap:
+            name: kafka-connect-connectors
+        - name: tmp
+          emptyDir: {}

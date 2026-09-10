@@ -1,0 +1,35 @@
+# Kafka Connect 의 REST(8083) 로 들어오는 트래픽
+#
+# ★ 기본은 default-deny ingress 다. 이 정책이 여는 것은 **커넥터를 등록하는
+#   부트스트랩 Job 하나**뿐이다. 사람이 들여다볼 때는 `kubectl port-forward`
+#   를 쓴다 — 그것은 kubelet 을 거치므로 NetworkPolicy 와 무관하게 동작한다.
+#
+# ★★ Istio AuthorizationPolicy 는 **일부러 두지 않는다.** ALLOW 정책이
+#   워크로드를 선택하는 순간 매칭되지 않은 전부가 거부되는데(Gotcha 9),
+#   메시 밖에서 오는 port-forward 는 신원이 없어 함께 막힌다. 이 레포의
+#   운영 관례(local/ACCESS.md)가 port-forward 에 얹혀 있으므로 그 대가가
+#   보안 이득보다 크다. 제어 평면은 NetworkPolicy 하나로 충분하다 —
+#   8083 에 닿을 수 있는 파드가 부트스트랩 Job 뿐이기 때문이다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-kafka-connect-access
+  labels:
+    app.kubernetes.io/name: allow-kafka-connect-access
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kafka-connect
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: kafka-connect-bootstrap
+      ports:
+        - protocol: TCP
+          port: 8083
