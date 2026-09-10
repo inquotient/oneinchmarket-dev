@@ -21,6 +21,7 @@ TRIVY_OPERATOR_VERSION="${TRIVY_OPERATOR_VERSION:-v0.34.0}"
 POLICY_REPORTER_VERSION="${POLICY_REPORTER_VERSION:-policy-reporter-3.10.0}"
 EXTERNAL_SECRETS_VERSION="${EXTERNAL_SECRETS_VERSION:-2.10.0}"
 RELOADER_VERSION="${RELOADER_VERSION:-2.2.16}"   # app v1.4.21
+CAMEL_K_VERSION="${CAMEL_K_VERSION:-2.11.0}"   # 차트=앱 버전. 릴리스에 YAML 번들이 없어 차트로 넣는다
 
 log() { echo "[operators] $*"; }
 
@@ -227,6 +228,55 @@ helm repo add stakater https://stakater.github.io/stakater-charts >/dev/null 2>&
 helm repo update >/dev/null
 helm template reloader stakater/reloader   --version "${RELOADER_VERSION}"   --namespace reloader   --set reloader.watchGlobally=false   --set "reloader.namespaces={local}"   --set reloader.reloadStrategy=annotations   --set reloader.deployment.containerSecurityContext.allowPrivilegeEscalation=false   --set reloader.deployment.containerSecurityContext.readOnlyRootFilesystem=true   --set "reloader.deployment.containerSecurityContext.capabilities.drop={ALL}"   --set reloader.deployment.resources.requests.cpu=10m   --set reloader.deployment.resources.requests.memory=64Mi   --set reloader.deployment.resources.limits.memory=192Mi   | kubectl apply --server-side --force-conflicts -f -
 
+
+# ── 9. Camel K (통합 런타임 — WSO2-OSS-MAPPING §C) ─────────────
+#
+# ★ 왜 오퍼레이터 계층인가: 릴리스 자산에 **바로 적용할 YAML 번들이 없다**
+#   (2.11.0 의 자산은 kamel CLI 바이너리와 sbom 뿐이다). Helm 차트는 있으므로
+#   이 레포 규약대로 `helm template | kubectl apply` 로 **렌더만** 한다 —
+#   클러스터에 Helm 릴리스는 남지 않는다(Tetragon 과 같은 방식).
+#
+# ★★ CRD 는 차트가 렌더하지 않는다 — `crds/` 는 `helm template` 의 대상이
+#   아니다. 따로 적용해야 하고, 2.2 MB 라 **server-side apply 가 필수**다:
+#   client-side 는 전문을 last-applied 어노테이션에 넣어 한도를 넘긴다.
+#   임시 디렉터리를 만들지 않고 tgz 에서 그 파일만 stdout 으로 뽑아 흘린다.
+#
+# ★★★ 차트 기본값이 `operator.resources: {}` 라 그대로 넣으면 **BestEffort**
+#   가 된다 — 이 레포가 명시적으로 막는 상태다(Gotcha 78,
+#   set-operator-requests.sh --check 가 센다). 요청을 명시한다.
+#   ★ 키 경로를 확인하고 쓴다 — `helm --set` 은 **없는 키를 조용히 받아든다**
+#     (Gotcha 88). values.yaml 에서 `operator.resources` 를 직접 읽었다.
+#
+# ★ `operator.global=false`(차트 기본)이라 자기 네임스페이스만 본다.
+#   local 에 넣는다.
+#
+# ★★ 통합 이미지 빌드에는 레지스트리가 필요하다 — Camel K 는 Integration
+#   마다 이미지를 **클러스터 안에서 구워 push** 한다. 그 설정은
+#   IntegrationPlatform CR 에 있고 ArgoCD 가 관리한다
+#   (kubernetes/base/integration/). 여기서는 오퍼레이터만 세운다.
+#
+# ★ 오늘 Integration 은 **0건**이다. 이것은 §C 의 빈 칸(프로토콜 중개·
+#   변환·Data Services)에 자리를 여는 것이고, 실제 통합이 생기기 전까지는
+#   오퍼레이터만 돈다 — WSO2-OSS-MAPPING §9-3 에 그 사실을 적어 두었다.
+log "Camel K ${CAMEL_K_VERSION}"
+helm repo add camel-k https://apache.github.io/camel-k/charts >/dev/null 2>&1 || true
+helm repo update camel-k >/dev/null 2>&1 || helm repo update >/dev/null 2>&1
+
+# CRD 8종 (builds · camelcatalogs · integrationkits · integrationplatforms ·
+#          integrationprofiles · integrations · kamelets · pipes)
+curl -sL --max-time 120 "https://apache.github.io/camel-k/charts/camel-k-${CAMEL_K_VERSION}.tgz" \
+  | tar xzO camel-k/crds/camel-k-crds.yaml \
+  | kubectl apply --server-side --force-conflicts -f -
+
+# ★★ `-n local` 이 반드시 필요하다. 이 차트는 렌더 결과에 metadata.namespace 를
+#   **찍지 않는다** — `helm template --namespace` 는 템플릿 변수만 정한다.
+#   빼면 전부 default 에 생긴다(Gotcha 60 이 경고한 그것).
+helm template camel-k camel-k/camel-k --version "${CAMEL_K_VERSION}" \
+  --namespace local \
+  --set operator.resources.requests.cpu=50m \
+  --set operator.resources.requests.memory=256Mi \
+  --set operator.resources.limits.memory=512Mi \
+  | kubectl apply -n local --server-side --force-conflicts -f -
 log "오퍼레이터 Ready 대기"
 kubectl -n istio-system    rollout status deploy/istiod                 --timeout=300s || true
 kubectl -n istio-system    rollout status ds/ztunnel                    --timeout=300s || true

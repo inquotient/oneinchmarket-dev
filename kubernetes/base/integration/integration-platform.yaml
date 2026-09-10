@@ -1,0 +1,51 @@
+# Camel K IntegrationPlatform — WSO2-OSS-MAPPING §C · §9-3
+#
+# ★ 오퍼레이터는 ArgoCD 밖(오퍼레이터 계층, local/install-operators.sh)에 있고
+#   **이 CR 만 ArgoCD 가 관리한다.** 오퍼레이터는 클러스터 설치물이고 이것은
+#   플랫폼 설정이라 성질이 다르다 — ECK 오퍼레이터와 Elasticsearch CR 의
+#   관계와 같다.
+#
+# ★★ 오늘 Integration 은 **0건**이다. 이 CR 은 "통합이 생기면 어디에 어떻게
+#   빌드해 넣을지" 를 미리 정해 두는 것이다. 통합이 없어도 오퍼레이터가
+#   이 CR 을 Ready 로 만들어야 정상이다 — 그것이 카탈로그 준비 완료 신호다.
+apiVersion: camel.apache.org/v1
+kind: IntegrationPlatform
+metadata:
+  name: camel-k
+  labels:
+    app.kubernetes.io/name: camel-k
+    app.kubernetes.io/component: integration
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  build:
+    # ★★★ Camel K 는 Integration 마다 **kit 이미지를 스스로 만들어 push** 한다.
+    #   GitLab 레지스트리는 **실재하는 프로젝트 경로**만 받으므로(Gotcha 117)
+    #   `oneinch/camel-k` 프로젝트를 미리 만들어 둔다
+    #   (local/gitlab-registry-bootstrap.sh 의 EXTRA_PROJECTS).
+    #   GitLab 은 프로젝트 아래의 중첩 경로를 허용하므로 kit 이미지가
+    #   `oneinch/camel-k/camel-k-kit-...` 로 들어간다.
+    #
+    #   경로를 address 에 몰아넣지 않고 organization 으로 나눈다 — Camel K 가
+    #   `<address>/<organization>/<image>` 로 조립한다.
+    registry:
+      address: gitlab-registry.local.svc.cluster.local:5050
+      organization: oneinch/camel-k
+      # ★ 평문 HTTP 다. 이 값을 빼면 TLS 로 붙으려다 실패한다.
+      insecure: true
+      # imagePullSecrets 와 같은 Secret 을 쓴다 — 배포 토큰이 회전하면
+      # 양쪽이 함께 갱신된다(Gotcha 118).
+      secret: gitlab-registry-secret
+
+    # ★★ 동시 빌드를 1로 묶는다. 기본값대로 두면 빌드 파드가 여러 개
+    #   동시에 뜨는데, 이 노드는 단일 노드이고 여유가 10 GiB 남짓이다.
+    #   빌드는 Maven 의존성을 받아 이미지를 굽는 작업이라 순간 사용량이 크다.
+    maxRunningBuilds: 1
+
+    buildConfiguration:
+      # 빌드 파드의 예산. 명시하지 않으면 BestEffort 가 되어
+      # 노드가 압박받을 때 가장 먼저 축출된다(Gotcha 78 과 같은 이유).
+      requestCPU: "200m"
+      requestMemory: "512Mi"
+      limitCPU: "2"
+      limitMemory: "1536Mi"

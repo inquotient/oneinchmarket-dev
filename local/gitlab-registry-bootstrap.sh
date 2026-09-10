@@ -47,6 +47,14 @@ IMAGES="$(grep -o 'ALL_IMAGES="[^"]*"' "$_HERE/build-images.sh" | head -1 | cut 
 # ★ 가드는 "비어 있지 않다" 로는 부족하다 — 치환이 어긋나 제어문자 하나만
 #   담겨도 그 검사는 통과한다(실제로 그렇게 한 번 틀렸다). 알려진 이름이
 #   실제로 들어 있는지로 판정한다.
+# ★ 우리가 빌드하지는 않지만 **push 대상이 되는** 경로도 프로젝트가
+#   있어야 한다. Camel K 는 Integration 마다 kit 이미지를 스스로
+#   만들어 push 하는데, GitLab 은 실재하지 않는 경로를 거부한다
+#   (Gotcha 117). 프로젝트 아래의 **중첩 경로**는 허용되므로
+#   `oneinch/camel-k` 하나만 만들면 kit 이미지가 그 아래로 들어간다.
+EXTRA_PROJECTS="${EXTRA_PROJECTS:-camel-k}"
+IMAGES="$IMAGES $EXTRA_PROJECTS"
+
 case " $IMAGES " in
   *" spark-iceberg "*) : ;;
   *) echo "[gl-reg] build-images.sh 의 ALL_IMAGES 를 제대로 읽지 못했다: $(printf %q "$IMAGES")" >&2; exit 1 ;;

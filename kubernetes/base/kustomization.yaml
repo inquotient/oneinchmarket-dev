@@ -21,5 +21,8 @@ resources:
   # ★ messaging/ 과 분리한다 — 그쪽 commonAnnotations 가 wave 를 2 로
   #   덮는데, Connect 는 Kafka(2)·MariaDB(1) 뒤인 3 이어야 한다(Gotcha 67).
   - kafka-connect/
+  # ★ Camel K 의 IntegrationPlatform 만 여기 있다 — 오퍼레이터와 CRD 는
+  #   ArgoCD 밖의 오퍼레이터 계층이다(local/install-operators.sh §9).
+  - integration/
   - network-policies/
   - rotation/

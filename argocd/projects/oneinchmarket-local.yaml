@@ -102,6 +102,12 @@ spec:
       kind: "*"
     - group: autoscaling
       kind: "*"
+    # ★ Camel K — IntegrationPlatform·Integration·Kamelet·Pipe 등 8종.
+    #   화이트리스트는 권한 게이트가 아니라 **가시성 게이트**다 — 빠지면
+    #   ArgoCD 가 살아 있는 상태를 읽지 못해(liveState: null) "클러스터에
+    #   없다" 로 보인다(Gotcha 57 에서 87건이 그랬다).
+    - group: camel.apache.org
+      kind: "*"
 
   orphanedResources:
     # ★ warn 만 한다. 이 클러스터에는 ArgoCD 밖에서 만든 것이 많다

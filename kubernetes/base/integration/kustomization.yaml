@@ -1,0 +1,17 @@
+# 통합 — Camel K (WSO2-OSS-MAPPING §C · §9-3)
+#
+# ★ wave 3 인 이유: 레지스트리(GitLab, wave 5)보다 앞서지만 이 CR 은 빌드를
+#   시작하지 않으므로 순서가 문제되지 않는다. Kafka(2)·DB(1) 뒤이면 충분하다.
+#   ★★ 실제 Integration 을 넣을 때는 그것이 참조하는 것(Kafka·DB·레지스트리)의
+#     wave 를 따져 다시 정할 것.
+#
+# ★ 오퍼레이터 자체는 여기 없다 — ArgoCD 밖의 오퍼레이터 계층이다
+#   (local/install-operators.sh §9). CRD 도 거기서 넣는다.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - integration-platform.yaml
+
+commonAnnotations:
+  argocd.argoproj.io/sync-wave: "3"
