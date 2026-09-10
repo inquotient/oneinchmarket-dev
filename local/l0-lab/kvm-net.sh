@@ -59,11 +59,13 @@ br_add() {
 }
 
 up() {
-  # ★★ br_netfilter 를 **일부러 올리지 않는다.** 실측(2026-09-10)으로 이 노드에는
-  #   로드되어 있지 않고, 그 상태에서는 브리지 프레임이 iptables 를 아예 거치지
-  #   않는다 — 그게 우리가 원하는 것이다. 올리는 순간 Cilium 의 iptables
-  #   masquerade(`Masquerading: IPTables`)와 kube-proxy 규칙이 랩 트래픽에
-  #   끼어든다. "안 켜는 것" 이 처방이지 "켜고 sysctl 로 끄는 것" 이 아니다.
+  # ★★ br_netfilter 를 **우리가 올리지도 끄지도 않는다 — 통제할 수 없기 때문이다.**
+  #   처음에는 "로드돼 있지 않으니 브리지 프레임이 iptables 를 안 탄다" 를 전제로
+  #   짰는데, 얼마 뒤 **무언가가 올려 놓았다**(qemu/tap 생성 · Cilium · iptables 의
+  #   physdev 매치 등 후보가 여럿이고 특정하지 못했다). 그 순간 브리지 포트끼리의
+  #   유니캐스트가 FORWARD(정책 DROP)를 타고 조용히 사라졌다 — 증상은 "ARP 는
+  #   되는데 IP 만 안 되는" 형태다(브로드캐스트는 플러딩이라 별개 경로).
+  #   그래서 **모듈이 있든 없든 성립하도록** 아래에 FORWARD 규칙을 둔다.
   br_add "$LAN_BR"
   br_add "$WAN_BR"
 
@@ -94,7 +96,12 @@ NFT
   }
   fwd_rule -i "$WAN_BR" -o "$UPLINK" -j ACCEPT
   fwd_rule -i "$UPLINK" -o "$WAN_BR" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-  log "FORWARD 허용 ($WAN_BR <-> $UPLINK)"
+  # ★★ 브리지 **내부** 통신도 열어야 한다. br_netfilter 가 올라와 있으면 같은
+  #   브리지의 포트끼리 주고받는 프레임도 FORWARD 를 타는데, 그 정책이 DROP 이다.
+  #   격리는 이 규칙이 아니라 **l0-lan 에 업링크가 없다는 사실**이 만든다.
+  fwd_rule -i "$LAN_BR" -o "$LAN_BR" -j ACCEPT
+  fwd_rule -i "$WAN_BR" -o "$WAN_BR" -j ACCEPT
+  log "FORWARD 허용 ($WAN_BR <-> $UPLINK · 브리지 내부 2종)"
 
   # OPNsense 의 WAN 은 DHCP 다. DNS 는 끈다(port=0) — CoreDNS 와 다투지 않게.
   if ! pgrep -f "dnsmasq.*$WAN_BR" >/dev/null 2>&1; then
@@ -146,6 +153,8 @@ down() {
   #   다른 규칙이 끼어들면 어긋난다. 넣을 때 쓴 명세를 그대로 지운다.
   iptables -D FORWARD -i "$WAN_BR" -o "$UPLINK" -j ACCEPT -m comment --comment "$NFT_TABLE" 2>/dev/null || true
   iptables -D FORWARD -i "$UPLINK" -o "$WAN_BR" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT -m comment --comment "$NFT_TABLE" 2>/dev/null || true
+  iptables -D FORWARD -i "$LAN_BR" -o "$LAN_BR" -j ACCEPT -m comment --comment "$NFT_TABLE" 2>/dev/null || true
+  iptables -D FORWARD -i "$WAN_BR" -o "$WAN_BR" -j ACCEPT -m comment --comment "$NFT_TABLE" 2>/dev/null || true
   log "FORWARD 규칙 제거"
   [ -e "/var/run/netns/$NS" ] && { ip netns del "$NS"; log "netns $NS 삭제"; }
   ip link show veth-br >/dev/null 2>&1 && ip link del veth-br

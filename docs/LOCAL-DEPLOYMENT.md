@@ -13389,23 +13389,75 @@ tc/BPF 다. 매인 것은 0단계 한 줄과 5단계(XDP)뿐이며 5단계는 �
 ★ 파기 검증: qemu 프로세스 0 · 오버레이/시드/키 삭제 · **베이스 이미지 무손상** ·
 WSL free 1514 → 6005 MB. 결과와 콘솔 로그만 남긴다.
 
-### 24-6. 남은 단계 — OPNsense 전환
+### 24-6. OPNsense 전환 — 완료 (2026-09-10)
 
-**아직 하지 않았다.** 랩은 지금도 Hyper-V 에서 돌고 있다. 걸림돌이 둘이다.
-
-**① 인터페이스 이름이 바뀐다.**
+절차와 실측:
 
 ```
-Hyper-V:  hn0(LAN) · hn1(WAN)     <- netvsc
-KVM:      vtnet0   · vtnet1       <- virtio
+① SSH 로 정상 종료 (기준선 기록: hn0=10.77.0.1/24 · hn1=192.168.1.23/24 · 규칙 36,818)
+② Convert-VHD 로 체인 평탄화        17.4초 · 7.94 GB · **원본 무손상**
+③ qemu-img convert -O qcow2         20.0초 · 6.26 GiB
+④ run-opnsense.sh start             tap 2개 · virtio-net · 시리얼 telnet:4555
+⑤ kvm-net.sh cutover                l0-lan 에 10.77.0.190/24
 ```
 
-`config.xml` 이 `<if>hn0</if>` 로 박혀 있어 그대로 부팅하면 인터페이스를 못 찾고
-**콘솔 할당 메뉴로 떨어진다.** 시리얼 콘솔에서 재할당하는 편이 낫다 — 다른 길은
-FreeBSD UFS 를 리눅스에서 쓰기 모드로 마운트하는 것인데 위험하다.
+★ **원본을 건드리지 않았다.** `Convert-VHD` 가 차분 체인을 읽어 **새 평탄 디스크**를
+쓰므로 Hyper-V 쪽 VM 과 체크포인트 2개가 그대로 남아 롤백 수단이 된다.
 
-**② 체크포인트(`.avhdx`)를 먼저 병합해야 한다.** 실제 상태가 체크포인트 쪽에
-있어서 베이스 `.vhdx` 만 변환하면 **2026-09-04 상태로 돌아간다.**
+#### 예상했던 걸림돌은 나오지 않았다
+
+`config.xml` 이 `<if>hn0</if>` 라 콘솔 할당 메뉴로 떨어질 것이라 적었는데, 부팅
+로그가 이렇게 나왔다:
+
+```
+ LAN (vtnet0)    -> v4: 10.77.0.1/24
+ WAN (vtnet1)    -> v4/DHCP4: 10.78.0.193/24
+```
+
+**그냥 맞았다.** `-device` 순서를 LAN 먼저로 두어 열거 순서가 보존된 덕이다.
+★ 이 순서를 바꾸면 LAN/WAN 이 뒤집힌다 — `run-opnsense.sh` 에 못박아 두었다.
+
+★ WAN 주소가 `192.168.1.23`(물리 공유기) → `10.78.0.193`(l0-wan 의 dnsmasq)으로
+바뀐다. DHCP 라 자동으로 잡지만 그 주소를 참조하던 곳은 갱신할 것.
+
+#### 실제로 손이 간 곳은 Suricata 하나였다
+
+`suricata.yaml` 의 netmap 항목이 `hn0`·`hn0^` 로 남아 **Suricata 가 기동조차
+하지 않았다**(프로세스 0 · 로그 없음). `config.xml` 은 논리 이름(`<interfaces>lan
+</interfaces>`)이라 멀쩡했고, 생성물만 낡아 있었던 것이다.
+
+```sh
+configctl template reload OPNsense/IDS     # ★ Suricata 가 아니라 IDS 다(Gotcha 12)
+configctl ids restart
+```
+
+★ 템플릿 이름을 `OPNsense/Suricata` 로 넣었더니 **`ERR` 를 내면서도 netmap
+항목을 지워** 상태가 더 나빠졌다. Gotcha 12 가 적어 둔 이름은 `OPNsense/IDS` 다.
+
+#### 검증 — "OK 출력" 이 아니라 실제 트래픽으로
+
+| 항목 | 결과 |
+|---|---|
+| 표적 → 게이트웨이 | 2/2 (0.73ms) |
+| 표적 → 8.8.8.8 (OPNsense NAT 경유) | 2/2 (42ms) |
+| 표적 → TCP 443 | OK |
+| ★ 격리 — 표적 → 노드·파드망 | **못 닿음**(정상) |
+| Suricata 규칙 | **36,818 줄**(전과 동일) |
+| ★★ Suricata 가 표적을 보는가 | `in_iface:"vtnet0"` · `event_type:"tls"` · `src_ip:"10.77.0.191"` |
+
+마지막 줄이 핵심이다. **새 인터페이스에서 표적 트래픽을 실제로 검사한다.**
+
+★ 그 전에 두 번 헛짚었다 — ICMP 와 빈 TCP 연결로 시험했는데 eve 는
+`tls`·`http`·`ssh`·`alert`·`anomaly` 만 기록한다. **"0건" 이 "안 본다" 가 아니라
+"그 타입을 안 적는다" 였다.** 진짜 TLS 핸드셰이크를 만들자 바로 잡혔다.
+
+#### 메모리 — 이 전환의 목적
+
+```
+Hyper-V 정적 4.00 GiB  →  KVM qemu RSS 2.41~2.95 GiB
+```
+
+**할당이 아니라 만진 만큼만** 쓰고, 그 아래를 zram 이 받친다.
 
 ### 24-7. 옮기면서 드러난 것
 
@@ -13439,6 +13491,63 @@ FreeBSD UFS 를 리눅스에서 쓰기 모드로 마운트하는 것인데 위�
 **⑥ zram 이 실제로 일했다.** 2.5 GB 짜리 h5-probe 게스트가 뜨자 스왑 사용이
 0 → 1332 MB 로 올랐고 **클러스터는 128 Running 그대로**였다. Hyper-V 였다면
 같은 2.5 GB 가 Windows 물리에서 나왔고 압축도 되지 않는다.
+
+**⑦ ★★ `br_netfilter` 는 우리가 통제하는 것이 아니다.** `kvm-net.sh` 초판은
+"이 노드에 로드돼 있지 않으니 브리지 프레임이 iptables 를 안 탄다" 를 전제로
+짰고 주석에 "일부러 올리지 않는다" 고까지 적었다. 그런데 얼마 뒤 **무언가가
+올려 놓았다**(qemu/tap 생성·Cilium·physdev 매치 등 후보가 여럿이라 특정하지
+못했다). 그 순간 브리지 포트끼리의 유니캐스트가 FORWARD(**정책 DROP**)를 타고
+사라졌다.
+
+★ **증상이 고약하다** — ARP 는 브로드캐스트라 플러딩으로 통과하므로
+`ip neigh` 는 `REACHABLE` 인데 IP 는 하나도 안 간다. 게다가 **호스트가 끼는
+경로는 멀쩡하다**(브리지 IP 에서 나가는 것은 라우팅이라 FORWARD 를 안 탄다).
+그래서 "표적만 안 되고 호스트는 된다" 로 보여 방화벽·Suricata·정적 ARP 를
+차례로 의심했다.
+
+★★ 판정은 카운터로 했다 — `veth-br rx +4` 인데 `opn-lan tx +1` 이면 **브리지가
+삼킨 것**이다. 그리고 `iptables -L FORWARD -v` 의 `policy DROP N packets` 가
+늘고 있으면 확정이다.
+
+처방은 모듈을 끄는 것이 아니라 **모듈이 있든 없든 성립하게** 규칙을 두는 것:
+`-i l0-lan -o l0-lan -j ACCEPT`. 격리는 이 규칙이 아니라 **l0-lan 에 업링크가
+없다는 사실**이 만든다.
+
+### 24-8. ★★ 랩을 껐더니 클러스터의 외부 DNS 가 죽었다
+
+전환 중 가장 값진 발견이다. OPNsense 를 정상 종료하자 **WSL 의 apt 가
+`Temporary failure resolving 'archive.ubuntu.com'`** 를 냈고, CoreDNS 도 외부
+이름을 잃었다(내부 이름은 정상). 사슬이 이렇다:
+
+```
+Windows `vEthernet (L0-LAN)` 어댑터
+   └ DHCP 로 **OPNsense(10.77.0.1)를 DNS 서버로** 받아 두고 있었다
+       └ WSL 의 DNS 프록시(10.255.255.254)가 그것을 따라간다
+           └ 노드 /etc/resolv.conf → CoreDNS 의 `forward . /etc/resolv.conf`
+               └ **클러스터 파드 전부**
+```
+
+**즉 클러스터의 외부 DNS 가 랩 VM 한 대에 매달려 있었다.** 어디에도 적혀 있지
+않았고, 랩을 내리기 전에는 드러날 수 없었다.
+
+★ 고치는 데 **층을 세 번 틀렸다** — 기록해 둘 값이 있다:
+
+1. `/etc/resolv.conf` 를 직접 고쳤다 → `systemd-resolved` 가 주인이라 되돌아갔다
+2. `systemd-resolved` 의 업스트림을 고쳤다 → `/run/systemd/resolve/resolv.conf`
+   는 바뀌었지만 `/etc/resolv.conf` 는 **WSL 이 다시 심볼릭 링크로 덮었다**
+   (`-> /mnt/wsl/resolv.conf`)
+3. `/mnt/wsl/resolv.conf`(실체)를 고쳤다 → 잠깐 되다가 **또 덮였다**
+
+`/etc/wsl.conf` 의 `generateResolvConf = false` 는 **다음 부팅부터** 적용된다.
+그래서 최종 처방은 실제 파일로 쓰고 **`chattr +i` 로 잠그는 것**이다.
+
+★ 그리고 표적 netns 에는 `/etc/netns/l0target/resolv.conf` 로 **OPNsense 를
+리졸버로** 줬다 — 호스트 것을 물려받으면 DNS 가 랩 밖으로 새어 **검사 대상에서
+빠진다.**
+
+★★ 되돌리려면: `chattr -i /etc/resolv.conf` 후 원하는 값으로. `/etc/wsl.conf`
+의 두 줄을 지우면 WSL 이 다시 관리한다.
+
 
 ## 관련 문서
 
