@@ -298,7 +298,7 @@ Gotcha 15 가 말한 "이미 청구한 이력" 이 아직 없으므로, **바꾼
 | Gravitee CE (gateway·mgmt API·console·portal) | 2.0 ~ 2.5 GiB | JVM 3종. MongoDB·ES 는 재사용 |
 | Flink (JobManager + TaskManager) | 2.0 ~ 3.0 GiB | |
 | midPoint | 1.0 ~ 1.5 GiB → **실측 1203Mi** | JVM. 이번엔 추정이 맞았다 — Go 와 달리 JVM 은 부풀려 있지 않다(§8-103) |
-| Debezium (Kafka Connect) | 1.0 GiB | |
+| Debezium (Kafka Connect) | ~~1.0 GiB~~ **실측 406Mi** | JVM 인데도 추정의 40% 다 — 상류 이미지(커넥터 15종) 대신 **커넥터 하나만** 구우면 이런다. request 는 768Mi 로 두었다 — 스냅샷과 재시작 시 일시적으로 더 쓴다 |
 | ArgoCD (4 컴포넌트) | 0.5 ~ 1.0 GiB | |
 | Backstage | 0.7 ~ 1.0 GiB | |
 | ActiveMQ Artemis | 0.5 ~ 1.0 GiB | JMS 가 필요할 때만 |
@@ -374,7 +374,7 @@ Operator · Dependency-Track · Kyverno 가 상시로 도니, 플러그인을 �
 
 | 순서 | 컴포넌트 | 채우는 칸 | 선행 조건 |
 |:---:|---|---|---|
-| 1 | **Kafka Connect** (Debezium + Iceberg sink) | §D 의 CDC · Iceberg 적재 | ★ PostgreSQL `wal_level` 을 `replica` → `logical` 로. **재시작이 필요하고 소비자 34곳이 영향을 받는다** |
+| 1 | ✅ **Kafka Connect + Debezium** (2026-09-10 완료) | §D 의 CDC. ★ **Iceberg sink 는 빼졌다** — 바로 쓸 번들이 어디에도 없다(Gotcha 116) | ★★ 선행 조건을 **잘못 적어 두었던 칸이다.** "PostgreSQL wal_level" 은 엉뚱한 DB 를 겨눈 것이고, 실제 업무 데이터는 **MariaDB `cmmn`**(테이블 2개)에 있어 필요한 것은 `log_bin` 이었다. 완료됨 |
 | 2 | **Camel K** | §C Micro Integrator | 기존 파이프라인은 옮기지 말 것(§6) |
 | 3 | **Backstage** | §G Choreo · 카탈로그 | PostgreSQL 재사용 |
 | 4 | **Gravitee CE** | §A API Manager | ★ **배포만 한다 — 트래픽 경로에 넣지 않는다.** ADR-079 가 미결이고 Gotcha 15 가 "계량 지점을 함부로 옮기지 말 것" 이라고 못 박았다(청구는 소급 재해석이 불가능하다) |
