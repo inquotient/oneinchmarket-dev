@@ -41,6 +41,20 @@ spec:
     #   동시에 뜨는데, 이 노드는 단일 노드이고 여유가 10 GiB 남짓이다.
     #   빌드는 Maven 의존성을 받아 이미지를 굽는 작업이라 순간 사용량이 크다.
     maxRunningBuilds: 1
+    # ★★★ 기본 timeout 은 **5분이고 이 노드에서는 모자란다.**
+    #   2026-09-11 실측(처음 만든 Integration):
+    #     ContainerbuilderSucceeded True   ← Maven 빌드 성공
+    #     ContainerpackageSucceeded True   ← 패키징 성공
+    #     ContainerjibSucceeded    False: signal: killed
+    #     failure: Builder Pod ... timeout / Build duration 정확히 5m0s
+    #   즉 이미지 빌드(jib) 단계에서 끊긴 것이지 OOM 이 아니다.
+    #   ★ 첫 빌드가 특히 긴 이유: 빌더 파드가 휘발성이라 **Maven 캐시가
+    #     매번 비어 있다.** 지속 캐시(PVC)를 붙이기 전까지는 매 빌드가
+    #     의존성을 다시 받는다 — 통합을 실제로 쓰기 시작하면 그것부터 볼 것.
+    #   ★★ 증상이 모호하다 — 빌더 파드가 **재시작이 아니라 매번 새로
+    #     생성**되므로(restartCount 0) "도는 중" 으로 보인다. 판정은 Build
+    #     리소스의 `.status.conditions` 와 `failure.reason` 이다.
+    timeout: 20m0s
 
     buildConfiguration:
       # ★★★ `pod` 로 명시한다. 기본값은 `routine` 이고 그것은 빌드를
@@ -59,4 +73,5 @@ spec:
       requestCPU: "200m"
       requestMemory: "512Mi"
       limitCPU: "2"
-      limitMemory: "1536Mi"
+      # jib 은 레이어를 메모리에 들고 있다 — 1536Mi 로는 빠듯하다.
+      limitMemory: "2Gi"
