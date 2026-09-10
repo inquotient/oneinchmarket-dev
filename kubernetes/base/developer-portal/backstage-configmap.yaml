@@ -83,6 +83,28 @@ data:
         guest:
           dangerouslyAllowOutsideDevelopment: true
 
+    kubernetes:
+      # ★★★ 이 블록이 **없으면 기동하지 않는다.** 예제 앱은 kubernetes
+      #   플러그인을 포함하고, 그 플러그인은 설정이 없으면
+      #   `Error: Kubernetes configuration is missing` 으로 프로세스를 죽인다.
+      #
+      #   ★★ 그리고 그 죽음이 **다른 오류를 덮는다** — catalog 의
+      #   마이그레이션이 도는 중에 죽으므로 knex 잠금이 남고,
+      #   그 다음부터는 모든 실행이 `Migration table is already locked` 로
+      #   즉사한다. 잠금만 풀면 같은 일이 반복된다 — 살아 있는 로그는
+      #   증상만 보여주고 **진짜 오류는 첫 실행의 로그(--previous)에** 있다.
+      #
+      # ★ 클러스터를 **일부러 비워 둔다.** 연결하면 카탈로그 엔티티의
+      #   `backstage.io/kubernetes-id` 가 살아나지만, 이 포털은 guest 인증이라
+      #   **도달한 사람 전부가 같은 익명 사용자**다. 거기에 클러스터
+      #   읽기 권한을 붙이면 인증 없는 UI 로 파드 상태가 새는 것이 된다.
+      #   연결은 OIDC 로 바꾸는 시점에 함께 할 일이다(auth 블록 주석 참조).
+      serviceLocatorMethod:
+        type: multiTenant
+      clusterLocatorMethods:
+        - type: config
+          clusters: []
+
     catalog:
       # 스캐폴더가 만드는 엔티티 종류. 예제 앱 기본값을 그대로 둔다.
       rules:
