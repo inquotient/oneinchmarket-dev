@@ -64,6 +64,21 @@ data:
 
     plugin.path=/opt/kafka/plugins
 
+    # ── 시크릿 주입 ──
+    # ★★ 커넥터 설정은 REST 로 POST 하면 그대로 `connect-configs`
+    #   토픽에 저장된다. 거기에 비밀번호를 적으면 **지울 수 없다** —
+    #   토픽은 compacted 이고 과거 레코드가 남는다(과금 토픽에
+    #   오염된 메시지가 영구히 남았던 Gotcha 23 과 같은 구조다).
+    #   그래서 커넥터 설정에는 **참조만** 적는다:
+    #       "database.password": "${secrets:/etc/connect-secrets:debezium-password}"
+    #   DirectoryConfigProvider 는 디렉터리의 파일 하나를 값으로 읽는다 —
+    #   Secret 마운트가 정확히 그 모양이다(키 하나 = 파일 하나).
+    config.providers=secrets
+    config.providers.secrets.class=org.apache.kafka.common.config.provider.DirectoryConfigProvider
+    # 읽을 수 있는 경로를 제한한다 — 없으면 커넥터 설정을 올릴 수
+    # 있는 사람이 파드 안 아무 파일이나 읽어낼 수 있다.
+    config.providers.secrets.param.allowed.paths=/etc/connect-secrets
+
     # 커넥터가 죽었을 때 조용히 사라지지 않게 한다.
     # Gotcha 33·84 와 같은 부류를 만들지 않기 위한 설정이다.
     errors.log.enable=true

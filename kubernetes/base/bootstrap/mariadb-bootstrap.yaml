@@ -81,6 +81,18 @@ spec:
               CREATE USER IF NOT EXISTS 'proxysql-monitor'@'%' IDENTIFIED BY '${PROXYSQL_MONITOR_PASSWORD}';
               ALTER USER 'proxysql-monitor'@'%' IDENTIFIED BY '${PROXYSQL_MONITOR_PASSWORD}';
               GRANT USAGE ON *.* TO 'proxysql-monitor'@'%';
+              -- ★ Debezium(CDC) 전용 계정. cmmn 자격을 빌리지 않는다 —
+              --   이 계정은 앱이 가져서는 안 되는 REPLICATION 권한을 갖고,
+              --   반대로 쓰기 권한은 전혀 없어야 한다(§8-44 의 교훈).
+              --   ★★ 권한 네 종류가 각각 필요하다:
+              --     SELECT             — 스냅샷(초기 적재)
+              --     RELOAD             — 스냅샷 중 FLUSH TABLES WITH READ LOCK
+              --     REPLICATION CLIENT — SHOW MASTER STATUS (binlog 위치)
+              --     REPLICATION SLAVE  — binlog 스트림 구독
+              --   하나라도 빠지면 커넥터가 FAILED 로 서고 파드는 Ready 다.
+              CREATE USER IF NOT EXISTS 'debezium'@'%' IDENTIFIED BY '${DEBEZIUM_PASSWORD}';
+              ALTER USER 'debezium'@'%' IDENTIFIED BY '${DEBEZIUM_PASSWORD}';
+              GRANT SELECT, RELOAD, SHOW DATABASES, REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'debezium'@'%';
               FLUSH PRIVILEGES;
               SQL
               echo "[mariadb-bootstrap] 완료"
@@ -92,6 +104,10 @@ spec:
               valueFrom: { secretKeyRef: { name: cmmn-api-secret, key: db-password } }
             - name: PROXYSQL_MONITOR_PASSWORD
               valueFrom: { secretKeyRef: { name: proxysql-secret, key: monitor-password } }
+            # ★ mariadb-secret 에 넣는다 — ExternalSecret 이 dataFrom.extract 로
+            #   모든 키를 가져오므로 OpenBao 에 키를 더하면 자동 전파된다.
+            - name: DEBEZIUM_PASSWORD
+              valueFrom: { secretKeyRef: { name: mariadb-secret, key: debezium-password } }
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: { drop: ["ALL"] }

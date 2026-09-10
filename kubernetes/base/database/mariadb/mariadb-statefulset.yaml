@@ -92,8 +92,11 @@ spec:
             - name: tmp
               mountPath: /var/run/mysqld
       volumes:
+        # ★ emptyDir 였다 — 즉 설정 파일이 하나도 없었다.
+        #   이젠 binlog 설정을 여기서 준다(Debezium 의 전제).
         - name: conf
-          emptyDir: {}
+          configMap:
+            name: mariadb-binlog-config
         - name: tmp
           emptyDir: {}
   volumeClaimTemplates:

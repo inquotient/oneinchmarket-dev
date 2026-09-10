@@ -155,6 +155,11 @@ spec:
             - name: config
               mountPath: /etc/kafka-connect
               readOnly: true
+            # ★ DirectoryConfigProvider 가 읽는다. Secret 의 키 하나가
+            #   파일 하나로 마운트되어 그대로 값이 된다.
+            - name: db-secrets
+              mountPath: /etc/connect-secrets
+              readOnly: true
             - name: tmp
               mountPath: /tmp
             # Kafka 기동 스크립트가 로그를 여기에 쓴다.
@@ -164,6 +169,14 @@ spec:
         - name: config
           configMap:
             name: kafka-connect-config
+        # ★ mariadb-secret 을 통째로 붙이지 않고 **필요한 키 하나**만
+        #   골라 마운트한다. root-password 가 파드 안에 보일 이유가 없다.
+        - name: db-secrets
+          secret:
+            secretName: mariadb-secret
+            items:
+              - key: debezium-password
+                path: debezium-password
         - name: tmp
           emptyDir: {}
         - name: logs

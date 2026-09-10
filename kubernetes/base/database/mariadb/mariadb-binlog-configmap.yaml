@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mariadb-binlog-config
+  labels:
+    app.kubernetes.io/name: mariadb
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+data:
+  # ── binlog — Debezium(CDC)의 전제 ──────────────────────────────────────
+  #
+  # ★ `/etc/mysql/conf.d` 는 **emptyDir 였다.** 즉 설정 파일이 하나도 없었고
+  #   전부 이미지 기본값으로 돌았다. 이 ConfigMap 이 그 자리를 대신한다.
+  #
+  # ★★ log_bin 은 **재시작 없이 켤 수 없다.** MariaDB 를 한 번 내렸다
+  #   올려야 하고, 그동안 admin·cmmn-api 가 연결을 잃는다(재연결한다).
+  #
+  # 이미 맞아 있던 값(실측): binlog_format=ROW · binlog_row_image=FULL ·
+  #   server_id=1. 그래서 실제로 바뀌는 것은 log_bin 하나다.
+  binlog.cnf: |
+    [mariadbd]
+    log_bin                    = /var/lib/mysql/binlog
+    server_id                  = 1
+    binlog_format              = ROW
+    # Debezium 은 UPDATE 의 before 이미지를 쓰므로 MINIMAL 이면 안 된다.
+    binlog_row_image           = FULL
+
+    # ★★★ 보관 한도를 반드시 둘 것.
+    #   소비되지 않는 binlog 는 무한정 쌓인다. 이 노드의 PVC 는 local-path 라
+    #   **쿼터가 강제되지 않으므로**(20Gi 는 장부값일 뿐이고 실제로는 노드
+    #   디스크를 쓴다) 넘치면 MariaDB 가 아니라 **클러스터 전체**가 멈춘다.
+    #   커넥터가 며칠 죽어 있어도 디스크가 아니라 커넥터가 깨지도록 한다 —
+    #   그때는 스냅샷을 다시 뜨면 되지만 디스크가 차면 복구가 훨씬 비싸다.
+    binlog_expire_logs_seconds = 259200
+    max_binlog_size            = 100M

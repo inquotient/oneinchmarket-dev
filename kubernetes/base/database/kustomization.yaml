@@ -15,6 +15,7 @@ resources:
   - mariadb/mariadb-statefulset.yaml
   - mariadb/mariadb-headless.yaml
   - mariadb/mariadb-configmap.yaml
+  - mariadb/mariadb-binlog-configmap.yaml
   # - mariadb/mariadb-secret.enc.yaml  # SOPS: re-enable after ArgoCD SOPS plugin setup
   # MongoDB
   - mongodb/mongodb-statefulset.yaml

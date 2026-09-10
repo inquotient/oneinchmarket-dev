@@ -42,7 +42,9 @@ PG=$(gen);   MARIA_ROOT=$(gen); MARIA_APP=$(gen); MONGO=$(gen); REDIS=$(gen)
 MINIO_PW=$(gen 32); KC_ADMIN=$(gen); GL_ROOT=$(gen)
 
 mk postgresql-secret  "postgresql-password=$PG"      "postgres-password=$PG"
-mk mariadb-secret     "root-password=$MARIA_ROOT"    "mariadb-root-password=$MARIA_ROOT" "app-password=$MARIA_APP"
+# debezium-password 는 CDC 전용 계정이다(mariadb-bootstrap 이 만든다).
+# 앱 계정과 같은 값을 쓰지 않는다 — 권한이 다르기 때문이다(§8-44).
+mk mariadb-secret     "root-password=$MARIA_ROOT"    "mariadb-root-password=$MARIA_ROOT" "app-password=$MARIA_APP" "debezium-password=$(gen)"
 mk mongodb-secret     "root-password=$MONGO"         "mongodb-root-password=$MONGO"
 mk redis-secret       "redis-password=$REDIS"
 # ShardingSphere-Proxy 의 프록시 사용자(proxyadmin). 뒤쪽 PostgreSQL 자격과
