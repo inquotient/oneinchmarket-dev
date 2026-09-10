@@ -1,0 +1,39 @@
+# 스트리밍 — WSO2 Streaming Integrator(Siddhi) 대체 (WSO2-OSS-MAPPING §D · Phase 3)
+#
+# ★ wave 3 인 이유: Kafka(messaging, wave 2) 뒤여야 한다. data-lakehouse 와
+#   같은 wave 이고 서로 의존하지 않는다.
+#
+# ★★ 카테고리를 따로 둔 이유는 `commonAnnotations` 때문이다 — messaging 에
+#   넣으면 그쪽 wave 2 로 덮인다(Gotcha 67). 디렉터리를 나누는 것이 처방이다.
+#
+# 앞으로 여기 들어올 것: Debezium(Kafka Connect). 단 그것은 PostgreSQL 의
+#   `wal_level=logical` 이 선행되어야 한다 — 지금은 `replica` 다.
+# ─────────────────────────────────────────────────────────────────────────
+# ★★★ 이 디렉터리는 `base/kustomization.yaml` 에 **일부러 연결하지 않았다.**
+#     따라서 렌더 결과에 나오지 않고 클러스터에도 없다. 실수가 아니다.
+#
+#     Flink 는 **보류 결정**이다 — WSO2-OSS-MAPPING §9-1. 근거 요약:
+#       · 이 클러스터의 스트림 잡이 0건이다
+#       · 배치는 Spark 가 이미 한다
+#       · Iceberg 적재는 `org.apache.iceberg:iceberg-kafka-connect` 1.11.0
+#         (클러스터의 ICEBERG_VERSION 과 같은 값)이 Kafka Connect 로 해낸다
+#       · 윈도우·조인·간단한 CEP 는 Kafka Streams 로 되고, 그것은
+#         라이브러리라 인프라 비용이 0이다
+#
+#     매니페스트를 지우지 않고 남긴 이유: 되살릴 때 처음부터 짜지 않기
+#     위해서다. 되살리는 방법은 `base/kustomization.yaml` 의 resources 에
+#     `- streaming` 한 줄을 넣는 것이다. 그 전에 §9-1 의 **복귀 조건**을
+#     읽을 것 — 아직 참이 아니면 넣지 말 것.
+#
+#     ※ Debezium(Kafka Connect)은 이 보류와 무관하게 도입한다 — 아래 참조.
+# ─────────────────────────────────────────────────────────────────────────
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - flink-jobmanager.yaml
+  - flink-taskmanager.yaml
+  - flink-netpol.yaml
+
+commonAnnotations:
+  argocd.argoproj.io/sync-wave: "3"

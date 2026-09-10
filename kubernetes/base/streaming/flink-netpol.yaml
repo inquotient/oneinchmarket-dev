@@ -1,0 +1,60 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Flink 내부 통신 허용
+#
+# ★ 이 클러스터는 **default-deny ingress** 다(egress 는 막지 않는다). 그래서
+#   TaskManager -> JobManager 등록 트래픽이 규칙 없이는 막힌다.
+#   증상이 고약하다 — 두 파드 모두 Running 이고 오류도 없는데 JM 의
+#   `/overview` 의 `taskmanagers` 가 **0** 이다(Gotcha 110 ① 과 같은 부류:
+#   포트가 열려 있는지 먼저 볼 것).
+#
+# ★ 8081(REST/UI)은 여기서 열지 않는다 — 아직 붙일 소비자가 없다. 열어야 할
+#   때가 오면 그 소비자를 지정해 추가할 것(넓게 열지 말 것).
+# ─────────────────────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-flink-internal
+  labels:
+    app.kubernetes.io/name: flink
+    app.kubernetes.io/component: streaming
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: flink-jobmanager
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: flink-taskmanager
+      ports:
+        - {port: 6123, protocol: TCP}
+        - {port: 6124, protocol: TCP}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-flink-taskmanager
+  labels:
+    app.kubernetes.io/name: flink
+    app.kubernetes.io/component: streaming
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: flink-taskmanager
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: flink-jobmanager
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: flink-taskmanager
+      ports:
+        - {port: 6121, protocol: TCP}
+        - {port: 6122, protocol: TCP}

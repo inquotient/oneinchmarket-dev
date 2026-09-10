@@ -108,15 +108,15 @@ B2B 멀티테넌시가 네이티브로 된다) · **389DS**(사용자 저장소)
 
 | WSO2 기능 | OSS 후보 | 이 레포 |
 |---|---|---|
-| 스트리밍 SQL · CEP (패턴·시퀀스·윈도우·조인) | ★ **Apache Flink** (Flink SQL + Flink CEP) / RisingWave / Materialize / ksqlDB | ❌ (Spark 는 배치 ✅) |
-| CDC | ★ **Debezium** / Flink CDC | ❌ |
+| 스트리밍 SQL · CEP (패턴·시퀀스·윈도우·조인) | ★ **Apache Flink** (Flink SQL + Flink CEP) / RisingWave / Materialize / ksqlDB | ❌ (Spark 는 배치 ✅) — **보류 결정, §9-1** |
+| CDC | ★ **Debezium** / Flink CDC | ⏳ **Kafka Connect 로 도입 중** (§9-3) |
 | 스트림 알림 | ★ Flink → Alertmanager | Alertmanager ✅ |
 
 ### E. WSO2 Message Broker
 
 | WSO2 기능 | OSS 후보 | 이 레포 |
 |---|---|---|
-| JMS · AMQP · MQTT · STOMP 큐/토픽 | ★ **ActiveMQ Artemis** / RabbitMQ / EMQX(MQTT) | Kafka ✅ 이나 **JMS 아님** |
+| JMS · AMQP · MQTT · STOMP 큐/토픽 | ★ **ActiveMQ Artemis** / RabbitMQ / EMQX(MQTT) | Kafka ✅ 이나 **JMS 아님** — **제외 결정, §9-1**(JMS 참조 0건 · Kafka 78개 파일) |
 
 > 레거시 JMS 클라이언트가 없다면 이 칸은 비워 두어도 된다. Kafka 로 충분하다.
 
@@ -124,13 +124,13 @@ B2B 멀티테넌시가 네이티브로 된다) · **389DS**(사용자 저장소)
 
 | WSO2 기능 | OSS 후보 | 이 레포 |
 |---|---|---|
-| BPMN 2.0 · 휴먼 태스크 · 승인 | ★ **Flowable** / Camunda 7(Apache 2.0) / **Temporal**(코드 우선) | ❌ |
+| BPMN 2.0 · 휴먼 태스크 · 승인 | ★ **Flowable** / Camunda 7(Apache 2.0) / **Temporal**(코드 우선) | ❌ — **제외 결정, §9-1**(업무 프로세스 0건 · 승인은 midPoint) |
 
 ### G. WSO2 Choreo (iPaaS · 내부 개발자 플랫폼)
 
 | WSO2 기능 | OSS 후보 | 이 레포 |
 |---|---|---|
-| 빌드·배포·관측을 묶은 셀프서비스 플랫폼 | ★ **Backstage** + **ArgoCD** + GitLab CI + Kubernetes | ❌ 셋 다 없음 |
+| 빌드·배포·관측을 묶은 셀프서비스 플랫폼 | ★ **Backstage** + **ArgoCD** + GitLab CI + Kubernetes | ArgoCD ✅ · GitLab CI ✅ · **Backstage 도입 예정**(§9-3) |
 
 > 이건 제품이 아니라 **조합**이라 대체 난도가 가장 높다. 그리고 Backstage 는
 > 카탈로그에 넣을 저장소가 있어야 값을 한다 — 현재 GitLab 의 코드 저장소는 0개다.
@@ -177,14 +177,14 @@ B2B 멀티테넌시가 네이티브로 된다) · **389DS**(사용자 저장소)
 아이덴티티             Keycloak 26.7.3 ✅   + midPoint (SCIM·워크플로)
 인가                   OpenFGA              (Postgres 이미 있음) ※ OPA 와 택일
 통합                   Apache Camel K
-스트리밍·CEP           Apache Flink         + Debezium (CDC)
-BPM                    Flowable  또는  Temporal
-JMS 가 필요하면        ActiveMQ Artemis
+스트리밍·CEP           ~~Apache Flink~~ 보류  + Debezium (CDC) — §9-1
+BPM                    ~~Flowable / Temporal~~ 제외 — 업무 프로세스 0건, §9-1
+JMS 가 필요하면        ~~ActiveMQ Artemis~~ 제외 — JMS 참조 0건, §9-1
 과금                   OpenMeter (미완)     (부족하면 Lago)
 GitOps·멀티환경        ArgoCD
 카탈로그·개발자 포털   Backstage
 시크릿                 OpenBao + External Secrets
-WAF                    Coraza + CRS         ※ SafeLine 과 역할 정리 필요
+WAF                    ~~Coraza + CRS~~ 제외 — 먼저 SafeLine 정리, §9-1
 ```
 
 ## 5. 게이트웨이 선택 — Gravitee CE vs Istio Gateway
@@ -280,8 +280,8 @@ Gotcha 15 가 말한 "이미 청구한 이력" 이 아직 없으므로, **바꾼
 ### Phase 3 — Integrator · Streaming
 
 10. **Camel K** — Micro Integrator 대체 (기존 파이프라인은 옮기지 말 것)
-11. **Flink + Debezium** — Streaming Integrator(Siddhi) 대체
-12. **Flowable 또는 Temporal** — BPM
+11. **Debezium (Kafka Connect)** — CDC. ~~Flink~~ 는 **보류**(§9-1) — Iceberg 적재는 `iceberg-kafka-connect` 1.11.0 이 대신한다
+12. ~~**Flowable 또는 Temporal** — BPM~~ → **제외**(§9-1). 이 자리는 비워 둔다
 
 ### Phase 4
 
@@ -312,6 +312,72 @@ Gotcha 15 가 말한 "이미 청구한 이력" 이 아직 없으므로, **바꾼
 
 **Phase 0 의 프로파일 분리가 선행되지 않으면 들어갈 자리가 없다.** 이것은
 취향이 아니라 산술이다.
+
+## 9. 제외·유지 결정 — 2026-09-10
+
+§2~§7 은 **"무엇으로 대체할 수 있는가"** 를 적는다. 이 절은 **"무엇을 넣지
+않기로 했는가"** 를 적는다. 근거를 남기지 않으면 다음 사람이 같은 검토를
+처음부터 다시 한다 — 이 문서는 §8-102 에서 이미 그 값을 치렀다(Gotcha 98:
+낡은 계획서는 계획을 막는다).
+
+★ **여기 있는 것은 "영영 안 한다" 가 아니라 "지금은 아니다" 다.** 각 행의
+**복귀 조건**이 참이 되는 날 다시 후보가 된다.
+
+### 9-1. 넣지 않기로 한 것
+
+| 컴포넌트 | 결정 | 근거 (실측 2026-09-10) | 복귀 조건 |
+|---|---|---|---|
+| **Apache Flink** | 보류 | 스트림 잡 **0건**. 배치는 Spark 가 이미 한다. Iceberg 적재는 `org.apache.iceberg:iceberg-kafka-connect` **1.11.0** 이 Maven Central 에 있어 Kafka Connect 로 된다(클러스터의 `ICEBERG_VERSION` 과 같은 값). 윈도우·조인·간단한 CEP 는 Kafka Streams 로 된다 — **라이브러리라 인프라가 0이다** | Kafka Streams 로 손수 짠 패턴 매칭이 셋을 넘거나, **이벤트 타임 + 워터마크 + 큰 상태**가 필요해질 때. ★ 매니페스트는 `kubernetes/base/streaming/` 에 이미 있으나 **`base/kustomization.yaml` 에 연결하지 않았다** — 되살릴 때 그 한 줄부터 |
+| **Flowable** | 제외 | 실행할 업무 프로세스 **0건**. 업무 워크로드가 `admin`·`cmmn-api`·`nginx` **셋**이고 서비스 간 호출 **0건** — MSA 가 아니다. ID 운영 승인은 **midPoint 가 이미 덮는다**(§3 의 5번 칸). BPMN 작도는 draw.io 로 충분하다 | 사람 승인 단계가 있는 **크로스 서비스 프로세스**가 생길 때. ★★ 그때도 **중앙 엔진 서버가 아니라 Spring Boot 임베드 라이브러리**로 시작할 것 — 중앙 서버는 결합점과 상태 중앙화를 만든다(Kafka Streams 의 클러스터 vs 라이브러리와 같은 논리). 변수에는 ID·상관관계 키만 담고, 서비스 호출은 `HTTP Task` 가 아니라 **메시지 이벤트 + Kafka** 로 |
+| **Temporal** | 보류 | Flowable 과 같은 칸이라 함께 보류. 다만 **사가(크로스 서비스 원자성)가 필요해지면 이쪽이 낫다** — BPMN 엔진에는 그 보증이 없다 | 위와 같음. 보상 트랜잭션을 손으로 짜기 시작하면 그때가 신호다 |
+| **ActiveMQ Artemis** | 제외 | JMS·AMQP·MQTT·STOMP 참조가 레포 전체에 **0건**, Kafka 는 **78개 파일**. 레거시 JMS 클라이언트가 없다 | JMS/AMQP 를 요구하는 **외부** 클라이언트가 붙을 때. 우리 쪽 코드를 위해 들이지는 말 것 |
+| **Coraza + CRS** | 제외 | 사용자 결정(2026-09-10). ★ 검토 중 함께 드러난 것이 더 중요하다 — **SafeLine 이 트래픽 경로 밖이다**: HTTPRoute backend **0건** · IngressClass **0건**인데 **1.47 GiB** 를 예약하고 자기 로그에 `502 Bad Gateway` 를 찍고 있다 | **WAF 칸은 Coraza 도입이 아니라 SafeLine 정리가 먼저다.** 경로에 넣든 걷어내든 하나를 고를 것 — 지금은 "있는 것처럼 보이지만 아무것도 막지 않는" 상태다(Gotcha 33·84 와 같은 부류) |
+| **Apache Airflow** | 범위 밖 | 레포 참조 **0건** — WSO2 매핑 항목이 아니다. 주기 실행은 **CronJob 16개**가, CI 는 GitLab CI 가 한다 | **의존 관계가 있는 배치**가 생길 때. CronJob 은 서로를 모르므로 지금은 "A 가 끝날 만한 시각"에 B 를 밀어 맞추는 중이고, **A 가 실패하면 B 가 빈 데이터로 돈다** — 그 사고가 한 번 나면 그때가 도입 시점이다 |
+
+### 9-2. 유지하기로 한 것 — Jenkins
+
+**결정: 유지한다 (2026-09-10).**
+
+실측은 유지 근거가 아니었다:
+
+```
+plugins.txt 4줄 → 실제 설치 59개(전이 의존) · jobs 0개 · builds 0회 · 448Mi 예약
+CI 는 GitLab CI + gitlab-runner 가 하고 있다(.gitlab-ci.yml 6스테이지)
+```
+
+그럼에도 남기는 이유는 **플러그인 생태계(1,800여 종)가 GitLab CI 에 없는
+것**이기 때문이다. GitLab CI 의 모델은 "도구 = 컨테이너 이미지" 이고 그것으로
+대부분이 풀리지만, 다음 넷은 풀리지 않는다:
+
+- **이질적·레거시 빌드 대상** — Windows 에이전트, 임베디드/하드웨어 랩, 컨테이너 이야기가 없는 상용 도구
+- **리치 UI** — 테스트 추이 그래프, 커버리지 플롯, 정적분석 집계(warnings-ng), 아티팩트 fingerprint 추적
+- **multibranch 자동 발견** — 여러 SCM 을 한 서버가 훑는 것
+- **shared library** — 여러 레포가 빌드 로직을 공유하는 것
+
+★ **다음 사람에게**: "잡이 0개니 지우자" 는 **이미 검토했고 기각됐다.** 다시
+꺼내지 말 것.
+
+★★ 대신 확인할 것은 **JCasC 커버리지**다. 플러그인이 만드는 설정은
+`$JENKINS_HOME` 안의 가변 XML 이라 **git 밖이고 ArgoCD 가 모른다.** 이 레포는
+`CASC_JENKINS_CONFIG=/var/jenkins_casc/jenkins.yaml` + ConfigMap 으로 그것을
+막아 두었다(`docker/jenkins/Dockerfile`). **플러그인을 늘릴 때 JCasC 로
+선언되지 않는 설정이 생기면 그만큼 GitOps 밖으로 새어 나간다** — 파드를 다시
+만들 때 무엇이 따라오는지 사람이 기억해야 하는 상태가 된다.
+
+★ 그리고 플러그인은 **Jenkins 의 주된 취약점 표면**이다. 이 클러스터는 Trivy
+Operator · Dependency-Track · Kyverno 가 상시로 도니, 플러그인을 늘리는 만큼
+그 라인이 길어진다. 늘릴 때 그 비용을 함께 계산할 것.
+
+### 9-3. 그래서 배포하는 것
+
+위 결정을 빼고 남은 것 — **§6 Phase 3~4 의 실제 범위**다. (※ 이 문서에서 `§8-NNN` 은 LOCAL-DEPLOYMENT 문서의 절이다 — 이 절과 혼동하지 말 것.)
+
+| 순서 | 컴포넌트 | 채우는 칸 | 선행 조건 |
+|:---:|---|---|---|
+| 1 | **Kafka Connect** (Debezium + Iceberg sink) | §D 의 CDC · Iceberg 적재 | ★ PostgreSQL `wal_level` 을 `replica` → `logical` 로. **재시작이 필요하고 소비자 34곳이 영향을 받는다** |
+| 2 | **Camel K** | §C Micro Integrator | 기존 파이프라인은 옮기지 말 것(§6) |
+| 3 | **Backstage** | §G Choreo · 카탈로그 | PostgreSQL 재사용 |
+| 4 | **Gravitee CE** | §A API Manager | ★ **배포만 한다 — 트래픽 경로에 넣지 않는다.** ADR-079 가 미결이고 Gotcha 15 가 "계량 지점을 함부로 옮기지 말 것" 이라고 못 박았다(청구는 소급 재해석이 불가능하다) |
 
 ## 부록 A — Vault Enterprise → OpenBao + OSS
 

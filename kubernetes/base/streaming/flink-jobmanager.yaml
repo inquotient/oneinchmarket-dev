@@ -1,0 +1,125 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Flink JobManager — WSO2 Streaming Integrator(Siddhi) 대체 (WSO2-OSS-MAPPING §D)
+#
+# 스탠드얼론 세션 클러스터다(오퍼레이터 없음) — 이 레포는 Helm·오퍼레이터를
+# 쓰지 않고 수기 YAML 을 쓴다.
+#
+# ★★ 이미지에서 직접 확인한 것 (Gotcha 103 — 상류 문서보다 이미지가 정확하다):
+#   ① 설정 파일이 **`conf/config.yaml`** 이다. 옛 `flink-conf.yaml` 은 **없다**
+#      — 그 이름으로 쓰면 **조용히 무시**된다(1.20 에서 중첩 YAML 로 바뀌었다).
+#   ② 엔트리포인트가 **`conf/` 에 쓴다**(rpc.address 등을 병합한다). 그래서
+#      ConfigMap 을 거기 마운트하면 깨지고, `readOnlyRootFilesystem` 도 못 쓴다.
+#      대신 **`FLINK_PROPERTIES`** 로 준다 — 1.20 의 중첩 포맷에서도 병합되는
+#      것을 실측했다(`size: 1024m`·`address: flink-jobmanager` 확인).
+#   ③ `flink` 사용자(9999)가 있고 `/opt/flink` 가 그 소유라 **비-root 로 돈다.**
+#
+# ★★ JDK 11.0.28 이다 — Gotcha 81(컨테이너 인식 실패)이 걸리는 버전이지만,
+#   Flink 는 `MaxRAMPercentage` 가 아니라 **`memory.process.size` 로 스스로**
+#   한도를 정하므로 그 값을 명시하면 우회된다. 기본값(JM 1600m · TM 1728m)은
+#   이 노드에 과하다.
+#   ★ `process.size` 는 힙이 아니라 **프로세스 전체**(힙+오프힙+메타스페이스)다.
+#     그래서 Gotcha 82 의 "힙은 limit 의 60~70%" 를 그대로 적용하면 안 되고,
+#     limit 을 process.size 보다 **조금 크게**(JVM 이 계산에 넣지 않는 몫) 둔다.
+# ─────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: flink
+  labels:
+    app.kubernetes.io/name: flink
+    app.kubernetes.io/component: streaming
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: flink-jobmanager
+  labels:
+    app.kubernetes.io/name: flink-jobmanager
+    app.kubernetes.io/component: streaming
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  selector:
+    app.kubernetes.io/name: flink-jobmanager
+  ports:
+    - {name: rpc,  port: 6123, targetPort: rpc,  protocol: TCP}
+    - {name: blob, port: 6124, targetPort: blob, protocol: TCP}
+    - {name: rest, port: 8081, targetPort: rest, protocol: TCP}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flink-jobmanager
+  labels:
+    app.kubernetes.io/name: flink-jobmanager
+    app.kubernetes.io/component: streaming
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  # ★ 이 노드에서 maxSurge 기본값은 무중단이 아니라 교착이다(Gotcha 87).
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 0, maxUnavailable: 1}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: flink-jobmanager
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: flink-jobmanager
+        app.kubernetes.io/component: streaming
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/managed-by: kustomize
+    spec:
+      serviceAccountName: flink
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 9999
+        runAsGroup: 9999
+        fsGroup: 9999
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: jobmanager
+          image: flink:1.20.2
+          args: ["jobmanager"]
+          env:
+            # ★ 여기 값이 conf/config.yaml 로 병합된다(실측 확인).
+            - name: FLINK_PROPERTIES
+              value: |
+                jobmanager.rpc.address: flink-jobmanager
+                jobmanager.memory.process.size: 1024m
+                taskmanager.memory.process.size: 1536m
+                taskmanager.numberOfTaskSlots: 2
+                parallelism.default: 1
+                rest.flamegraph.enabled: true
+          ports:
+            - {name: rpc,  containerPort: 6123, protocol: TCP}
+            - {name: blob, containerPort: 6124, protocol: TCP}
+            - {name: rest, containerPort: 8081, protocol: TCP}
+          # ★ JM 은 REST 가 있으니 "떠 있는가" 가 아니라 "설정이 섰는가" 를 본다
+          #   (Gotcha 48 의 교훈) — /config 는 실제 설정을 돌려준다.
+          startupProbe:
+            httpGet: {path: /config, port: rest}
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            httpGet: {path: /overview, port: rest}
+            periodSeconds: 15
+          livenessProbe:
+            httpGet: {path: /config, port: rest}
+            periodSeconds: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            # ★ readOnlyRootFilesystem 을 쓰지 않는다 — 엔트리포인트가 conf/ 에
+            #   쓴다(위 ②). Gotcha 92 가 말한 "측정하지 못한 것을 켜지 않는다"
+            #   가 아니라, 여기서는 **못 켜는 것을 확인했다.**
+          resources:
+            # process.size 1024m + JVM 이 계산에 넣지 않는 몫
+            requests: {cpu: 200m, memory: 1024Mi}
+            limits: {memory: 1280Mi}
