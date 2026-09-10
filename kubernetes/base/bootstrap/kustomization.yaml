@@ -7,6 +7,9 @@ kind: Kustomization
 resources:
   - postgres-bootstrap.yaml
   - mariadb-bootstrap.yaml
+  # ★ MongoDB 에만 이런 Job 이 없었다 — 그래서 MongoDB 를 쓰는
+  #   새 워크로드는 root 자격을 빌려야 했다(§8-44 가 지적한 결함).
+  - mongodb-bootstrap.yaml
   - kafka-topics.yaml
   - hive-schematool.yaml
   - minio-bootstrap.yaml

@@ -1,0 +1,106 @@
+# MongoDB 부트스트랩 — DB·전용 사용자
+#
+# ★ 왜 새로 만드는가: PostgreSQL·MariaDB 에는 이런 Job 이 있는데 MongoDB 만
+#   없었다. 그래서 MongoDB 를 쓰는 새 워크로드는 **root 자격을 빌려 쓰거나
+#   사람이 손으로 만들어야** 했다. 전자는 §8-44 가 지적한 결함이고(자격
+#   하나가 새면 여럿이 함께 샌다), 후자는 클러스터를 다시 세우면 사라진다.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mongodb-bootstrap
+  labels:
+    app.kubernetes.io/name: mongodb-bootstrap
+    app.kubernetes.io/component: bootstrap
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+automountServiceAccountToken: false
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mongodb-bootstrap
+  labels:
+    app.kubernetes.io/name: mongodb-bootstrap
+    app.kubernetes.io/component: bootstrap
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 20
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mongodb-bootstrap
+        app.kubernetes.io/component: bootstrap
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      # ★ 전용 SA. `default` 로 돌면 ztunnel 이 27017 을 거부하고 증상은
+      #   오류가 아니라 **무한 대기**다 — Gotcha 19 가 다섯 번 반복한 결함이다.
+      serviceAccountName: mongodb-bootstrap
+      restartPolicy: OnFailure
+      priorityClassName: batch-low
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: bootstrap
+          # 서버와 같은 이미지 — mongosh 가 들어 있고 버전이 어긋나지 않는다.
+          image: percona/percona-server-mongodb:8.0.29-13
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              echo "[mongodb-bootstrap] MongoDB 대기"
+              i=0
+              until mongosh --quiet --host mongodb-headless --port 27017 \
+                      -u "$MONGO_ROOT_USER" -p "$MONGO_ROOT_PASSWORD" \
+                      --authenticationDatabase admin \
+                      --eval 'db.adminCommand({ping:1})' >/dev/null 2>&1; do
+                i=$((i+1))
+                [ "$i" -gt 60 ] && { echo "MongoDB 가 5분 안에 응답하지 않았다"; exit 1; }
+                echo "  대기 ($i/60)"; sleep 5
+              done
+
+              # ★ 비밀번호를 인자로 두지 않는다 — `ps` 에 보인다.
+              #   stdin 으로 넘기고 스크립트가 환경변수로 읽는다.
+              echo "[mongodb-bootstrap] gravitee 사용자"
+              mongosh --quiet --host mongodb-headless --port 27017 \
+                -u "$MONGO_ROOT_USER" -p "$MONGO_ROOT_PASSWORD" \
+                --authenticationDatabase admin <<'JS'
+              const pw = process.env.GRAVITEE_DB_PASSWORD;
+              if (!pw) { print("GRAVITEE_DB_PASSWORD 가 비어 있다"); quit(1); }
+              const g = db.getSiblingDB("gravitee");
+              const existing = g.getUser("gravitee");
+              if (existing) {
+                // 비밀번호 회전에 대응한다 — 이미 있으면 갱신만 한다.
+                g.updateUser("gravitee", { pwd: pw });
+                print("  gravitee 사용자 갱신");
+              } else {
+                // ★ 권한을 그 DB 로 좁힌다. root 를 빌려 쓰지 않는 것이
+                //   이 Job 의 존재 이유다.
+                g.createUser({ user: "gravitee", pwd: pw,
+                               roles: [{ role: "dbOwner", db: "gravitee" }] });
+                print("  gravitee 사용자 생성");
+              }
+              JS
+              echo "[mongodb-bootstrap] 완료"
+          env:
+            - name: MONGO_ROOT_USER
+              value: "mongoadmin"
+            - name: MONGO_ROOT_PASSWORD
+              valueFrom: { secretKeyRef: { name: mongodb-secret, key: root-password } }
+            - name: GRAVITEE_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: gravitee-secret, key: db-password } }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits:   { cpu: 500m, memory: 384Mi }

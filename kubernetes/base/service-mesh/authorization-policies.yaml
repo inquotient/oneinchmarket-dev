@@ -156,6 +156,10 @@ spec:
             principals:
               - "*/sa/admin"
               - "*/sa/cmmn-api"
+              # ★ Gravitee — 설정·API 정의 저장소다.
+              - "*/sa/gravitee"
+              # ★ 전용 사용자를 만드는 Job — 빠지면 무한 대기다.
+              - "*/sa/mongodb-bootstrap"
       to:
         - operation:
             ports: ["27017"]

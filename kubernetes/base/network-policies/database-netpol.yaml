@@ -119,6 +119,15 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/component: application
+        # ★ Gravitee — 설정·API 정의를 MongoDB 에 둔다.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: gravitee
+        # ★ 전용 사용자를 만드는 Job. 없으면 오류가 아니라
+        #   **무한 대기**다(Gotcha 19 가 다섯 번 반복한 결함).
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: mongodb-bootstrap
       ports:
         - protocol: TCP
           port: 27017
