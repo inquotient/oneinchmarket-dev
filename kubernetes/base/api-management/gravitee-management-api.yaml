@@ -59,7 +59,7 @@ spec:
             - -c
             - |
               set -eu
-              sed -e "s|__GRAVITEE_DB_PASSWORD__|${GRAVITEE_DB_PASSWORD}|" \n                  -e "s|__GRAVITEE_JWT_SECRET__|${GRAVITEE_JWT_SECRET}|" \n                /etc/gravitee-src/gravitee.yml > /etc/gravitee/gravitee.yml
+              sed -e "s|__GRAVITEE_DB_PASSWORD__|${GRAVITEE_DB_PASSWORD}|" -e "s|__GRAVITEE_JWT_SECRET__|${GRAVITEE_JWT_SECRET}|" /etc/gravitee-src/gravitee.yml > /etc/gravitee/gravitee.yml
               if grep -q "__GRAVITEE_" /etc/gravitee/gravitee.yml; then
                 echo "치환 실패: 자리표시자가 남아 있다" >&2; exit 1
               fi

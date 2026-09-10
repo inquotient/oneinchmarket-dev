@@ -38,6 +38,20 @@ data:
         mongodb:
           uri: mongodb://gravitee:__GRAVITEE_DB_PASSWORD__@mongodb-headless:27017/gravitee?authSource=gravitee
 
+      # ★★ 게이트웨이는 `management` 말고 **`ratelimit` 저장소도** 요구한다.
+      #   없으면 기동 중 이렇게 죽는다:
+      #     IllegalStateException: No repository type defined in configuration
+      #                            for ratelimit
+      #   ★ 그 뒤 **정상 종료 절차를 밟아** 로그 끝이 "API Gateway stopped"
+      #     가 된다 — 깨끗하게 끝난 것처럼 보이고 포트만 안 열린다.
+      #     management-api 의 JWT 건과 같은 모양이다.
+      #   ★★ management 와 **같은 DB** 를 쓴다 — 쿨러를 따로 두면
+      #     사용자·권한을 하나 더 관리해야 하고 얻는 것이 없다.
+      ratelimit:
+        type: mongodb
+        mongodb:
+          uri: mongodb://gravitee:__GRAVITEE_DB_PASSWORD__@mongodb-headless:27017/gravitee?authSource=gravitee
+
       # ★ 분석 비활성 — 위 주석 참조. 켜려면 ES 의 자체 서명 CA 를 먼저 해결할 것.
       analytics:
         type: none
