@@ -33,7 +33,7 @@ TOKEN_NAME="${TOKEN_NAME:-k8s-image-pull}"
 REGISTRY_HOST="${REGISTRY_HOST:-gitlab-registry.local.svc.cluster.local:5050}"
 SECRET_NAME="${SECRET_NAME:-gitlab-registry-secret}"
 
-# ★★ 목록을 **여기 적지 않는다** — build-images.sh 의 ALL_IMAGES 를
+# ★★ 목록을 **여기 적지 않는다** — build-images.sh 의 IMAGE_TAGS 를
 #   그대로 읽는다. 예전에는 같은 목록을 두 파일에 적어 두고
 #   "어긋나면 push 가 거부된다" 는 주석만 붙여 두었는데,
 #   **실제로 어긋났다**: kafka-connect 를 10번째로 더하면서 이쪽을
@@ -43,7 +43,10 @@ SECRET_NAME="${SECRET_NAME:-gitlab-registry-secret}"
 #   빠진 것은 **Trivy 스캔뿐**이다(build-images.sh 는 한 줄 로그만 남긴다).
 #   원천을 하나로 두어 그 종류의 버그를 없앤다.
 _HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-IMAGES="$(grep -o 'ALL_IMAGES="[^"]*"' "$_HERE/build-images.sh" | head -1 | cut -d'"' -f2)"
+# ★ build-images.sh 의 원천은 IMAGE_TAGS(이름:태그)다 — 태그를 떼어 이름만 쓴다.
+#   예전에는 ALL_IMAGES 를 읽었는데, 그 변수가 IMAGE_TAGS 에서 파생되도록
+#   바뀌면서 값이 아니라 셸 치환식이 잡혔다. 아래 case 가드가 그것을 잡는다.
+IMAGES="$(for _it in $(grep -o 'IMAGE_TAGS="[^"]*"' "$_HERE/build-images.sh" | head -1 | cut -d'"' -f2); do printf '%s ' "${_it%%:*}"; done)"
 # ★ 가드는 "비어 있지 않다" 로는 부족하다 — 치환이 어긋나 제어문자 하나만
 #   담겨도 그 검사는 통과한다(실제로 그렇게 한 번 틀렸다). 알려진 이름이
 #   실제로 들어 있는지로 판정한다.
@@ -57,7 +60,7 @@ IMAGES="$IMAGES $EXTRA_PROJECTS"
 
 case " $IMAGES " in
   *" spark-iceberg "*) : ;;
-  *) echo "[gl-reg] build-images.sh 의 ALL_IMAGES 를 제대로 읽지 못했다: $(printf %q "$IMAGES")" >&2; exit 1 ;;
+  *) echo "[gl-reg] build-images.sh 의 IMAGE_TAGS 를 제대로 읽지 못했다: $(printf %q "$IMAGES")" >&2; exit 1 ;;
 esac
 
 K() { kubectl -n "$NS" "$@"; }

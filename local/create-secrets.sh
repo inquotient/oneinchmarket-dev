@@ -52,7 +52,10 @@ mk redis-secret       "redis-password=$REDIS"
 # Backstage — db-password 는 PostgreSQL 롬, backend-secret 은 세션·토큰
 # 서명 키다. 둘을 같은 값으로 쓰지 않는다 — 역할이 다르고
 # 하나가 새면 둘 다 새는 구조를 만들지 않는다(§8-44).
-mk backstage-secret "db-password=$(gen)" "backend-secret=$(gen 32)"
+# ★ oidc-client-secret 은 Keycloak 클라이언트 시크릿이다. **소비자 쪽에** 둔다 —
+#   keycloak-realm 부트스트랩이 이 값을 읽어 클라이언트에 심는다. 반대로 두면
+#   Backstage 가 남의 Secret 을 읽어야 한다.
+mk backstage-secret "db-password=$(gen)" "backend-secret=$(gen 32)" "oidc-client-secret=$(gen 32)"
 # Gravitee — MongoDB 전용 사용자(mongodb-bootstrap 이 만든다).
 mk gravitee-secret "db-password=$(gen)" "jwt-secret=$(gen 32)"
 mk shardingsphere-secret "proxy-password=$(gen)"
@@ -65,7 +68,9 @@ mk minio-secret       "root-user=oimadmin"           "root-password=$MINIO_PW" \
 
 # ── PostgreSQL 을 공유하는 소비자들. 각자 다른 비밀번호를 갖는다.
 #    postgres-bootstrap Job 이 이 Secret 들을 읽어 같은 값으로 롤을 만든다.
-mk keycloak-secret       "admin-password=$KC_ADMIN"  "db-password=$(gen)"
+# portal-user-password — 개발자 포털에 로그인할 realm 사용자(`portal`).
+# 이 realm 에는 사용자가 없어서 클라이언트만 만들면 로그인할 대상이 없다.
+mk keycloak-secret       "admin-password=$KC_ADMIN"  "db-password=$(gen)" "portal-user-password=$(gen)"
 mk gitlab-secret         "db-password=$(gen)"        "root-password=$GL_ROOT" "admin-token=$(gen 32)"
 mk gitlab-deploy-token   "token=$(gen 32)"
 mk apicurio-secret       "db-password=$(gen)"

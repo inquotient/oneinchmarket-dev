@@ -69,18 +69,33 @@ spec:
           resources:
             requests: { cpu: 20m, memory: 64Mi }
             limits:   { cpu: 200m, memory: 128Mi }
+      # ★ 자체 빌드 이미지라 레지스트리 자격이 필요하다. 파드 자체는
+      #   반입본으로 뜨지만(IfNotPresent), **Trivy 스캔 Job 이**
+      #   레지스트리에서 당길 때 이 자격을 쓴다 — 없으면 조용히
+      #   스캔되지 않는다(§8-79 · Gotcha 130).
+      imagePullSecrets:
+        - name: gitlab-registry-secret
       containers:
         - name: backstage
-          # ★ 태그와 다이제스트를 함께 적는다 — 태그는 읽기 위한 것이고
-          #   고정하는 것은 다이제스트다. 버전 태그도 내용이 바뀔 수 있다
-          #   (Gotcha 45: apache/hive:4.2.1 이 한 세션 안에서 바뀌었다).
-          image: ghcr.io/backstage/backstage:1.30.2@sha256:f97ddd6e96558e0262a98d1b045e89691b417a44dcc9a0a81414cbdeed358e7a
+          # ★★ 공식 예제 이미지(ghcr.io/backstage/backstage)에서 **자체 빌드로
+          #   바꿨다** — Keycloak OIDC 때문이다. 그 이미지는 auth 모듈로
+          #   guest 만 등록하고 프런트 번들도 guest 만 참조한다(실측).
+          #   OIDC 모듈은 node_modules 에 있으나 **붙어 있지 않고**, 프런트
+          #   사인인 페이지는 코드라 설정으로 바꿀 수 없다.
+          #   앱 소스와 사유는 `docker/backstage/` 에 있다.
+          # ★ 다이제스트를 적지 않는다 — 우리가 빌드해 반입하는 이미지라
+          #   태그가 곧 우리 산출물이다(다른 로컬 빌드 9종과 같은 규약).
+          image: gitlab-registry.local.svc.cluster.local:5050/oneinch/backstage:1.54.0
           imagePullPolicy: IfNotPresent
           env:
             - name: BACKSTAGE_DB_PASSWORD
               valueFrom: { secretKeyRef: { name: backstage-secret, key: db-password } }
             - name: BACKSTAGE_BACKEND_SECRET
               valueFrom: { secretKeyRef: { name: backstage-secret, key: backend-secret } }
+            # Keycloak 클라이언트 시크릿. app-config 가 ${BACKSTAGE_OIDC_CLIENT_SECRET}
+            # 로 참조한다 — ConfigMap 에 값을 적지 않기 위해서다.
+            - name: BACKSTAGE_OIDC_CLIENT_SECRET
+              valueFrom: { secretKeyRef: { name: backstage-secret, key: oidc-client-secret } }
           ports:
             - name: http
               containerPort: 7007

@@ -84,11 +84,41 @@ pw() { $K get secret "$1" -o jsonpath="{.data.$2}" | base64 -d; echo; }
 
 | 컴포넌트 | port-forward | URL | 비고 |
 |---|---|---|---|
-| **Backstage** | `$K port-forward deploy/backstage 17007:7007` | http://localhost:17007 | ★★ **guest 인증이다** — 도달한 사람 전부가 같은 익명 사용자다. 그래서 NetworkPolicy 가 ingress 를 전면 차단하고 이 경로만 남긴다. 카탈로그에 실측 엔티티 9건 |
+| **Backstage** | `$K port-forward deploy/backstage 17007:7007` **+ 아래 ★ Keycloak forward** | http://localhost:17007 | **Keycloak 로그인**: `portal` / `pw keycloak-secret portal-user-password` — ★ 아래 §1-c 를 먼저 볼 것(hosts 한 줄이 필요하다). 카탈로그 엔티티 10건 |
 | **Gravitee Console** | `$K port-forward deploy/gravitee-console 18081:8080` | http://localhost:18081 | ★ **management-api 도 함께 forward 해야 한다** — SPA 가 브라우저에서 `http://localhost:8083/management` 를 부른다(Apicurio UI 와 같은 구조) |
 | **Gravitee Portal** | `$K port-forward deploy/gravitee-portal 18082:8080` | http://localhost:18082 | 같은 이유로 management-api 를 8083 으로 함께 forward |
 | **Gravitee Management API** | `$K port-forward deploy/gravitee-management-api 8083:8083` | http://localhost:8083/management | 위 둘의 전제. 포트를 **8083 그대로** 써야 한다(UI 에 그 주소가 박혀 있다) |
 | Gravitee Gateway | `$K port-forward deploy/gravitee-gateway 18084:8082` | http://localhost:18084 | ★★ **트래픽 경로에 없다.** 외부 진입은 여전히 Istio Gateway 다(ADR-079 미결) — 여기로는 아무것도 오지 않는다 |
+
+#### ★ §1-c. Backstage 로그인에 필요한 것 — Keycloak 을 **같은 이름으로** 열어야 한다
+
+Backstage 는 2026-09-11 부터 **guest 가 아니라 Keycloak OIDC** 로 로그인한다.
+그래서 포트포워딩이 하나로는 부족하다.
+
+```powershell
+# ① Backstage
+kubectl -n local port-forward deploy/backstage 17007:7007
+# ② Keycloak — **8080 으로**, 그리고 이름은 클러스터 안 이름 그대로
+kubectl -n local port-forward keycloak-0 8080:8080
+```
+
+그리고 Windows hosts 에 **한 줄**이 필요하다(관리자 권한):
+
+```
+127.0.0.1 keycloak-headless
+```
+
+★★ **왜 이렇게 하는가.** OIDC 는 브라우저와 백엔드가 **같은 URL 로** Keycloak
+을 봐야 한다 — 브라우저는 `authorization_endpoint` 로 리다이렉트되고 백엔드는
+같은 메타데이터로 토큰을 교환한다. 서로 다른 이름을 쓰면 issuer 가 갈려
+로그인이 깨진다(Keycloak 은 `iss` 를 요청 Host 로 만든다 — Gotcha 69).
+백엔드는 클러스터 안이라 `keycloak-headless:8080` 밖에 못 쓰므로, **브라우저
+쪽을 그 이름에 맞춘다.**
+
+★ 로그인 계정은 realm `oneinchmarket` 의 `portal` 이다(keycloak-realm
+부트스트랩이 만든다). 비밀번호: `pw keycloak-secret portal-user-password`.
+카탈로그의 `User:portal` 엔티티와 이메일 로컬파트로 짝지어진다 — **그 엔티티가
+없으면 인증은 성공하고 사인인이 "user not found" 로 실패한다.**
 
 > ★ Camel K 는 UI 가 없다. 상태는 `kubectl get integrationplatform -n local`
 > 과 `kubectl get integrations -n local`(지금은 0건)로 본다.

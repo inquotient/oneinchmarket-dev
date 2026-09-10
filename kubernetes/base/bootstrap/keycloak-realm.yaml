@@ -84,14 +84,29 @@ spec:
             - name: SMOKE_SECRET
               valueFrom:
                 secretKeyRef: {name: keycloak-secret, key: smoke-client-secret}
+            # Backstage OIDC — 클라이언트 시크릿은 **소비자 쪽 Secret**에 둔다.
+            # Keycloak 은 그 값을 받아 클라이언트에 심을 뿐이다. 반대로 두면
+            # Backstage 가 남의 Secret 을 읽어야 한다.
+            - name: BACKSTAGE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: {name: backstage-secret, key: oidc-client-secret}
+            - name: PORTAL_USER
+              value: "portal"
+            - name: PORTAL_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: keycloak-secret, key: portal-user-password}
+            # Backstage 의 외부 URL. 콜백은 이 값 + /api/auth/oidc/handler/frame 이다.
+            # app-config 의 backend.baseUrl 과 **같아야 한다**.
+            - name: BACKSTAGE_BASE_URL
+              value: "http://localhost:17007"
           command: ["/bin/sh", "-c"]
           args:
             - |
               set -eu
-              echo "[0/4] Keycloak 대기"
+              echo "[0/6] Keycloak 대기"
               until curl -sf -o /dev/null "${KC}/realms/master"; do sleep 5; done
 
-              echo "[1/4] 관리 토큰"
+              echo "[1/6] 관리 토큰"
               TOK=$(curl -sf -X POST "${KC}/realms/master/protocol/openid-connect/token" \
                 -d "client_id=admin-cli" -d "username=admin" \
                 -d "password=${ADMIN_PASSWORD}" -d "grant_type=password" \
@@ -99,7 +114,7 @@ spec:
               [ -n "$TOK" ] || { echo "관리 토큰 실패 — admin-password 를 확인할 것" >&2; exit 1; }
               A="Authorization: Bearer ${TOK}"
 
-              echo "[2/4] realm ${REALM}"
+              echo "[2/6] realm ${REALM}"
               if curl -sf -o /dev/null -H "$A" "${KC}/admin/realms/${REALM}"; then
                 echo "  이미 있음"
               else
@@ -110,7 +125,7 @@ spec:
                 echo "  생성"
               fi
 
-              echo "[3/4] 스모크 클라이언트 ${SMOKE_TENANT}"
+              echo "[3/6] 스모크 클라이언트 ${SMOKE_TENANT}"
               # ★ 하드코딩 클레임 매퍼가 핵심이다. 이 클라이언트가 받은 토큰에는
               #   tenant=acme-corp 가 반드시 들어가고, 클라이언트는 그 값을
               #   바꿀 수 없다. 게이트웨이는 이것만 믿는다.
@@ -142,7 +157,52 @@ spec:
                 echo "  이미 있음"
               fi
 
-              echo "[4/4] 검증 — 발급된 토큰에 tenant 클레임이 있는가"
+              echo "[4/6] Backstage OIDC 클라이언트"
+              # 기밀 클라이언트다(publicClient=false) — 코드 교환을 Backstage 백엔드가
+              # 하므로 시크릿을 안전하게 들 수 있다.
+              # 콜백 경로는 Backstage 가 정한다: /api/auth/<provider>/handler/frame
+              BS_JSON=$(cat <<JSON
+              {"clientId":"backstage","enabled":true,"publicClient":false,
+               "standardFlowEnabled":true,"serviceAccountsEnabled":false,
+               "directAccessGrantsEnabled":false,
+               "secret":"${BACKSTAGE_CLIENT_SECRET}",
+               "redirectUris":["${BACKSTAGE_BASE_URL}/api/auth/oidc/handler/frame"],
+               "webOrigins":["${BACKSTAGE_BASE_URL}"]}
+              JSON
+              )
+              BSQ="${KC}/admin/realms/${REALM}/clients?clientId=backstage"
+              if [ "$(curl -sf -H "$A" "$BSQ" | head -c 3)" = "[]" ]; then
+                curl -sf -X POST "${KC}/admin/realms/${REALM}/clients" -H "$A" -H 'Content-Type: application/json' -d "$BS_JSON"
+                echo "  생성"
+              else
+                # 이미 있으면 갱신한다 — 콜백 URL 이나 시크릿이 바뀌었을 수 있고,
+                # 낡은 값을 그대로 두면 로그인이 조용히 깨진다.
+                CID=$(curl -sf -H "$A" "$BSQ" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+                curl -sf -X PUT "${KC}/admin/realms/${REALM}/clients/${CID}" -H "$A" -H 'Content-Type: application/json' -d "$BS_JSON"
+                echo "  갱신"
+              fi
+
+              echo "[5/6] 포털 사용자 ${PORTAL_USER}"
+              # 이 realm 에는 사용자가 없다 — 클라이언트만 만들면 로그인할 대상이 없다.
+              U_JSON=$(cat <<JSON
+              {"username":"${PORTAL_USER}","enabled":true,"emailVerified":true,
+               "email":"${PORTAL_USER}@oneinchmarket.local",
+               "firstName":"Portal","lastName":"User",
+               "credentials":[{"type":"password","value":"${PORTAL_PASSWORD}","temporary":false}]}
+              JSON
+              )
+              UQ="${KC}/admin/realms/${REALM}/users?username=${PORTAL_USER}&exact=true"
+              if [ "$(curl -sf -H "$A" "$UQ" | head -c 3)" = "[]" ]; then
+                curl -sf -X POST "${KC}/admin/realms/${REALM}/users" -H "$A" -H 'Content-Type: application/json' -d "$U_JSON"
+                echo "  생성"
+              else
+                PUID=$(curl -sf -H "$A" "$UQ" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+                PW_JSON=$(printf '{"type":"password","value":"%s","temporary":false}' "${PORTAL_PASSWORD}")
+                curl -sf -X PUT "${KC}/admin/realms/${REALM}/users/${PUID}/reset-password" -H "$A" -H 'Content-Type: application/json' -d "$PW_JSON"
+                echo "  비밀번호 갱신"
+              fi
+
+              echo "[6/6] 검증 — 발급된 토큰에 tenant 클레임이 있는가"
               AT=$(curl -sf -X POST "${KC}/realms/${REALM}/protocol/openid-connect/token" \
                 -d "grant_type=client_credentials" \
                 -d "client_id=${SMOKE_TENANT}" -d "client_secret=${SMOKE_SECRET}" \

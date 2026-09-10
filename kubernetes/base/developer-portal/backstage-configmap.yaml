@@ -22,19 +22,23 @@ data:
     app:
       # ★ port-forward 로만 접근한다(local/ACCESS.md 규약). 게이트웨이
       #   경로에 올리려면 이 값과 backend.baseUrl·cors 를 함께 바꿔야 한다.
-      baseUrl: http://localhost:7007
+      # ★★ 브라우저가 실제로 쓰는 포트와 **정확히** 같아야 한다 —
+      #   ACCESS.md 는 17007 로 안내하는데 여기는 7007 이었다. guest 일 때는
+      #   드러나지 않았지만 OIDC 는 이 값이 곧 콜백 URL 이라 어긋나면
+      #   Keycloak 이 `Invalid parameter: redirect_uri` 로 거부한다.
+      baseUrl: http://localhost:17007
       title: OneinchMarket Developer Portal
 
     organization:
       name: OneinchMarket
 
     backend:
-      baseUrl: http://localhost:7007
+      baseUrl: http://localhost:17007
       listen:
         host: 0.0.0.0
         port: 7007
       cors:
-        origin: http://localhost:7007
+        origin: http://localhost:17007
         methods: [GET, HEAD, PATCH, POST, PUT, DELETE]
         credentials: true
       # 세션·토큰 서명 키. 없으면 기동하지 않는다.
@@ -64,24 +68,35 @@ data:
           ssl: false
 
     auth:
+      # ★ 이 값이 아래 `oidc.production` 을 고른다. **프런트도 같은 값을 읽는다**
+      #   (packages/app/src/modules/auth). 어긋나면 로그인 버튼이 그대로인데
+      #   "provider not configured" 로 실패한다.
+      environment: production
       providers:
-        # ★★★ 알고 쓰는 설정이다. 이미지가 `NODE_ENV=production` 이라
-        #   guest 제공자는 이 플래그 없이는 거부된다. 즉 **여기 접근할 수
-        #   있는 사람은 전부 같은 익명 사용자**다.
-        #
-        #   그래서 두 가지를 함께 둔다:
-        #     ① NetworkPolicy 가 ingress 를 전면 차단한다(default-deny 유지,
-        #        허용 규칙을 만들지 않는다) → 메시 안에서도 아무도 못 붙는다
-        #     ② 접근은 `kubectl port-forward` 로만 한다 — 그것은 kubelet 을
-        #        거치므로 NetworkPolicy 와 무관하고, 클러스터 자격이 있는
-        #        사람만 할 수 있다
-        #
-        #   ★ 승격(게이트웨이 노출) 전에 반드시 바꿀 것:
-        #     이 블록을 지우고 Keycloak OIDC 제공자로 교체해야 한다.
-        #     그러려면 이 예제 이미지가 아니라 OIDC 모듈을 포함한 자체
-        #     Backstage 앱을 빌드해야 한다 — 별건이다.
-        guest:
-          dangerouslyAllowOutsideDevelopment: true
+        oidc:
+          production:
+            # ★★★ 브라우저와 백엔드가 **같은 URL 로** Keycloak 을 봐야 한다.
+            #   브라우저는 authorization_endpoint 로 리다이렉트되고 백엔드는
+            #   같은 메타데이터로 토큰을 교환한다. 서로 다른 이름을 쓰면
+            #   issuer 가 갈려 로그인이 깨진다(Keycloak 은 iss 를 요청 Host 로
+            #   만든다 — Gotcha 69).
+            #
+            #   그래서 클러스터 안 이름을 그대로 쓰고, Windows 쪽에서
+            #   그 이름을 127.0.0.1 로 풀리게 한다:
+            #     hosts:  127.0.0.1 keycloak-headless
+            #     forward: kubectl -n local port-forward keycloak-0 8080:8080
+            #   (local/ACCESS.md 에 적어 두었다)
+            metadataUrl: http://keycloak-headless:8080/realms/oneinchmarket/.well-known/openid-configuration
+            clientId: backstage
+            clientSecret: ${BACKSTAGE_OIDC_CLIENT_SECRET}
+            prompt: auto
+            signIn:
+              resolvers:
+                # ★ 토큰의 이메일 로컬파트를 카탈로그의 User 엔티티 이름과
+                #   맞춘다(portal@... -> User:portal). **그 엔티티가 없으면
+                #   로그인이 "user not found" 로 실패한다** — 카탈로그
+                #   ConfigMap 에 함께 넣어 두었다.
+                - resolver: emailLocalPartMatchingUserEntityName
 
     kubernetes:
       # ★★★ 이 블록이 **없으면 기동하지 않는다.** 예제 앱은 kubernetes

@@ -122,3 +122,31 @@ data:
       type: database
       owner: platform
       system: cmmn
+    ---
+    # ★★ 로그인에 필요한 엔티티다 — 장식이 아니다.
+    #   OIDC 사인인 리졸버가 `emailLocalPartMatchingUserEntityName` 이라
+    #   Keycloak 이 준 `portal@oneinchmarket.local` 의 로컬파트(`portal`)를
+    #   이 User 엔티티 이름과 맞춘다. **이것이 없으면 인증은 성공하고
+    #   사인인이 "user not found" 로 실패한다** — 증상이 자격 문제처럼 보인다.
+    apiVersion: backstage.io/v1alpha1
+    kind: User
+    metadata:
+      name: portal
+      description: |
+        개발자 포털 로그인 계정. Keycloak realm `oneinchmarket` 의 `portal`
+        사용자와 짝이다(keycloak-realm 부트스트랩이 만든다).
+        비밀번호 조회: pw keycloak-secret portal-user-password
+    spec:
+      profile:
+        displayName: Portal User
+        email: portal@oneinchmarket.local
+      memberOf: [platform]
+    ---
+    apiVersion: backstage.io/v1alpha1
+    kind: Group
+    metadata:
+      name: platform
+      description: 이 카탈로그의 모든 엔티티가 owner 로 가리키는 그룹.
+    spec:
+      type: team
+      children: []

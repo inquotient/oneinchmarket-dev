@@ -1,0 +1,13 @@
+# ★ 빌드 컨텍스트에서 반드시 빼야 하는 것들.
+#   이 파일이 없으면 `COPY app/ .` 이 호스트의 node_modules(1.4 GB)를
+#   그대로 복사한다. 이 노드에서는 컨텍스트가 /mnt/c(Windows 파일시스템)에
+#   있어 **그 복사만 20분을 넘긴다** — 실측으로 빌드가 그 단계에서 멈춰 있었다.
+#   컨테이너 안에서는 `yarn install` 이 자기 node_modules 를 이미 만들었으므로
+#   호스트 것을 넣을 이유도 없다(오히려 덮어써서 위험하다).
+app/node_modules
+app/**/node_modules
+app/.yarn/cache
+app/.yarn/install-state.gz
+app/packages/*/dist
+app/packages/*/dist-types
+app/**/*.log

@@ -28,7 +28,17 @@ log() { echo "[build] $*"; }
 #   local/build-images.sh ranger-usersync      # 하나만
 #   local/build-images.sh livy jenkins         # 여럿
 #   local/build-images.sh --list               # 이름 목록
-ALL_IMAGES="spark-iceberg livy ranger-usersync hbase ranger-hdfs-plugin ranger-hbase-plugin ranger-hive-plugin jenkins proxysql kafka-connect"
+# ★★★ 이미지 목록의 **원천은 이 한 줄이다** — 이름:태그.
+#   예전에는 목록이 세 곳에 있었고(빌드 선택 · 반입 루프 · 레지스트리
+#   부트스트랩) 새 이미지를 더할 때마다 어긋났다. 두 번 밟았다:
+#     kafka-connect  -> 레지스트리 프로젝트가 없어 push 거부(Gotcha 117)
+#     backstage      -> 반입 루프에 없어 **빌드만 되고 파드는 옛 이미지**
+#   이제 ALL_IMAGES 는 여기서 파생되고 반입 루프도 이것을 돈다 —
+#   구조적으로 어긋날 수 없다.
+#   ★ :latest 는 넣지 않는다. 매니페스트가 쓰지 않고 Kyverno disallow-latest
+#     가 막는 이름이다.
+IMAGE_TAGS="spark-iceberg:3.5.6 livy:0.9.0-incubating ranger-usersync:2.9.0 hbase:3.0.0 ranger-hdfs-plugin:2.9.0-jersey2 ranger-hbase-plugin:2.9.0-hbase3 ranger-hive-plugin:2.9.0-hive4 jenkins:2.568.3-lts proxysql:4.0.11 kafka-connect:4.3.1-dbz3.6.2 backstage:1.54.0"
+ALL_IMAGES="$(for _it in $IMAGE_TAGS; do printf '%s ' "${_it%%:*}"; done)"
 if [ "${1:-}" = "--list" ]; then
   for n in $ALL_IMAGES; do echo "  $n"; done
   exit 0
@@ -172,6 +182,18 @@ if want kafka-connect; then
     "${REPO_ROOT}/docker/kafka-connect"
 fi
 
+if want backstage; then
+  log "oneinch/backstage 빌드 (오래 걸린다 — yarn install + tsc + build:all)"
+  # ★ 공식 예제 이미지(ghcr.io/backstage/backstage)를 쓰지 않는 이유:
+  #   그 이미지는 auth 모듈로 **guest 만** 등록하고 프런트 번들도 guest 만
+  #   참조한다(실측). OIDC 모듈은 node_modules 에 있지만 붙어 있지 않고,
+  #   프런트 사인인 페이지는 **코드**라 설정으로 바꿀 수 없다.
+  #   상세는 docker/backstage/Dockerfile 주석.
+  #
+  # ★ 태그를 backstage.json 의 버전과 맞춘다. 앱을 올릴 때 둘을 함께 움직일 것.
+  sudo podman build --format docker --network host     -t oneinch/backstage:latest -t oneinch/backstage:1.54.0     "${REPO_ROOT}/docker/backstage"
+fi
+
 # ── GitLab 컨테이너 레지스트리로 push ──────────────────────────────
 #
 # ★ 왜 push 하는가 — 파드를 띄우는 데는 필요 없다(아래 containerd 반입으로
@@ -279,16 +301,8 @@ log "k3s containerd 로 반입 + 레지스트리 push"
 #   ImagePullBackOff 로 멈춘다 — 예전에 ranger-hdfs-plugin 이 그랬다.
 # ★ :latest 는 반입도 push 도 하지 않는다. 매니페스트가 쓰지 않고
 #   Kyverno disallow-latest 가 막는 이름이다.
-for img in oneinch/spark-iceberg:3.5.6 \
-           oneinch/livy:0.9.0-incubating \
-           oneinch/ranger-usersync:2.9.0 \
-           oneinch/hbase:3.0.0 \
-           oneinch/jenkins:2.568.3-lts \
-           oneinch/proxysql:4.0.11 \
-           oneinch/ranger-hdfs-plugin:2.9.0-jersey2 \
-           oneinch/ranger-hbase-plugin:2.9.0-hbase3 \
-           oneinch/kafka-connect:4.3.1-dbz3.6.2 \
-           oneinch/ranger-hive-plugin:2.9.0-hive4; do
+for it in $IMAGE_TAGS; do
+  img="oneinch/${it}"
   # ★ 빌드하지 않은 것을 반입하면 옛 레이어가 그대로 올라간다.
   base="${img%%:*}"; want "${base#oneinch/}" || continue
   ref="${REGISTRY_HOST}/${img}"
