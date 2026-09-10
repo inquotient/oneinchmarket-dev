@@ -373,6 +373,10 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 
 116. **커넥터·플러그인을 굽기 전에 아티팩트가 실제로 있는지 받아서 확인할 것 — 그리고 "라이브러리가 있다" 와 "바로 쓸 번들이 있다" 는 다르다.** 이 문서는 한때 "`org.apache.iceberg:iceberg-kafka-connect` **1.11.0** 이 Maven Central 에 있고 클러스터의 `ICEBERG_VERSION` 과 같다" 고 적고 있었는데 **둘 다 틀렸다**: Central 에는 **1.9.2 만** 있고, 그것은 라이브러리 jar 이라 Connect 에 그대로 넣을 수 없다. 바로 쓰는 `iceberg-kafka-connect-runtime` 배포 zip 은 **Central 에도 GitHub 릴리스 자산에도 없고**, Apache 배포처의 1.11.0 에는 소스 tarball 뿐이다. ★ 판정은 추측이 아니라 디렉터리 목록이다 — `curl -s https://repo1.maven.org/maven2/<group 경로>/ | grep href`. ★★ 그리고 **네트워크가 없어도 404 와 빈 결과가 똑같이 나온다** — 먼저 루트에 HTTP 200 이 오는지 확인할 것(Gotcha 25 와 같은 부류: 측정값이 이상하면 측정 방법부터)
 
+117. **같은 목록을 두 스크립트에 적어 두고 "어긋나면 깨진다" 는 주석으로 막지 말 것 — 실제로 어긋났다.** `docker/` 이미지 목록이 `build-images.sh`(ALL_IMAGES)와 `gitlab-registry-bootstrap.sh`(IMAGES) 두 곳에 있었고, 후자에 10번째를 넣지 않아 GitLab 에 프로젝트가 만들어지지 않았다. **GitLab 레지스트리 경로는 곧 프로젝트**라 없는 경로로의 push 는 `requested access to the resource is denied` 다. ★ 증상이 고약하다 — 빌드도 반입도 성공하고 파드는 정상이며, 빠진 것은 **Trivy 스캔뿐**인데 `build-images.sh` 는 그것을 한 줄 로그로만 남긴다(Gotcha 85 와 같은 부류: 오류 없이 반쪽만 반영된다). 처방은 원천을 하나로 두는 것이고, **가드를 "비어 있지 않다" 로 두지 말 것** — 파싱이 어긋나 제어문자 하나만 담겨도 통과한다(실제로 sed 치환식의 `` 이 파이썬 이스케이프를 거치며 `` 이 됐고 `bash -n` 은 통과했다, Gotcha 8 과 같은 부류). 알려진 값이 실제로 들어 있는지로 판정할 것
+
+118. **`gitlab-registry-bootstrap.sh` 를 다시 돌리면 배포 토큰이 회전한다 — Secret 을 함께 갱신하지 않으면 그 순간부터 push·pull 이 막힌다.** 그 스크립트의 Ruby 가 `group.deploy_tokens.where(name: name).destroy_all` 로 **기존 토큰을 폐기**하고 새로 발급하므로, 클러스터의 `gitlab-registry-secret` 은 즉시 **폐기된 값**을 들게 된다. 실측: 프로젝트 하나를 더하려고 재실행했다가 그 자리에서 `레지스트리 로그인 실패` 가 났고 push 가 또 건너뛰어졌다 — **앞의 수정이 다음 결함을 만든 것이다.** ★ Gotcha 51·72(GitLab `db_key_base`)와 증상이 같아 "토큰이 이상하다" 로 헤매기 쉽다. 지금은 스크립트가 **Secret 이 이미 있으면 `--secret` 없이도 갱신**한다 — 낡은 것을 그대로 두는 것은 선택지가 아니기 때문이다. ★ 판정은 Secret 의 자격으로 직접 토큰을 받아 보는 것이다: `/jwt/auth?service=container_registry&scope=repository:<경로>:pull` 이 200 을 주고 `/v2/<경로>/tags/list` 가 태그를 돌려주는지
+
 ### 매니페스트 작업 시
 
 - `v1/` 매니페스트는 **배포 금지**. 단 CI가 이 경로의 Dockerfile을 참조한다는 모순이 있다
