@@ -175,6 +175,11 @@ NAME:.metadata.name,SCHED:.status.lastScheduleTime,OK:.status.lastSuccessfulTime
 #    이미지 pull 이 깨진다.
 CIP=$(kubectl -n local get svc gitlab-registry -o jsonpath='{.spec.clusterIP}')
 echo "$CIP gitlab-registry.local.svc.cluster.local gitlab-registry" | sudo tee -a /etc/hosts
+
+#    ★ 레지스트리 노드 상태는 **둘**이다. 이것(/etc/hosts)은 부팅마다 사라지고,
+#      /etc/rancher/k3s/registries.yaml 은 살아남는다(§25-1). 후자가 없으면
+#      이름이 풀려도 pull 이 `HTTP response to HTTPS client` 로 깨진다.
+test -f /etc/rancher/k3s/registries.yaml || echo "※ registries.yaml 이 없다 — §25-1"
 ```
 
 ```bash
@@ -13716,6 +13721,64 @@ Zeek      shipper 정상
 
 ★ 랩이 영향을 받지 않은 것은 **이미 WSL 안으로 완전히 옮겨졌기 때문**이다 —
 Hyper-V 에 남은 의존이 하나도 없었다는 것을 이 삭제가 증명했다.
+
+## 25. 이 레포 밖에 있는 노드 상태 — 목록 (2026-09-11)
+
+클러스터를 새로 세우면 **매니페스트만으로는 복구되지 않는 것**이 있다. 지금까지
+문서 여기저기에 흩어져 있어 빠뜨리기 쉬웠으므로 한자리에 모은다.
+
+| 파일 | 왜 필요한가 | 없으면 | 부팅마다? |
+|---|---|---|:---:|
+| `/etc/resolv.conf` (+ `chattr +i`) | 노드 DNS 를 호스트 어댑터 변동에서 떼어낸다 | 파드 전부가 외부 이름을 못 푼다 | 살아남는다 |
+| `/etc/rancher/k3s/registries.yaml` | 클러스터 안 레지스트리가 **평문 HTTP** 임을 알린다 | 레지스트리에서 pull 이 **아예 안 된다** | 살아남는다 |
+| `/etc/hosts` 의 레지스트리 항목 | 그 호스트명을 ClusterIP 로 푼다 | 이름 해석 실패 | **사라진다**(§3-1 ⑤) |
+
+앞의 둘은 WSL 배포판 파일시스템에 있어 재부팅을 견딘다 — **재설치·재구축 때만**
+다시 해야 한다. 셋째는 WSL 이 매 부팅에 다시 만들므로 §3-1 에 있다.
+
+### 25-1. `registries.yaml` — 레지스트리가 쓰기 전용이었다
+
+★★ **2026-09-11 까지 이 파일이 없었고, 그래서 클러스터 안 GitLab 레지스트리에서
+이미지를 pull 한 적이 한 번도 없었다.** 로컬 빌드 이미지 10종이 도는 것은
+`build-images.sh` 가 `k3s ctr images import` 로 **옆문**으로 밀어 넣고 매니페스트가
+`imagePullPolicy: IfNotPresent` 이기 때문이다. 레지스트리는 Trivy 가 스캔할 때만
+쓰였다(§8-79 가 그렇게 설계한 것이 맞다 — 다만 **pull 이 되는지는 아무도 재지
+않았다**).
+
+★ **드러난 계기는 Camel K 다.** Integration 은 빌드한 이미지를 레지스트리에서
+받는 것 말고 경로가 없다(옆문이 없다). 그래서 곧바로 실패했고 오류가 정직했다:
+
+```
+http: server gave HTTP response to HTTPS client
+```
+
+containerd 는 미러 설정이 없으면 HTTPS 로 붙는다. 처방:
+
+```yaml
+# /etc/rancher/k3s/registries.yaml — 짧은 이름과 FQDN 둘 다 적는다
+mirrors:
+  "gitlab-registry.local.svc.cluster.local:5050":
+    endpoint: ["http://gitlab-registry.local.svc.cluster.local:5050"]
+  "gitlab-registry:5050":
+    endpoint: ["http://gitlab-registry:5050"]
+```
+
+★ **쓴 뒤 `sudo systemctl restart k3s` 를 해야 반영된다** — containerd 가 기동 때만
+읽는다. 판정은 파일 존재가 아니라 **실제로 pull 이 되는지**다:
+
+```bash
+sudo k3s ctr -n k8s.io images rm <이미지>          # 옆문으로 들어온 사본을 지우고
+kubectl -n local run pulltest --image=<이미지> --restart=Never --command -- true
+```
+
+옆문 사본이 남아 있으면 `IfNotPresent` 가 그것을 쓰므로 **고쳤는지 알 수 없다**
+— Gotcha 85 와 같은 부류다.
+
+★★ **이것을 고치지 않으면 클러스터 재구축이 막힌다.** 반입 스크립트를 돌리기
+전에는 어떤 파드도 그 이미지를 받지 못하는데, 반입 스크립트 자신이 GitLab(wave 5)을
+필요로 한다.
+
+---
 
 ## 관련 문서
 
