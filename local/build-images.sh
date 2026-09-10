@@ -307,7 +307,40 @@ done
 log "반입 확인"
 sudo k3s ctr -n k8s.io images ls 2>/dev/null | awk '{print $1}' | grep oneinch || true
 if [ "$PUSH_OK" != "1" ]; then
-  log "★ 레지스트리 push 를 건너뛰었다 — Trivy Operator 는 이 9종을"
+  log "★ 레지스트리 push 를 건너뛰었다 — Trivy Operator 는 이 이미지들을"
   log "  스캔하지 못한다. GitLab 이 뜬 뒤 이 스크립트를 다시 돌릴 것."
+fi
+
+# ── imagePullSecrets 누락 검사 ──────────────────────────────────────
+# ★★ push 가 성공해도 **당겨 오는 쪽**이 빠지면 소용이 없다.
+#   2026-09-11 실측: kafka-connect 만 `imagePullSecrets` 가 없었고, 그 탓에
+#   Trivy 가 익명으로 토큰을 요청해 `DENIED: access forbidden` 을 받아
+#   **스캔 리포트가 0건**이었다. 파드는 잘 뜬다 — 이미지가 이미 노드에 있고
+#   IfNotPresent 였기 때문이다. 즉 **공급망 구멍이 생기고도 아무 증상이
+#   없는** 부류다(Gotcha 85 와 같은 구조).
+#   ★ 그래서 값을 고치는 것으로 끝내지 않고 **렌더에서 센다.**
+if command -v kubectl >/dev/null 2>&1; then
+  log "imagePullSecrets 누락 검사 (oneinch/* 를 쓰는 워크로드)"
+  MISSING=$(kubectl kustomize "${REPO_ROOT}/kubernetes/overlays/local" 2>/dev/null | python3 -c '
+import sys, yaml
+bad = []
+for d in yaml.safe_load_all(sys.stdin):
+    if not d or d.get("kind") not in ("Deployment", "StatefulSet", "DaemonSet", "Job"):
+        continue
+    t = d["spec"].get("template")
+    if not t:
+        continue
+    sp = t["spec"]
+    imgs = [c.get("image", "") for c in sp.get("containers", []) + sp.get("initContainers", [])]
+    if any("oneinch/" in i for i in imgs) and not sp.get("imagePullSecrets"):
+        bad.append("%s/%s" % (d["kind"], d["metadata"]["name"]))
+print(" ".join(bad))
+' 2>/dev/null)
+  if [ -n "${MISSING:-}" ]; then
+    log "  ★ imagePullSecrets 가 없는 워크로드: ${MISSING}"
+    log "    → Trivy 가 스캔하지 못하고, 노드가 이미지를 잃으면 뜨지도 않는다"
+    exit 1
+  fi
+  log "  누락 없음"
 fi
 log "완료 — 상주 데몬 없음"

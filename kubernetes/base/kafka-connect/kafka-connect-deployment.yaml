@@ -33,6 +33,18 @@ spec:
       #   Kafka·MariaDB 접근 권한이 이 이름에 걸려 있다.
       serviceAccountName: kafka-connect
       automountServiceAccountToken: false
+      # ★★ 로컬 빌드 이미지(oneinch/*)를 쓰는 워크로드는 반드시 이것이
+      #   있어야 한다. 처음에 **빼먹었고**, 그 결과가 둘이었다:
+      #   ① 파드는 잘 떴다 — 이미지가 이미 노드 containerd 에 있고
+      #      `IfNotPresent` 라서다. **노드가 그 이미지를 잃으면 그제야**
+      #      ImagePullBackOff 로 드러난다(클러스터 재구축 때가 그때다).
+      #   ② **Trivy 가 스캔하지 못한다** — 오퍼레이터는 워크로드의
+      #      imagePullSecrets 에서 자격을 가져가므로, 없으면 익명으로
+      #      토큰을 요청하고 `DENIED: access forbidden` 을 받는다.
+      #      증상은 "리포트가 안 생긴다" 뿐이라 조용히 공급망 구멍이 된다.
+      #   ★ 판정: oneinch/* 를 쓰는 워크로드 중 이 필드가 없는 것을 셀 것.
+      imagePullSecrets:
+        - name: gitlab-registry-secret
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
