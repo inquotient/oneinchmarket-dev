@@ -302,7 +302,7 @@ Kafka Connect 는 스냅샷이 끝난 뒤의 정상 상태다.
 
 | 컴포넌트 | 추정 | 비고 |
 |---|---|---|
-| Gravitee CE (gateway + mgmt API) | ~~2.0 ~ 2.5 GiB~~ **실측 1.00 GiB** | gateway 448Mi + management-api 576Mi. **UI 2종은 아직 없다**(§9-3) — 그 둘은 nginx 라 더해도 작다. MongoDB 는 재사용 |
+| Gravitee CE (4종 전부) | ~~2.0 ~ 2.5 GiB~~ **실측 1.06 GiB** | gateway 448Mi + management-api 595Mi + console 26Mi + portal 20Mi. **UI 2종은 합쳐 46Mi** 다 — 추정할 때 JVM 3종으로 잡은 것이 틀렸고 UI 는 nginx 다. MongoDB 는 재사용 |
 | Flink (JobManager + TaskManager) | 2.0 ~ 3.0 GiB | |
 | midPoint | 1.0 ~ 1.5 GiB → **실측 1203Mi** | JVM. 이번엔 추정이 맞았다 — Go 와 달리 JVM 은 부풀려 있지 않다(§8-103) |
 | Debezium (Kafka Connect) | ~~1.0 GiB~~ **실측 406Mi** | JVM 인데도 추정의 40% 다 — 상류 이미지(커넥터 15종) 대신 **커넥터 하나만** 구우면 이런다. request 는 768Mi 로 두었다 — 스냅샷과 재시작 시 일시적으로 더 쓴다 |
@@ -315,7 +315,7 @@ Kafka Connect 는 스냅샷이 끝난 뒤의 정상 상태다.
 | OpenFGA | ~~0.15 ~ 0.25 GiB~~ **실측 17Mi** | Go. 추정의 **10분의 1** 이었다(§8-102) |
 | Envoy ratelimit | 0.1 GiB | Redis 재사용 |
 | Coraza | 0.0 ~ 0.25 GiB | Envoy Wasm 이면 무시 가능 |
-| **합계** | ~~8 ~ 14 GiB~~ **2026-09-10 도입분 5종 실측 1.65 GiB** | ★ 이 숫자를 그대로 믿지 말 것 — 첫 실측에서 OpenFGA 가 추정의 1/10 이었다. **Go 서비스는 부풀려 있고 JVM 은 그렇지 않을 것이다** — 도입할 때마다 칸을 실측으로 교체할 것 |
+| **합계** | ~~8 ~ 14 GiB~~ **2026-09-10 도입분 7종 실측 1.73 GiB** | ★ 이 숫자를 그대로 믿지 말 것 — 첫 실측에서 OpenFGA 가 추정의 1/10 이었다. **Go 서비스는 부풀려 있고 JVM 은 그렇지 않을 것이다** — 도입할 때마다 칸을 실측으로 교체할 것 |
 
 **Phase 0 의 프로파일 분리가 선행되지 않으면 들어갈 자리가 없다.** 이것은
 취향이 아니라 산술이다.
@@ -384,7 +384,7 @@ Operator · Dependency-Track · Kyverno 가 상시로 도니, 플러그인을 �
 | 1 | ✅ **Kafka Connect + Debezium** (2026-09-10 완료) | §D 의 CDC. ★ **Iceberg sink 는 빼졌다** — 바로 쓸 번들이 어디에도 없다(Gotcha 116) | ★★ 선행 조건을 **잘못 적어 두었던 칸이다.** "PostgreSQL wal_level" 은 엉뚱한 DB 를 겨눈 것이고, 실제 업무 데이터는 **MariaDB `cmmn`**(테이블 2개)에 있어 필요한 것은 `log_bin` 이었다. 완료됨 |
 | 2 | ✅ **Camel K 2.11.0** (2026-09-10 완료) | §C Micro Integrator | 기존 파이프라인은 옮기지 말 것(§6). ★ 오퍼레이터는 install-operators.sh §9, IntegrationPlatform CR 은 `base/integration/` — 둘을 나눠 둔다. ★★ **Integration 은 0건이다** — 자리를 열어 둔 것이고, 실제 통합이 생기기 전까지 오퍼레이터만 돌다(27Mi) |
 | 3 | ✅ **Backstage 1.30.2** (2026-09-10 완료) | §G Choreo · 카탈로그 | PostgreSQL 재사용(스키마 분할). 카탈로그에 실측 엔티티 9건. ★★ **guest 인증이라 게이트웨이 경로 밖에 둔다** — NetworkPolicy 로 ingress 를 전면 차단하고 port-forward 로만 접근한다. 승격 조건은 매니페스트 주석에 있다(OIDC 로 교체 → 자체 앱 빌드가 전제) |
-| 4 | ✅ **Gravitee APIM CE 4.12.19** (2026-09-10 완료) | §A API Manager | ★ **배포만 했다 — 트래픽 경로에 없다.** ADR-079 미결 · Gotcha 15(계량 지점을 함부로 옮기지 말 것 — 청구는 소급 재해석이 불가능하다). gateway + management-api 둘만 있고 **UI 2종은 없다** — 그 이미지는 80 포트라 NET_BIND_SERVICE 예외가 필요한데, **측정하지 않은 예외를 만들지 않는다**(Gotcha 97) |
+| 4 | ✅ **Gravitee APIM CE 4.12.19** (2026-09-10 완료) | §A API Manager | ★ **배포만 했다 — 트래픽 경로에 없다.** ADR-079 미결 · Gotcha 15(계량 지점을 함부로 옮기지 말 것 — 청구는 소급 재해석이 불가능하다). gateway · management-api · console · portal **4종 전부**. ★ UI 둘은 처음에 "80 포트라 NET_BIND_SERVICE 예외가 필요하다" 고 **무기연했다가 재보고 되돌렸다** — 그 판단은 이미지 config 의 `ExposedPorts` 를 근거로 한 것이었고, 실제로는 `listen $HTTP_PORT` 의 **기본값이 8080** 이며 uid 101 로 비-root 였다. 예외 없이 들어갔고 `readOnlyRootFilesystem: true` 까지 켰다(Gotcha 122) |
 
 ## 부록 A — Vault Enterprise → OpenBao + OSS
 

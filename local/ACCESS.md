@@ -78,6 +78,20 @@ pw() { $K get secret "$1" -o jsonpath="{.data.$2}" | base64 -d; echo; }
 | **Apicurio Registry** | `$K port-forward apicurio-registry-0 8081:8080` | http://localhost:8081 | API |
 | **Apicurio UI** | `$K port-forward deploy/apicurio-ui 8888:8080` | http://localhost:8888 | **Registry 도 함께 forward 해야 한다**(SPA 가 API 를 부른다) |
 | Kafka Bridge | `$K port-forward deploy/kafka-bridge 8082:8080` | http://localhost:8082 | ★ 자체 인증 없음(SEC-206) |
+| **Kafka Connect** | `$K port-forward deploy/kafka-connect 18083:8083` | http://localhost:18083 | REST 관리 API. **NetworkPolicy 가 클러스터 안 ingress 를 전면 차단**하므로 이 경로뿐이다. `GET /connectors` · `GET /connectors/cmmn-mariadb-cdc/status` |
+
+### 개발자 포털 · API 관리 (2026-09-10 도입)
+
+| 컴포넌트 | port-forward | URL | 비고 |
+|---|---|---|---|
+| **Backstage** | `$K port-forward deploy/backstage 17007:7007` | http://localhost:17007 | ★★ **guest 인증이다** — 도달한 사람 전부가 같은 익명 사용자다. 그래서 NetworkPolicy 가 ingress 를 전면 차단하고 이 경로만 남긴다. 카탈로그에 실측 엔티티 9건 |
+| **Gravitee Console** | `$K port-forward deploy/gravitee-console 18081:8080` | http://localhost:18081 | ★ **management-api 도 함께 forward 해야 한다** — SPA 가 브라우저에서 `http://localhost:8083/management` 를 부른다(Apicurio UI 와 같은 구조) |
+| **Gravitee Portal** | `$K port-forward deploy/gravitee-portal 18082:8080` | http://localhost:18082 | 같은 이유로 management-api 를 8083 으로 함께 forward |
+| **Gravitee Management API** | `$K port-forward deploy/gravitee-management-api 8083:8083` | http://localhost:8083/management | 위 둘의 전제. 포트를 **8083 그대로** 써야 한다(UI 에 그 주소가 박혀 있다) |
+| Gravitee Gateway | `$K port-forward deploy/gravitee-gateway 18084:8082` | http://localhost:18084 | ★★ **트래픽 경로에 없다.** 외부 진입은 여전히 Istio Gateway 다(ADR-079 미결) — 여기로는 아무것도 오지 않는다 |
+
+> ★ Camel K 는 UI 가 없다. 상태는 `kubectl get integrationplatform -n local`
+> 과 `kubectl get integrations -n local`(지금은 0건)로 본다.
 
 ### 보안 · 거버넌스
 
