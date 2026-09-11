@@ -14128,8 +14128,43 @@ externalTrafficPolicy: Local     # 소스 IP 보존. 기본값 Cluster 는 SNAT 
 **`10.77.0.190:30514`**(`l0-lan` 브리지 — 랩이 보낼 주소) 셋 다 열린다.
 
 **랩 쪽은 이 레포 밖이다 — 클러스터를 새로 세우거나 랩을 되살릴 때 다시 해야 한다.**
-OPNsense 의 syslog-ng 원격 목적지를 `10.77.0.190:30514`(TCP)로 두고 Suricata 의
-EVE JSON 을 그쪽으로 보낸다. ★ 노드의 `l0-lan` 주소가 바뀌면 함께 고쳐야 한다.
+★★ **2026-09-11 에 실제로 했고 흐르는 것을 확인했다**(실측 1,972건 · 실패 0).
+아래가 그 절차다.
+
+접속은 랩 전용 키로 한다 — 비밀번호가 아니다:
+
+```
+ssh -i ~/.ssh/L0-OPNsense-key root@10.77.0.1     # FreeBSD 15.1
+```
+
+바꾼 곳은 `/conf/config.xml` 의 `OPNsense/Syslog/destinations` 한 군데다:
+
+```xml
+<destination uuid="b142a0ea-...">
+  <transport>tcp4</transport>
+  <hostname>10.77.0.190</hostname>
+  <port>30514</port>        <!-- 5140 -> 30514. otel-suricata NodePort -->
+  <rfc5424>1</rfc5424>      <!-- OTel syslog 수신기가 rfc5424 를 기대한다 -->
+  <program>suricata</program>
+</destination>
+```
+
+★ **XML 만 고치면 아무 일도 일어나지 않는다**(Gotcha 12). 두 단계가 더 필요하다:
+
+```
+configctl template reload OPNsense/Syslog     # 생성물을 다시 만든다
+configctl syslog restart
+```
+
+★★ **`OK` 출력을 믿지 말 것** — 판정은 생성된 파일이다:
+`grep port /usr/local/etc/syslog-ng.conf.d/syslog-ng-destinations.conf` 가
+`port(30514)` 를 보여야 한다.
+
+★ **이 변경으로 사슬이 넷에서 하나로 줄었다.** 예전 경로는
+`syslog(10.77.0.190:5140) -> netsh portproxy -> WSL localhostForwarding ->
+kubectl port-forward -> logstash:5140` 이었고, 그 맨 끝이 파드 재생성마다
+조용히 끊겼다(§8-50). 지금은 `syslog -> NodePort 30514 -> otel-gateway` 다 —
+중간 단계가 없으므로 끊길 자리도 없다.
 
 **판정법**: 건수가 아니라 **최신 문서 시각**으로 본다(Gotcha 12) —
 `curl -sk -u admin:<pw> https://localhost:9200/suricata-*/_search?size=1&sort=@timestamp:desc`

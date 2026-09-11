@@ -206,6 +206,11 @@ DNS 질의만 보내고 그 도메인에 접속하지는 않는다.
 
 ### 알림이 클러스터까지 가는지 — 포트포워드가 조용히 끊긴다
 
+★★ **2026-09-11 에 이 사슬을 걷어냈다.** 지금 경로는
+`Suricata EVE -> syslog(10.77.0.190:30514) -> otel-gateway(syslog 수신기)
+-> Data Prepper -> OpenSearch suricata-*` 다. 중간 단계가 없어 끊길 자리도 없다
+(LOCAL-DEPLOYMENT §25-2). 아래는 그 이전 서술이다.
+
 경로는 `Suricata EVE -> syslog(10.77.0.190:5140) -> netsh portproxy ->
 WSL localhostForwarding -> kubectl port-forward -> logstash:5140` 이다.
 
