@@ -84,7 +84,8 @@ mk gitlab-deploy-token   "token=$(gen 32)"
 mk apicurio-secret       "db-password=$(gen)"
 mk hive-metastore-secret "db-password=$(gen)"
 mk cmmn-api-secret       "db-password=$MARIA_APP"     # MariaDB cmmn DB 사용자와 동일해야 한다
-mk elasticsearch-secret  "elastic-password=$(gen)"    # ECK 가 만드는 -es-elastic-user 와 별개다
+# elasticsearch-secret 은 없앴다(2026-09-11) — Elasticsearch 를 철거하고
+# OpenSearch 로 옮겼다. 자격의 원천은 위의 opensearch-secret 하나다.
 mk grafana-secret        "admin-password=$(gen)"
 # GlitchTip — SECRET_KEY 는 Django 세션·서명 키다. 50자 이상 권장.
 mk glitchtip-secret      "db-password=$(gen)"        "secret-key=$(gen 64)"

@@ -74,7 +74,7 @@ echo "--- 허용 트래픽 테스트 ---"
 ALLOWED_TESTS=(
   "postgresql-headless:5432:PostgreSQL"
   "kafka-headless:9092:Kafka"
-  "elasticsearch-es-http:9200:Elasticsearch"
+  "opensearch-headless:9200:OpenSearch"
 )
 
 for test in "${ALLOWED_TESTS[@]}"; do
@@ -96,7 +96,7 @@ echo ""
 echo "--- 차단 트래픽 테스트 (비인가 소스) ---"
 DENIED_TESTS=(
   "postgresql-headless:5432:PostgreSQL"
-  "elasticsearch-es-http:9200:Elasticsearch"
+  "opensearch-headless:9200:OpenSearch"
 )
 
 for test in "${DENIED_TESTS[@]}"; do

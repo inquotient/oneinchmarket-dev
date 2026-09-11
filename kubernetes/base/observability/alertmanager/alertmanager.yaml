@@ -5,7 +5,10 @@
 #   꺼져 있다) SMTP 도 없다. 없는 것을 있는 척하고 빈 receiver 를 두면
 #   **경보가 조용히 사라진다** — 이 레포에서 반복된 실패 방식이다.
 #
-#   그래서 **Logstash 로 보낸다**(webhook → http 입력 → Elasticsearch).
+#   그래서 **Logstash 로 보낸다**(webhook → http 입력 → Data Prepper → OpenSearch).
+#   ★ Alertmanager 가 Data Prepper 에 직접 보내지 못하는 이유: 그 http source 는
+#     **JSON 배열만** 받는데 webhook 페이로드는 객체 하나다. Logstash 가
+#     그 모양을 바꿔 준다(`format => json_batch`).
 #   외부 의존 없이 조회 가능하고 보존되는 실제 수신처다. Kibana 에서
 #   `alerts-*` 인덱스로 본다. 나중에 Slack·PagerDuty 가 생기면 receiver 를
 #   더하면 된다 — 그때도 이 경로는 감사 기록으로 남겨 두는 편이 낫다(§8-63).
@@ -49,7 +52,7 @@ data:
     receivers:
       - name: logstash
         webhook_configs:
-          # Logstash 의 http 입력. 여기서 Elasticsearch `alerts-*` 로 간다.
+          # Logstash 의 http 입력. 거기서 Data Prepper 를 거쳐 OpenSearch `alerts-*` 로 간다.
           - url: http://logstash-headless:5142/
             send_resolved: true
 ---
@@ -121,7 +124,7 @@ spec:
       volumes:
         - name: config
           configMap: {name: alertmanager-config}
-        # ★ emptyDir 다. 알림 이력은 Elasticsearch 에 남으므로 여기 상태
+        # ★ emptyDir 다. 알림 이력은 OpenSearch 에 남으므로 여기 상태
         #   (침묵·억제)는 재시작 시 잃어도 된다. PVC 를 하나 더 만들지 않는다.
         - name: data
           emptyDir: {}

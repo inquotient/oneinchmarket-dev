@@ -11114,6 +11114,53 @@ wazuh-indexer-0              1,024 Mi
 지금은 디스크 28.68% 라 여유가 있다.
 
 
+### 9-17. 검색 계층 비밀번호 로테이션이 없어졌다 (2026-09-11, OpenSearch 전환의 대가)
+
+**커버리지 회귀다. 숨기지 않고 적는다.**
+
+Elasticsearch 를 철거하며 `rotate-elasticsearch-password` CronJob 과
+`elasticsearch-secret` 을 함께 지웠다. OpenSearch 쪽에 대응물을 만들지 않았으므로
+**지금 검색 계층의 비밀번호는 로테이션되지 않는다.** 다른 DB 5종(PostgreSQL·
+MariaDB·MongoDB·Redis·MinIO)은 그대로 돈다.
+
+**왜 바로 만들지 않았나 — 모양이 다르다.**
+
+다른 DB 의 로테이션은 "Secret 을 바꾸고 → reloader 가 소비자를 재시작한다" 이다.
+OpenSearch 는 그 모양이 아니다:
+
+```
+opensearch-secret(admin/ingest/dashboards 비밀번호)
+  └─ StatefulSet 의 initContainer 가 hash.sh 로 bcrypt 해시를 만들어
+     internal_users.yml 을 **굽는다**  →  config/opensearch-security/
+        └─ OpenSearch 가 기동할 때 그 파일을 보안 인덱스로 올린다
+```
+
+즉 **Secret 만 바꾸면 아무 일도 일어나지 않는다.** 파드를 다시 만들어야 하고,
+굽는 동안(초기화 + 기동 약 1분) 인증이 흔들린다. 그 사이 Data Prepper 의 수집이
+401 로 끊기고, 재시도 큐가 차면 로그가 유실될 수 있다.
+
+★ 그리고 **소비자가 셋이라 순서가 있다** — `ingest`(Data Prepper) · `admin`(사람·
+Grafana·CronJob) · `kibanaserver`(Dashboards). 셋을 한 번에 바꾸면 전부 동시에
+끊긴다.
+
+**두 가지 설계 중 하나를 골라야 한다:**
+
+① **security REST API 로 바꾸기** — `PUT _plugins/_security/api/internalusers/<user>`
+   로 비밀번호만 갱신한다. 파드 재시작이 필요 없다. 대신 `internal_users.yml`(굽는
+   원천)과 **살아 있는 보안 인덱스가 어긋난다** — 다음 재시작에 옛 값으로 되돌아간다.
+   그래서 Secret·파일·인덱스 셋을 함께 맞추는 Job 이 필요하다.
+② **OIDC 로 옮기고 로컬 계정을 줄이기** — OpenSearch security 플러그인은 OIDC 를
+   **무료로** 지원한다(Elastic 은 Enterprise). 사람 계정을 Keycloak 으로 옮기면
+   로테이션 대상이 기계 계정(`ingest`) 하나로 줄어든다. SEC-205 의 방향과도 맞는다.
+
+**지금 하지 않는 이유**: ②가 ①을 대부분 불필요하게 만드는데, ②는 Keycloak 클라이언트
+설정과 roles_mapping 이 함께 필요해 별도 작업이다. ①을 먼저 만들면 ② 뒤에 버린다.
+
+**복귀 조건**: 이 클러스터가 랩을 벗어나거나, SEC-4xx 가 검색 계층 자격의 수명을
+요구할 때. 그 전에 ②(OIDC)를 먼저 검토할 것 — §9-1 의 OpenSearch 행이 "지금 얻은
+것은 선택지" 라고 적어 둔 그 선택지다.
+
+
 ## 10. Hyper-V 배포(ADR-051 A안) 재검토 — 2026-09-05 실측
 
 §8-31 에서 H5(Hyper-V 합성 NIC 의 Cilium eBPF)가 해소되어 **기술적 중단 사유는
@@ -13958,6 +14005,50 @@ kubectl -n local run pulltest --image=<이미지> --restart=Never --command -- t
 필요로 한다.
 
 ---
+
+
+### 25-2. OPNsense 의 syslog-ng 목적지 — Suricata 가 들어오는 유일한 경로
+
+★★ **2026-09-11 에 드러났다: 이 경로가 끊겨 있었고, 정책이 그것을 가리고 있었다.**
+
+실측 출발점 — OpenSearch 로 옮긴 뒤 `suricata-*` 인덱스가 **0건**이었다. 게스트는
+떠 있었고(`qemu-system-x86_64 -name l0-opnsense`), Logstash 는 5140 을 정상으로
+열고 있었으며, `allow-logstash-access` 에 `ipBlock: 10.77.0.0/24` 로 5140 이
+허용되어 있었다. 그런데도 한 건도 오지 않았다.
+
+원인은 **도달 가능성**이다:
+
+```
+zeek-ship     클러스터 *안*  →  logstash-headless:5141  (CoreDNS 로 풀린다)   ✅
+OPNsense      클러스터 *밖*  →  logstash-headless:5140  (풀 방법이 없다)      ❌
+                                  헤드리스 ClusterIP · NodePort 없음 · hostPort 없음
+```
+
+★ **정책은 도달 가능성을 만들지 않는다.** `ipBlock` 규칙이 열려 있으니 경로가 있는
+줄 알게 된다 — 이 레포가 반복해서 밟은 "설정은 있고, 아무도 읽지 않고, 오류는 없다"
+의 한 변종이다(Gotcha 84·85·95 계열). 과거에 데이터가 들어온 것은
+`kubectl port-forward` 로 우회했기 때문이고, 그것은 파드를 재생성하면 조용히
+끊긴다(§8-50 · Gotcha 12).
+
+**클러스터 쪽은 고쳤다** — `logstash-suricata` NodePort 를 만들었다
+(`kubernetes/base/observability/logstash/logstash-headless.yaml`):
+
+```
+type: NodePort · port 5140 -> nodePort 30514
+externalTrafficPolicy: Local     # 소스 IP 보존. 기본값 Cluster 는 SNAT 해서
+                                 # ipBlock 10.77.0.0/24 규칙이 매칭되지 않는다
+```
+
+실측: `127.0.0.1:30514` · `172.25.102.72:30514`(노드 InternalIP) ·
+**`10.77.0.190:30514`**(`l0-lan` 브리지 — 랩이 보낼 주소) 셋 다 열린다.
+
+**랩 쪽은 이 레포 밖이다 — 클러스터를 새로 세우거나 랩을 되살릴 때 다시 해야 한다.**
+OPNsense 의 syslog-ng 원격 목적지를 `10.77.0.190:30514`(TCP)로 두고 Suricata 의
+EVE JSON 을 그쪽으로 보낸다. ★ 노드의 `l0-lan` 주소가 바뀌면 함께 고쳐야 한다.
+
+**판정법**: 건수가 아니라 **최신 문서 시각**으로 본다(Gotcha 12) —
+`curl -sk -u admin:<pw> https://localhost:9200/suricata-*/_search?size=1&sort=@timestamp:desc`
+의 `@timestamp` 가 몇 분 이내인지. 인덱스가 아예 없으면 한 건도 온 적이 없는 것이다.
 
 ## 관련 문서
 

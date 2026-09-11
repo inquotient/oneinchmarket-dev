@@ -17,12 +17,20 @@ echo ""
 
 # 1. CronJob 존재 확인
 echo "=== 1. 로테이션 CronJob 존재 확인 ==="
+# ★ Elasticsearch 항목을 걷어냈다(2026-09-11) — 엔진을 OpenSearch 로 바꾸며
+#   rotate-elasticsearch-password CronJob 과 elasticsearch-secret 을 함께
+#   지웠기 때문이다. **그래서 검색 계층의 비밀번호 로테이션은 지금 없다** —
+#   이것은 커버리지 회귀이고, 숨기지 않고 여기 적어 둔다.
+#   왜 바로 만들지 않았나: OpenSearch 의 자격은 StatefulSet 의 initContainer 가
+#   `internal_users.yml` 로 **굽는다**. Secret 만 바꾸면 반영되지 않고 파드를
+#   다시 만들어야 한다(reloader 가 그 일을 하지만, 굽는 동안 인증이 흔들린다).
+#   즉 다른 DB 의 "Secret 만 바꾸면 되는" 모양과 달라서 별도 설계가 필요하다.
+#   LOCAL-DEPLOYMENT §9-17 에 복귀 조건과 함께 적었다.
 CRONJOBS=(
   "rotate-postgresql-password"
   "rotate-mariadb-password"
   "rotate-mongodb-password"
   "rotate-redis-password"
-  "rotate-elasticsearch-password"
   "rotate-minio-password"
   "rotate-admin-passwords"
   "rotation-git-sync"
@@ -46,7 +54,6 @@ SECRETS=(
   "mariadb-secret"
   "mongodb-secret"
   "redis-secret"
-  "elasticsearch-secret"
   "minio-secret"
   "keycloak-secret"
   "gitlab-secret"
@@ -116,10 +123,7 @@ cat << 'DEPMAP'
   Redis 비번 변경
   └── keycloak-secret → Keycloak 재시작
 
-  Elasticsearch 비번 변경
-  ├── kibana → Kibana 재시작
-  ├── logstash → Logstash 재시작
-  └── filebeat → Filebeat 재시작
+  (OpenSearch 는 로테이션이 없다 — 아래 주석 참조)
 
   MinIO 비번 변경
   ├── trino → Trino 재시작
