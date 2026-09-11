@@ -70,9 +70,18 @@ spec:
             - name: AIRFLOW__API_AUTH__JWT_SECRET
               valueFrom:
                 secretKeyRef: { name: airflow-secret, key: jwt-secret }
+          # ★★ exec 프로브에 `timeoutSeconds` 를 주지 않으면 **기본값이 1초**다.
+          #   `airflow` CLI 는 파이썬 프레임워크를 통째 임포트해
+          #   실측 **3.1초**가 걸린다(`airflow version` 만 해도 2.6초).
+          #   그래서 검사는 rc=0 으로 **성공하는데** kubelet 이 1초에 잘라
+          #   startupProbe 가 영원히 통과하지 못하고 컨테이너가 죽는다.
+          #   ★ 증상이 고약하다 — **로그는 멀줦하다**(스케줄러는 워커를 띄우고
+          #     triggerer 는 서버를 띄운다). 단서는 이벤트의
+          #     `Startup probe failed: command timed out ... after 1s` 뿐이다 — Gotcha 152.
           startupProbe:
             exec:
               command: ["airflow", "jobs", "check", "--job-type", "DagProcessorJob", "--local"]
+            timeoutSeconds: 15
             periodSeconds: 10
             failureThreshold: 30
           livenessProbe:
