@@ -426,6 +426,12 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 136. **OIDC 는 브라우저와 백엔드가 Keycloak 을 **같은 URL 로** 봐야 한다 — port-forward 랩에서 이것이 제일 먼저 걸린다.** 브라우저는 메타데이터의 `authorization_endpoint` 로 리다이렉트되고 백엔드는 같은 메타데이터로 토큰을 교환한다. 두 쪽이 다른 이름을 쓰면 `iss` 가 갈려 로그인이 깨진다(Keycloak 은 `iss` 를 요청 Host 로 만든다 — Gotcha 69). ★ 백엔드는 클러스터 안이라 `keycloak-headless:8080` 밖에 못 쓰므로 **브라우저 쪽을 그 이름에 맞춘다** — Windows hosts 에 `127.0.0.1 keycloak-headless` 를 넣고 `port-forward keycloak-0 8080:8080`(ACCESS.md §1-c). ★★ 그리고 콜백 URL 은 `backend.baseUrl` + `/api/auth/oidc/handler/frame` 이라 **baseUrl 이 브라우저가 실제로 쓰는 포트와 정확히 같아야 한다** — 이 레포는 ACCESS.md 가 17007 로 안내하는데 app-config 는 7007 이었다. guest 일 때는 드러나지 않던 불일치다.
      ★ 사인인 리졸버(`emailLocalPartMatchingUserEntityName`)는 **카탈로그의 User 엔티티와 짝지어야 한다** — 없으면 인증은 성공하고 사인인이 `user not found` 로 실패한다. 증상이 자격 문제처럼 보이므로 Keycloak 을 먼저 뒤지게 된다
 
+137. **OIDC 로 옮기면 guest 에는 없던 요구가 셋 드러난다 — 하나씩 실패하며 나온다.** Backstage 를 guest 에서 Keycloak OIDC 로 옮기며 순서대로 밟았다.
+     ① **세션** — `/api/auth/oidc/start` 가 `500 Authentication failed, authentication requires session support` 로 죽는다. `auth.session.secret` 이 필요하다(nonce·state 를 담아 CSRF 를 막는다). 키 이름은 추측하지 말고 설치된 `@backstage/plugin-auth-backend/config.schema.json` 에서 확인할 것 — `visibility: secret` 으로 표시돼 있다. **`backend.auth.keys` 와 다른 값을 쓸 것**(§8-44).
+     ② **기본 설정 파일** — 자체 빌드 이미지에서는 `app-config.yaml` 을 런타임 단계로 **직접 복사**해야 한다. `bundle.tar.gz` 에 들어 있지 않아 `NotFoundError: Config file "/app/app-config.yaml" does not exist` 로 즉사한다. 운영 설정은 ConfigMap 이 subPath 로 덮지만 **덮을 대상이 먼저 있어야** 한다.
+     ③ **`/app` 소유권** — `WORKDIR /app` 이 만든 디렉터리는 root 소유다. `USER node` 로 넘어간 뒤 `tar x` 가 `Cannot mkdir: Permission denied` 로 죽는다. `COPY --chown` 은 **파일 소유만** 바꾸고 디렉터리 쓰기 권한을 주지 않는다 — `RUN chown node:node /app` 을 USER 앞에 둘 것.
+     ★ 그리고 **성공의 판정이 바뀐다**: 카탈로그 API 가 `401 Missing credentials` 를 돌려주는 것이 정상이다(전에는 익명 guest 로 열려 있었다). 확인은 API 가 아니라 DB 로 한다 — `pluginDivisionMode: schema` 면 스키마 이름이 **플러그인 id 그대로**(`catalog`)이지 `backstage_plugin_catalog` 가 아니다
+
 ### 매니페스트 작업 시
 
 - `v1/` 매니페스트는 **배포 금지**. 단 CI가 이 경로의 Dockerfile을 참조한다는 모순이 있다
