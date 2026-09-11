@@ -1,0 +1,117 @@
+# Airflow scheduler — LocalExecutor 라 **태스크가 이 파드 안에서 돈다.**
+#
+# ★★ 그래서 이 파드의 limit 이 곧 동시 태스크 예산이다. Celery 로 가면
+#   워커가 분리되지만 Redis 와 워커 파드가 늘어난다 — 노드가 84% 인 지금은
+#   맞바꿈이 유리하지 않다. 태스크가 무거워지는 날 다시 볼 것.
+#
+# ★ 태스크 로그는 이 파드의 8793(로그 서버)에서 api-server 가 가져간다.
+#   `allow-airflow-log-fetch` 가 그 포트를 열지 않으면 UI 에 로그가 비어
+#   보이고, 원인은 Airflow 쪽에 아무 단서도 남기지 않는다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow-scheduler
+  labels:
+    app.kubernetes.io/name: airflow
+    app.kubernetes.io/component: orchestration
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 0, maxUnavailable: 1 }
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: airflow
+      app.kubernetes.io/instance: scheduler
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: airflow
+        app.kubernetes.io/instance: scheduler
+        app.kubernetes.io/component: orchestration
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: airflow-scheduler
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 50000
+        runAsGroup: 0
+        fsGroup: 0
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: scheduler
+          image: docker.io/apache/airflow:3.3.1
+          imagePullPolicy: IfNotPresent
+          args: ["scheduler"]
+          ports:
+            - { name: logs, containerPort: 8793 }
+          envFrom:
+            - configMapRef: { name: airflow-env }
+          env:
+            - name: AIRFLOW_DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: airflow-secret, key: db-password }
+            - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN_CMD
+              value: 'printf "postgresql+psycopg2://airflow:%s@postgresql-headless:5432/airflow" "$AIRFLOW_DB_PASSWORD"'
+            - name: AIRFLOW__CORE__FERNET_KEY
+              valueFrom:
+                secretKeyRef: { name: airflow-secret, key: fernet-key }
+            - name: AIRFLOW__API__SECRET_KEY
+              valueFrom:
+                secretKeyRef: { name: airflow-secret, key: api-secret-key }
+            - name: AIRFLOW__API_AUTH__JWT_SECRET
+              valueFrom:
+                secretKeyRef: { name: airflow-secret, key: jwt-secret }
+          # ★ HTTP 프로브를 두지 말 것 — 스케줄러는 HTTP 를 내지 않는다.
+          #   `jobs check --local` 이 메타데이터 DB 의 하트비트를 본다.
+          startupProbe:
+            exec:
+              command: ["airflow", "jobs", "check", "--job-type", "SchedulerJob", "--local"]
+            periodSeconds: 10
+            failureThreshold: 30
+          livenessProbe:
+            exec:
+              command: ["airflow", "jobs", "check", "--job-type", "SchedulerJob", "--local"]
+            periodSeconds: 60
+            timeoutSeconds: 20
+            failureThreshold: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - { name: dags, mountPath: /opt/airflow/dags, readOnly: true }
+            - { name: logs, mountPath: /opt/airflow/logs }
+          resources:
+            requests: { cpu: 200m, memory: 640Mi }
+            limits:   { cpu: 2000m, memory: 1536Mi }
+      volumes:
+        - name: dags
+          configMap: { name: airflow-dags }
+        - name: logs
+          emptyDir: {}
+---
+# 로그 서버 전용 서비스. api-server 는 태스크가 기록한 **파드 IP** 로 직접
+# 가므로(hostname_callable) 이 Service 가 이름 해석에 쓰이지는 않는다 —
+# 포트를 문서화하고 NetworkPolicy 의 대상을 분명히 하기 위해 둔다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: airflow-scheduler-logs
+  labels:
+    app.kubernetes.io/name: airflow
+    app.kubernetes.io/component: orchestration
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: airflow
+    app.kubernetes.io/instance: scheduler
+  ports:
+    - { name: logs, port: 8793, targetPort: 8793 }

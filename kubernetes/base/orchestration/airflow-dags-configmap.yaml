@@ -1,0 +1,175 @@
+# Airflow DAG — ConfigMap 으로 싣는다.
+#
+# ★ 왜 git-sync 가 아닌가 — 이 레포는 ArgoCD 가 이미 git 을 읽어 적용한다.
+#   사이드카를 하나 더 두면 **같은 git 을 두 경로로** 보게 되고, 어긋나는 날
+#   "고쳤는데 반영이 안 된다" 가 된다. DAG 이 수십 개가 되면 그때 다시 볼 것.
+#
+# ★★ 마운트가 읽기 전용이라 Airflow 가 `.pyc` 를 쓰지 못한다 —
+#   `PYTHONDONTWRITEBYTECODE=1` 이 env ConfigMap 에 있다.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: airflow-dags
+  labels:
+    app.kubernetes.io/name: airflow
+    app.kubernetes.io/component: orchestration
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+data:
+  openmeter_billing_chain.py: |
+    """과금 배치 넷을 순서대로 돌린다.
+
+    ★★★ 이것이 Airflow 를 들인 이유다. 지금 이 넷은 CronJob 으로 각자
+        돌면서 **서로를 모른다**:
+
+          openmeter-dlq-replay              */15   재처리
+          openmeter-subscription-sync       매시 0분
+          openmeter-billing-advance-invoices */5
+          openmeter-billing-collect-invoices */5
+
+        순서가 실재한다 — 늦게 도착한 사용량은 DLQ 재처리가 끝나야 계량에
+        들어가고, 그 뒤에 인보이스를 진행해야 그 사용량이 실린다. 지금은
+        시각으로 **밀어 맞추고** 있을 뿐이라, 재처리가 실패해도 인보이스는
+        그대로 진행된다. 그 결과가 §8-90 이 실측한 것이다 — 경계 이전
+        사용량이 어느 인보이스에도 실리지 않는 **매출 누락**.
+
+    ★★ 기본이 **정지(paused)** 다. 그리고 첫 태스크가 CronJob 넷이 실제로
+        suspend 되었는지 검사하고 아니면 **실패한다**. 둘을 함께 돌리면
+        인보이스를 두 번 진행하게 되는데, 청구는 소급 재해석이 불가능하다
+        (Gotcha 15). 전환은 "CronJob 을 suspend 하고 → 이 DAG 을 켠다"
+        순서로만 한다.
+    """
+    from __future__ import annotations
+
+    import time
+    from datetime import timedelta
+
+    import pendulum
+    from airflow.sdk import dag, task
+
+    NS_FILE = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
+    CRONJOBS = [
+        "openmeter-dlq-replay",
+        "openmeter-subscription-sync",
+        "openmeter-billing-advance-invoices",
+        "openmeter-billing-collect-invoices",
+    ]
+
+
+    def _clients():
+        from kubernetes import client, config
+
+        config.load_incluster_config()
+        return client.BatchV1Api(), client.CoreV1Api()
+
+
+    def _namespace() -> str:
+        with open(NS_FILE, encoding="utf-8") as fh:
+            return fh.read().strip()
+
+
+    @dag(
+        dag_id="openmeter_billing_chain",
+        description="과금 배치 4종을 의존 순서대로 — CronJob 을 대체한다",
+        schedule="*/15 * * * *",
+        start_date=pendulum.datetime(2026, 9, 1, tz="Asia/Seoul"),
+        catchup=False,
+        max_active_runs=1,
+        is_paused_upon_creation=True,
+        default_args={"retries": 0},
+        tags=["billing", "openmeter"],
+    )
+    def openmeter_billing_chain():
+
+        @task
+        def assert_cronjobs_suspended() -> str:
+            """CronJob 넷이 전부 suspend 인지 확인한다. 아니면 멈춘다.
+
+            ★ 이 검사가 없으면 DAG 을 켜는 순간 같은 일이 두 번 돈다.
+              조용한 오설정보다 시끄러운 실패가 낫다(Gotcha 86).
+            """
+            batch, _ = _clients()
+            ns = _namespace()
+            live = []
+            for name in CRONJOBS:
+                cj = batch.read_namespaced_cron_job(name, ns)
+                if not cj.spec.suspend:
+                    live.append(name)
+            if live:
+                raise RuntimeError(
+                    "CronJob 이 아직 살아 있다: "
+                    + ", ".join(live)
+                    + " — 이 DAG 과 동시에 돌면 인보이스를 두 번 진행한다. "
+                    "`kubectl -n " + ns + " patch cronjob <이름> "
+                    '-p \'{"spec":{"suspend":true}}\' \' 먼저 할 것.'
+                )
+            return ns
+
+        @task
+        def run(cronjob: str, ns: str) -> str:
+            """CronJob 의 jobTemplate 으로 Job 을 하나 만들고 끝날 때까지 본다.
+
+            ★ `kubectl create job --from=cronjob/<이름>` 과 같은 일이다.
+              ownerReferences 는 **붙이지 않는다** — 붙이면 그 CronJob 의
+              lastSuccessfulTime 을 건드려 ArgoCD 건강 판정이 흔들린다
+              (Gotcha 106 과 반대 방향의 이유다).
+            """
+            from kubernetes import client
+
+            batch, core = _clients()
+            cj = batch.read_namespaced_cron_job(cronjob, ns)
+            name = "{}-af-{}".format(cronjob, int(time.time()))
+            job = client.V1Job(
+                metadata=client.V1ObjectMeta(
+                    name=name[:63],
+                    labels={
+                        "app.kubernetes.io/part-of": "oneinchmarket",
+                        "app.kubernetes.io/managed-by": "airflow",
+                        "oim.airflow/source-cronjob": cronjob,
+                    },
+                ),
+                spec=cj.spec.job_template.spec,
+            )
+            job.spec.ttl_seconds_after_finished = 900
+            batch.create_namespaced_job(ns, job)
+
+            deadline = time.time() + 900
+            while time.time() < deadline:
+                st = batch.read_namespaced_job_status(name[:63], ns).status
+                if st.succeeded:
+                    return name[:63]
+                if st.failed:
+                    pods = core.list_namespaced_pod(
+                        ns, label_selector="job-name={}".format(name[:63])
+                    )
+                    tail = ""
+                    if pods.items:
+                        tail = core.read_namespaced_pod_log(
+                            pods.items[0].metadata.name, ns, tail_lines=40
+                        )
+                    raise RuntimeError(
+                        "{} 실패\n--- 로그 ---\n{}".format(cronjob, tail)
+                    )
+                time.sleep(5)
+            raise RuntimeError("{} 가 900초 안에 끝나지 않았다".format(cronjob))
+
+        ns = assert_cronjobs_suspended()
+
+        # ★ 순서가 곧 이 DAG 의 값이다. 재처리 -> 구독 동기화 -> 인보이스 진행
+        #   -> 수금. 앞이 실패하면 뒤는 **돌지 않는다** — CronJob 은 그러지
+        #   못한다.
+        replay = run.override(task_id="dlq_replay")("openmeter-dlq-replay", ns)
+        sync = run.override(task_id="subscription_sync")(
+            "openmeter-subscription-sync", ns
+        )
+        advance = run.override(task_id="advance_invoices")(
+            "openmeter-billing-advance-invoices", ns
+        )
+        collect = run.override(task_id="collect_invoices")(
+            "openmeter-billing-collect-invoices", ns
+        )
+
+        replay >> sync >> advance >> collect
+
+
+    openmeter_billing_chain()

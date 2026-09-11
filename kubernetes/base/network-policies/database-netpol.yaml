@@ -62,6 +62,13 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: openmeter
+        # ★ Airflow — 구성요소 넷이 전부 같은 메타데이터 DB 를 쓴다.
+        #   name 라벨이 넷 다 `airflow` 라 한 줄로 덮인다(instance 로 갈린다).
+        #   Istio allow-database-access 의 5432 규칙에도 같은 신원이 있어야
+        #   한다 — 한쪽만 고치면 connection reset 이다.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: airflow
       ports:
         - protocol: TCP
           port: 5432

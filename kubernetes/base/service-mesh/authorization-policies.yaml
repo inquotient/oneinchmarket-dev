@@ -82,6 +82,12 @@ spec:
               - "*/sa/backstage"
               # Temporal — 이력·가시성 DB 를 PostgreSQL 에 둔다(2026-09-11).
               - "*/sa/temporal"
+              # Airflow — SA 가 셋이다(Gotcha 10 으로 권한 경계를 나눴다).
+              # ★ 중간 `*` 는 리터럴이라 `*/sa/airflow*` 로 묶을 수 없다 —
+              #   이 레포가 26곳에서 밟은 그 함정이다(§8-47). 셋을 나열한다.
+              - "*/sa/airflow"
+              - "*/sa/airflow-scheduler"
+              - "*/sa/airflow-bootstrap"
       to:
         - operation:
             ports: ["5432"]

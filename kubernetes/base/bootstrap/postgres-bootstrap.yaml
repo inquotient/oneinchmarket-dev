@@ -177,6 +177,10 @@ spec:
               #   (그 컨테이너는 SKIP_DB_CREATE=true 로 돈다).
               ensure temporal       temporal            "$TEMPORAL_DB_PASSWORD"
               ensure temporal       temporal_visibility "$TEMPORAL_DB_PASSWORD"
+              # ★ Airflow — 메타데이터(DAG·태스크 이력·FAB 사용자)를 여기 둔다.
+              #   스키마는 `airflow db migrate`(airflow-db-migrate Job)가 넣는다 —
+              #   여기서는 DB 와 롤만 만든다. Temporal 과 달리 DB 는 하나다.
+              ensure airflow        airflow             "$AIRFLOW_DB_PASSWORD"
               # ★★ 확장 셋은 **superuser 권한**이 필요해 여기서 만든다.
               #   midPoint 의 postgres.sql 이 이것들을 요구하는데, 그 SQL 은
               #   **midpoint 롤로** 들어가야 한다(아니면 테이블이 postgres 소유가
@@ -219,6 +223,8 @@ spec:
               valueFrom: { secretKeyRef: { name: midpoint-secret, key: db-password } }
             - name: TEMPORAL_DB_PASSWORD
               valueFrom: { secretKeyRef: { name: temporal-secret, key: db-password } }
+            - name: AIRFLOW_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: airflow-secret, key: db-password } }
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

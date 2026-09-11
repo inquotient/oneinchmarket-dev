@@ -6,6 +6,22 @@ kind: Kustomization
 commonAnnotations:
   argocd.argoproj.io/sync-wave: "4"
 resources:
+  # ── Airflow 3.3.1 (2026-09-12 도입) ────────────────────
+  # ★ Temporal 과 같은 wave 지만 역할이 다르다 — Temporal 은 **사건별**
+  #   durable 워크플로(독촉 절차)이고, Airflow 는 **시간별** 배치다.
+  #   둘을 하나로 묶지 않은 이유는 재시도·상태 모델이 다르기 때문이다.
+  # ★★ db-migrate 는 훅이라 매 동기화마다 다시 돈다 — 멱등해야 한다
+  #   (Job 의 spec.template 은 불변이라 훅이 아니면 동기화가 멈춘다, Gotcha 58).
+  - airflow-sa.yaml
+  - airflow-configmap.yaml
+  - airflow-dags-configmap.yaml
+  - airflow-db-migrate.yaml
+  - airflow-apiserver-deployment.yaml
+  - airflow-scheduler-deployment.yaml
+  - airflow-dag-processor-deployment.yaml
+  - airflow-triggerer-deployment.yaml
+  - airflow-netpol.yaml
+  # ── Temporal ───────────────────────────────────────────
   - temporal-headless.yaml
   - temporal-statefulset.yaml
   - temporal-ui-deployment.yaml

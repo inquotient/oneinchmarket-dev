@@ -68,6 +68,7 @@ pw() { $K get secret "$1" -o jsonpath="{.data.$2}" | base64 -d; echo; }
 | Pyroscope | `$K port-forward svc/pyroscope 4040:4040` | http://localhost:4040 | 없음 | — |
 | kube-state-metrics | `$K port-forward deploy/kube-state-metrics 8080:8080` | http://localhost:8080/metrics | 없음 | — |
 | **Pyrra**(SLO) | `$K port-forward deploy/pyrra 9099:9099` | http://localhost:9099 | 없음 | — |
+| **Airflow** | `$K port-forward deploy/airflow-apiserver 18080:8080` | http://localhost:18080 | `admin` | `pw airflow-secret admin-password` |
 
 > ★ **Pyrra 에서 오차 예산이 비어 보이면 그것이 정상이다** — Pyrra 는 filesystem 모드라
 > SLO 정의를 읽어 규칙을 만들기만 하고, **그 규칙을 Prometheus 가 아직 먹지 않는다**

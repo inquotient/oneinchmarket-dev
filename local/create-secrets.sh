@@ -58,6 +58,19 @@ mk redis-secret       "redis-password=$REDIS"
 mk backstage-secret "db-password=$(gen)" "backend-secret=$(gen 32)" "oidc-client-secret=$(gen 32)" "session-secret=$(gen 32)"
 # Temporal — 이력·가시성 DB 를 같은 롤로 쓴다(postgres-bootstrap 이 둘을 만든다).
 mk temporal-secret "db-password=$(gen)"
+# Airflow — 넷이 필요하고 서로 역할이 다르다.
+#   db-password     메타데이터 DB (postgres-bootstrap 이 같은 값을 쓴다)
+#   fernet-key      연결·변수를 DB 에 암호화해 넣는 키
+#   api-secret-key  세션 서명
+#   jwt-secret      태스크 실행 API 의 토큰 서명
+#   admin-password  UI 관리자(FAB) — db-migrate Job 이 이 값으로 맞춘다
+# ★★ fernet-key 는 아무 난수가 아니다 — **32바이트를 urlsafe base64** 한
+#   값이어야 한다. `gen` 의 hex 문자열을 주면 Airflow 가
+#   `Fernet key must be 32 url-safe base64-encoded bytes` 로 기동하지 않는다.
+# ★ 이 키를 바꾸면 그 전에 암호화된 연결·변수를 영원히 못 읽는다
+#   (GitLab 의 db_key_base 와 같은 부류 — Gotcha 51·72).
+fernet() { python3 -c "import base64,os,sys; sys.stdout.write(base64.urlsafe_b64encode(os.urandom(32)).decode())"; }
+mk airflow-secret "db-password=$(gen)" "fernet-key=$(fernet)" "api-secret-key=$(gen 32)" "jwt-secret=$(gen 32)" "admin-password=$(gen 24)"
 # OpenSearch — security 플러그인의 internal_users. StatefulSet 의 initContainer 가
 # 이 값들을 bcrypt 해시로 바꿔 internal_users.yml 을 렌더한다(평문은 저장되지 않는다).
 #   admin      — 사람이 쓰는 관리 계정 · Dashboards 로그인

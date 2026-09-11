@@ -1,0 +1,40 @@
+# Airflow 내부 경로.
+#
+# ★★ 이 파일이 여는 것은 **하나**다 — api-server → scheduler:8793(로그 서버).
+#   없으면 UI 의 태스크 로그가 비어 보이고, 그 실패는 Airflow 쪽에 아무
+#   단서도 남기지 않는다(설정은 있고, 닿지 않고, 오류는 없다 —
+#   Gotcha 33·84·95 와 같은 부류).
+#
+# ★ PostgreSQL 로 나가는 길은 여기 없다 — 그것은 `allow-postgresql-access`
+#   (NetworkPolicy)와 `allow-database-access`(Istio)의 몫이고 둘 다
+#   airflow 를 넣어 두었다. **두 곳을 함께 고칠 것**: 한쪽만 고치면
+#   ztunnel 이 조용히 끊어 "DB 자격이 틀렸다" 로 읽힌다(Gotcha 9·19).
+#
+# ★ UI(8080)에 대한 ingress 규칙은 두지 않는다 — 접근 경로가
+#   `kubectl port-forward` 하나뿐이고(노드에서 오는 경로라 이 정책의
+#   대상이 아니다), 게이트웨이 경로에 넣는 것은 별도 결정이다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-airflow-log-fetch
+  labels:
+    app.kubernetes.io/name: allow-airflow-log-fetch
+    app.kubernetes.io/component: orchestration
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: airflow
+      app.kubernetes.io/instance: scheduler
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: airflow
+              app.kubernetes.io/instance: apiserver
+      ports:
+        - protocol: TCP
+          port: 8793

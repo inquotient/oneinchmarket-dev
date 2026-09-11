@@ -1,0 +1,114 @@
+# Airflow 메타데이터 스키마 설치 + 관리자 계정.
+#
+# ★ ArgoCD 훅으로 둔다 — Job 의 spec.template 은 불변이라 그냥 두면 두 번째
+#   동기화가 `field is immutable` 로 **500건을 통째로 멈춘다**(Gotcha 58).
+#
+# ★★ 두 일을 한 Job 에 담는 이유: 순서가 고정이고(스키마 없이는 사용자를
+#   만들 수 없다) 둘 다 **멱등**이다. `db migrate` 는 이미 최신이면 아무 일도
+#   하지 않고, 사용자는 있으면 비밀번호만 맞춘다.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: airflow-db-migrate
+  labels:
+    app.kubernetes.io/name: airflow
+    app.kubernetes.io/component: orchestration
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: airflow
+        app.kubernetes.io/component: orchestration
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: airflow-bootstrap
+      securityContext:
+        runAsNonRoot: true
+        # ★★ uid 50000 · gid 0 이다 — 이 레포 기본값(1000/1000)이 아니다.
+        #   `apache/airflow` 이미지의 디렉터리가 **root 그룹 쓰기**로 만들어져
+        #   있어 gid 0 이어야 한다(실측: config 의 User 는 `50000`,
+        #   /etc/passwd 는 `airflow:x:50000:0`). Gotcha 122 의 자리다.
+        #   root 가 아니므로 Kyverno `disallow-root` 에는 걸리지 않는다.
+        runAsUser: 50000
+        runAsGroup: 0
+        fsGroup: 0
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: docker.io/apache/airflow:3.3.1
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -Eeuo pipefail
+              echo "[airflow-init] 스키마 설치/업그레이드"
+              airflow db migrate
+
+              echo "[airflow-init] 관리자 계정"
+              # ★ `users create` 는 이미 있으면 실패한다 — 있으면 비밀번호만
+              #   맞춘다. 둘 다 멱등이라 동기화마다 다시 돌아도 안전하다.
+              # ★★ `grep -q` 를 쓰지 말 것 — Gotcha 109. `-q` 는 첫 매치에서
+              #   즉시 끝나 앞단이 SIGPIPE 로 죽고, `pipefail` 이 그것을
+              #   파이프라인 실패로 판정해 **있는데 없다**가 된다. 그러면
+              #   create 가 돌고 "이미 있다" 로 실패해 Job 이 죽는다.
+              #   `grep -c` 는 입력을 끝까지 읽으므로 그 함정이 없다.
+              have=$(airflow users list 2>/dev/null | grep -cw "$AIRFLOW_ADMIN_USER" || true)
+              if [ "${have:-0}" -gt 0 ]; then
+                airflow users reset-password                   --username "$AIRFLOW_ADMIN_USER"                   --password "$AIRFLOW_ADMIN_PASSWORD"
+              else
+                airflow users create                   --username "$AIRFLOW_ADMIN_USER"                   --firstname Platform --lastname Admin                   --role Admin --email admin@oneinchmarket.co.kr                   --password "$AIRFLOW_ADMIN_PASSWORD"
+              fi
+
+              # ★★ 판정을 "명령이 끝났다" 로 하지 말 것(Gotcha 12).
+              #   사용자가 실제로 보이는지, 스키마 테이블이 섰는지로 본다.
+              n=$(airflow users list 2>/dev/null | grep -cw "$AIRFLOW_ADMIN_USER" || true)
+              if [ "$n" -lt 1 ]; then
+                echo "[airflow-init] 관리자 계정이 보이지 않는다" >&2; exit 1
+              fi
+              echo "[airflow-init] 완료 — 관리자 1명 확인"
+          envFrom:
+            - configMapRef:
+                name: airflow-env
+          env:
+            # ★ 접속 문자열을 **파드 안에서 조립**한다. `_CMD` 변종은 Airflow 가
+            #   그 명령의 stdout 을 값으로 쓴다 — 비밀번호가 ConfigMap 에도
+            #   프로세스 인자에도 남지 않는다.
+            - name: AIRFLOW_DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: airflow-secret, key: db-password }
+            - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN_CMD
+              value: 'printf "postgresql+psycopg2://airflow:%s@postgresql-headless:5432/airflow" "$AIRFLOW_DB_PASSWORD"'
+            - name: AIRFLOW__CORE__FERNET_KEY
+              valueFrom:
+                secretKeyRef: { name: airflow-secret, key: fernet-key }
+            - name: AIRFLOW__API__SECRET_KEY
+              valueFrom:
+                secretKeyRef: { name: airflow-secret, key: api-secret-key }
+            - name: AIRFLOW__API_AUTH__JWT_SECRET
+              valueFrom:
+                secretKeyRef: { name: airflow-secret, key: jwt-secret }
+            - name: AIRFLOW_ADMIN_USER
+              value: admin
+            - name: AIRFLOW_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: airflow-secret, key: admin-password }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - { name: logs, mountPath: /opt/airflow/logs }
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits:   { cpu: 1000m, memory: 768Mi }
+      volumes:
+        - name: logs
+          emptyDir: {}

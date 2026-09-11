@@ -1,0 +1,65 @@
+# Airflow 3.3.1 공통 설정.
+#
+# ★ 왜 ConfigMap 하나에 모으는가 — 구성요소가 **넷**(api-server · scheduler ·
+#   dag-processor · triggerer)이고 전부 같은 설정을 읽어야 한다. Deployment
+#   마다 env 를 적으면 넷이 어긋나는 날이 오고, 그때 증상은 "스케줄러만
+#   이상하다" 로 보인다. `envFrom` 으로 한 곳에서 먹인다.
+#
+# ★★ 비밀은 여기 없다. DB 비밀번호·Fernet 키·JWT 시크릿은 Secret 에서 오고,
+#   접속 문자열은 `..._CMD` 변종으로 **파드 안에서 조립**한다(아래 참조) —
+#   ConfigMap 에 비밀번호가 든 URL 을 적지 않기 위해서다.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: airflow-env
+  labels:
+    app.kubernetes.io/name: airflow
+    app.kubernetes.io/component: orchestration
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+data:
+  # ── 실행기 ────────────────────────────────────────────────
+  # ★ LocalExecutor 는 3.3 의 **기본값**이지만 명시한다 — 기본값에 기대면
+  #   업그레이드에서 조용히 바뀌었을 때 알 수 없다.
+  #   Celery 를 쓰지 않으므로 Redis·워커 파드가 없다(노드 84% 에서 중요하다).
+  #   대가: 태스크가 **scheduler 파드 안에서** 돈다 — 스케줄러 limit 이 곧
+  #   동시 태스크 예산이다.
+  AIRFLOW__CORE__EXECUTOR: "LocalExecutor"
+  AIRFLOW__CORE__PARALLELISM: "8"
+  AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: "4"
+  AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+
+  # ── 인증 ──────────────────────────────────────────────────
+  # ★★ 기본 auth_manager 는 SimpleAuthManager 다 — 개발용이고 사용자를
+  #   설정 문자열(`admin:admin`)로 받는다. 그대로 두면 이 UI 가 이 클러스터의
+  #   또 하나의 무인증 화면이 된다(Temporal UI 가 그 상태다).
+  #   FAB 로 바꾸면 사용자가 **메타데이터 DB 에** 살고 비밀번호는 우리 Secret 에서
+  #   온다 — `airflow-db-migrate` Job 이 만든다.
+  #   ★ FAB provider 는 이미지에 이미 들어 있다(실측) — 추가 설치가 없다.
+  AIRFLOW__CORE__AUTH_MANAGER: "airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager"
+
+  # ── 로그 ──────────────────────────────────────────────────
+  # ★★ api-server 와 scheduler 가 **다른 파드**라, UI 가 태스크 로그를 보려면
+  #   scheduler 의 로그 서버(8793)로 가야 한다. Airflow 는 태스크가 기록한
+  #   `hostname` 으로 그 주소를 만드는데, 기본값 `getfqdn` 은 파드 안에서
+  #   클러스터 밖에서 풀리지 않는 이름을 준다. `get_host_ip_address` 로 바꾸면
+  #   파드 IP 가 들어가 api-server 가 곧장 닿는다.
+  #   ★ 그리고 `allow-airflow-log-fetch` NetworkPolicy 가 그 8793 을 열어야 한다 —
+  #     한쪽만 하면 UI 에 "로그를 가져올 수 없다" 만 뜬다.
+  AIRFLOW__CORE__HOSTNAME_CALLABLE: "airflow.utils.net.get_host_ip_address"
+  AIRFLOW__LOGGING__WORKER_LOG_SERVER_PORT: "8793"
+  # ★ 로그는 emptyDir 이라 **파드가 죽으면 사라진다.** 보존이 필요해지면
+  #   MinIO 원격 로깅으로 옮긴다(amazon provider 가 이미지에 있다 — 실측).
+  #   지금 켜지 않는 이유: 연결·버킷·자격이 늘어나는데 아직 보존 요구가 없다.
+
+  # ── DAG ───────────────────────────────────────────────────
+  # ConfigMap 마운트라 읽기 전용이다. .pyc 를 쓰려 하면 실패하므로 끈다.
+  AIRFLOW__CORE__DAGS_FOLDER: "/opt/airflow/dags"
+  PYTHONDONTWRITEBYTECODE: "1"
+  # 랩이라 넉넉히 — 파싱이 잦으면 CPU 를 먹는다.
+  AIRFLOW__DAG_PROCESSOR__REFRESH_INTERVAL: "60"
+
+  # ── 기타 ──────────────────────────────────────────────────
+  AIRFLOW__CORE__DEFAULT_TIMEZONE: "Asia/Seoul"
+  AIRFLOW__API__BASE_URL: "http://localhost:18080"
+  AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "False"
