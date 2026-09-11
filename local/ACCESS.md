@@ -69,6 +69,10 @@ pw() { $K get secret "$1" -o jsonpath="{.data.$2}" | base64 -d; echo; }
 | kube-state-metrics | `$K port-forward deploy/kube-state-metrics 8080:8080` | http://localhost:8080/metrics | 없음 | — |
 | **Pyrra**(SLO) | `$K port-forward deploy/pyrra 9099:9099` | http://localhost:9099 | 없음 | — |
 | **Airflow** | `$K port-forward deploy/airflow-apiserver 18080:8080` | http://localhost:18080 | `admin` | `pw airflow-secret admin-password` |
+> ★ Airflow 의 **태스크 로그는 MinIO** 에 있다(`s3://airflow-logs/`). UI 가 거기서 읽으므로 평소엔 신경 쓸 일이 없고,
+> 직접 보려면 `$K exec minio-0 -- mc ls --recursive oim/airflow-logs` 다(alias 설정은 minio-bootstrap 참조).
+> 파드의 `/opt/airflow/logs` 는 업로드 뒤 비므로 거기서 찾지 말 것.
+
 
 > ★ **Pyrra 에서 오차 예산이 비어 보이면 그것이 정상이다** — Pyrra 는 filesystem 모드라
 > SLO 정의를 읽어 규칙을 만들기만 하고, **그 규칙을 Prometheus 가 아직 먹지 않는다**
