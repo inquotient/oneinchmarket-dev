@@ -79,7 +79,7 @@ cd scripts/security-verification && ./run-all.sh [namespace]
 | **4** | **security/keycloak · security/vault · security/wazuh** · **developer-portal** · **orchestration** | **Keycloak, Vault, Wazuh(manager·indexer)** · **Backstage**(**Keycloak OIDC** — 게이트웨이 경로 밖, port-forward 전용. 자체 빌드 이미지다) · **Temporal 1.29.7**(장기 durable 워크플로 — 독촉 절차의 뼈대. auto-setup 한 프로세스 · PostgreSQL 2 DB. UI 는 인증이 없어 port-forward 전용) |
 | 5 | devops · **governance** · **api-management** | GitLab EE · **DS389, LAM, Solr, Ranger(admin·usersync), Knox** · **Gravitee APIM CE**(gateway + management-api — ★ 배포만, 트래픽 경로에 없다. ADR-079 미결) |
 | 6 | application | admin, cmmn-api, nginx |
-| 7 | observability · **security-full** | **Dependency-Track(apiserver·frontend) · DefectDojo(django·nginx·celery worker·beat)** · Elasticsearch(ECK 3노드), Kibana, Logstash, Filebeat, **Prometheus, Grafana, Loki, Tempo, OTel Collector(agent·gateway)**, Falco, Falcosidekick, Trivy CronJob |
+| 7 | observability · **security-full** | **Dependency-Track(apiserver·frontend) · DefectDojo(django·nginx·celery worker·beat)** · **OpenSearch 3.8.0 + OpenSearch Dashboards + Data Prepper 2.16.0**(2026-09-11 에 Elasticsearch·Kibana·Filebeat·ECK 를 철거하고 갈아탔다 — WSO2-OSS-MAPPING §9-1), **축소된 Logstash**(과금 다리·TCP 수신만. 검색 엔진에 직접 쓰지 않고 Data Prepper 로 넘긴다), **Prometheus, Grafana, Loki, Tempo, OTel Collector(agent·gateway)**, Falco, Falcosidekick, Trivy CronJob |
 | 8 | rotation · **security-full 일부** | 로테이션 CronJob 7종 + git-sync · **Kubescape CronJob · SafeLine(mgt·detector·tengine·chaos + fvm·luigi) · Caldera**(local 전용) |
 
 `kubernetes/base/security/namespaces/`는 **어느 kustomization에도 포함되지 않는 고아 디렉터리**다. 네임스페이스는 오버레이가 각자 정의하며 두 정의가 서로 다르다.
@@ -466,6 +466,25 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
      ```
      배포 토큰으로는 push 할 수 없다 — GitLab 의 DeployToken 스코프에 `write_repository` 가 없다.
      ★★ 그리고 **push 뒤에 기다려야 한다** — 실측으로 ArgoCD 가 새 리비전을 집는 데 약 3분, 동기화를 끝내는 데 다시 3분 남짓 걸렸다. 그 사이 `phase=Running · sync=OutOfSync` 로 보이는 것이 정상이다(Gotcha 64 ③).
+
+
+145. **★★ base 에서 리소스를 지우면 그것을 **패치하던 오버레이**가 렌더를 통째로 깨뜨린다 — 그리고 그 실패는 ArgoCD 쪽에서만 보인다.** Elasticsearch·Kibana 를 base 에서 지웠더니 이렇게 됐다:
+     ```
+     error: no resource matches strategic merge patch
+       "Job.v1.batch/elasticsearch-ilm-setup.[noNs]"
+     ```
+     ★ **놓치기 쉬운 이유**: 파일을 지우기 *전에* 렌더를 확인하고 지운 뒤에는 다시 보지 않았다. 로컬에서 `kubectl kustomize` 를 한 번만 더 돌렸으면 즉시 드러났을 것이다. 실제로 드러난 곳은 **ArgoCD 의 repo-server 로그**였고 거기서는 `Manifest generation error (cached)` 로만 보인다 — 앱은 여전히 `Synced` 로 보이고 **옛 리비전에 머문다**(실측 8분 넘게). 판정은 Gotcha 119 의 그것이다: `.status.sync.revision` 과 `git rev-parse HEAD` 대조.
+     ★★ **찾아야 할 곳이 kustomization 만이 아니다** — 실측으로 다섯 군데였다: `overlays/local/kustomization.yaml`(인라인 patch target), `overlays/local/patches/*.yaml`(전략 병합 패치 파일), `overlays/local/external-secrets/`(ExternalSecret), `overlays/dev/kustomization.yaml`, `overlays/prod/pdb.yaml`(PDB 셀렉터). **지우기 전에 `grep -rn <이름> kubernetes/overlays/` 를 돌릴 것**, 그리고 지운 **뒤에 local·dev·prod 셋 다** 렌더할 것 — 이 레포는 오버레이가 셋인데 평소 local 만 본다.
+
+146. **★★ 서버측 적용(SSA)은 `env` 를 이름 키로 병합한다 — 매니페스트에서 지운 환경변수가 살아 있는 오브젝트에 그대로 남는다.** Elasticsearch 를 철거하며 `ES_PASSWORD`(=`elasticsearch-es-elastic-user` Secret 참조)를 매니페스트에서 뺐는데, 클러스터의 Deployment·StatefulSet 에는 **그대로 남아** `secret "elasticsearch-es-elastic-user" not found` / `CreateContainerConfigError` 가 났다(실측: logstash · grafana). ★ **ArgoCD 는 `Synced` 라고 말한다** — 자기가 관리하는 필드는 일치하기 때문이다. Gotcha 113 이 볼륨에서 겪은 것과 같은 뿌리이고, 증상만 다르다.
+     ★ **`kubectl apply --server-side --force-conflicts` 로도 지워지지 않는다**(실측). 그것은 소유권을 가져올 뿐 **다른 관리자가 넣은 리스트 항목을 제거하지 않는다**. 처방은 배열을 통째로 바꾸는 것이다:
+     ```
+     kubectl -n local patch deploy <이름> --type=json \
+       -p '[{"op":"replace","path":"/spec/template/spec/containers/0/env","value":[ ...git 이 말하는 전부... ]}]'
+     ```
+     ★★ **판정은 매니페스트가 아니라 살아 있는 오브젝트로 한다**:
+     `kubectl get <kind> <이름> -o jsonpath='{range .spec.template.spec.containers[0].env[*]}{.name}{" <- "}{.valueFrom.secretKeyRef.name}{"\n"}{end}'`
+     ★ 그래서 **Secret 을 지우는 작업에는 순서가 있다** — ① 매니페스트에서 참조를 걷어내고 ② **살아 있는 오브젝트에서 사라졌는지 확인한 뒤에** ③ Secret 을 지운다. 이번에는 ③이 먼저 일어나(ECK 가 Secret 을 함께 가져갔다) 워크로드 둘이 멈췄다.
 
 ### 매니페스트 작업 시
 

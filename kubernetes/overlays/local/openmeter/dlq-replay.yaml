@@ -97,7 +97,7 @@ spec:
                   ctx.check_hostname = False
                   ctx.verify_mode = ssl.CERT_NONE
                   auth = base64.b64encode(
-                      f"elastic:{os.environ['ES_PASSWORD']}".encode()).decode()
+                      f"admin:{os.environ['ES_PASSWORD']}".encode()).decode()
 
                   def call(url, data=None, method="GET", hdrs=None):
                       r = u.Request(url, data=data, method=method,

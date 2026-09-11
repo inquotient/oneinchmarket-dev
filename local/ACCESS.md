@@ -62,13 +62,14 @@ pw() { $K get secret "$1" -o jsonpath="{.data.$2}" | base64 -d; echo; }
 | **Grafana** | `$K port-forward deploy/grafana 3000:3000` | http://localhost:3000 | `admin` | `pw grafana-secret admin-password` |
 | **Prometheus** | `$K port-forward prometheus-0 9090:9090` | http://localhost:9090 | 없음 | — |
 | **Alertmanager** | `$K port-forward deploy/alertmanager 9093:9093` | http://localhost:9093 | 없음 | — |
-| **Kibana** | `$K port-forward svc/kibana-kb-http 5601:5601` | **https**://localhost:5601 | `elastic` | `pw elasticsearch-es-elastic-user elastic` |
+| **OpenSearch Dashboards** | `$K port-forward svc/opensearch-dashboards 5601:5601` | http://localhost:5601 | `admin` | `pw opensearch-secret admin-password` |
 | Loki (API) | `$K port-forward svc/loki-headless 3100:3100` | http://localhost:3100/ready | 없음 | — |
 | Tempo (API) | `$K port-forward svc/tempo-headless 3200:3200` | http://localhost:3200/status | 없음 | — |
 | Pyroscope | `$K port-forward svc/pyroscope 4040:4040` | http://localhost:4040 | 없음 | — |
 | kube-state-metrics | `$K port-forward deploy/kube-state-metrics 8080:8080` | http://localhost:8080/metrics | 없음 | — |
 
-> Kibana 는 ECK 가 자체 서명 인증서를 쓴다 — 브라우저 경고를 무시해야 한다.
+> OpenSearch Dashboards 는 평문 HTTP 로 받는다(`opensearch_security.cookie.secure: false`).
+> 뒤쪽 OpenSearch 와는 우리 CA 로 TLS 를 쓴다. 게이트웨이 뒤로 옮기는 날 secure 쿠키로 바꿀 것.
 
 ### 메시징 · 계약
 
@@ -257,7 +258,7 @@ $K port-forward deploy/api-openreplay      8097:8080   # 프런트가 부르는 
 | PostgreSQL · MariaDB · ClickHouse · Trino · Hive | ✅ | — |
 | **MongoDB** | ❌ EE 전용 | MongoDB Compass(무료) |
 | **Redis** | ❌ EE 전용 | RedisInsight(무료) · `redis-cli` |
-| **Elasticsearch** | ❌ EE 전용 | Kibana Dev Tools · `curl` |
+| **OpenSearch** | ❌ | OpenSearch Dashboards 의 Dev Tools · `curl` |
 
 ### 2-1. 먼저 port-forward
 
@@ -274,7 +275,7 @@ $K port-forward svc/trino-headless         8095:8080
 $K port-forward svc/hive-server-headless  10000:10000
 $K port-forward svc/mongodb-headless      17017:27017   # Compass 용
 $K port-forward svc/redis-headless        16379:6379    # RedisInsight 용
-$K port-forward svc/elasticsearch-es-http 19200:9200    # curl/Kibana 용
+$K port-forward svc/opensearch-headless 19200:9200    # curl/Dev Tools 용
 
 # 관계형 DB 접근 계층 (§8-75·§8-76) — 아직 소비자가 없다. 프록시가 실제로
 # 통하는지 직접 확인할 때만 쓴다. 평소 작업은 위의 직접 접속을 쓸 것.
@@ -489,24 +490,25 @@ redis-cli -h 127.0.0.1 -p 16379 -a "$(pw redis-secret redis-password)" --no-auth
 > ★ OpenMeter 의 **중복 제거 키**가 여기 있다. `FLUSHALL` 을 치지 말 것 —
 > 지우면 이미 처리한 과금 이벤트가 다시 들어와 **과다 청구**가 된다(Gotcha 16).
 
-#### Elasticsearch 9.5.2 — curl 또는 Kibana Dev Tools
+#### OpenSearch 3.8.0 — curl 또는 Dashboards 의 Dev Tools
 
 ```bash
-curl -sk -u "elastic:$(pw elasticsearch-es-elastic-user elastic)"   https://localhost:19200/_cat/indices?v
+curl -sk -u "admin:$(pw opensearch-secret admin-password)"   https://localhost:19200/_cat/indices?v
 ```
 
 | 항목 | 값 |
 |---|---|
 | URL | **https**://localhost:19200 |
 | Username | `elastic` |
-| Password | `pw elasticsearch-es-elastic-user elastic` |
+| Password | `pw opensearch-secret admin-password` |
 | 인증서 | 자체 서명 — 검증을 꺼야 한다(`-k`) |
 
-> **수기 `elasticsearch-secret` 을 쓰지 말 것 — 낡아서 401 이다.** 권위 있는
-> 소유자는 ECK 의 `elasticsearch-es-elastic-user` 다(§8-64 에서 이것 때문에
-> Falco 경보가 전부 버려지고 있었다).
+> **자격의 원천은 `opensearch-secret` 이다**(키: `admin-password`·`ingest-password`·
+> `dashboards-password`). StatefulSet 의 initContainer 가 이 값들을 bcrypt 해시로
+> 바꿔 `internal_users.yml` 을 렌더한다 — 평문은 어디에도 저장되지 않는다.
+> 옛 ECK 시크릿 `elasticsearch-es-elastic-user` 는 2026-09-11 철거와 함께 사라졌다.
 
-Kibana(https://localhost:5601) 의 **Dev Tools** 가 가장 편하다.
+OpenSearch Dashboards(http://localhost:5601) 의 **Dev Tools** 가 가장 편하다.
 
 #### 그 밖 — DBeaver 대상이 아닌 것
 
@@ -571,7 +573,7 @@ Kibana(https://localhost:5601) 의 **Dev Tools** 가 가장 편하다.
 | UI | `jenkins-headless` | 8080 | 8091 | admin / `pw jenkins-secret admin-password` |
 | UI | `keycloak-headless` | 8080 | 8083 | admin / `pw keycloak-secret admin-password` |
 | UI | `keycloak-headless` | 8443 | 8446 | TLS 쪽 |
-| UI | `kibana-kb-http` | 5601 | 5601 | **https** · elastic / `pw elasticsearch-es-elastic-user elastic` |
+| UI | `opensearch-dashboards` | 5601 | 5601 | http · admin / `pw opensearch-secret admin-password` |
 | UI | `knox-headless` | 8443 | 8443 | https · `pw knox-secret master-secret` |
 | UI | `lam-headless` | 80 | 8084 | `pw lam-secret master-password` |
 | UI | `livy-headless` | 8998 | 8998 |  |
@@ -613,7 +615,7 @@ Kibana(https://localhost:5601) 의 **Dev Tools** 가 가장 편하다.
 | DB | `clickhouse-headless` | 9000 | 19000 | native 프로토콜 |
 | DB | `ds389-headless` | 3389 | 3389 | LDAP · `pw ds389-secret dm-password` |
 | DB | `ds389-headless` | 3636 | 3636 | LDAPS |
-| DB | `elasticsearch-es-http` | 9200 | 19200 | https · elastic / **ECK 시크릿**(수기 것은 401) |
+| DB | `opensearch-headless` | 9200 | 19200 | https · admin / `opensearch-secret` |
 | DB | `gitlab-headless` | 22 | 2222 | git+ssh |
 | DB | `hadoop-namenode` | 8020 | 8020 | HDFS RPC |
 | DB | `hadoop-namenode-headless` | 8020 | 8020 | HDFS RPC |
@@ -641,9 +643,8 @@ Kibana(https://localhost:5601) 의 **Dev Tools** 가 가장 편하다.
 | INT | `db-openreplay` | 8888 | — | 내부 메트릭·헬스 |
 | INT | `db-openreplay` | 9000 | — | OpenReplay 내부 |
 | INT | `defectdojo-django` | 3031 | — | nginx 뒤의 uwsgi |
-| INT | `elasticsearch-es-default` | 9200 | — | 파드 직접 |
-| INT | `elasticsearch-es-internal-http` | 9200 | — | ECK 내부 |
-| INT | `elasticsearch-es-transport` | 9300 | — | 노드 간 |
+| INT | `opensearch-0` | 9200 | — | 파드 직접 |
+| INT | `opensearch-headless` | 9300 | — | 노드 간(transport) |
 | INT | `ender-openreplay` | 8888 | — | 내부 메트릭·헬스 |
 | INT | `ender-openreplay` | 9000 | — | OpenReplay 내부 |
 | INT | `hadoop-datanode-headless` | 9866 | — |  |
