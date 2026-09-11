@@ -447,6 +447,26 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 
 143. **OpenSearch 로 옮길 수 있는지는 엔진이 아니라 **수집기**가 정한다 — 그리고 Elastic 의 라이선스 명분은 2024년에 사라졌다.** ★ **Beats ≥ 7.13 은 OpenSearch 를 지원하지 않는다(7.12.1 이 마지막).** 이 클러스터는 Filebeat **9.5.3** 이 `output.elasticsearch` 로 ES 에 **직접** 쓰고, 그 데이터가 전체 31.66 GB 의 거의 전부다. 즉 "OpenSearch 전환" 은 실제로는 **수집기 교체 + 31.66 GB 재수집**이다(ES 9 의 Lucene 10.5.1 스냅샷은 OpenSearch 에 복원되지 않는다). ★★ **라이선스 논거를 쓸 때는 "소스 라이선스" 와 "기능 티어" 를 반드시 가를 것 — 2026-09-11 에 이 항목이 한 번 틀리게 적혔다가 지적받아 고쳤다.** Elastic 이 2024-08 에 **AGPL 을 ELv2·SSPL 옆에 더한 것**(빼지 않았다)은 **소스 라이선스** 이야기이고, 이 클러스터는 실측 `"type":"basic"` 으로 돈다. **그러나 그것이 X-Pack 기능을 열어 주지는 않는다.** 실측 표: SAML/OIDC/LDAP 렐름 · 문서 수준 보안 · 필드 수준 보안 · 감사 로그 · IP 필터링이 전부 **Enterprise** 이고, Watcher·ML 은 Gold+ 인데 **Gold 는 단종 · Platinum 은 기존 고객 전용**이라 남은 경로가 Enterprise 하나다. OpenSearch 는 같은 것들을 **security 플러그인에 무료로** 담는다(SAML·OIDC·LDAP·DLS·FLS·필드 마스킹·감사 로그). ★ 즉 **포크를 낳은 이유는 둘이었고 하나만 사라졌다** — 2021년의 라이선스 변경은 약해졌지만, 2019년 Open Distro 를 만든 **기능 게이팅은 그대로이고 오히려 티어가 줄어 나빠졌다.** 그러니 "이제 오픈소스니까 ES 로 충분하다" 는 성립하지 않는다. 성립하는 문장은 **"우리가 그 게이팅된 기능을 지금 쓰지 않는다"** 이고, 그것은 라이선스가 아니라 **요구사항을 실측해서** 말해야 한다 — WSO2-OSS-MAPPING §9-1
 
+
+144. **★★★ `git push` 가 가는 곳과 ArgoCD 가 읽는 곳이 다르다 — 커밋이 클러스터에 영원히 닿지 않는다.** 2026-09-11 에 이것 때문에 한참을 헤맸다. 실측:
+     ```
+     origin                       https://github.com/inquotient/oneinchmarket-dev.git   <- git push 가 가는 곳
+     Application .spec.source     http://gitlab-registry.local.svc.cluster.local/infra/oneinchmarket-infra.git
+                 targetRevision   local                                                 <- ArgoCD 가 읽는 곳
+     ```
+     즉 **원격이 둘인데 `origin` 하나만 있다.** GitHub 로 push 하면 ArgoCD 는 아무것도 보지 못하고, 클러스터 안 GitLab 의 `local` 브랜치는 옛 커밋에 멈춰 있다(실측: git HEAD 가 `0362a29` 인데 GitLab 은 `f63573a` — **커밋 6건이 누락**).
+     ★ **증상이 최악이다 — 조용하고, 게다가 능동적으로 되돌린다.** ArgoCD 는 `Synced · Healthy` 로 **정상 보고**하고(자기가 아는 리비전과는 일치하니까), 그 상태에서 동기화가 돌 때마다 **kubectl 로 고친 것을 옛 매니페스트로 덮는다.** 실측으로 `allow-messaging-access` 에 넣은 `*/sa/data-prepper` 가 그렇게 사라졌고, 그 결과 Kafka 소비자가 `policy rejection: allow policies exist, but none allowed` 로 계속 끊겼다. Gotcha 119 는 "git 먼저, kubectl 은 앞당기는 용도" 라고 적었는데, **git 을 고쳐도 그 git 이 아니면 소용이 없다.**
+     ★★ **판정**: `git remote -v` 와 `kubectl -n argocd get application <앱> -o jsonpath='{.spec.source.repoURL}'` 를 **나란히 볼 것.** 그리고 ArgoCD 의 `.status.sync.revision` 이 `git rev-parse HEAD` 와 같은지 본다 — 다르면 아직 안 닿은 것이다. "Synced" 는 그 질문에 답하지 않는다.
+     ★ **처방**: 클러스터 안 GitLab 에도 push 한다. `local/gitlab-repo-bootstrap.sh` 가 그 일을 하지만 **그 스크립트를 통째로 돌리지 말 것** — 끝에서 `argocd-read` 배포 토큰을 회전시켜 ArgoCD 의 읽기 자격을 깬다(Gotcha 118 과 같은 함정). 필요한 것은 push 한 줄이다:
+     ```
+     HOST=$(kubectl -n local get svc gitlab-registry -o jsonpath='{.spec.clusterIP}')
+     # root 비밀번호를 파일로 꺼내 GIT_ASKPASS 로 넘긴다(인자·.git/config 에 남기지 않는다)
+     GIT_ASKPASS=/tmp/gl-askpass.sh GIT_TERMINAL_PROMPT=0 \
+       git push "http://root@${HOST}/infra/oneinchmarket-infra.git" local:local
+     ```
+     배포 토큰으로는 push 할 수 없다 — GitLab 의 DeployToken 스코프에 `write_repository` 가 없다.
+     ★★ 그리고 **push 뒤에 기다려야 한다** — 실측으로 ArgoCD 가 새 리비전을 집는 데 약 3분, 동기화를 끝내는 데 다시 3분 남짓 걸렸다. 그 사이 `phase=Running · sync=OutOfSync` 로 보이는 것이 정상이다(Gotcha 64 ③).
+
 ### 매니페스트 작업 시
 
 - `v1/` 매니페스트는 **배포 금지**. 단 CI가 이 경로의 Dockerfile을 참조한다는 모순이 있다
