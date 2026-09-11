@@ -23,6 +23,8 @@ resources:
   - gitlab-runner
   # Caldera — ADR-030 이 prod 배포를 금지한다. base 에 두면 prod 가 상속한다.
   - caldera
+  # BuildKit — prod 에서는 Kyverno Enforce 에 거부된다(Gotcha 149)
+  - buildkit
   # L0 랩 관측 계층 — Zeek 을 VM 에서 파드로(§24-4). `zeek-capture` 가
   #   hostNetwork + NET_ADMIN 이라 base 에 두면 prod 가 그 권한을 상속한다.
   - l0-observers

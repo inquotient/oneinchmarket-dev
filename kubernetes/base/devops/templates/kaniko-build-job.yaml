@@ -1,0 +1,83 @@
+# Kaniko 빌드 Job — **템플릿이다. 어느 kustomization 에도 넣지 않는다.**
+#
+# ★ Job 을 kustomization 에 넣으면 동기화할 때마다 빌드가 돈다. 이것은
+#   "필요할 때 복사해 쓰는 본" 이다:
+#     kubectl -n local create -f kubernetes/base/devops/templates/kaniko-build-job.yaml
+#
+# ★★ BuildKit 과의 차이 — 둘은 대체재다.
+#     BuildKit  상주 데몬(1234). 캐시가 살아 있어 반복 빌드가 빠르다.
+#               대신 rootless 라도 setuid(newuidmap)가 필요해
+#               `allowPrivilegeEscalation: true` 를 요구한다(buildkit.yaml 주석).
+#     Kaniko    데몬이 없다. Job 하나로 끝나고 끝나면 사라진다.
+#               권한 상승이 필요 없다 — 이 레포의 Kyverno 기준선에 더 잘 맞는다.
+#               대신 캐시가 없어 매번 밑바닥부터 굽는다(이 회선에서는 그게 비싸다).
+#   **prod 승격 때는 Kaniko 쪽이 마찰이 적다** — §9-1 의 BuildKit/Kaniko 행 참조.
+#
+# ★ 지금 굽는 대상이 없다: `.gitlab-ci.yml` 이 참조하는
+#   `v1/admin/Dockerfile`·`v1/cmmn-api/Dockerfile` 이 존재하지 않고,
+#   로컬 이미지 11종은 노드의 podman 이 굽는다(`local/build-images.sh`).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kaniko-build-example
+  labels:
+    app.kubernetes.io/name: kaniko-build
+    app.kubernetes.io/component: devops
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kaniko-build
+        app.kubernetes.io/component: devops
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      restartPolicy: Never
+      # ★ 전용 SA. default 로 두면 ambient 에서 신원이 없어 레지스트리로 가는
+      #   경로에 정책을 쓸 수 없다(Gotcha 10·19).
+      serviceAccountName: kaniko-build
+      securityContext:
+        # ★ Kaniko 는 컨테이너 루트 파일시스템을 조작하므로 uid 0 이 필요하다.
+        #   prod Enforce 에서는 `disallow-root-user` 의 exclude 가 필요하다 —
+        #   승격 전에 결정할 것(Camel K 빌더와 같은 자리, Gotcha 129).
+        runAsNonRoot: false
+        runAsUser: 0
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: kaniko
+          image: gcr.io/kaniko-project/executor:v1.25.0
+          args:
+            - --dockerfile=Dockerfile
+            - --context=git://gitlab-registry.local.svc.cluster.local/infra/oneinchmarket-infra.git#refs/heads/local
+            - --destination=gitlab-registry.local.svc.cluster.local:5050/oneinch/example:dev
+            # ★ 클러스터 안 레지스트리는 평문 HTTP 다(Gotcha 126).
+            - --insecure
+            - --skip-tls-verify
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 200m, memory: 512Mi}
+            limits:   {cpu: 2000m, memory: 2Gi}
+          volumeMounts:
+            - {name: docker-config, mountPath: /kaniko/.docker}
+      volumes:
+        # gitlab-registry-secret 이 push 자격이다(§8-79 · Gotcha 118).
+        - name: docker-config
+          secret:
+            secretName: gitlab-registry-secret
+            items:
+              - {key: .dockerconfigjson, path: config.json}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kaniko-build
+  labels:
+    app.kubernetes.io/name: kaniko-build
+    app.kubernetes.io/component: devops
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+automountServiceAccountToken: false

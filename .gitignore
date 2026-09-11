@@ -35,3 +35,6 @@ keys.txt
 .env
 kubeconfig.yaml
 wireguard-client.conf
+
+# Claude Code 로컬 설정 — 기계마다 다르다
+.claude/settings.local.json

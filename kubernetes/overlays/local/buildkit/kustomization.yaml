@@ -1,0 +1,23 @@
+# BuildKit — 클러스터 안 이미지 빌드(rootless), local 전용
+#
+# ★★ 왜 base 가 아니라 오버레이인가 — **prod 에 두면 어드미션에서 거부된다.**
+#   rootless BuildKit 은 `newuidmap`/`newgidmap`(setuid)을 실행해야 사용자
+#   네임스페이스를 만들 수 있어 `allowPrivilegeEscalation: true` 가
+#   **구조적으로** 필요하다(Gotcha 149). 그런데 prod 는 Kyverno
+#   `disallow-privilege-escalation` 을 **Enforce** 한다.
+#   base 에 두면 prod 오버레이가 그대로 상속해 "거부"가 배포 시점에야
+#   드러난다 — Caldera(ADR-030)·lakehouse-local(ADR-068)과 같은 이유다.
+#
+# 승격 조건 — prod 에서 이미지를 클러스터 안에서 구워야 할 때, 그때
+#   **BuildKit 이 아니라 Kaniko 를 고를 것**: 데몬이 없어 Job 하나로 끝나고
+#   권한 상승이 필요 없다(대신 uid 0 이라 `disallow-root-user` 예외가 든다).
+#   템플릿은 kubernetes/base/devops/templates/kaniko-build-job.yaml 에 있다.
+#   Camel K 빌더가 정확히 같은 자리에서 걸렸다(Gotcha 129).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - buildkit.yaml
+
+commonAnnotations:
+  argocd.argoproj.io/sync-wave: "5"

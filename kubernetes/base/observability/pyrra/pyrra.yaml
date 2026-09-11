@@ -1,0 +1,145 @@
+# Pyrra 0.10.1 — SLO 를 정의하고 그 소진율을 보여 준다.
+#
+# ★★ **filesystem 모드**를 쓴다. kubernetes 모드는 SLO CR 을 읽고
+#   `PrometheusRule` 을 만드는데, **이 클러스터에는 Prometheus Operator 가 없다**
+#   (실측: `monitoring.coreos.com` CRD 0개). Prometheus 는 평 `prom/prometheus`
+#   이고 규칙은 `prometheus-rules` ConfigMap 에서 온다. 그 위에 컨트롤러 모드를
+#   얹으면 출력이 **갈 곳이 없다** — 이 레포가 반복해서 밟은 "설정은 있고
+#   아무도 읽지 않는" 부류가 된다(Gotcha 84·95).
+#
+# ★ 그래서 구조가 이렇다:
+#     ConfigMap(SLO 정의) -> pyrra filesystem -> emptyDir(생성된 규칙)
+#                                             -> pyrra api -> UI(9099)
+#   생성된 규칙을 Prometheus 에 먹이는 것은 **아직 잇지 않았다** — 그것은
+#   Prometheus 의 볼륨을 손대는 일이라 별도 결정이다(§9-1 Pyrra/Sloth 행).
+#   지금은 정의와 UI 까지다.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pyrra
+  labels: {app.kubernetes.io/name: pyrra, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pyrra-slos
+  labels: {app.kubernetes.io/name: pyrra, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+data:
+  # ★ 첫 SLO 는 **이미 계량되고 있는 것**으로 잡는다. 없는 지표로 SLO 를 쓰면
+  #   그래프가 비고, 그 빈 그래프가 "SLO 가 좋다" 로 읽힌다.
+  #   api-usage 경로는 게이트웨이 액세스 로그에서 나온다(ADR-072).
+  gateway-availability.yaml: |
+    apiVersion: pyrra.dev/v1alpha1
+    kind: ServiceLevelObjective
+    metadata:
+      name: gateway-availability
+      labels:
+        pyrra.dev/team: platform
+    spec:
+      target: "99"
+      window: 4w
+      description: "ingress 게이트웨이의 5xx 비율. 5xx 는 우리 잘못이라 청구에서도 제외한다(§8-87)."
+      indicator:
+        ratio:
+          errors:
+            metric: istio_requests_total{reporter="source",response_code=~"5.."}
+          total:
+            metric: istio_requests_total{reporter="source"}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pyrra
+  labels: {app.kubernetes.io/name: pyrra, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  selector: {app.kubernetes.io/name: pyrra}
+  ports:
+    - {name: http, port: 9099, targetPort: 9099, protocol: TCP}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pyrra
+  labels: {app.kubernetes.io/name: pyrra, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+  annotations: {reloader.stakater.com/auto: "true"}
+spec:
+  replicas: 1
+  # 이 노드에서 maxSurge 기본값은 무중단이 아니라 교착이다(Gotcha 87).
+  strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}
+  selector:
+    matchLabels: {app.kubernetes.io/name: pyrra}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: pyrra, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket}
+    spec:
+      serviceAccountName: pyrra
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        # ① UI·API. Prometheus 에 질의해 소진율을 계산한다.
+        - name: api
+          image: ghcr.io/pyrra-dev/pyrra:v0.10.1
+          args:
+            - api
+            - --prometheus-url=http://prometheus-headless:9090
+            - --api-url=http://localhost:9444
+          ports:
+            - {containerPort: 9099, name: http, protocol: TCP}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 20m, memory: 64Mi}
+            limits:   {cpu: 200m, memory: 192Mi}
+          startupProbe:
+            httpGet: {path: /, port: 9099}
+            periodSeconds: 5
+            failureThreshold: 24
+          readinessProbe:
+            httpGet: {path: /, port: 9099}
+            periodSeconds: 15
+            failureThreshold: 4
+          livenessProbe:
+            tcpSocket: {port: 9099}
+            periodSeconds: 30
+            failureThreshold: 6
+        # ② SLO 정의를 읽어 Prometheus 규칙 파일을 만든다.
+        - name: filesystem
+          image: ghcr.io/pyrra-dev/pyrra:v0.10.1
+          args:
+            - filesystem
+            - --config-files=/etc/pyrra/*.yaml
+            - --prometheus-folder=/var/lib/pyrra/rules
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 10m, memory: 48Mi}
+            limits:   {cpu: 200m, memory: 128Mi}
+          startupProbe:
+            tcpSocket: {port: 9444}
+            periodSeconds: 5
+            failureThreshold: 24
+          readinessProbe:
+            tcpSocket: {port: 9444}
+            periodSeconds: 15
+            failureThreshold: 4
+          livenessProbe:
+            tcpSocket: {port: 9444}
+            periodSeconds: 30
+            failureThreshold: 6
+          volumeMounts:
+            - {name: slos, mountPath: /etc/pyrra, readOnly: true}
+            - {name: rules, mountPath: /var/lib/pyrra/rules}
+      volumes:
+        - name: slos
+          configMap: {name: pyrra-slos}
+        - name: rules
+          emptyDir: {}

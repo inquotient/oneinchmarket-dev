@@ -47,6 +47,8 @@ resources:
   - otel/otel-gateway-service.yaml
   - otel/otel-gateway-configmap.yaml
   - otel/otel-gateway-deployment.yaml
+  # Pyrra — SLO 정의·소진율 UI (filesystem 모드 — Prometheus Operator 가 없다)
+  - pyrra/pyrra.yaml
   # Grafana - 대시보드
   - grafana/grafana-configmap.yaml
   - grafana/grafana-deployment.yaml

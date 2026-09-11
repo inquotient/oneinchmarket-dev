@@ -1,0 +1,30 @@
+# Sloth 형식 SLO 정의 — 여기서 Prometheus 규칙을 **생성**한다.
+#
+# ★ 왜 컨트롤러가 아니라 생성인가 — 이 클러스터에는 Prometheus Operator 가 없다
+#   (실측: monitoring.coreos.com CRD 0개). Prometheus 는 평 prom/prometheus 이고
+#   규칙은 `prometheus-rules` ConfigMap 에서 온다. Sloth 의 컨트롤러 모드는
+#   PrometheusRule CR 을 만드는데 그것을 받을 곳이 없다.
+#   그래서 `local/render-slo.sh` 가 규칙 YAML 을 만들어 **git 에 둔다** —
+#   `render-ratelimit.py` 와 같은 모양이다(§8-90: 렌더 결과를 커밋할 것).
+version: "prometheus/v1"
+service: "gateway"
+labels:
+  owner: "platform"
+slos:
+  - name: "availability"
+    objective: 99.0
+    description: "ingress 게이트웨이의 5xx 비율. 5xx 는 우리 잘못이라 청구에서도 제외한다(§8-87)."
+    sli:
+      events:
+        # ★ **이미 계량되는 지표**로 잡는다. 없는 지표로 SLO 를 쓰면 그래프가
+        #   비고, 빈 그래프는 "SLO 가 좋다" 로 읽힌다.
+        error_query: sum(rate(istio_requests_total{reporter="source",response_code=~"5.."}[{{.window}}]))
+        total_query: sum(rate(istio_requests_total{reporter="source"}[{{.window}}]))
+    alerting:
+      name: GatewayHighErrorRate
+      page_alert:
+        labels:
+          severity: critical
+      ticket_alert:
+        labels:
+          severity: warning

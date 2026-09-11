@@ -21,6 +21,10 @@ POLICY_REPORTER_VERSION="${POLICY_REPORTER_VERSION:-policy-reporter-3.10.0}"
 EXTERNAL_SECRETS_VERSION="${EXTERNAL_SECRETS_VERSION:-2.10.0}"
 RELOADER_VERSION="${RELOADER_VERSION:-2.2.16}"   # app v1.4.21
 CAMEL_K_VERSION="${CAMEL_K_VERSION:-2.11.0}"   # 차트=앱 버전. 릴리스에 YAML 번들이 없어 차트로 넣는다
+# 5단계(2026-09-11 도입 — WSO2-OSS-MAPPING §9-1)
+KEDA_VERSION="${KEDA_VERSION:-v2.20.2}"
+CROSSPLANE_VERSION="${CROSSPLANE_VERSION:-2.4.0}"
+KPACK_VERSION="${KPACK_VERSION:-0.18.0}"
 
 log() { echo "[operators] $*"; }
 
@@ -324,24 +328,61 @@ helm template camel-k camel-k/camel-k --version "${CAMEL_K_VERSION}" \
   --set operator.resources.requests.memory=256Mi \
   --set operator.resources.limits.memory=512Mi \
   | kubectl apply -n local --server-side --force-conflicts -f -
+# ── 12. KEDA (이벤트 기반 오토스케일) ────────────────
+# ★ local 에는 스케일할 대상이 없다(replicas>1 인 워크로드 0종).
+#   prod 렌더에는 5종이 있으므로 이것은 **prod 를 위한 예행**이다
+#   — 키고 prod 에 올리기 전에 Gotcha 35(DB replicas 는 HA 가 아니라
+#   데이터 분기다)를 먼저 풀 것. WSO2-OSS-MAPPING §9-1.
+log "KEDA ${KEDA_VERSION}"
+kubectl apply --server-side --force-conflicts   -f "https://github.com/kedacore/keda/releases/download/${KEDA_VERSION}/keda-${KEDA_VERSION#v}.yaml"
+
+# ── 13. Crossplane ─────────────────────────────────
+# ★ provider 는 하나도 넣지 않는다 — 클라우드 자격이 없고,
+#   애초에 대체할 대상도 없다(tfstate 0개 · prod provider 블록 0개).
+#   선택지를 미리 둔 것이다. 이 레포 관례대로 helm 은 **렌더러로만** 쓴다.
+log "Crossplane ${CROSSPLANE_VERSION}"
+helm repo add crossplane-stable https://charts.crossplane.io/stable >/dev/null 2>&1 || true
+helm repo update crossplane-stable >/dev/null 2>&1 || helm repo update >/dev/null 2>&1
+kubectl get ns crossplane-system >/dev/null 2>&1 || kubectl create ns crossplane-system
+# ★★ 기본 requests 가 단일 노드에 과하다. 그리고 `--set` 은 없는 키를
+#   조용히 받아든다(Gotcha 88) — 적용 전에 렌더 결과를 눈으로 확인했다.
+helm template crossplane crossplane-stable/crossplane --version "${CROSSPLANE_VERSION}"   --namespace crossplane-system   --set resourcesCrossplane.requests.memory=192Mi   --set resourcesCrossplane.requests.cpu=100m   --set resourcesCrossplane.limits.memory=512Mi   --set resourcesCrossplane.limits.cpu=500m   --set resourcesRBACManager.requests.memory=128Mi   --set resourcesRBACManager.limits.memory=256Mi   | kubectl apply -n crossplane-system --server-side --force-conflicts -f -
+
+# ── 14. kpack (Paketo Buildpacks 컨트롤러) ────────────────
+# ★★ 릴리스 YAML 은 CRD 와 그 CRD 를 쓰는 CR(ClusterLifecycle)을 한 파일에
+#   담고 있어 **한 번에 적용되지 않는다** — `no matches for kind`.
+#   같은 파일을 한 번 더 적용하면 풀린다(그 사이에 CRD 가 established 된다).
+#   그래서 재시도가 오류 처리가 아니라 **절차**이다.
+log "kpack ${KPACK_VERSION}"
+kpack_url="https://github.com/buildpacks-community/kpack/releases/download/v${KPACK_VERSION}/release-${KPACK_VERSION}.yaml"
+# ★★ `-f` 없이 받지 말 것 — 실측으로 `curl -sL` 이 404 본문
+#   **"Not Found" 9바이트**를 파일에 쓰고 **exit 0** 을 냈다.
+#   그러면 다음 줄의 kubectl 이 `invalid object to validate` 로 죽는데,
+#   오류가 다운로드가 아니라 매니페스트 문제처럼 읽힌다.
+# ★ 가드를 "비어 있지 않다" 로 두지 말 것(Gotcha 117) —
+#   알려진 값이 실제로 들어 있는지로 판정한다.
+curl -fsSL --max-time 120 "$kpack_url" -o /tmp/kpack.yaml
+grep -q '^  name: kpack$' /tmp/kpack.yaml   || { echo "[operators] kpack 릴리스 YAML 이 이상하다($(wc -c </tmp/kpack.yaml) 바이트) — URL 을 확인할 것" >&2; exit 1; }
+kubectl apply --server-side --force-conflicts -f /tmp/kpack.yaml >/dev/null 2>&1 || true
+kubectl apply --server-side --force-conflicts -f /tmp/kpack.yaml
+
+# ★ kpack-controller 의 기본 requests 가 **1Gi** 다 — 실측 37Mi.
+#   빌드는 별도 파드에서 돌아 컨트롤러가 그만큼 쓸 일이 없다.
+#   limit 은 그대로 두어 Burstable 로 남긴다(zram 이 받친다, Gotcha 101).
+kubectl -n kpack patch deploy kpack-controller --type=json -p   '[{"op":"replace","path":"/spec/template/spec/containers/0/resources/requests/memory","value":"128Mi"}]'   >/dev/null
+
 log "오퍼레이터 Ready 대기"
 kubectl -n istio-system    rollout status deploy/istiod                 --timeout=300s || true
 kubectl -n istio-system    rollout status ds/ztunnel                    --timeout=300s || true
-kubectl -n elastic-system  rollout status statefulset/elastic-operator  --timeout=300s || true
-
-# ★ ECK 오퍼레이터도 ambient 에 편입한다.
-#   elastic-operator 는 Elasticsearch 의 부트스트랩·헬스·라이선스를 9200 으로
-#   관리한다. 메시 밖에 두면 ztunnel 에 **신원 없이** 도착하고,
-#   allow-observability-access 의 principal 규칙은 어느 것도 매칭되지 않아
-#   ES 가 관리 불능이 된다. 이 네임스페이스는 오버레이가 만들지 않으므로
-#   여기서 라벨을 건다(§8-47).
-kubectl label ns elastic-system istio.io/dataplane-mode=ambient --overwrite
 kubectl -n kyverno         rollout status deploy/kyverno-admission-controller --timeout=300s || true
 kubectl -n cert-manager    rollout status deploy/cert-manager-webhook   --timeout=300s || true
 kubectl -n tetragon        rollout status ds/tetragon                    --timeout=300s || true
 kubectl -n trivy-system    rollout status deploy/trivy-operator          --timeout=300s || true
 kubectl -n external-secrets rollout status deploy/external-secrets       --timeout=300s || true
 kubectl -n policy-reporter rollout status deploy/policy-reporter         --timeout=300s || true
+kubectl -n keda             rollout status deploy/keda-operator           --timeout=300s || true
+kubectl -n crossplane-system rollout status deploy/crossplane             --timeout=300s || true
+kubectl -n kpack            rollout status deploy/kpack-controller        --timeout=300s || true
 
 log "── 설치 결과 ──"
 kubectl get pods -A -o wide --no-headers | awk '{print $1"\t"$2"\t"$4}' | sort

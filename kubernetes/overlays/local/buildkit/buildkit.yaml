@@ -1,0 +1,104 @@
+# BuildKit 0.33.0 (rootless) — 클러스터 안에서 이미지를 굽는다.
+#
+# ★ **rootless 변종을 쓴다.** 기본 buildkitd 는 privileged 를 요구하는데,
+#   이 레포의 Kyverno `disallow-privilege-escalation`·`disallow-root-user` 가
+#   prod 에서 Enforce 다. 예외 목록에 또 하나를 더하는 대신 rootless 로 간다
+#   (Camel K 빌더가 같은 자리에서 걸린 적이 있다, Gotcha 129).
+#
+# ★★ **지금 굽는 대상이 없다.** `.gitlab-ci.yml` 의 build 잡이 참조하는
+#   `v1/admin/Dockerfile`·`v1/cmmn-api/Dockerfile` 이 **존재하지 않고**,
+#   로컬 이미지 11종은 `local/build-images.sh` 가 노드의 podman 으로 굽는다.
+#   그래서 이것은 **경로를 열어 둔 것**이지 지금 쓰이는 것이 아니다 —
+#   WSO2-OSS-MAPPING §9-1 의 BuildKit 행에 그 사정이 적혀 있다.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: buildkit
+  labels: {app.kubernetes.io/name: buildkit, app.kubernetes.io/component: devops, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: buildkit
+  labels: {app.kubernetes.io/name: buildkit, app.kubernetes.io/component: devops, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  selector: {app.kubernetes.io/name: buildkit}
+  ports:
+    - {name: grpc, port: 1234, targetPort: 1234, protocol: TCP}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: buildkit
+  labels: {app.kubernetes.io/name: buildkit, app.kubernetes.io/component: devops, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+  annotations: {reloader.stakater.com/auto: "true"}
+spec:
+  replicas: 1
+  strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}
+  selector:
+    matchLabels: {app.kubernetes.io/name: buildkit}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: buildkit, app.kubernetes.io/component: devops, app.kubernetes.io/part-of: oneinchmarket}
+      annotations:
+        # rootless buildkit 은 이 둘이 없으면 사용자 네임스페이스를 만들지 못한다.
+        container.apparmor.security.beta.kubernetes.io/buildkitd: unconfined
+    spec:
+      serviceAccountName: buildkit
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: {type: Unconfined}
+      containers:
+        - name: buildkitd
+          image: docker.io/moby/buildkit:v0.33.0-rootless
+          args:
+            - --addr
+            - tcp://0.0.0.0:1234
+            # ★ oci-worker-no-process-sandbox 가 없으면 rootless 가 기동하지 않는다
+            #   (사용자 네임스페이스 안에서 다시 sandbox 를 만들 수 없다).
+            - --oci-worker-no-process-sandbox
+          ports:
+            - {containerPort: 1234, name: grpc, protocol: TCP}
+          securityContext:
+            # ★★ **여기만 `true` 다 — 구조적 요구다.** rootless buildkit 은
+            #   사용자 네임스페이스를 만들려고 `newuidmap`/`newgidmap` 을 부르는데
+            #   그 둘은 **setuid 바이너리**이고, `allowPrivilegeEscalation: false`
+            #   는 setuid 실행 자체를 막는다. 실측 오류:
+            #     [rootlesskit:parent] error: failed to setup UID/GID map:
+            #     newuidmap ... fork/exec /usr/bin/newuidmap: operation not permitted
+            #   ★ 그래도 **root 는 아니다**(runAsUser 1000) — 권한 상승 한 칸을
+            #     여는 것이지 특권 컨테이너가 되는 것이 아니다. 비-rootless
+            #     buildkit 은 `privileged: true` 를 요구하므로 그쪽이 훨씬 넓다.
+            #   ★★ **prod 로 승격하기 전에 결정이 필요하다** — 이 레포의 Kyverno
+            #     `disallow-privilege-escalation` 이 prod 에서 Enforce 이므로
+            #     그 정책의 `exclude` 에 이 워크로드를 넣든지, BuildKit 대신
+            #     Kaniko(데몬이 없는 Job 방식)를 쓰든지 골라야 한다.
+            #     Camel K 빌더가 같은 자리에서 걸린 적이 있다(Gotcha 129).
+            allowPrivilegeEscalation: true
+            capabilities: {drop: ["ALL"], add: ["SETUID", "SETGID"]}
+          resources:
+            requests: {cpu: 50m, memory: 256Mi}
+            limits:   {cpu: 2000m, memory: 1Gi}
+          startupProbe:
+            exec: {command: ["buildctl", "--addr", "tcp://127.0.0.1:1234", "debug", "workers"]}
+            periodSeconds: 10
+            failureThreshold: 24
+          readinessProbe:
+            exec: {command: ["buildctl", "--addr", "tcp://127.0.0.1:1234", "debug", "workers"]}
+            periodSeconds: 30
+            failureThreshold: 4
+          livenessProbe:
+            tcpSocket: {port: 1234}
+            periodSeconds: 30
+            failureThreshold: 6
+          volumeMounts:
+            - {name: state, mountPath: /home/user/.local/share/buildkit}
+      volumes:
+        # ★ emptyDir 이다 — 빌드 캐시는 파드 수명과 같다. PVC 로 바꾸면 캐시가
+        #   남지만, 지금 굽는 것이 없으므로 자리부터 잡지 않는다.
+        - name: state
+          emptyDir: {}
