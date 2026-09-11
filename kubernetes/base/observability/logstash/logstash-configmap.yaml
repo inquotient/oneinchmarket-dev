@@ -17,21 +17,19 @@ data:
 
   pipeline.conf: |
     input {
-      # Filebeat → 애플리케이션/시스템 로그
-      beats {
-        port => 5044
-      }
+      # ★ beats 입력을 걷어냈다 — Filebeat 을 철거했기 때문이다.
+      #   Beats >=7.13 은 OpenSearch 를 지원하지 않아 전환의 하드 블로커였는데
+      #   (WSO2-OSS-MAPPING §9-1), 걷어내도 잃는 것이 없었다:
+      #   otel-agent 가 **이미** /var/log/pods/*/*/*.log 를 전부 읽어
+      #   otel-gateway 로 보내고 있었다(Filebeat 은 두 번째 전체 파이프라인이었다).
+      #   지금 그 흐름은 otel-gateway -> Data Prepper -> OpenSearch 로 간다.
 
-      # Kafka → Keycloak 이벤트 + Falco 알림
-      kafka {
-        bootstrap_servers => "kafka-headless:9092"
-        topics => ["keycloak-events", "falco-alerts"]
-        group_id => "logstash-siem"
-        codec => json
-        consumer_threads => 2
-        decorate_events => "basic"
-        add_field => { "[@metadata][pipeline]" => "kafka" }
-      }
+      # ★ SIEM(keycloak-events · falco-alerts) 입력도 걷어냈다 —
+      #   Data Prepper 의 kafka source 가 맡는다(group_id=data-prepper-siem).
+      #   ★ 걷어내기 전에 **그쪽이 실제로 소비하는지 확인했다**: Kafka 의
+      #     consumer-groups 에 data-prepper-siem 이 등록되고 falco-alerts
+      #     오프셋이 커밋되는 것, 그리고 OpenSearch siem-* 에 문서가 쌓이는 것.
+      #     group_id 를 일부러 다르게 둔 덕에 전환 중 유실이 없었다.
 
       # ★ 과금 다리 — api-usage -> OpenMeter 수집 API
       #
@@ -350,28 +348,32 @@ data:
 
     output {
       # ★ 전달은 **필터**가 한다(위 openmeter-bridge 분기). 여기 출력에는
-      #   http 가 없다 — 출력 플러그인은 실패를 파이프라인에 돌려주지 못해
-      #   dead-letter 분기를 만들 수 없기 때문이다.
+      #   과금 전달용 http 가 없다 — 출력 플러그인은 실패를 파이프라인에
+      #   돌려주지 못해 dead-letter 분기를 만들 수 없기 때문이다(Gotcha 31).
       #   성공한 계량 이벤트는 필터에서 drop 되고, 실패한 것만 DLQ 인덱스로,
-      #   테넌트 없는 것만 격리 인덱스로 아래 elasticsearch 에 도달한다.
-      elasticsearch {
-        hosts => ["https://elasticsearch-es-http:9200"]
-        user => "elastic"
-        password => "${ES_PASSWORD}"
-        # Logstash 9.x 에서 ssl_certificate_verification 이 제거되었다.
-        #   The setting `ssl_certificate_verification` in plugin `elasticsearch`
-        #   is obsolete. Set 'ssl_verification_mode' instead.
-        ssl_verification_mode => "none"
-        # 9.x 는 인덱스명으로 템플릿 설치를 시도하는데 sprintf 패턴이 그대로
-        # URL 에 들어가 파싱이 깨진다:
-        #   Malformed escape pair at index 17:
-        #     /_index_template/%{[@metadata][target_index]}
-        # 템플릿·ILM 정책은 elasticsearch-ilm-setup Job 이 관리한다.
-        manage_template => false
-        index => "%{[@metadata][target_index]}-%{+YYYY.MM.dd}"
-        ilm_enabled => true
-        ilm_rollover_alias => "%{[@metadata][target_index]}"
-        ilm_pattern => "{now/d}-000001"
-        ilm_policy => "oneinchmarket-ilm"
+      #   테넌트 없는 것만 격리 인덱스로 아래 출력에 도달한다.
+      #
+      # ★★ Elasticsearch 로 직접 쓰지 않는다 — **Data Prepper 에 넘긴다.**
+      #   이유는 검색 엔진을 OpenSearch 로 바꿨는데(§9-1) 우리 Logstash 는
+      #   Elastic 배포판 9.5.3 이라 `logstash-output-opensearch` 플러그인의
+      #   설치·동작이 미확인이기 때문이다. 한 겹 넘기면 그 미지수가 사라진다.
+      #
+      # ★ `format => json_batch` 가 필수다 — Data Prepper 의 http source 는
+      #   **JSON 배열만** 받는다. 객체 하나를 보내면 400 이고, 그 실패는
+      #   로그 한 줄로만 남는다.
+      http {
+        url => "http://data-prepper:2021/log/ingest"
+        http_method => "post"
+        format => "json_batch"
+        content_type => "application/json"
+        retry_failed => true
+        # 인덱스 이름은 Data Prepper 가 이 필드로 정한다(pipelines.yaml 의
+        # legacy-ingest-pipeline). 여기서 붙이지 않으면 인덱스가 깨진다.
+        mapping => {
+          "target_index" => "%{[@metadata][target_index]}"
+          "message" => "%{message}"
+          "event" => "%{[event]}"
+          "@timestamp" => "%{@timestamp}"
+        }
       }
     }

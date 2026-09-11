@@ -17,15 +17,12 @@ data:
       cluster: oneinchmarket
       environment: dev
 
-    elasticsearch:
-      hostport: "https://elasticsearch-es-http:9200"
-      index: "falco-alerts"
-      type: "_doc"
-      minimumpriority: "warning"
-      mutualtls: false
-      checkcert: false
-      username: "elastic"
-      password: ""
+    # ★ elasticsearch 출력을 걷어냈다 — Elasticsearch 를 철거했다(§9-1).
+    #   알림은 아래 kafka 출력 하나로 간다: falco-alerts 토픽 ->
+    #   Data Prepper(kafka source) -> OpenSearch siem-*.
+    #   ★★ 그냥 지우면 **커버리지가 줄어든다** — 옛 elasticsearch 출력은
+    #     minimumpriority 가 `warning` 인데 kafka 는 `error` 였다.
+    #     그래서 kafka 쪽을 warning 으로 낮춰 맞췄다(아래).
 
     slack:
       webhookurl: ""
@@ -51,7 +48,9 @@ data:
     kafka:
       hostport: "kafka-headless:9092"
       topic: "falco-alerts"
-      minimumpriority: "error"
+      # ★ error -> warning. 걷어낸 elasticsearch 출력이 warning 이었으므로
+      #   여기를 낮추지 않으면 warning 등급 알림이 조용히 사라진다.
+      minimumpriority: "warning"
 
     webui:
       url: ""

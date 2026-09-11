@@ -25,19 +25,27 @@ data:
         access: proxy
         url: http://pyroscope:4040
 
-      - name: Elasticsearch
+      # ★ Elasticsearch -> OpenSearch (§9-1). Grafana 의 내장
+      #   `elasticsearch` 데이터소스를 그대로 쓴다 — OpenSearch 가 ES 7.10
+      #   API 호환을 유지하기 때문이다. 전용 OpenSearch 플러그인을 쓰지 않는
+      #   이유는 Grafana 가 플러그인을 /tmp 에 받아 설치하는데 이 배포는
+      #   readOnlyRootFilesystem 이라 **설치가 조용히 전부 실패**하기 때문이다
+      #   (Gotcha 96 — 파드는 Ready 이고 /api/health 도 ok 다).
+      #   ★★ 로그의 주 조회 경로는 여전히 Loki 다. 이 데이터소스는 siem-*
+      #     처럼 OpenSearch 에만 있는 것을 볼 때 쓴다.
+      - name: OpenSearch
         type: elasticsearch
-        uid: elasticsearch
+        uid: opensearch
         access: proxy
-        url: https://elasticsearch-es-http:9200
-        database: "logstash-*"
+        url: https://opensearch-headless:9200
+        database: "logs-*"
         basicAuth: true
-        basicAuthUser: elastic
+        basicAuthUser: admin
         jsonData:
-          timeField: "@timestamp"
+          timeField: "time"
           tlsSkipVerify: true
         secureJsonData:
-          basicAuthPassword: ${ES_PASSWORD}
+          basicAuthPassword: ${OPENSEARCH_PASSWORD}
 
       # ── 2단계 ────────────────────────────────────────────────
       - name: Loki

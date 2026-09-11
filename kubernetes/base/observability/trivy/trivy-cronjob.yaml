@@ -65,9 +65,9 @@ spec:
 
                   echo "--- Sending report to Elasticsearch ---"
                   curl -sf -X POST \
-                    "https://elasticsearch-es-http:9200/trivy-reports/_doc" \
+                    "https://opensearch-headless:9200/trivy-reports/_doc" \
                     -H "Content-Type: application/json" \
-                    -u "elastic:${ES_PASSWORD}" \
+                    -u "admin:${ES_PASSWORD}" \
                     -d @${REPORT_FILE} \
                     --cacert /etc/elasticsearch/certs/ca.crt \
                     || echo "Warning: Failed to send report to ES"
@@ -79,8 +79,8 @@ spec:
                     secretKeyRef:
                       # ★ ECK 가 권위 있는 소유자다(§8-64).
                       #   주 1회만 돌아 더 늦게 드러날 자리였다.
-                      name: elasticsearch-es-elastic-user
-                      key: elastic
+                      name: opensearch-secret
+                      key: admin-password
               resources:
                 requests:
                   cpu: 200m

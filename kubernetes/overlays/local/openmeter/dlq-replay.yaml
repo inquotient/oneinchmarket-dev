@@ -65,8 +65,11 @@ spec:
                 requests: {cpu: 50m, memory: 64Mi}
                 limits:   {cpu: 300m, memory: 192Mi}
               env:
+                # OpenSearch 로 옮겼다. 인덱스 이름(api-usage-dlq·
+                # api-usage-quarantine)은 그대로다 — Data Prepper 의
+                # legacy-ingest 파이프라인이 같은 이름으로 쓴다.
                 - name: ES_URL
-                  value: "https://elasticsearch-es-http:9200"
+                  value: "https://opensearch-headless:9200"
                 - name: OM_URL
                   value: "http://openmeter-api:80/api/v1/events"
                 - name: DLQ_INDEX
@@ -78,8 +81,8 @@ spec:
                 - name: ES_PASSWORD
                   valueFrom:
                     secretKeyRef:
-                      name: elasticsearch-es-elastic-user
-                      key: elastic
+                      name: opensearch-secret
+                      key: admin-password
               command: ["python3", "-c"]
               args:
                 - |

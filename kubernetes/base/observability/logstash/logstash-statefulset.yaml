@@ -56,13 +56,11 @@ spec:
               name: api
               protocol: TCP
           env:
-            - name: ELASTICSEARCH_HOSTS
-              value: "https://elasticsearch-es-http:9200"
-            - name: ES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: elasticsearch-es-elastic-user
-                  key: elastic
+            # Logstash 는 더 이상 검색 엔진에 직접 쓰지 않는다 — 출력이
+            # Data Prepper 의 http source 로 간다. 그래서 자격이 필요 없다.
+            # 남겨 두면 ES 철거와 함께 Secret 이 사라져 기동이 막힌다.
+            - name: DATA_PREPPER_URL
+              value: "http://data-prepper:2021/log/ingest"
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

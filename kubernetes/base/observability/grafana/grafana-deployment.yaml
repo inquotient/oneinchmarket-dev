@@ -28,8 +28,12 @@ spec:
             - {name: GF_SECURITY_ADMIN_USER, value: admin}
             - name: GF_SECURITY_ADMIN_PASSWORD
               valueFrom: {secretKeyRef: {name: grafana-secret, key: admin-password}}
-            - name: ES_PASSWORD
-              valueFrom: {secretKeyRef: {name: elasticsearch-es-elastic-user, key: elastic}}
+            # ★ ES_PASSWORD -> OPENSEARCH_PASSWORD (§9-1). 참조하던
+            #   `elasticsearch-es-elastic-user` 는 ECK 가 만들던 Secret 이라
+            #   Elasticsearch 를 철거하면 **사라진다** — 남겨 두면 Grafana 가
+            #   CreateContainerConfigError 로 기동하지 않는다.
+            - name: OPENSEARCH_PASSWORD
+              valueFrom: {secretKeyRef: {name: opensearch-secret, key: admin-password}}
             # 익명 접근 차단. 외부 진입점이 생기면 Keycloak OIDC 로 전환한다.
             - {name: GF_AUTH_ANONYMOUS_ENABLED, value: "false"}
             - {name: GF_ANALYTICS_REPORTING_ENABLED, value: "false"}

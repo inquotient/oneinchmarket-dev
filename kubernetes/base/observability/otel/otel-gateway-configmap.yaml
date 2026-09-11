@@ -89,6 +89,23 @@ data:
           enabled: true
           queue_size: 5000
 
+      # ★ Data Prepper -> OpenSearch. Filebeat 이 하던 일을 대체한다.
+      #   otel-agent 가 이미 /var/log/pods/*/*/*.log 를 전부 읽고 있으므로
+      #   노드 수집기를 새로 만들지 않는다(WSO2-OSS-MAPPING §9-1).
+      #   ★ Loki 와 **함께** 내보낸다 — 하나를 끊고 다른 하나를 붙이지 않는다.
+      #     전환 중에 로그를 볼 수 있는 곳이 항상 한 군데는 있어야 한다.
+      otlp/dataprepper:
+        endpoint: data-prepper:21892
+        tls:
+          insecure: true
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 60s
+        sending_queue:
+          enabled: true
+          queue_size: 2000
+
       prometheus:
         endpoint: 0.0.0.0:8889
         resource_to_telemetry_conversion:
@@ -118,7 +135,7 @@ data:
         logs:
           receivers: [otlp]
           processors: [memory_limiter, batch]
-          exporters: [otlphttp/loki]
+          exporters: [otlphttp/loki, otlp/dataprepper]
         # ★ 과금 파이프라인. 수신기·내보내기 모두 전용이라 일반 로그와
         #   섞이지 않는다. batch 는 두되 memory_limiter 도 같이 둔다 —
         #   과금 이벤트가 폭주해 수집기가 죽으면 그 구간이 통째로 비는데,

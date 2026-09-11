@@ -123,6 +123,48 @@ spec:
         - protocol: TCP
           port: 9300
 ---
+# Data Prepper 접근 허용 — OpenSearch 로 가는 유일한 수집 경로다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-data-prepper-access
+  labels:
+    app.kubernetes.io/name: allow-data-prepper-access
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: data-prepper
+  policyTypes:
+    - Ingress
+  ingress:
+    # 컨테이너 로그 — otel-gateway 가 OTLP 로 넘긴다
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: otel-gateway
+      ports:
+        - protocol: TCP
+          port: 21892
+    # 축소된 Logstash 가 넘기는 것(alerts·zeek·suricata·api-usage DLQ/격리)
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: logstash
+      ports:
+        - protocol: TCP
+          port: 2021
+    # Prometheus 스크레이프
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 4900
+---
 # OpenSearch 접근 허용 — Elasticsearch 를 대체한다(WSO2-OSS-MAPPING §9-1).
 # ★ 전환 중이라 allow-elasticsearch-access 와 나란히 산다. ES 를 철거할 때
 #   그쪽 정책도 함께 지울 것 — 남겨 두면 없는 파드를 고르는 死정책이 된다.
