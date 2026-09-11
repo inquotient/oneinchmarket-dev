@@ -76,7 +76,7 @@ cd scripts/security-verification && ./run-all.sh [namespace]
 | 1 | database | PostgreSQL, MariaDB, MongoDB, Redis |
 | 2 | messaging | Kafka KRaft, Apicurio Registry + **Registry UI**, AKHQ |
 | 3 | data-lakehouse · **kafka-connect** · **integration** | MinIO, Trino, Hive Metastore, Spark, Livy — **ZooKeeper·HDFS·HBase·HiveServer2 는 `overlays/local/lakehouse-local/` 로 분리**(단일 노드 전제). **Kafka Connect**(Debezium MariaDB CDC) · **Camel K 의 IntegrationPlatform CR**(오퍼레이터 자체는 ArgoCD 밖) |
-| **4** | **security/keycloak · security/vault · security/wazuh** · **developer-portal** | **Keycloak, Vault, Wazuh(manager·indexer)** · **Backstage**(**Keycloak OIDC** — 게이트웨이 경로 밖, port-forward 전용. 자체 빌드 이미지다) |
+| **4** | **security/keycloak · security/vault · security/wazuh** · **developer-portal** · **orchestration** | **Keycloak, Vault, Wazuh(manager·indexer)** · **Backstage**(**Keycloak OIDC** — 게이트웨이 경로 밖, port-forward 전용. 자체 빌드 이미지다) · **Temporal 1.29.7**(장기 durable 워크플로 — 독촉 절차의 뼈대. auto-setup 한 프로세스 · PostgreSQL 2 DB. UI 는 인증이 없어 port-forward 전용) |
 | 5 | devops · **governance** · **api-management** | GitLab EE · **DS389, LAM, Solr, Ranger(admin·usersync), Knox** · **Gravitee APIM CE**(gateway + management-api — ★ 배포만, 트래픽 경로에 없다. ADR-079 미결) |
 | 6 | application | admin, cmmn-api, nginx |
 | 7 | observability · **security-full** | **Dependency-Track(apiserver·frontend) · DefectDojo(django·nginx·celery worker·beat)** · Elasticsearch(ECK 3노드), Kibana, Logstash, Filebeat, **Prometheus, Grafana, Loki, Tempo, OTel Collector(agent·gateway)**, Falco, Falcosidekick, Trivy CronJob |
@@ -431,6 +431,12 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
      ② **기본 설정 파일** — 자체 빌드 이미지에서는 `app-config.yaml` 을 런타임 단계로 **직접 복사**해야 한다. `bundle.tar.gz` 에 들어 있지 않아 `NotFoundError: Config file "/app/app-config.yaml" does not exist` 로 즉사한다. 운영 설정은 ConfigMap 이 subPath 로 덮지만 **덮을 대상이 먼저 있어야** 한다.
      ③ **`/app` 소유권** — `WORKDIR /app` 이 만든 디렉터리는 root 소유다. `USER node` 로 넘어간 뒤 `tar x` 가 `Cannot mkdir: Permission denied` 로 죽는다. `COPY --chown` 은 **파일 소유만** 바꾸고 디렉터리 쓰기 권한을 주지 않는다 — `RUN chown node:node /app` 을 USER 앞에 둘 것.
      ★ 그리고 **성공의 판정이 바뀐다**: 카탈로그 API 가 `401 Missing credentials` 를 돌려주는 것이 정상이다(전에는 익명 guest 로 열려 있었다). 확인은 API 가 아니라 DB 로 한다 — `pluginDivisionMode: schema` 면 스키마 이름이 **플러그인 id 그대로**(`catalog`)이지 `backstage_plugin_catalog` 가 아니다
+
+138. **Temporal 의 frontend 는 루프백에 바인드하지 않는다 — 파드 안에서 `temporal` CLI 를 127.0.0.1 로 부르면 거부당한다.** 실측: `dial tcp 127.0.0.1:7233: connect: connection refused`(IPv6 로 풀리면 `[::1]`). 서버가 `TEMPORAL_BROADCAST_ADDRESS`(=파드 IP)에 바인드하기 때문이다. ★ **이것을 "서버가 안 떴다" 로 읽지 말 것** — 같은 시각에 UI 는 `/api/v1/namespaces` 로 네임스페이스 목록을 정상으로 받았다. 판정은 **서비스 경유 호출**로 하고, 파드 안에서 쓸 때는 `--address <podIP>:7233` 을 줄 것.
+     ★ 그리고 프로브를 HTTP 로 두지 말 것 — 7233 은 gRPC 라 HTTP 프로브는 핸드셰이크에서 늘 실패한다. TCP 로 본다.
+     ★★ 기동 판정은 파드 상태가 아니라 **스키마**다: `temporal` DB 39 테이블 · `temporal_visibility` 3 테이블(실측). auto-setup 이미지가 `temporal-sql-tool` 로 설치하며, DB 생성만 우리가 한다(`SKIP_DB_CREATE=true`) — 롤·비밀번호의 원천을 postgres-bootstrap 하나로 두기 위해서다
+
+139. **YAML 앵커(`&x`/`*x`)는 `---` 문서 경계를 넘지 못한다.** 한 파일에 ServiceAccount·Service·Deployment 를 담고 라벨을 앵커로 묶었더니 `found undefined alias 'lbl'` 로 파싱이 깨졌다. kustomize 도 같은 오류를 낸다. **문서마다 라벨을 다시 적을 것** — 중복이 보기 싫어도 그것이 이 형식의 규칙이다
 
 ### 매니페스트 작업 시
 

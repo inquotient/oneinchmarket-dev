@@ -120,6 +120,8 @@ kubectl -n local port-forward keycloak-0 8080:8080
 카탈로그의 `User:portal` 엔티티와 이메일 로컬파트로 짝지어진다 — **그 엔티티가
 없으면 인증은 성공하고 사인인이 "user not found" 로 실패한다.**
 
+| **Temporal UI** | `$K port-forward deploy/temporal-ui 18088:8080` | http://localhost:18088 | ★ **인증이 없다** — 그래서 ingress 에 올리지 않는다. 워크플로 이력을 본다. 서버는 `temporal-headless:7233`(gRPC) |
+
 > ★ Camel K 는 UI 가 없다. 상태는 `kubectl get integrationplatform -n local`
 > 과 `kubectl get integrations -n local`(지금은 0건)로 본다.
 
