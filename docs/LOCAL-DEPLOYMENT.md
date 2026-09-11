@@ -11002,6 +11002,43 @@ v0.34.0 에는 `scanJob.customVolumes`·`scanJob.customVolumesMount` 가 실재�
 처음부터 다시 만드는 중이므로, **재작성이 끝나기 전의 건수는 의미가 없다.**
 
 
+### 9-15. 레지스트리 배포 토큰이 그룹 전체에 **쓰기**다 (2026-09-11, Harbor 재검토에서 드러남)
+
+멀티레포를 근거로 Harbor 를 다시 본 결과 Harbor 는 여전히 답이 아니었지만
+(WSO2-OSS-MAPPING §9-1), 그 검토가 **우리 쪽 결함 하나**를 드러냈다.
+
+실측:
+
+```
+DeployToken  k8s-image-pull   scopes=read_registry,write_registry   group=oneinch
+Secret       local/gitlab-registry-secret  (이 토큰 하나)
+imagePullSecrets 로 참조하는 매니페스트  14개
+```
+
+토큰이 **하나**이고 **그룹 범위**이며 **쓰기**를 갖는다. 그런데 쓰임은 둘로 갈린다 —
+`local/build-images.sh` 는 push 하느라 쓰기가 필요하고, 클러스터의 워크로드 14개는
+**pull 만** 한다. 지금은 그 둘이 같은 자격을 쓴다. 즉 `local` 네임스페이스에서
+Secret 을 읽을 수 있으면 **그룹 안 모든 이미지 경로의 태그를 덮어쓸 수 있다.**
+
+단일 레포·경로 12개일 때는 폭이 좁지만, **멀티레포가 되면 정확히 이 자리가 커진다** —
+레포 N 개의 이미지가 전부 한 개의 쓰기 토큰 뒤에 놓인다. 레지스트리를 바꿔서 풀 문제가
+아니라 **토큰을 쪼개면 되는 문제**다.
+
+처방(하지 않고 미룬다):
+
+- `k8s-image-pull` 을 **읽기 전용**(`read_registry`)으로 만들고 클러스터 Secret 은 그것만 쓴다
+- push 는 별도 토큰(`k8s-image-push`, 쓰기)으로 분리하고 **클러스터에 두지 않는다** —
+  `build-images.sh` 는 노드에서 도니 Secret 이 아니라 그때그때 발급해도 된다
+- ★ `gitlab-registry-bootstrap.sh` 는 **재실행하면 토큰을 회전시킨다**(Gotcha 118).
+  쪼개는 작업은 그 스크립트를 고치는 일이므로 **Secret 갱신까지 한 번에** 해야 한다 —
+  중간에 멈추면 그 순간부터 push·pull 이 둘 다 막힌다
+
+**지금 하지 않는 이유**: 레포가 하나이고 Secret 을 읽을 수 있는 주체가
+`local` 네임스페이스의 우리 워크로드뿐이라, 얻는 것에 비해 회전 사고의 위험이 크다.
+**복귀 조건**: 두 번째 코드 레포가 이미지를 push 하기 시작할 때 — 그때는 쪼개는 것이
+선택이 아니다.
+
+
 ## 10. Hyper-V 배포(ADR-051 A안) 재검토 — 2026-09-05 실측
 
 §8-31 에서 H5(Hyper-V 합성 NIC 의 Cilium eBPF)가 해소되어 **기술적 중단 사유는
