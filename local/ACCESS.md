@@ -102,6 +102,12 @@ pw() { $K get secret "$1" -o jsonpath="{.data.$2}" | base64 -d; echo; }
 | **Gravitee Portal** | `$K port-forward deploy/gravitee-portal 18082:8080` | http://localhost:18082 | 같은 이유로 management-api 를 8083 으로 함께 forward |
 | **Gravitee Management API** | `$K port-forward deploy/gravitee-management-api 8083:8083` | http://localhost:8083/management | 위 둘의 전제. 포트를 **8083 그대로** 써야 한다(UI 에 그 주소가 박혀 있다) |
 | Gravitee Gateway | `$K port-forward deploy/gravitee-gateway 18084:8082` | http://localhost:18084 | ★★ **트래픽 경로에 없다.** 외부 진입은 여전히 Istio Gateway 다(ADR-079 미결) — 여기로는 아무것도 오지 않는다 |
+> ★★ **2026-09-12 — 위 표의 "트래픽 경로에 없다" 는 더 이상 사실이 아니다.** Gravitee 는 이제 Istio **뒤**에 있고
+> `https://api.oneinchmarket.local/managed/...` 가 그리로 간다. 시험은 노드에서:
+> `curl -k --resolve api.oneinchmarket.local:30727:127.0.0.1 -H "Authorization: Bearer <토큰>" https://api.oneinchmarket.local:30727/managed/api/menu`
+> ★ **`-H "Host: ..."` 로는 안 된다** — 그것은 HTTP 헤더일 뿐 TLS SNI 를 바꾸지 않아 연결이 리셋된다(Gotcha 157).
+> ★ 관리자 계정이 생겼다: `admin` / `pw gravitee-secret admin-password`. 그 전에는 **사용자가 0명**이라
+>   Console·Portal 에 아무도 로그인할 수 없었다(Gotcha 155).
 
 #### ★ §1-c. Backstage 로그인에 필요한 것 — Keycloak 을 **같은 이름으로** 열어야 한다
 
