@@ -54,8 +54,12 @@ data:
     #   자기 자신에게 쓰면서 단일 노드 예산을 먹는다.
     plugins.security.audit.type: noop
 
-    # 성능 분석기는 이 노드에서 얻는 것보다 비용이 크다.
-    plugins.performance_analyzer.enabled: false
+    # ★ 성능 분석기를 opensearch.yml 로 끄지 말 것 — 3.x 에는
+    #   `plugins.performance_analyzer.enabled` 키가 **없다**. 남겨 두면
+    #   SettingsException 으로 **기동조차 하지 않는다**(실측):
+    #     unknown setting [plugins.performance_analyzer.enabled]
+    #   끄는 자리는 설정 파일이 아니라 환경변수
+    #   DISABLE_PERFORMANCE_ANALYZER_AGENT_CLI 다 — StatefulSet 에 있다.
 
   # ★ 프로브를 매니페스트 인라인 셸로 쓰지 않는다. `exec.command` 안에
   #   curl + grep + 중첩 따옴표를 넣으면 YAML 과 셸의 따옴표 규칙이 겹쳐
@@ -96,7 +100,11 @@ data:
     set -euo pipefail
     SRC=/usr/share/opensearch/config/opensearch-security
     DST=/security-config
-    cp -a "$SRC"/. "$DST"/
+    # ★ `cp -a` 를 쓰지 말 것 — emptyDir 을 fsGroup 으로 마운트하면 그 루트의
+    #   타임스탬프를 바꿀 수 없어 `cp: preserving times for '/security-config/.':
+    #   Operation not permitted` 로 죽는다(실측). 여기서 보존할 속성이 없다 —
+    #   읽어서 쓰기만 하면 된다.
+    cp -r "$SRC"/. "$DST"/
     HASH_SH=/usr/share/opensearch/plugins/opensearch-security/tools/hash.sh
     # ★ hash.sh 는 배너를 함께 찍는다 — 마지막 줄만 취한다.
     ADMIN_HASH="$(bash "$HASH_SH" -p "$OPENSEARCH_ADMIN_PASSWORD" | tail -1)"

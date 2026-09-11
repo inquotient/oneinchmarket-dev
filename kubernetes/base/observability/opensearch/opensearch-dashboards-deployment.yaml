@@ -28,6 +28,16 @@ data:
     # ★ port-forward(평문 HTTP)로 접근하므로 secure 쿠키를 요구하면 로그인이
     #   되지 않는다. 게이트웨이 뒤로 옮기는 날 true 로 바꿀 것.
     opensearch_security.cookie.secure: false
+
+    # ★ 프로브가 쓸 경로를 인증에서 뺀다. security 플러그인을 켜면
+    #   `/api/status` 도 401 이 되어 **서버는 멀쩡한데 Ready 가 되지 않는다**
+    #   (실측: 서버 로그에 "Server running at http://0.0.0.0:5601" 이 찍힌 뒤
+    #   /api/status 가 계속 401). 자격을 매니페스트에 넣어 프로브에 태우면
+    #   비밀번호가 평문으로 남으므로, 대신 **그 경로만** 연다 —
+    #   노출되는 것은 서버 상태(버전·플러그인 상태)뿐이고
+    #   allow-opensearch-access NetworkPolicy 가 접근 자체를 좁힌다.
+    opensearch_security.auth.unauthenticated_routes: ["/api/status"]
+    status.allowAnonymous: true
 ---
 apiVersion: apps/v1
 kind: Deployment

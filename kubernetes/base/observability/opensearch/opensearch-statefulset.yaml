@@ -65,6 +65,10 @@ spec:
             # ★ 데모 설정 설치를 끈다. 켜 두면 데모 인증서·데모 사용자가 들어오고
             #   OPENSEARCH_INITIAL_ADMIN_PASSWORD 를 요구한다.
             - {name: DISABLE_INSTALL_DEMO_CONFIG, value: "true"}
+            # ★ 성능 분석기는 이 노드에서 얻는 것보다 비용이 크다. 끄는 자리는
+            #   opensearch.yml 이 **아니다** — 3.x 에는 그 설정 키가 없어서
+            #   넣으면 SettingsException 으로 기동하지 않는다(실측).
+            - {name: DISABLE_PERFORMANCE_ANALYZER_AGENT_CLI, value: "true"}
             # Xms == Xmx. JVM 은 힙이 커질 때 GC 가 요동친다.
             # ★ limit 의 50% 다(Gotcha 82) — 메타스페이스·코드캐시·스레드 스택·
             #   direct buffer 자리를 남긴다. ES 는 힙 1GB 로 31.66GB·샤드 77개를
