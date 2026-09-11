@@ -122,6 +122,8 @@ kubectl -n local port-forward keycloak-0 8080:8080
 
 | **Temporal UI** | `$K port-forward deploy/temporal-ui 18088:8080` | http://localhost:18088 | ★ **인증이 없다** — 그래서 ingress 에 올리지 않는다. 워크플로 이력을 본다. 서버는 `temporal-headless:7233`(gRPC) |
 
+| **Hubble UI**(네트워크 흐름) | `$K -n kube-system port-forward deploy/hubble-ui 12000:8081` | http://localhost:12000 | ★ ambient 에서 **정책 거부가 타임아웃으로 보이는** 문제를 눈으로 본다(Gotcha 13·19·50). CLI: `hubble observe --server <relay ClusterIP>:80 --verdict DROPPED` |
+
 > ★ Camel K 는 UI 가 없다. 상태는 `kubectl get integrationplatform -n local`
 > 과 `kubectl get integrations -n local`(지금은 0건)로 본다.
 

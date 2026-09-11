@@ -438,6 +438,10 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 
 139. **YAML 앵커(`&x`/`*x`)는 `---` 문서 경계를 넘지 못한다.** 한 파일에 ServiceAccount·Service·Deployment 를 담고 라벨을 앵커로 묶었더니 `found undefined alias 'lbl'` 로 파싱이 깨졌다. kustomize 도 같은 오류를 낸다. **문서마다 라벨을 다시 적을 것** — 중복이 보기 싫어도 그것이 이 형식의 규칙이다
 
+140. **`hostNetwork` 파드는 CoreDNS 를 쓰지 않는다 — 클러스터 서비스 이름이 풀리지 않는다.** Hubble 을 켠 뒤 cilium 에이전트 안에서 `hubble observe --server hubble-relay.kube-system.svc.cluster.local:80` 을 부르자 `lookup ... on 10.255.255.254:53: no such host` 가 났다. 그 파드는 hostNetwork 라 **노드의 resolv.conf**(WSL DNS 프록시)를 보기 때문이다 — 서비스가 없는 것이 아니다. ★ **이것을 "relay 가 안 떴다" 로 읽지 말 것**: 같은 시각 UI 의 `/healthz` 는 `ok` 였고, ClusterIP 로 부르니 흐름이 정상으로 나왔다. hostNetwork 파드에서 클러스터 서비스를 부를 때는 **ClusterIP 를 쓸 것**. Gotcha 110 ②(hostNetwork 는 메시 신원이 없다)와 같은 뿌리의 다른 증상이다
+
+141. **Hubble 은 "도입" 이 아니라 **마저 켜는** 일이었다 — 에이전트는 이미 흐름을 모으고 있었다.** 실측: `cilium-config` 에 `enable-hubble=true` · `hubble-listen-address=:4244` 인데 **hubble 파드는 0개**였다. 즉 모으기만 하고 아무도 읽지 않는 상태다 — Falcosidekick `Enabled Outputs: []`(§8-35) · Reloader 어노테이션 65개에 컨트롤러 0개(Gotcha 84)와 같은 부류다. ★ 켜는 방법은 **설치와 같은 경로**여야 한다: Cilium 은 helm 릴리스로 깔려 있으므로 `helm upgrade --reuse-values` 로 `hubble.relay.enabled`·`hubble.ui.enabled` 를 더한다. `--reuse-values` 를 빼면 `cni.exclusive=false`·`socketLB.hostNamespaceOnly=true` 같은 **필수 오버라이드가 기본값으로 돌아간다**(Gotcha 47 과 같은 함정). ★★ 그리고 같은 옵션을 `install-platform.sh` 에도 넣을 것 — 안 넣으면 재설치 때 조용히 사라진다(Gotcha 80)
+
 ### 매니페스트 작업 시
 
 - `v1/` 매니페스트는 **배포 금지**. 단 CI가 이 경로의 Dockerfile을 참조한다는 모순이 있다
