@@ -10,7 +10,6 @@ resources:
   - rotate-mongodb.yaml
   - rotate-redis.yaml
   # Infrastructure Rotation
-  - rotate-elasticsearch.yaml
   - rotate-minio.yaml
   # Admin Rotation (90일 주기)
   - rotate-admin.yaml

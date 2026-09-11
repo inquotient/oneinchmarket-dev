@@ -12,7 +12,6 @@ export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/config}"
 #   즉 이 값을 올릴 때는 bootstrap-wsl-k3s.sh 의 K3S_VERSION 도 함께 봐야 한다.
 #   1.31 은 k8s 1.32 미만에서 돌지 않는다.
 ISTIO_VERSION="${ISTIO_VERSION:-1.31.0}"
-ECK_VERSION="${ECK_VERSION:-3.2.0}"           # v1 이 쓰던 버전 (COMPONENTS.md §1-3)
 KYVERNO_VERSION="${KYVERNO_VERSION:-v1.13.2}"
 CERT_MANAGER_VERSION="${CERT_MANAGER_VERSION:-v1.16.2}"
 # 4단계(security-min)
@@ -48,11 +47,15 @@ else
   log "istio-system 이미 존재 — 건너뜀"
 fi
 
-# ── 2. ECK Operator ────────────────────────────────────────────
-# v1 에는 설치 코드가 있었으나 v2 에서 사라졌다 (COMPONENTS.md §1-3).
-log "ECK ${ECK_VERSION}"
-kubectl apply --server-side -f "https://download.elastic.co/downloads/eck/${ECK_VERSION}/crds.yaml"
-kubectl apply -f "https://download.elastic.co/downloads/eck/${ECK_VERSION}/operator.yaml"
+# ── 2. (비어 있음) ─────────────────────────────────────────────
+# ★ ECK Operator 를 걷어냈다(2026-09-11). Elasticsearch·Kibana 를 철거하고
+#   OpenSearch + Data Prepper 로 옮겼기 때문이다(WSO2-OSS-MAPPING 9-1).
+#   OpenSearch 는 오퍼레이터 없이 StatefulSet 으로 돈다 — CRD 가 늘지 않아
+#   argocd-application-controller 의 캐시 부담도 줄어든다(Gotcha 119).
+#   ★ 이미 설치된 오퍼레이터를 지우려면(이 스크립트는 설치만 한다):
+#       kubectl delete -f https://download.elastic.co/downloads/eck/3.2.0/operator.yaml
+#       kubectl delete -f https://download.elastic.co/downloads/eck/3.2.0/crds.yaml
+#     CRD 를 지우면 남은 Elasticsearch/Kibana 리소스도 함께 사라진다.
 
 # ── 3. Kyverno ─────────────────────────────────────────────────
 # 정책 6종은 base 에 있으나 컨트롤러 설치 경로가 없었다.
@@ -67,7 +70,7 @@ kubectl apply -f "https://github.com/cert-manager/cert-manager/releases/download
 
 # ── 5. 4단계: security-min 오퍼레이터 계층 ─────────────────────
 # Tetragon·Trivy Operator·Policy Reporter 는 CRD 를 동반하므로 ArgoCD
-# 밖(wave -1)에서 설치한다. Kyverno·ECK 와 같은 취급이다.
+# 밖(wave -1)에서 설치한다. Kyverno 와 같은 취급이다.
 
 # 5-1. Tetragon (eBPF 런타임 관측·강제)
 #
