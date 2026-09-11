@@ -65,7 +65,7 @@ spec:
             - -c
             - |
               set -eu
-              sed -e "s|__GRAVITEE_DB_PASSWORD__|${GRAVITEE_DB_PASSWORD}|" -e "s|__GRAVITEE_JWT_SECRET__|${GRAVITEE_JWT_SECRET}|" /etc/gravitee-src/gravitee.yml > /etc/gravitee/gravitee.yml
+              sed -e "s|__GRAVITEE_DB_PASSWORD__|${GRAVITEE_DB_PASSWORD}|" -e "s|__GRAVITEE_JWT_SECRET__|${GRAVITEE_JWT_SECRET}|" -e "s|__GRAVITEE_ADMIN_BCRYPT__|${GRAVITEE_ADMIN_BCRYPT}|" /etc/gravitee-src/gravitee.yml > /etc/gravitee/gravitee.yml
               if grep -q "__GRAVITEE_" /etc/gravitee/gravitee.yml; then
                 echo "치환 실패: 자리표시자가 남아 있다" >&2; exit 1
               fi
@@ -78,6 +78,11 @@ spec:
               valueFrom: { secretKeyRef: { name: gravitee-secret, key: db-password } }
             - name: GRAVITEE_JWT_SECRET
               valueFrom: { secretKeyRef: { name: gravitee-secret, key: jwt-secret } }
+            # ★ 두 워크로드가 **같은 ConfigMap 과 같은 가드**를 쓴다 —
+            #   한쪽만 치환하면 다른 쪽이 `자리표시자가 남아 있다` 로 기동을
+            #   거부한다. 새 자리표시자를 더할 때는 반드시 둘 다 고칠 것.
+            - name: GRAVITEE_ADMIN_BCRYPT
+              valueFrom: { secretKeyRef: { name: gravitee-secret, key: admin-password-bcrypt } }
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

@@ -81,7 +81,13 @@ mk airflow-secret "db-password=$(gen)" "fernet-key=$(fernet)" "api-secret-key=$(
 #   dashboards — Dashboards 자신의 서비스 계정(예약 이름 kibanaserver 로 렌더된다)
 mk opensearch-secret "admin-password=$(gen 24)" "ingest-password=$(gen 24)" "dashboards-password=$(gen 24)"
 # Gravitee — MongoDB 전용 사용자(mongodb-bootstrap 이 만든다).
-mk gravitee-secret "db-password=$(gen)" "jwt-secret=$(gen 32)"
+# ★★ Gravitee 는 **관리자 계정을 설정 파일에 둔다**(memory 공급자). 그 자리에
+#   들어가는 것은 평문이 아니라 **bcrypt 해시**다. 그래서 키가 둘이다 —
+#   사람이 로그인할 평문(admin-password)과 설정에 박히는 해시.
+bcrypt() { python3 -c "import bcrypt,sys; sys.stdout.write(bcrypt.hashpw(sys.stdin.buffer.read().strip(), bcrypt.gensalt(rounds=10)).decode())"; }
+GRAVITEE_ADMIN_PW="$(gen 24)"
+mk gravitee-secret "db-password=$(gen)" "jwt-secret=$(gen 32)" "admin-password=${GRAVITEE_ADMIN_PW}" "admin-password-bcrypt=$(printf %s "${GRAVITEE_ADMIN_PW}" | bcrypt)"
+unset GRAVITEE_ADMIN_PW
 mk shardingsphere-secret "proxy-password=$(gen)"
 # ProxySQL (§8-76). admin 은 런타임 설정 인터페이스(6032), monitor 는 백엔드
 # 헬스체크용 계정이다 — mariadb-bootstrap 이 'proxysql-monitor'@'%' 를

@@ -66,6 +66,25 @@ data:
     jwt:
       secret: __GRAVITEE_JWT_SECRET__
 
+    # ── 인증 ──
+    # ★★★ 이 절이 없으면 **사용자가 0명**이 된다. 우리가 gravitee.yml 을
+    #   통째로 대체하므로 이미지 기본값의 memory 공급자도 함께 사라진다.
+    #   증상: 관리 API 의 모든 경로가 401 이고, 로그에는
+    #   `Loading authentication providers` 한 줄만 찍힌다(몇 개 실었는지
+    #   말하지 않는다). 실측으로 이 클러스터는 며칠째 **관리자가 없는**
+    #   상태였고, 그래서 API 0 · 플랜 0 · 구독 0 이었다 — Gotcha 155.
+    # ★ 비밀번호는 **bcrypt 해시**를 넣는다. create-secrets.sh 가 해시를
+    #   만들어 Secret 에 두고 initContainer 가 치환하므로, 평문은 파드의
+    #   설정 파일에도 남지 않는다(OpenSearch 의 internal_users 와 같은 방식).
+    security:
+      providers:
+        - type: memory
+          allow-email-in-search-results: true
+          users:
+            - user: admin
+              password: __GRAVITEE_ADMIN_BCRYPT__
+              roles: ORGANIZATION:ADMIN,ENVIRONMENT:ADMIN
+
     # ── HTTP ──
     # 포트는 이미지 기본값을 그대로 둔다(management-api 8083 · gateway 8082).
     # 이미지 config 의 ExposedPorts 에서 확인했다.
