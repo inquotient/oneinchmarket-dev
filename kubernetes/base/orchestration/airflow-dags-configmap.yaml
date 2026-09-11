@@ -16,6 +16,49 @@ metadata:
     app.kubernetes.io/part-of: oneinchmarket
     app.kubernetes.io/managed-by: kustomize
 data:
+  platform_smoke.py: |
+    """플랫폼 연기 시험 — 스케줄 없음, 수동 전용.
+
+    ★ 왜 있는가: "태스크 로그가 실제로 남는가" 를 **안전하게** 확인할 수단이
+      필요하다. 유일한 실 DAG(openmeter_billing_chain)은 가드에서 실패하도록
+      설계돼 있어, 정상 종료 경로의 로그를 그것으로는 볼 수 없다.
+
+    ★★ `schedule=None` 이라 저절로 돌지 않는다. 아무것도 바꾸지 않고
+      로그만 남긴다 — 켜 두어도 소음이 되지 않는다.
+    """
+    from __future__ import annotations
+
+    import logging
+
+    import pendulum
+    from airflow.sdk import dag, task
+
+    log = logging.getLogger("airflow.task")
+
+
+    @dag(
+        dag_id="platform_smoke",
+        description="로그 경로 확인용 — 수동 전용, 부작용 없음",
+        schedule=None,
+        start_date=pendulum.datetime(2026, 9, 1, tz="Asia/Seoul"),
+        catchup=False,
+        is_paused_upon_creation=False,
+        tags=["platform"],
+    )
+    def platform_smoke():
+
+        @task
+        def emit() -> int:
+            for i in range(20):
+                log.info("smoke line %02d — 로그가 남는지 본다", i)
+            log.warning("warning 도 한 줄")
+            return 20
+
+        emit()
+
+
+    platform_smoke()
+
   openmeter_billing_chain.py: |
     """과금 배치 넷을 순서대로 돌린다.
 
