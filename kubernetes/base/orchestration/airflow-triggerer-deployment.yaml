@@ -51,7 +51,15 @@ spec:
               valueFrom:
                 secretKeyRef: { name: airflow-secret, key: db-password }
             - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN_CMD
-              value: 'printf "postgresql+psycopg2://airflow:%s@postgresql-headless:5432/airflow" "$AIRFLOW_DB_PASSWORD"'
+              # ★★★ `sh -c` 로 감싸야 한다. Airflow 의 `_CMD` 변종은
+              #   `shlex.split()` + `Popen`(셀 없음)으로 돌리므로, 그냥 `printf ... "$VAR"`
+              #   를 주면 **`$VAR` 가 리터럴로 printf 에 넘어간다.** 즉 비밀번호
+              #   자리에 `$AIRFLOW_DB_PASSWORD` 라는 글자가 들어간다 — 주소와
+              #   사용자는 맞아서 오류가 `password authentication failed` 로 나오고,
+              #   그러면 Secret 과 롤 비밀번호를 의심하게 된다(둘 다 멀줦하다).
+              #   실측으로 이것을 한 번 밟았다 — Gotcha 151.
+              value: >-
+                sh -c 'printf "postgresql+psycopg2://airflow:%s@postgresql-headless:5432/airflow" "$AIRFLOW_DB_PASSWORD"'
             - name: AIRFLOW__CORE__FERNET_KEY
               valueFrom:
                 secretKeyRef: { name: airflow-secret, key: fernet-key }

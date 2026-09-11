@@ -501,6 +501,8 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 
 150. **Istio 요청 지표는 첫 요청에 **생긴다** — "시계열 0건" 을 "그 지표가 없다" 로 읽지 말 것.** SLO 를 세우며 `istio_requests_total` 을 질의했더니 **0건**이어서 "없는 지표로 SLO 를 썼다" 고 결론지었는데, 게이트웨이 NodePort 에 HTTP 요청 **3건**을 보내자 30초 뒤 `시계열 1 · 값 3` 이 나왔다. Envoy/Istio 의 통계는 **지연 생성**이라 트래픽이 한 번도 없던 게이트웨이는 그 이름을 내놓지 않는다. ★ **판정을 질의 결과로 하지 말고 요청을 한 번 보내서 할 것** — 이 사이에 시험 방법으로 두 번 더 틀렸다: 파드 안에 `curl` 이 없어 `grep -c` 가 **0 을 돌려줬고**(Gotcha 56 와 같은 자리), 임시 파드에서 보낸 요청은 `000` 이어서 게이트웨이가 아니라 **경로**가 막힌 것이었다. 동작한 것은 노드에서 NodePort 를 직접 치는 것뿐이다. ★★ 그래서 **SLO 의 빈 그래프는 두 가지 뜻이 있다**: 기록 규칙이 **없으면** 지표가 없는 것(무통)이고, **0 이면** 오류가 없는 것이다. 둘을 묶어 보면 장애가 "좋다" 로 읽힌다 — WSO2-OSS-MAPPING §9-1
 
+151. **Airflow 의 `..._CMD` 설정 변종은 셸을 거치지 않는다 — `$VAR` 가 리터럴로 들어간다.** `AIRFLOW__DATABASE__SQL_ALCHEMY_CONN_CMD` 에 `printf "...%s..." "$AIRFLOW_DB_PASSWORD"` 를 주었더니 비밀번호 자리에 **`$AIRFLOW_DB_PASSWORD` 라는 글자**가 그대로 들어갔다. 구현이 `subprocess.Popen(shlex.split(command))` 라 **셸이 없다**(실측: `inspect.getsource(run_command)`). ★ **증상이 원인을 가리키지 않는다** — 호스트·포트·사용자·DB 이름은 전부 맞아서 연결이 성립하고 `FATAL: password authentication failed for user "airflow"` 만 나온다. 그러면 Secret 과 롤 비밀번호를 의심하게 되는데 **둘 다 멀쩡하다**(실측으로 같은 비밀번호로 psql 직접 접속이 `CONNECT-OK` 였다). ★★ 처방은 `sh -c` 로 감싸는 것이다 — `shlex.split` 이 `['sh','-c','printf ... "$VAR"']` 로 쪼개 주므로 그 안에서 셸이 확장한다. YAML 에서는 따옴표가 엉키므로 **`value: >-` 접기 스칼라**로 한 줄 두는 것이 읽기 쉽다. ★ 판정법: 컨테이너 안에서 `airflow config get-value database sql_alchemy_conn` 을 찍되 **마스킹 정규식을 믿지 말 것** — `s/:[^:@]*@/:***@/` 는 확장된 비밀번호든 `$VAR` 든 똑같이 가려서 **이 결함을 숨긴다.** 값 대신 **성질**을 물을 것(`'$' in v` 또는 센티넬 값으로 시험). ★★ 같은 함정이 다른 `_CMD` 키(`AIRFLOW__CORE__FERNET_KEY_CMD` 등)에도 그대로 있다 — WSO2-OSS-MAPPING §9-1
+
 ### 매니페스트 작업 시
 
 - `v1/` 매니페스트는 **배포 금지**. 단 CI가 이 경로의 Dockerfile을 참조한다는 모순이 있다
