@@ -76,12 +76,23 @@ data:
     # ★ 비밀번호는 **bcrypt 해시**를 넣는다. create-secrets.sh 가 해시를
     #   만들어 Secret 에 두고 initContainer 가 치환하므로, 평문은 파드의
     #   설정 파일에도 남지 않는다(OpenSearch 의 internal_users 와 같은 방식).
+    # ★★★ 모양을 지어내지 말 것 — 이미지 원본이 기준이다(Gotcha 103).
+    #   ① 항목은 `- user:`(빈 키) 뒤에 `username:` 이 오는 특이한 모양이다.
+    #     `- user: admin` 으로 쓰면 username 이 없어 공급자가 사용자를
+    #     하나도 실지 않는다 — 그래도 오류는 없고 401 만 나온다.
+    #   ② **bcrypt 는 `$2a$` 만 받는다**(원본 주석에 명시돼 있다).
+    #     python 의 `bcrypt.gensalt()` 기본값은 `$2b$` 라 그대로 넣으면
+    #     **조용히 인증이 실패한다.** create-secrets.sh 가 prefix=2a 로 만든다.
+    #   ★ 판정은 로그의 `Loading authentication providers` **뒤에 무엇이
+    #     찍히는지**로 한다 — 공급자를 0개 실어도 그 줄은 똑같이 나온다.
     security:
       providers:
         - type: memory
           allow-email-in-search-results: true
+          password-encoding-algo: bcrypt
           users:
-            - user: admin
+            - user:
+              username: admin
               password: __GRAVITEE_ADMIN_BCRYPT__
               roles: ORGANIZATION:ADMIN,ENVIRONMENT:ADMIN
 

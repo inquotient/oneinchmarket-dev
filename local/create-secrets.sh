@@ -84,7 +84,9 @@ mk opensearch-secret "admin-password=$(gen 24)" "ingest-password=$(gen 24)" "das
 # ★★ Gravitee 는 **관리자 계정을 설정 파일에 둔다**(memory 공급자). 그 자리에
 #   들어가는 것은 평문이 아니라 **bcrypt 해시**다. 그래서 키가 둘이다 —
 #   사람이 로그인할 평문(admin-password)과 설정에 박히는 해시.
-bcrypt() { python3 -c "import bcrypt,sys; sys.stdout.write(bcrypt.hashpw(sys.stdin.buffer.read().strip(), bcrypt.gensalt(rounds=10)).decode())"; }
+# ★★ prefix=2a 가 필수다 — Gravitee 의 memory IDP 는 `$2a$` 만 받는다.
+#   python 기본값은 `$2b$` 이고, 그것을 넣으면 오류 없이 401 만 난다.
+bcrypt() { python3 -c "import bcrypt,sys; sys.stdout.write(bcrypt.hashpw(sys.stdin.buffer.read().strip(), bcrypt.gensalt(rounds=10, prefix=b'2a')).decode())"; }
 GRAVITEE_ADMIN_PW="$(gen 24)"
 mk gravitee-secret "db-password=$(gen)" "jwt-secret=$(gen 32)" "admin-password=${GRAVITEE_ADMIN_PW}" "admin-password-bcrypt=$(printf %s "${GRAVITEE_ADMIN_PW}" | bcrypt)"
 unset GRAVITEE_ADMIN_PW
