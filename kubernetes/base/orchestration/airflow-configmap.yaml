@@ -75,5 +75,14 @@ data:
 
   # ── 기타 ──────────────────────────────────────────────────
   AIRFLOW__CORE__DEFAULT_TIMEZONE: "Asia/Seoul"
+  # ★★★ 이 둘을 함께 두어야 한다. `api.base_url` 은 **브라우저가 보는 주소**라
+  #   port-forward 포트여야 UI 링크가 맞는데, 실행 API 주소의 기본값이
+  #   **`{api.base_url}/execution/`** 로 거기서 파생된다. 그러면 scheduler
+  #   파드의 태스크 supervisor 가 `http://localhost:18080/execution/` 로 붙으려
+  #   하고 그 파드에는 아무것도 없어 **모든 태스크가 실패한다**
+  #   (`httpx.ConnectError: [Errno 111] Connection refused`).
+  #   ★ 증상이 원인과 멀다 — 태스크 로그는 `Pre Execute` 한 줄에서 끊기고,
+  #     DAG 은 그냥 failed 로 보인다. UI 설정이 실행을 깬 것이다 — Gotcha 154.
   AIRFLOW__API__BASE_URL: "http://localhost:18080"
+  AIRFLOW__CORE__EXECUTION_API_SERVER_URL: "http://airflow-apiserver:8080/execution/"
   AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "False"
