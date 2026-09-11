@@ -28,19 +28,6 @@ spec:
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: elasticsearch-pdb
-  labels:
-    app.kubernetes.io/name: elasticsearch
-    app.kubernetes.io/part-of: oneinchmarket
-spec:
-  minAvailable: 2
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: elasticsearch
----
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
   name: redis-pdb
   labels:
     app.kubernetes.io/name: redis

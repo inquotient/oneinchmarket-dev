@@ -43,7 +43,6 @@ patches:
   #   양방향이다: 5건은 예약이 실사용보다 적어 축출 1순위였다.
   - path: patches/requests-local.yaml
   # 경합이 늘면서 기동이 느려진 워크로드의 startup 예산 확대
-  - path: patches/es-replicas-local.yaml
   - path: patches/probes-local.yaml
   # Apicurio 콘솔의 API 주소는 브라우저 기준이다 — port-forward 주소로 덮는다
   - path: patches/apicurio-ui-local.yaml
@@ -51,48 +50,11 @@ patches:
   # cmmn-api 의 테이블을 Hibernate 가 만들게 한다 — local 전용 스톱갓(§8-99)
   - path: patches/cmmn-api-schema-local.yaml
 
-  # ── Elasticsearch (ECK CR) — TODO-32: dev 는 3노드 그대로다. 로컬은 1노드.
-  #    count 3 → 1 로 −8 GiB. 그리고 Guaranteed 로 스왑에서 배제한다.
-  - target:
-      group: elasticsearch.k8s.elastic.co
-      version: v1
-      kind: Elasticsearch
-      name: elasticsearch
-    patch: |
-      - op: replace
-        path: /spec/nodeSets/0/count
-        value: 1
-      - op: replace
-        path: /spec/nodeSets/0/podTemplate/spec/containers/0/resources/requests/memory
-        value: 2Gi
-      - op: replace
-        path: /spec/nodeSets/0/podTemplate/spec/containers/0/resources/limits/memory
-        value: 2Gi
-      - op: replace
-        path: /spec/nodeSets/0/podTemplate/spec/containers/0/resources/limits/cpu
-        value: 1000m
-      - op: add
-        path: /spec/nodeSets/0/podTemplate/metadata/labels/environment
-        value: local
-  - target:
-      group: kibana.k8s.elastic.co
-      version: v1
-      kind: Kibana
-      name: kibana
-    patch: |
-      - op: add
-        path: /spec/podTemplate/metadata/labels/environment
-        value: local
-      # ★ base 는 limit 1Gi 인데 실사용이 797Mi 다. Node 힙 + RSS 오버헤드가
-      #   그 위에서 exit 134(SIGABRT) 로 죽는다 — 재부팅 후 51회 재시작.
-      #   requests 도 256Mi 여서 실사용의 1/3 이었다: 초과 파드는 축출 1순위다
-      #   (§8-27 과 같은 유형).
-      - op: replace
-        path: /spec/podTemplate/spec/containers/0/resources/requests/memory
-        value: 768Mi
-      - op: replace
-        path: /spec/podTemplate/spec/containers/0/resources/limits/memory
-        value: 1536Mi
+  # ★ Elasticsearch·Kibana 패치를 걷어냈다(2026-09-11) — base 에서 그
+  #   리소스를 지웠기 때문이다(WSO2-OSS-MAPPING 9-1). **패치는 대상이
+  #   사라지면 렌더 자체를 실패시킨다**:
+  #     error: no resource matches strategic merge patch ...
+  #   base 에서 무엇을 지울 때는 그것을 패치하는 오버레이를 함께 찾을 것.
 
 commonLabels:
   environment: local

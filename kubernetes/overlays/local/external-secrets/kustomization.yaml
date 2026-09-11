@@ -21,7 +21,6 @@ resources:
   - defectdojo-secret.yaml
   - dependency-track-secret.yaml
   - ds389-secret.yaml
-  - elasticsearch-secret.yaml
   - falcosidekick-secret.yaml
   - gitlab-deploy-token.yaml
   - gitlab-secret.yaml

@@ -14,25 +14,7 @@ patches:
   - path: patches/storage-dev.yaml
   - path: patches/kafka-dev.yaml
   - path: patches/akhq-dev.yaml
-  # ECK CRDs: kustomize commonLabels can't reach into CRD podTemplate fields
-  - target:
-      group: elasticsearch.k8s.elastic.co
-      version: v1
-      kind: Elasticsearch
-      name: elasticsearch
-    patch: |
-      - op: add
-        path: /spec/nodeSets/0/podTemplate/metadata/labels/environment
-        value: dev
-  - target:
-      group: kibana.k8s.elastic.co
-      version: v1
-      kind: Kibana
-      name: kibana
-    patch: |
-      - op: add
-        path: /spec/podTemplate/metadata/labels/environment
-        value: dev
+  # ECK(Elasticsearch·Kibana) 패치는 걷어냈다 — base 에서 지웠다(9-1).
 
 commonLabels:
   environment: dev
