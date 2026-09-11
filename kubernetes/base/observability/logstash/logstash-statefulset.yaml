@@ -61,17 +61,32 @@ spec:
             # 남겨 두면 ES 철거와 함께 Secret 이 사라져 기동이 막힌다.
             - name: DATA_PREPPER_URL
               value: "http://data-prepper:2021/log/ingest"
+            # ★ 힙을 1g -> 384m 로 줄인다. 실측(2026-09-11): 힙 사용 252 MB /
+            #   최대 990 MB(25%)이고 이벤트가 **1시간여에 100건**이다
+            #   (zeek 94 · alertmanager 6 · api-usage 0). 전환으로 입력이
+            #   6개 -> 4개가 되고 Elasticsearch 출력이 사라지면서 일이 줄었다.
+            # ★★ `-Xms1g` 가 1GB 를 **선할당**해서 RSS 가 1,284Mi 였다 —
+            #   실제 필요량이 아니라 예약값이 RSS 를 만든 것이다.
+            # ★ 이미지의 `config/jvm.options` 에 -Xms1g -Xmx1g 가 있다.
+            #   LS_JAVA_OPTS 는 그 **뒤에** 붙고 java 는 마지막 -Xmx 를 취하므로
+            #   여기서 이긴다(Gotcha 82·123 이 경계하는 반대 방향이다).
+            #   판정은 설정이 아니라 `_node/stats` 의 heap_max_in_bytes 로 한다.
+            - name: LS_JAVA_OPTS
+              value: "-Xms384m -Xmx384m"
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
           resources:
+            # ★ 힙 384m + 비힙 211MB + JVM/스레드 오버헤드 ≈ 700MB.
+            #   limit 을 그보다 조금 위에 둔다 — 힙과 limit 을 같게 두면
+            #   힙이 차기 전에 커널이 먼저 죽인다(Gotcha 82).
             requests:
-              cpu: 500m
-              memory: 1Gi
+              cpu: 100m
+              memory: 768Mi
             limits:
-              cpu: 1000m
-              memory: 2Gi
+              cpu: 500m
+              memory: 896Mi
           # Logstash 는 파이프라인 컴파일에 60~90초가 걸린다. startupProbe 가 없으면
           # livenessProbe 가 즉시 시작해 3회x10초=30초 만에 SIGTERM 한다(exitCode 143).
           startupProbe:

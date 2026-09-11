@@ -58,19 +58,14 @@ spec:
           resources:
             requests: {memory: 112Mi}   # 실사용 61Mi
 ---
-# 실사용 1357Mi / 예약 1024Mi. 파드 수에 비례해 수집량이 늘어난다.
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: logstash
-spec:
-  template:
-    spec:
-      containers:
-        - name: logstash
-          resources:
-            requests: {memory: 1536Mi}
----
+# ★ logstash 패치를 걷어냈다(2026-09-11). 근거가 뒤집혔다 —
+#   "파드 수에 비례해 수집량이 늘어난다" 는 **Filebeat -> beats 입력**이
+#   있을 때의 이야기였다. OpenSearch 전환으로 그 입력이 사라졌고
+#   (컨테이너 로그는 otel-agent -> Data Prepper 로 간다), Kafka SIEM 입력도
+#   Data Prepper 가 가져갔다. 남은 것은 zeek·suricata TCP · alertmanager
+#   webhook · 과금 다리뿐이다.
+#   실측: 힙 252MB/990MB(25%) · **1시간여에 이벤트 100건**.
+#   base 가 이제 requests 768Mi / limits 896Mi / 힙 384m 을 직접 지정한다.
 # 실사용 707Mi / 예약 512Mi.
 apiVersion: apps/v1
 kind: StatefulSet
