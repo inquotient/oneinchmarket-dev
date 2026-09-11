@@ -67,6 +67,13 @@ pw() { $K get secret "$1" -o jsonpath="{.data.$2}" | base64 -d; echo; }
 | Tempo (API) | `$K port-forward svc/tempo-headless 3200:3200` | http://localhost:3200/status | 없음 | — |
 | Pyroscope | `$K port-forward svc/pyroscope 4040:4040` | http://localhost:4040 | 없음 | — |
 | kube-state-metrics | `$K port-forward deploy/kube-state-metrics 8080:8080` | http://localhost:8080/metrics | 없음 | — |
+| **Pyrra**(SLO) | `$K port-forward deploy/pyrra 9099:9099` | http://localhost:9099 | 없음 | — |
+
+> ★ **Pyrra 에서 오차 예산이 비어 보이면 그것이 정상이다** — Pyrra 는 filesystem 모드라
+> SLO 정의를 읽어 규칙을 만들기만 하고, **그 규칙을 Prometheus 가 아직 먹지 않는다**
+> (이 클러스터에는 Prometheus Operator 가 없다). 연결은 별도 결정으로 남겨 둔다
+> — WSO2-OSS-MAPPING §9-1 의 Pyrra/Sloth 행. SLO 정의 자체는 `slo/gateway.yaml` 에 있고,
+> Prometheus 가 지금 쓸 수 있는 규칙은 `slo/generated/gateway.rules.yaml` 이다.
 
 > OpenSearch Dashboards 는 평문 HTTP 로 받는다(`opensearch_security.cookie.secure: false`).
 > 뒤쪽 OpenSearch 와는 우리 CA 로 TLS 를 쓴다. 게이트웨이 뒤로 옮기는 날 secure 쿠키로 바꿀 것.

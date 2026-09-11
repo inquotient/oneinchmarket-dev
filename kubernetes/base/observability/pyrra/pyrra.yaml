@@ -34,6 +34,7 @@ data:
     kind: ServiceLevelObjective
     metadata:
       name: gateway-availability
+      namespace: local
       labels:
         pyrra.dev/team: platform
     spec:
