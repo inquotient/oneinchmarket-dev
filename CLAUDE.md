@@ -442,6 +442,11 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 
 141. **Hubble 은 "도입" 이 아니라 **마저 켜는** 일이었다 — 에이전트는 이미 흐름을 모으고 있었다.** 실측: `cilium-config` 에 `enable-hubble=true` · `hubble-listen-address=:4244` 인데 **hubble 파드는 0개**였다. 즉 모으기만 하고 아무도 읽지 않는 상태다 — Falcosidekick `Enabled Outputs: []`(§8-35) · Reloader 어노테이션 65개에 컨트롤러 0개(Gotcha 84)와 같은 부류다. ★ 켜는 방법은 **설치와 같은 경로**여야 한다: Cilium 은 helm 릴리스로 깔려 있으므로 `helm upgrade --reuse-values` 로 `hubble.relay.enabled`·`hubble.ui.enabled` 를 더한다. `--reuse-values` 를 빼면 `cni.exclusive=false`·`socketLB.hostNamespaceOnly=true` 같은 **필수 오버라이드가 기본값으로 돌아간다**(Gotcha 47 과 같은 함정). ★★ 그리고 같은 옵션을 `install-platform.sh` 에도 넣을 것 — 안 넣으면 재설치 때 조용히 사라진다(Gotcha 80)
 
+
+142. **★★ ILM 의 rollover 는 쓰기가 있어야 발동한다 — 쓰는 이가 없어진 데이터 스트림은 정책이 붙어 있어도 영원히 지워지지 않는다.** 실측: `filebeat-9.5.2` 데이터 스트림의 백킹 인덱스 하나가 **160,732,387 docs · 17.2 GB** 인데 `managed=true` · `policy=filebeat` · `phase=hot` · `action=rollover` · **`step=check-rollover-ready` 에서 7.3일째 멈춰** 있었다. ILM 서비스는 `RUNNING` 이다. 원인은 filebeat 이 9.5.2 → 9.5.3 으로 올라가며 **데이터 스트림 이름이 바뀐 것**이고(`filebeat-9.5.3` 으로 새로 쓰기 시작한다), 옛 스트림은 **쓰기가 0이라 rollover 조건을 영영 만족하지 못해 delete 단계에 도달하지 못한다.** ★ **"보존 정책을 걸어 두었다" 가 "지워진다" 를 뜻하지 않는다** — Gotcha 34·59·107 과 같은 부류다(설정은 있고, 대상이 어긋나 있고, 오류는 없다). 판정은 인덱스 목록의 크기가 아니라 **`_ilm/explain` 의 `step` 이 `check-rollover-ready` 에 며칠째 머무는지**다. ★★ **버전 태그가 들어간 인덱스·데이터 스트림 이름을 쓰는 수집기(Beats 가 대표적)는 업그레이드할 때마다 이 고아를 하나씩 남긴다** — 업그레이드 뒤에는 옛 이름의 스트림을 반드시 확인할 것. 처방은 옛 데이터 스트림을 지우는 것인데 **파괴적이므로 보존 기간을 먼저 정할 것**(LOCAL-DEPLOYMENT §9-16)
+
+143. **OpenSearch 로 옮길 수 있는지는 엔진이 아니라 **수집기**가 정한다 — 그리고 Elastic 의 라이선스 명분은 2024년에 사라졌다.** ★ **Beats ≥ 7.13 은 OpenSearch 를 지원하지 않는다(7.12.1 이 마지막).** 이 클러스터는 Filebeat **9.5.3** 이 `output.elasticsearch` 로 ES 에 **직접** 쓰고, 그 데이터가 전체 31.66 GB 의 거의 전부다. 즉 "OpenSearch 전환" 은 실제로는 **수집기 교체 + 31.66 GB 재수집**이다(ES 9 의 Lucene 10.5.1 스냅샷은 OpenSearch 에 복원되지 않는다). ★★ 그리고 **라이선스를 근거로 들지 말 것** — Elastic 이 2024-08 에 **AGPL 을 ELv2·SSPL 옆에 더했고**(빼지 않았다) 이 클러스터는 `"type":"basic"`(무료)으로 돈다. OpenSearch 포크를 낳은 이유가 소멸한 것이라, 2021년 기준으로 판단하면 틀린다 — WSO2-OSS-MAPPING §9-1
+
 ### 매니페스트 작업 시
 
 - `v1/` 매니페스트는 **배포 금지**. 단 CI가 이 경로의 Dockerfile을 참조한다는 모순이 있다
