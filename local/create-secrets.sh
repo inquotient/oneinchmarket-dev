@@ -58,6 +58,12 @@ mk redis-secret       "redis-password=$REDIS"
 mk backstage-secret "db-password=$(gen)" "backend-secret=$(gen 32)" "oidc-client-secret=$(gen 32)" "session-secret=$(gen 32)"
 # Temporal — 이력·가시성 DB 를 같은 롤로 쓴다(postgres-bootstrap 이 둘을 만든다).
 mk temporal-secret "db-password=$(gen)"
+# OpenSearch — security 플러그인의 internal_users. StatefulSet 의 initContainer 가
+# 이 값들을 bcrypt 해시로 바꿔 internal_users.yml 을 렌더한다(평문은 저장되지 않는다).
+#   admin      — 사람이 쓰는 관리 계정 · Dashboards 로그인
+#   ingest     — data-prepper 가 쓰는 수집 계정
+#   dashboards — Dashboards 자신의 서비스 계정(예약 이름 kibanaserver 로 렌더된다)
+mk opensearch-secret "admin-password=$(gen 24)" "ingest-password=$(gen 24)" "dashboards-password=$(gen 24)"
 # Gravitee — MongoDB 전용 사용자(mongodb-bootstrap 이 만든다).
 mk gravitee-secret "db-password=$(gen)" "jwt-secret=$(gen 32)"
 mk shardingsphere-secret "proxy-password=$(gen)"

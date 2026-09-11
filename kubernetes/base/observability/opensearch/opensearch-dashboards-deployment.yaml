@@ -1,0 +1,94 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opensearch-dashboards-config
+  labels: {app.kubernetes.io/name: opensearch-dashboards, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+data:
+  opensearch_dashboards.yml: |
+    server.host: "0.0.0.0"
+    server.name: opensearch-dashboards
+    opensearch.hosts: ["https://opensearch-headless:9200"]
+
+    # ★ Dashboards 자신이 붙는 서비스 계정. 사용자 로그인과 별개다 —
+    #   사용자는 로그인 화면에서 자기 자격으로 들어오고, 이 계정은
+    #   Dashboards 가 자기 저장 오브젝트 인덱스(.kibana)를 다루는 데 쓴다.
+    #   kibanaserver 는 security 플러그인의 예약 이름이라 기본 roles_mapping
+    #   이 이미 kibana_server 롤로 매핑한다(render.sh 주석 참조).
+    opensearch.username: kibanaserver
+    opensearch.password: ${OPENSEARCH_DASHBOARDS_PASSWORD}
+
+    # ★ 우리 CA 를 신뢰시킨다. verificationMode: none 로 끄지 않는 이유는,
+    #   그렇게 하면 이 경로만 TLS 검증이 조용히 사라지고 나중에 누구도
+    #   그것을 눈치채지 못하기 때문이다.
+    opensearch.ssl.verificationMode: full
+    opensearch.ssl.certificateAuthorities: ["/usr/share/opensearch-dashboards/config/certs/ca.crt"]
+
+    opensearch.requestHeadersWhitelist: ["authorization", "securitytenant"]
+    opensearch_security.multitenancy.enabled: false
+    # ★ port-forward(평문 HTTP)로 접근하므로 secure 쿠키를 요구하면 로그인이
+    #   되지 않는다. 게이트웨이 뒤로 옮기는 날 true 로 바꿀 것.
+    opensearch_security.cookie.secure: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opensearch-dashboards
+  labels: {app.kubernetes.io/name: opensearch-dashboards, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+  annotations: {reloader.stakater.com/auto: "true"}
+spec:
+  replicas: 1
+  # ★ 이 노드에서 maxSurge 기본값은 무중단이 아니라 교착이다(Gotcha 87).
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 0, maxUnavailable: 1}
+  selector:
+    matchLabels: {app.kubernetes.io/name: opensearch-dashboards}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: opensearch-dashboards, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket}
+    spec:
+      serviceAccountName: opensearch-dashboards
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: opensearch-dashboards
+          image: docker.io/opensearchproject/opensearch-dashboards:3.8.0
+          env:
+            - name: OPENSEARCH_DASHBOARDS_PASSWORD
+              valueFrom: {secretKeyRef: {name: opensearch-secret, key: dashboards-password}}
+            # 설정 파일의 ${...} 치환은 이 이미지가 지원한다. 평문 비밀번호를
+            # ConfigMap 에 두지 않기 위한 것이다(Gotcha 26 의 방식과 같은 목적).
+          ports:
+            - {containerPort: 5601, name: http, protocol: TCP}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 100m, memory: 512Mi}
+            limits:   {cpu: 1000m, memory: 1Gi}
+          # ★ `/` 는 설정과 무관하게 응답한다(Gotcha 48). `/api/status` 는
+          #   OpenSearch 연결까지 확인한다.
+          startupProbe:
+            httpGet: {path: /api/status, port: 5601}
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: {path: /api/status, port: 5601}
+            periodSeconds: 15
+            failureThreshold: 4
+          livenessProbe:
+            httpGet: {path: /api/status, port: 5601}
+            periodSeconds: 30
+            failureThreshold: 6
+          volumeMounts:
+            - {name: config, mountPath: /usr/share/opensearch-dashboards/config/opensearch_dashboards.yml, subPath: opensearch_dashboards.yml, readOnly: true}
+            - {name: certs, mountPath: /usr/share/opensearch-dashboards/config/certs, readOnly: true}
+      volumes:
+        - name: config
+          configMap: {name: opensearch-dashboards-config}
+        - name: certs
+          secret: {secretName: opensearch-tls}

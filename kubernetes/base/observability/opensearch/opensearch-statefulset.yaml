@@ -1,0 +1,133 @@
+# OpenSearch 3.8.0 — Elasticsearch(ECK) 를 대체한다.
+#
+# ★ 전환 근거와 한때 기각했던 이유는 WSO2-OSS-MAPPING §9-1 에 있다.
+#   요약: 하드 블로커였던 Filebeat(Beats >=7.13 은 OpenSearch 미지원)를
+#   걷어내기로 하면서 블로커가 사라졌다. 노드 수집은 **이미 있던**
+#   otel-agent 의 filelog 가 맡는다 — 새 에이전트를 만들지 않는다.
+#
+# ★ 이 매니페스트는 kubernetes/base/security/wazuh/wazuh-indexer-*.yaml 의
+#   구조를 따른다. 그쪽이 같은 OpenSearch security 플러그인을 이 클러스터에서
+#   이미 세워 봤고, 경로·DN·SecurityManager 함정이 거기 기록돼 있다.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: opensearch
+  labels: {app.kubernetes.io/name: opensearch, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+  annotations: {reloader.stakater.com/auto: "true"}
+spec:
+  serviceName: opensearch-headless
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: opensearch}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: opensearch, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket}
+    spec:
+      serviceAccountName: opensearch
+      # ★ vm.max_map_count 를 올리는 특권 initContainer 를 두지 않는다 —
+      #   이 노드는 이미 1048576 이다(실측). 다른 노드로 옮길 때는 먼저 잴 것:
+      #   262144 미만이면 OpenSearch 가 부트스트랩 검사에서 기동을 거부한다.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        - name: render-security-config
+          image: docker.io/opensearchproject/opensearch:3.8.0
+          command: ["/bin/bash", "/render/render.sh"]
+          env:
+            # ★ hash.sh 는 java 를 부른다. 엔트리포인트를 command 로 대체했으므로
+            #   이미지가 설정하는 JAVA_HOME 을 받지 못한다 — 직접 준다.
+            #   없으면 rc=127(java: command not found)로 죽는다.
+            - {name: OPENSEARCH_JAVA_HOME, value: /usr/share/opensearch/jdk}
+            - {name: JAVA_HOME, value: /usr/share/opensearch/jdk}
+            - name: OPENSEARCH_ADMIN_PASSWORD
+              valueFrom: {secretKeyRef: {name: opensearch-secret, key: admin-password}}
+            - name: OPENSEARCH_INGEST_PASSWORD
+              valueFrom: {secretKeyRef: {name: opensearch-secret, key: ingest-password}}
+            - name: OPENSEARCH_DASHBOARDS_PASSWORD
+              valueFrom: {secretKeyRef: {name: opensearch-secret, key: dashboards-password}}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 50m, memory: 256Mi}
+            limits:   {cpu: 500m, memory: 512Mi}
+          volumeMounts:
+            - {name: security-config, mountPath: /security-config}
+            - {name: render, mountPath: /render, readOnly: true}
+      containers:
+        - name: opensearch
+          image: docker.io/opensearchproject/opensearch:3.8.0
+          env:
+            # ★ 데모 설정 설치를 끈다. 켜 두면 데모 인증서·데모 사용자가 들어오고
+            #   OPENSEARCH_INITIAL_ADMIN_PASSWORD 를 요구한다.
+            - {name: DISABLE_INSTALL_DEMO_CONFIG, value: "true"}
+            # Xms == Xmx. JVM 은 힙이 커질 때 GC 가 요동친다.
+            # ★ limit 의 50% 다(Gotcha 82) — 메타스페이스·코드캐시·스레드 스택·
+            #   direct buffer 자리를 남긴다. ES 는 힙 1GB 로 31.66GB·샤드 77개를
+            #   지다 20회 재시작했다(§9-16). 데이터가 늘면 힙과 limit 을 **함께**
+            #   올릴 것 — 힙만 올리면 커널이 먼저 죽인다.
+            - {name: OPENSEARCH_JAVA_OPTS, value: "-Xms1g -Xmx1g"}
+            - name: OPENSEARCH_ADMIN_PASSWORD
+              valueFrom: {secretKeyRef: {name: opensearch-secret, key: admin-password}}
+          ports:
+            - {containerPort: 9200, name: https, protocol: TCP}
+            - {containerPort: 9300, name: transport, protocol: TCP}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 200m, memory: 1536Mi}
+            limits:   {cpu: 2000m, memory: 2Gi}
+          startupProbe:
+            exec: {command: ["/bin/bash", "/probe/health.sh"]}
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            exec: {command: ["/bin/bash", "/probe/health.sh"]}
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 4
+          livenessProbe:
+            tcpSocket: {port: 9200}
+            periodSeconds: 30
+            failureThreshold: 6
+          volumeMounts:
+            # ★ 유효한 설정은 config/ 아래다 — OPENSEARCH_PATH_CONF 가
+            #   /usr/share/opensearch/config 를 가리킨다.
+            - {name: config, mountPath: /usr/share/opensearch/config/opensearch.yml, subPath: opensearch.yml, readOnly: true}
+            - {name: security-config, mountPath: /usr/share/opensearch/config/opensearch-security}
+            # ★ 인증서는 반드시 config/ 아래여야 한다. SecurityManager 가
+            #   OPENSEARCH_PATH_CONF 밖의 파일 읽기를 막는다:
+            #     SecurityManager.checkRead -> SslCertificatesLoader.resolvePath: access denied
+            - {name: certs, mountPath: /usr/share/opensearch/config/certs, readOnly: true}
+            - {name: admin-certs, mountPath: /usr/share/opensearch/config/admin-certs, readOnly: true}
+            - {name: probe, mountPath: /probe, readOnly: true}
+            - {name: data, mountPath: /usr/share/opensearch/data}
+      volumes:
+        - name: config
+          configMap: {name: opensearch-config}
+        - name: probe
+          configMap: {name: opensearch-config, items: [{key: health.sh, path: health.sh}]}
+        - name: render
+          configMap: {name: opensearch-render, items: [{key: render.sh, path: render.sh}]}
+        - name: security-config
+          emptyDir: {}
+        - name: certs
+          secret: {secretName: opensearch-tls}
+        - name: admin-certs
+          secret: {secretName: opensearch-admin-tls}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels: {app.kubernetes.io/name: opensearch, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        # ★ storageClassName 을 생략하지 말 것 — k3s 내장 local-path 와
+        #   우리 standard 가 둘 다 있어 기본값이 정의되지 않는다(Gotcha 5).
+        storageClassName: standard
+        resources:
+          requests: {storage: 20Gi}

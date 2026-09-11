@@ -1,0 +1,120 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: data-prepper
+  labels: {app.kubernetes.io/name: data-prepper, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: data-prepper
+  labels: {app.kubernetes.io/name: data-prepper, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  selector: {app.kubernetes.io/name: data-prepper}
+  ports:
+    - {name: otel-logs, port: 21892, targetPort: 21892, protocol: TCP}
+    - {name: http-ingest, port: 2021, targetPort: 2021, protocol: TCP}
+    - {name: api, port: 4900, targetPort: 4900, protocol: TCP}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-prepper
+  labels: {app.kubernetes.io/name: data-prepper, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+  annotations: {reloader.stakater.com/auto: "true"}
+spec:
+  replicas: 1
+  # ★ 이 노드에서 maxSurge 기본값은 무중단이 아니라 교착이다(Gotcha 87).
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 0, maxUnavailable: 1}
+  selector:
+    matchLabels: {app.kubernetes.io/name: data-prepper}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: data-prepper, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "4900"
+        prometheus.io/path: /metrics/prometheus
+    spec:
+      serviceAccountName: data-prepper
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        # 자리표시자를 실제 비밀번호로 바꿔 emptyDir 로 내보낸다.
+        - name: render-pipelines
+          image: docker.io/library/busybox:1.37.0
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              sed "s|__OPENSEARCH_INGEST_PASSWORD__|${OPENSEARCH_INGEST_PASSWORD}|g" \
+                /src/pipelines.yaml > /rendered/pipelines.yaml
+              cp /src/data-prepper-config.yaml /rendered/data-prepper-config.yaml
+              # ★ 치환 결과를 되읽어 확인하고 다르면 기동을 거부한다(Gotcha 86).
+              #   sed 가 조용히 빗나가면 아무 일도 안 한 것과 같은데 파드는
+              #   Running 이 되고, 증상은 OpenSearch 401 로만 보인다.
+              if grep -q '__OPENSEARCH_INGEST_PASSWORD__' /rendered/pipelines.yaml; then
+                echo "[render] 치환 실패 — 자리표시자가 남아 있다" >&2
+                exit 1
+              fi
+              echo "[render] pipelines.yaml 치환 완료 (파이프라인 $(grep -c '^[a-z].*-pipeline:' /rendered/pipelines.yaml) 개)"
+          env:
+            - name: OPENSEARCH_INGEST_PASSWORD
+              valueFrom: {secretKeyRef: {name: opensearch-secret, key: ingest-password}}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits:   {cpu: 100m, memory: 64Mi}
+          volumeMounts:
+            - {name: config, mountPath: /src, readOnly: true}
+            - {name: rendered, mountPath: /rendered}
+      containers:
+        - name: data-prepper
+          image: docker.io/opensearchproject/data-prepper:2.16.0
+          env:
+            # ★ JVM 이다. 힙을 명시하지 않으면 컨테이너 인식이 JDK 버전에
+            #   따라 어긋난다(Gotcha 81). limit 의 약 60% 로 둔다(Gotcha 82).
+            - {name: JAVA_OPTS, value: "-Xms640m -Xmx640m"}
+          ports:
+            - {containerPort: 21892, name: otel-logs, protocol: TCP}
+            - {containerPort: 2021, name: http-ingest, protocol: TCP}
+            - {containerPort: 4900, name: api, protocol: TCP}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 100m, memory: 768Mi}
+            limits:   {cpu: 1000m, memory: 1Gi}
+          startupProbe:
+            httpGet: {path: /list, port: 4900}
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            httpGet: {path: /list, port: 4900}
+            periodSeconds: 15
+            failureThreshold: 4
+          livenessProbe:
+            tcpSocket: {port: 4900}
+            periodSeconds: 30
+            failureThreshold: 6
+          volumeMounts:
+            - {name: rendered, mountPath: /usr/share/data-prepper/pipelines/pipelines.yaml, subPath: pipelines.yaml, readOnly: true}
+            - {name: rendered, mountPath: /usr/share/data-prepper/config/data-prepper-config.yaml, subPath: data-prepper-config.yaml, readOnly: true}
+            # OpenSearch 의 CA. sink 가 TLS 를 검증한다 — insecure 로 끄지 않는다.
+            - {name: os-ca, mountPath: /certs, readOnly: true}
+      volumes:
+        - name: config
+          configMap: {name: data-prepper-config}
+        - name: rendered
+          emptyDir: {}
+        - name: os-ca
+          secret: {secretName: opensearch-ca-tls, items: [{key: ca.crt, path: ca.crt}]}

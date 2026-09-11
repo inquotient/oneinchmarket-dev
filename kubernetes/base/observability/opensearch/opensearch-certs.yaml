@@ -1,0 +1,82 @@
+# OpenSearch security 플러그인용 인증서.
+#
+# ★ wazuh-certs.yaml 의 선례를 그대로 따른다(§8-101 계열). 그 파일이
+#   이 레포에서 cert-manager 의 첫 실사용처였고, 여기서 겪을 함정을
+#   이미 다 겪어 두었다 — DN 일치, config/ 밖 경로 금지, 호스트명 검증.
+#
+# 체인: selfsigned Issuer -> CA 인증서 -> CA Issuer -> 노드·admin 인증서
+#
+# ★ DN 이 opensearch.yml 의 nodes_dn·admin_dn 과 **문자 단위로** 같아야 한다.
+#   OpenSearch security 는 RFC2253 문자열로 비교하므로
+#   commonName + subject.organizations 가 "CN=...,O=oneinchmarket" 을 만든다.
+#   틀리면 노드가 자기 자신을 클러스터 구성원으로 인정하지 않는다.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: opensearch-selfsigned
+  labels: {app.kubernetes.io/name: opensearch, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: opensearch-ca
+  labels: {app.kubernetes.io/name: opensearch, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  isCA: true
+  commonName: opensearch-ca
+  secretName: opensearch-ca-tls
+  duration: 87600h    # 10년. 로컬 CA 를 만료로 잃는 일이 없게 한다
+  privateKey: {algorithm: RSA, size: 4096, encoding: PKCS8}
+  issuerRef: {name: opensearch-selfsigned, kind: Issuer}
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: opensearch-ca
+  labels: {app.kubernetes.io/name: opensearch, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  ca: {secretName: opensearch-ca-tls}
+---
+# 노드 인증서 — transport·http 양쪽에 쓴다.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: opensearch-tls
+  labels: {app.kubernetes.io/name: opensearch, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  commonName: opensearch
+  secretName: opensearch-tls
+  duration: 8760h
+  renewBefore: 720h
+  subject: {organizations: ["oneinchmarket"]}
+  dnsNames:
+    - opensearch
+    - opensearch-headless
+    - opensearch-headless.local.svc.cluster.local
+    - opensearch-0.opensearch-headless
+    - opensearch-0.opensearch-headless.local.svc.cluster.local
+    - localhost
+  ipAddresses: ["127.0.0.1"]
+  usages: [server auth, client auth, digital signature, key encipherment]
+  privateKey: {algorithm: RSA, size: 2048, encoding: PKCS8}
+  issuerRef: {name: opensearch-ca, kind: Issuer}
+---
+# admin 인증서 — securityadmin.sh 가 보안 인덱스를 초기화할 때 쓴다.
+# ★ 노드 인증서와 **다른 DN** 이어야 한다. 같으면 OpenSearch 가
+#   "admin 이 곧 노드" 인 상태를 거부한다.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: opensearch-admin-tls
+  labels: {app.kubernetes.io/name: opensearch, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  commonName: opensearch-admin
+  secretName: opensearch-admin-tls
+  duration: 8760h
+  renewBefore: 720h
+  subject: {organizations: ["oneinchmarket"]}
+  usages: [client auth, digital signature, key encipherment]
+  privateKey: {algorithm: RSA, size: 2048, encoding: PKCS8}
+  issuerRef: {name: opensearch-ca, kind: Issuer}

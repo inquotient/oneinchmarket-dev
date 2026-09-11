@@ -10,6 +10,18 @@ resources:
   # Kibana (ECK Operator)
   - kibana/kibana-sa.yaml
   - kibana/kibana.yaml
+  # OpenSearch — Elasticsearch 를 대체한다(WSO2-OSS-MAPPING §9-1).
+  # ★ 전환 중에는 ES 와 함께 뜬다. 철거는 소비자가 전부 옮겨진 뒤다.
+  - opensearch/opensearch-sa.yaml
+  - opensearch/opensearch-certs.yaml
+  - opensearch/opensearch-configmap.yaml
+  - opensearch/opensearch-headless.yaml
+  - opensearch/opensearch-statefulset.yaml
+  - opensearch/opensearch-dashboards-deployment.yaml
+  # Data Prepper — OpenSearch 의 수집·처리 계층. Filebeat 을 대체하고
+  # Logstash 를 축소한다(대체하지 **못하는** 두 가지는 그 ConfigMap 머리말에).
+  - data-prepper/data-prepper-configmap.yaml
+  - data-prepper/data-prepper-deployment.yaml
   # Logstash
   - logstash/logstash-statefulset.yaml
   - logstash/logstash-headless.yaml

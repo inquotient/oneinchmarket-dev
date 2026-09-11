@@ -1,0 +1,15 @@
+# ambient 에서 ServiceAccount 는 곧 신원이다(Gotcha 10).
+# 전용 SA 가 없으면 AuthorizationPolicy 를 쓸 수 없다.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: opensearch
+  labels: {app.kubernetes.io/name: opensearch, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: opensearch-dashboards
+  labels: {app.kubernetes.io/name: opensearch-dashboards, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+automountServiceAccountToken: false
