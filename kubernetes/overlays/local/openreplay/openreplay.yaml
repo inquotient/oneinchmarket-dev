@@ -1,3 +1,16 @@
+# ★★★ 2026-09-12 — requests 를 낮췄다(한도는 그대로다).
+#   실측: 17파드가 **2,496 Mi 를 예약하고 247 Mi 를 쓴다**(10배).
+#   Gotcha 102 는 "유휴값으로 깎으면 살아나는 날 축출된다" 고 경고하지만,
+#   **이 스택은 살아날 수 없다** — Ingress 0건 · IngressClass 0건 ·
+#   HTTPRoute backend 0건이라 브라우저 세션이 들어올 경로가 아예 없다.
+#   즉 "쉬는 중" 이 아니라 "연결되지 않은" 것이고, 예약이 지키는 것이 없다.
+#   ★ limits 는 건드리지 않았다 — Burstable 로 남으므로 필요하면 즉시 자란다
+#     (zram 이 받친다, Gotcha 101).
+#   ★★ **복귀 조건**: 게이트웨이에 HTTPRoute 로 붙이는 날 requests 를 되돌릴 것.
+#     그 전에 트래픽을 넣으면 기동 피크에서 축출된다. 되돌릴 값은 git 이력에 있다
+#     (256/128/64 Mi). 그리고 그날은 §9-1 의 산술을 다시 해야 한다 —
+#     이 스택을 되살리면 노드에 2.5 GiB 가 다시 필요하다.
+
 # ★★ Ingress 12개를 제거했다 — 이 클러스터에서 **동작한 적이 없다**.
 #
 #   전부 `ingressClassName: openreplay` 인데 그런 IngressClass 도, 어떤
@@ -886,7 +899,7 @@ spec:
         resources:
           requests:
             cpu: 20m
-            memory: 64Mi
+            memory: 48Mi
           limits:
             cpu: 300m
             memory: 192Mi
@@ -1042,7 +1055,7 @@ spec:
         resources:
           requests:
             cpu: 50m
-            memory: 256Mi
+            memory: 64Mi
           limits:
             cpu: '1'
             memory: 768Mi
@@ -1163,7 +1176,7 @@ spec:
         resources:
           requests:
             cpu: 25m
-            memory: 128Mi
+            memory: 64Mi
           limits:
             cpu: 500m
             memory: 384Mi
@@ -1249,7 +1262,7 @@ spec:
         resources:
           requests:
             cpu: 50m
-            memory: 256Mi
+            memory: 64Mi
           limits:
             cpu: '1'
             memory: 768Mi
@@ -1376,7 +1389,7 @@ spec:
         resources:
           requests:
             cpu: 25m
-            memory: 128Mi
+            memory: 64Mi
           limits:
             cpu: 500m
             memory: 384Mi
@@ -1637,7 +1650,7 @@ spec:
         resources:
           requests:
             cpu: 50m
-            memory: 256Mi
+            memory: 64Mi
           limits:
             cpu: '1'
             memory: 768Mi
@@ -1765,7 +1778,7 @@ spec:
         resources:
           requests:
             cpu: 25m
-            memory: 128Mi
+            memory: 64Mi
           limits:
             cpu: 500m
             memory: 384Mi
@@ -1871,7 +1884,7 @@ spec:
         resources:
           requests:
             cpu: 25m
-            memory: 128Mi
+            memory: 64Mi
           limits:
             cpu: 500m
             memory: 384Mi
@@ -1936,7 +1949,7 @@ spec:
         resources:
           requests:
             cpu: 25m
-            memory: 128Mi
+            memory: 64Mi
           limits:
             cpu: 500m
             memory: 384Mi
@@ -2035,7 +2048,7 @@ spec:
         resources:
           requests:
             cpu: 20m
-            memory: 64Mi
+            memory: 48Mi
           limits:
             cpu: 300m
             memory: 192Mi
@@ -2174,7 +2187,7 @@ spec:
         resources:
           requests:
             cpu: 25m
-            memory: 128Mi
+            memory: 64Mi
           limits:
             cpu: 500m
             memory: 384Mi
@@ -2302,7 +2315,7 @@ spec:
         resources:
           requests:
             cpu: 25m
-            memory: 128Mi
+            memory: 64Mi
           limits:
             cpu: 500m
             memory: 384Mi
@@ -2438,7 +2451,7 @@ spec:
         resources:
           requests:
             cpu: 25m
-            memory: 128Mi
+            memory: 64Mi
           limits:
             cpu: 500m
             memory: 384Mi
@@ -2545,7 +2558,7 @@ spec:
         resources:
           requests:
             cpu: 25m
-            memory: 128Mi
+            memory: 64Mi
           limits:
             cpu: 500m
             memory: 384Mi
@@ -2641,7 +2654,7 @@ spec:
         resources:
           requests:
             cpu: 20m
-            memory: 64Mi
+            memory: 48Mi
           limits:
             cpu: 300m
             memory: 192Mi
@@ -2780,7 +2793,7 @@ spec:
         resources:
           requests:
             cpu: 50m
-            memory: 256Mi
+            memory: 64Mi
           limits:
             cpu: '1'
             memory: 768Mi
@@ -2900,7 +2913,7 @@ spec:
         resources:
           requests:
             cpu: 25m
-            memory: 128Mi
+            memory: 64Mi
           limits:
             cpu: 500m
             memory: 384Mi
@@ -2994,7 +3007,7 @@ spec:
             resources:
               requests:
                 cpu: 25m
-                memory: 128Mi
+                memory: 64Mi
               limits:
                 cpu: 500m
                 memory: 384Mi
@@ -3406,7 +3419,7 @@ spec:
         resources:
           requests:
             cpu: 25m
-            memory: 128Mi
+            memory: 64Mi
           limits:
             cpu: 500m
             memory: 384Mi
@@ -3450,7 +3463,7 @@ spec:
         resources:
           requests:
             cpu: 25m
-            memory: 128Mi
+            memory: 64Mi
           limits:
             cpu: 500m
             memory: 384Mi
@@ -3507,7 +3520,7 @@ spec:
         resources:
           requests:
             cpu: 25m
-            memory: 128Mi
+            memory: 64Mi
           limits:
             cpu: 500m
             memory: 384Mi
@@ -3559,7 +3572,7 @@ spec:
         resources:
           requests:
             cpu: 25m
-            memory: 128Mi
+            memory: 64Mi
           limits:
             cpu: 500m
             memory: 384Mi
@@ -3612,7 +3625,7 @@ spec:
         resources:
           requests:
             cpu: 25m
-            memory: 128Mi
+            memory: 64Mi
           limits:
             cpu: 500m
             memory: 384Mi

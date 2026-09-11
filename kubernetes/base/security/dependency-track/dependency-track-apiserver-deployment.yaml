@@ -101,7 +101,7 @@ spec:
             #   이미지 기본값(-XX:MaxRAMPercentage=80.0)과 같은 값이지만
             #   limit 을 바꿀 때 함께 보이도록 명시해 둔다.
             - name: EXTRA_JAVA_OPTIONS
-              value: "-Xmx1600m -XX:MaxMetaspaceSize=256m"
+              value: "-Xmx1280m -XX:MaxMetaspaceSize=256m"
           volumeMounts:
             - name: data
               mountPath: /data

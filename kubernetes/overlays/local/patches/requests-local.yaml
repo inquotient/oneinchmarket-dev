@@ -27,6 +27,18 @@
 #   사용량 기준으로 잡으면 기동 중 exit 137 로 죽는다. 그래서 삭감폭을
 #   실사용의 2배 언저리에서 멈췄다.
 
+# ★★★ 2026-09-12 정정 — **JVM 세 건의 요청이 힙보다 낮았다.**
+#   위 머리말이 "기동 피크가 유휴보다 높은 JVM 은 넉넉히" 라고 적어 두었는데
+#   실제로는 힙을 확인하지 않아 hive-server(-1152) · dependency-track(-960) ·
+#   hive-metastore(-448) 가 힙 아래로 내려갔다. 그러면 **장부가 거짓말을 한다** —
+#   스케줄러는 남았다고 믿는데 힙이 차면 커널이 먼저 죽인다(실측: 이 노드에서
+#   호스트 쪽 작업 셋이 OOM 으로 종료됐다).
+#   ★ 규칙: **request >= -Xmx**. 그리고 힙은 limit 의 60~70% 로 둔다(Gotcha 82).
+#     한쪽만 고치면 안 된다 — dependency-track 은 힙이 limit 의 78% 라
+#     힙을 1280m 으로 낮추고 요청을 거기에 맞췄다.
+#   ★★ 판정은 기억이 아니라 실측으로: 도는 파드의 env 에서 `-Xmx` 를 뽑아
+#     requests.memory 와 대조할 것. 이 파일만 봐서는 힙이 보이지 않는다.
+
 # ── 부족했던 것들: 올린다 ─────────────────────────────────────────
 
 # tengine 이 nginx 워커를 **호스트 코어 수(24)만큼** 띄우고 각각 탐지 룰셋을
@@ -106,7 +118,7 @@ spec:
       containers:
         - name: hive-metastore
           resources:
-            requests: {memory: 320Mi}
+            requests: {memory: 768Mi}
 ---
 # 315Mi
 apiVersion: apps/v1
@@ -223,7 +235,7 @@ spec:
       containers:
         - name: hive-server
           resources:
-            requests: {memory: 384Mi}   # ★ 2026-09-08 재측정 229Mi (§8-93)
+            requests: {memory: 1536Mi}   # ★ 2026-09-08 재측정 229Mi (§8-93)
 ---
 # 113Mi
 apiVersion: apps/v1
@@ -301,7 +313,7 @@ spec:
       containers:
         - name: apiserver
           resources:
-            requests: {memory: 640Mi}
+            requests: {memory: 1280Mi}
 ---
 # 163Mi — 스캔 리포트 파싱이 몰리면 튄다. limit 1280Mi 유지
 apiVersion: apps/v1
