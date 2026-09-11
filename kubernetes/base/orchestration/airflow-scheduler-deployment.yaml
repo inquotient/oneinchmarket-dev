@@ -65,7 +65,7 @@ spec:
               drop: ["ALL"]
           volumeMounts:
             - { name: dags-src, mountPath: /dags-src, readOnly: true }
-            - { name: dags, mountPath: /opt/airflow/dags }
+            - { name: dagbag, mountPath: /opt/airflow/dags }
           resources:
             requests: { cpu: 10m, memory: 32Mi }
             limits:   { cpu: 200m, memory: 128Mi }
@@ -128,7 +128,7 @@ spec:
             capabilities:
               drop: ["ALL"]
           volumeMounts:
-            - { name: dags, mountPath: /opt/airflow/dags, readOnly: true }
+            - { name: dagbag, mountPath: /opt/airflow/dags, readOnly: true }
             - { name: logs, mountPath: /opt/airflow/logs }
           resources:
             requests: { cpu: 200m, memory: 640Mi }
@@ -143,7 +143,13 @@ spec:
         #   emptyDir 로 **복사**한다 — Gotcha 153.
         - name: dags-src
           configMap: { name: airflow-dags }
-        - name: dags
+        # ★★ 이름이 `dags` 가 아니라 `dagbag` 인 것은 실수가 아니다 —
+        #   서버측 적용(SSA)은 볼륨 리스트를 **이름으로 병합**해서, 같은
+        #   이름에서 configMap -> emptyDir 로 타입을 바꾸면 한 항목에 두
+        #   타입이 들어가 `may not specify more than 1 volume type` 으로
+        #   거부된다. git 의 매니페스트는 멀쩡한데 적용만 실패한다.
+        #   처방은 **새 이름을 쓰는 것**이다 — Gotcha 113.
+        - name: dagbag
           emptyDir: {}
         - name: logs
           emptyDir: {}
