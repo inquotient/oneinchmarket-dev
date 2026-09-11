@@ -227,6 +227,8 @@ spec:
               - "*/sa/otel-gateway"
               # 에이전트가 게이트웨이 액세스 로그를 직접 api-usage 에 넣는다.
               - "*/sa/otel-agent"
+              # Data Prepper — keycloak-events · falco-alerts 소비(OpenSearch 전환)
+              - "*/sa/data-prepper"
               # ★ OpenMeter — 자기 토픽을 만들고 소비한다(ADR-072).
               - "*/sa/openmeter"
               # 토픽 부트스트랩 Job. 평소에 돌지 않아 편입 시점에 드러나지 않는다.

@@ -20,6 +20,9 @@ spec:
               app.kubernetes.io/component: application
         - podSelector:
             matchLabels:
+              app.kubernetes.io/name: data-prepper
+        - podSelector:
+            matchLabels:
               app.kubernetes.io/name: akhq
         # ★ Kafka Connect — 내부 토픽 3종(offsets·configs·status)을 만들고
         #   읽고 쓰며, CDC 결과도 여기로 넣는다. Istio allow-messaging-access

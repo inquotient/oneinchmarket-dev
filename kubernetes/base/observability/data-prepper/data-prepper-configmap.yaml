@@ -69,6 +69,17 @@ data:
       source:
         kafka:
           bootstrap_servers: ["kafka-headless:9092"]
+          # ★ Data Prepper 의 kafka source 는 암호화 기본값이 **ssl** 이다.
+          #   이 클러스터의 브로커는 PLAINTEXT(9092) 라 그대로 두면 클라이언트가
+          #   TLS 핸드셰이크를 걸고 브로커가 끊는다. 증상이 고약하다 —
+          #   오류 문구가 `terminated during authentication` 이라 **자격·인가**
+          #   문제로 읽히고, 실제로 이 세션에서 Istio AuthorizationPolicy 를
+          #   먼저 의심했다(그쪽도 실제로 빠져 있어 고쳐야 했다).
+          #   가르는 단서는 ztunnel 로그다: 정책 거부면 `policy rejection` 이
+          #   찍히는데 여기는 `connection complete` 였다(Gotcha 9·120 계열).
+          #   메시가 mTLS 를 이미 걸어 주므로 여기서 TLS 를 또 걸 이유도 없다.
+          encryption:
+            type: none
           topics:
             - name: keycloak-events
               group_id: data-prepper-siem
