@@ -82,8 +82,12 @@ spec:
           readinessProbe:
             httpGet: { path: /api/v2/monitor/health, port: 8080 }
             periodSeconds: 15
+          # ★ `/health` 를 쓰지 말 것 — 라우트 목록에는 보이는데
+          #   실제로 치면 **404** 다(실측). 그것을 liveness 로 두면
+          #   api-server 가 멀줦한데도 죽고 다시 뜨기를 반복한다.
+          #   `/api/v2/monitor/health` 는 **인증 없이 200** 이다(실측).
           livenessProbe:
-            httpGet: { path: /health, port: 8080 }
+            httpGet: { path: /api/v2/monitor/health, port: 8080 }
             periodSeconds: 30
             failureThreshold: 5
           securityContext:
