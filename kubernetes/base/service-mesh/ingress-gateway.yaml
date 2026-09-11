@@ -205,3 +205,60 @@ spec:
           name: cmmn-api-headless
           port: 8080
           weight: 1
+
+---
+# 6) Gravitee 로 보내는 경로 — **Istio 앞, Gravitee 뒤**(ADR-079, 2026-09-12 채택).
+#
+# ★★★ 순서가 이 배치의 전부다. 모든 트래픽이 **Istio 게이트웨이를 먼저**
+#   지나므로 계량 지점이 움직이지 않는다. 실측으로 확인했다 — 같은 토큰으로
+#   `/api/menu` 와 `/managed/api/menu` 를 부르면 액세스 로그에 각각
+#   `route=local.api.0` · `route=local.managed-api.0` 으로 **둘 다** 남고
+#   Kafka `api-usage` 토픽에 그대로 들어간다(2026-09-12 실측 6건).
+#   거꾸로(Gravitee 를 앞에) 두면 Gotcha 15 에 정면으로 걸린다: "계량 지점을
+#   나중에 바꾸면 이미 청구한 이력이 함께 흔들린다. 청구는 소급 재해석이
+#   불가능하다."
+#
+# ★★ 역할을 겹치지 않게 나눈다:
+#   Istio    TLS · JWT · 신원 · **계량** · **쓰로틀**(pricing-catalog.yaml 원천)
+#   Gravitee 카탈로그 · 개발자 포털 · 구독/키 발급 · 요청·응답 변환
+#   ★ Gravitee 의 **플랜·쿼터·분석을 켜지 말 것** — 켜는 순간 "이 고객이
+#     무엇을 샀는가" 의 원천이 Gravitee 의 Mongo 와 OpenMeter 의 PostgreSQL
+#     둘이 된다(Gotcha 71 이 경고한 그것). 그래서 이 API 의 플랜은 KEY_LESS 다.
+#
+# ★ `/managed` 는 `/`(위의 api 경로, cmmn-api 직결) 보다 **더 구체적**이라
+#   먼저 매칭된다. 기존 경로를 건드리지 않는다.
+#
+# ★★ **이 경로는 Gravitee 안의 API 정의가 있어야 200 을 준다** — 정의는
+#   Mongo 에 살고 매니페스트에 없다. 원천은 `local/gravitee-apis/*.json` 이고
+#   `local/gravitee-bootstrap.sh` 가 밀어 넣는다. **클러스터를 새로 세우면
+#   반드시 그 스크립트를 돌릴 것** — 빠뜨리면 이 경로만 404 다(게이트웨이도
+#   파드도 정상이라 원인이 멀다). 같은 이유로 prod 에 올리기 전에 그쪽
+#   Gravitee 에 카탈로그가 실려 있는지 먼저 확인할 것.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: managed-api
+  labels:
+    app.kubernetes.io/name: managed-api
+    app.kubernetes.io/component: service-mesh
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - api.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /managed
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: gravitee-gateway-headless
+          port: 8082
+          weight: 1

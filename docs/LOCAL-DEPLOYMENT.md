@@ -14094,6 +14094,29 @@ Hyper-V 에 남은 의존이 하나도 없었다는 것을 이 삭제가 증명�
 앞의 둘은 WSL 배포판 파일시스템에 있어 재부팅을 견딘다 — **재설치·재구축 때만**
 다시 해야 한다. 셋째는 WSL 이 매 부팅에 다시 만들므로 §3-1 에 있다.
 
+### 25-0. 노드 파일이 아니라 **클러스터 안 데이터**로 사는 원천 (2026-09-12 추가)
+
+위 표는 *노드의 파일*이고, 그것과 별개로 **매니페스트가 아니라 살아 있는
+데이터스토어에만 사는 설정**이 있다. 증상이 똑같이 고약하다 — 워크로드는 전부
+정상인데 **기능 하나만 조용히 없다.**
+
+| 다시 돌릴 것 | 어디에 사는가 | 빠뜨리면 |
+|---|---|---|
+| `local/gravitee-bootstrap.sh` | Gravitee 의 **MongoDB** (API·플랜) | `/managed` 만 404. 라우트·파드·게이트웨이 전부 정상이라 원인이 멀다 (Gotcha 159) |
+| `local/configure-istio-usage-logging.sh` | Istio **meshConfig** (액세스 로그 공급자) | **과금 계량이 통째로 멈춘다.** 트래픽은 200 이고 오류가 없다 (Gotcha 158) |
+| `local/opensearch-apply-security.sh` | OpenSearch 보안 인덱스 | 수집이 401 로 조용히 끊긴다 (§9-17) |
+| `local/gitlab-registry-bootstrap.sh --secret` | GitLab 배포 토큰 | push·pull 거부 (Gotcha 118 — 그냥 다시 돌리면 **토큰이 회전한다**) |
+| `local/openmeter-pricing.sh` | OpenMeter **PostgreSQL** (요금제·구독) | 인보이스가 0원 (§8-87) |
+
+★★ **`configure-istio-usage-logging.sh` 는 재구축 때만이 아니다** — `istioctl install`
+을 다시 돌리는 모든 경우(업그레이드 포함)에 meshConfig 가 상류 기본값으로
+되돌아간다. 실제로 §8-73 의 Istio 업그레이드가 계량을 지웠고 **2026-09-12 에야
+드러났다**(Gotcha 158).
+
+★ 이 목록을 "언젠가 자동화하자" 로 두지 말 것 — 자동화하려면 순서가 있어야
+하고(Gravitee 는 wave 5 뒤, OpenMeter 는 요금제 카탈로그 뒤), 그 순서를 적는 것이
+곧 이 표다.
+
 ### 25-1. `registries.yaml` — 레지스트리가 쓰기 전용이었다
 
 ★★ **2026-09-11 까지 이 파일이 없었고, 그래서 클러스터 안 GitLab 레지스트리에서

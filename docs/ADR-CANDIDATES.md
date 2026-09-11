@@ -627,7 +627,8 @@ Kyverno 6정책이 실제로 가동 중이다. 지금 OPA 를 넣으면 정책 �
 발행이 요건으로 확정되어 그 전제가 사라졌다.** 판단을 ADR-072 로 옮긴다.
 
 ### ADR-079 — WSO2 Enterprise 를 OSS 조합으로 대체한다
-**상태: `Open` (전제 확정 · 조합 미확정)** (2026-09-07)
+**상태: `Accepted`** (2026-09-12) — 결정해야 할 셋이 전부 닫혔다. 아래
+**「결정(2026-09-12)」** 절이 결론이고, 그 앞의 서술은 결정에 이른 배경이다.
 
 **배경** — WSO2 Enterprise 전 제품(API Manager · Identity Server ·
 Micro Integrator · Streaming Integrator · Message Broker · BPMN · Choreo)의
@@ -656,16 +657,50 @@ Data Services(SQL→REST 무코드) · 동의 관리/FAPI · ID 운영 승인 �
    어드미션은 Kyverno 가 이미 갖고 있다(ADR-007).
 3. **과금** — OpenMeter 로 요금제를 정의해 보고, 표현하지 못할 때만 Lago.
 
-**선행 조건(Phase 0) — 지금 깨져 있다**
+**선행 조건(Phase 0)** — ~~지금 깨져 있다~~ **2026-09-11 실측으로 뒤집혔다**
+(Gotcha 98 — 낡은 계획서가 계획을 막고 있었다).
 
-- 시크릿 관리 미작동(ADR-024 미결). Vault 는 `0/1` 봉인
-- **ArgoCD 가 실제로 없다** — CRD 0 · 파드 0 · 네임스페이스 없음.
-  Multi-environment · API Promotion 두 칸과 ADR-068 머지 관문이 여기 달려 있다
-- 메모리 — 신규 12종 추정 **8~14 GiB**. §11-4 가 이미 `필요 56.6 vs 가용 47.6` 이라
-  프로파일 분리(§19 ③)가 선행되어야 한다. **이것은 취향이 아니라 산술이다**
+- 시크릿 — OpenBao `2/2` · `Sealed=false` · ExternalSecret **29건 전부 SecretSynced**
+- ArgoCD — 파드 7개 · Application 1개가 자동 동기화 중. ~~CRD 0 · 파드 0~~ 은 사실이 아니었다
+- 메모리 — 산술은 여전히 유효하다(Gotcha 99). 그래서 들어간 것과 못 들어간 것이
+  갈렸고, 무엇이 왜 밀렸는지는 WSO2-OSS-MAPPING §9-1 이 행마다 적는다
 
-**왜 `Open` 인가** — 위 셋은 사람의 결정이고, Phase 0 이 끝나기 전에는
-어느 쪽을 골라도 검증할 수 없다.
+**결정(2026-09-12)**
+
+1. **게이트웨이 — Gravitee CE 를 Istio *뒤에* 둔다(대체가 아니라 공존).**
+   ★★ 결정의 핵심은 제품이 아니라 **순서**다. 트래픽이 Istio 게이트웨이를
+   먼저 지나므로 **계량 지점이 움직이지 않는다** — Gotcha 15 가 금지하는
+   "계량 지점 이동" 이 일어나지 않고, 따라서 전환 비용의 대부분이 사라진다.
+   ★ 역할을 겹치지 않게 나눈다:
+   - **Istio** — TLS · JWT 검증 · 신원 · **계량**(액세스 로그 -> Kafka `api-usage`
+     -> OpenMeter) · **쓰로틀**(RLS, 원천은 `local/pricing-catalog.yaml`)
+   - **Gravitee** — 카탈로그 · 개발자 포털 · 구독/키 발급 · 요청·응답 변환
+   ★★ **Gravitee 의 플랜·쿼터·분석을 켜지 않는다** — 켜는 순간 "이 고객이
+   무엇을 샀는가" 의 원천이 Gravitee 의 Mongo 와 OpenMeter 의 PostgreSQL
+   둘이 되어 Gotcha 71 에 정면으로 걸린다. 그래서 첫 API 의 플랜은 KEY_LESS 다.
+   - 근거(2026-09-12 실측): 같은 Keycloak `acme-corp` 토큰으로
+     `/api/menu`(Istio 직결)와 `/managed/api/menu`(Gravitee 경유)가 **둘 다 200**,
+     토큰 없이는 **403**(`api-require-jwt` 가 그대로 동작한다),
+     액세스 로그에 `route=local.api.0` · `route=local.managed-api.0` 으로 **둘 다**
+     남고 Kafka `api-usage` 토픽에 6건이 그대로 들어갔다.
+   - 매니페스트: `kubernetes/base/service-mesh/ingress-gateway.yaml` 의 6) 항.
+   - **복귀 조건** — Gravitee 가 계량·인가를 스스로 하겠다고 요구하는 기능을
+     쓰게 되는 날(예: Gravitee 플랜으로만 표현되는 상품). 그때는 이 ADR 이
+     아니라 **Gotcha 15 와 71 을 먼저 다시 읽을 것** — 청구 이력이 걸린다.
+   ★ **API 정의의 원천은 git 이다** — `local/gravitee-apis/*.json` 을
+   `local/gravitee-bootstrap.sh` 가 밀어 넣는다(멱등). 정의는 Mongo 에만 살기
+   때문에, 이 스크립트가 없으면 클러스터를 다시 세울 때 라우트만 남고
+   Gravitee 가 비어 **`/managed` 만 404** 가 된다. 실제로 API 를 지우고
+   스크립트만으로 복원되는지 시험해 확인했다.
+
+2. **인가 — OpenFGA(ReBAC).** 2026-09-11 에 도입했다(wave 4, 실측 17Mi).
+   OPA 를 더하지 않은 이유는 취향이 아니라 **역할 중복**이다 — 이 플랫폼에는
+   규칙 엔진이 이미 둘(Kyverno = 어드미션, Istio AuthorizationPolicy = 서비스 간)
+   있고, 비어 있던 칸은 규칙이 아니라 **관계**("이 사용자가 이 문서의 편집자인가")다.
+
+3. **과금 — OpenMeter.** 요금제·구독·인보이스를 실제로 정의해 통과했다(§8-87·§8-90).
+   Lago 는 후보로 남기되, 되돌아갈 조건은 "OpenMeter 로 표현하지 못하는 상품이
+   생겼을 때" 하나다.
 
 ## 보안
 

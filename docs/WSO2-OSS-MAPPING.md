@@ -227,13 +227,40 @@ route, method, status, duration_ms, request_bytes, response_bytes, api_product
 Gotcha 15 가 말한 "이미 청구한 이력" 이 아직 없으므로, **바꾼다면 지금이 가장 싼
 순간이고 앞으로는 계속 비싸진다.** 요금제를 정의하기 **전에** 결정할 것.
 
-### 판단
+### 판단 — **둘 다다(2026-09-12 결정, ADR-079 `Accepted`)**
 
-- **소비자가 셀프서비스로 구독·키 발급을 해야 한다면** → Gravitee CE.
-  단 §6 의 Phase 0 을 먼저 끝낼 것.
-- **그렇지 않다면** → Istio + `envoyproxy/ratelimit` + 기존 Redis 로 쓰로틀만 채운다.
-  추가 메모리 100Mi 안팎이고 소비자 식별자는 이미 있다 — Keycloak 토큰의 클레임을
-  ratelimit descriptor 키로 쓰면 요금제별 쿼터가 성립한다.
+★★★ 위의 "전환 비용" 절이 **잘못된 질문을 깔고 있었다.** 그것은 Gravitee 를
+Istio *대신* 놓는 경우의 비용이고, 그때만 계량 지점이 움직인다.
+**Gravitee 를 Istio 뒤에 놓으면 계량 지점은 움직이지 않는다** — 트래픽이
+Istio 게이트웨이를 먼저 지나므로 액세스 로그가 그대로 나온다. 즉 이 절이
+가장 비싸다고 적은 항목이 **배치를 바꾸면 0이 된다.**
+
+```
+바깥 -> Istio Gateway -> Gravitee Gateway -> cmmn-api
+        ^ TLS·JWT·계량·쓰로틀    ^ 카탈로그·포털·구독/키·변환
+```
+
+- **Istio** — TLS · JWT 검증 · 신원 · **계량** · **쓰로틀**
+  (쓰로틀 원천은 `local/pricing-catalog.yaml` 하나다, Gotcha 71)
+- **Gravitee** — API/Plan/Subscription/Application 이라는 **제품 개념**,
+  개발자 포털, 라이프사이클, 요청·응답 변환
+- ★★ **Gravitee 의 플랜·쿼터·분석은 켜지 않는다.** 켜는 순간 "이 고객이 무엇을
+  샀는가" 의 원천이 Gravitee 의 Mongo 와 OpenMeter 의 PostgreSQL 둘이 된다.
+  그래서 첫 API 의 플랜은 KEY_LESS 다.
+
+실측(2026-09-12): 같은 `acme-corp` 토큰으로 `/api/menu`·`/managed/api/menu` 둘 다
+200, 토큰 없이 403, 액세스 로그에 `local.api.0`·`local.managed-api.0` 이 **둘 다**
+남고 Kafka `api-usage` 에 6건이 들어갔다.
+
+**대가는 실재한다** — L7 홉이 둘이 된다. 같은 액세스 로그의 `duration_ms` 로
+재면 직결이 **4·5·7ms**, Gravitee 경유가 **10·12·22ms** 다(각 3건, 같은 시각대).
+그리고 4파드가 1,856 Mi 를
+예약하며, 정책이 틀릴 수 있는 곳이 둘이다. 그래서 Gravitee 에는 **인증·인가를
+맡기지 않는다** — 그 둘은 Istio 한 곳에만 있다.
+
+**되돌릴 조건** — 소비자 셀프서비스가 끝내 필요 없다고 판명되는 날. 그때는
+Gravitee 4파드를 걷고 Istio + `envoyproxy/ratelimit` + Redis 만 남기면 된다
+(그 조합은 이미 돌고 있어 철거가 곧 회수다: 1,856 Mi, 노드 89% -> 85%).
 
 ## 6. 도입 순서
 
@@ -394,7 +421,7 @@ Operator · Dependency-Track · Kyverno 가 상시로 도니, 플러그인을 �
 | 1 | ✅ **Kafka Connect + Debezium** (2026-09-10 완료) | §D 의 CDC. ★ **Iceberg sink 는 빼졌다** — 바로 쓸 번들이 어디에도 없다(Gotcha 116) | ★★ 선행 조건을 **잘못 적어 두었던 칸이다.** "PostgreSQL wal_level" 은 엉뚱한 DB 를 겨눈 것이고, 실제 업무 데이터는 **MariaDB `cmmn`**(테이블 2개)에 있어 필요한 것은 `log_bin` 이었다. 완료됨 |
 | 2 | ✅ **Camel K 2.11.0** (2026-09-10 완료 · 2026-09-11 빌드 경로 검증) | §C Micro Integrator | 기존 파이프라인은 옮기지 말 것(§6). 오퍼레이터는 install-operators.sh §9, IntegrationPlatform CR 은 `base/integration/` — 둘을 나눠 둔다. ★★ **빌드 경로를 실측으로 검증했다** — 최소 Integration 하나로 빌드 8분29초 → 레지스트리 push → 그 레지스트리에서 pull → 실행(`camel.exchanges.succeeded=1.0`)까지 밟고 지웠다. **그 과정에서 결함 셋을 찾아 고쳤다**: 빌드 timeout 기본 5분이 모자람(→20m) · jib 메모리 1536Mi 가 빠듯함(→2Gi) · **레지스트리에서 pull 이 아예 안 되던 것**(노드에 `registries.yaml` 이 없어 평문 HTTP 를 HTTPS 로 붙었다 — Gotcha 126). 지금 Integration 은 0건이고 오퍼레이터만 돈다(30Mi) |
 | 3 | ✅ **Backstage 1.54.0** (2026-09-10 완료 · 2026-09-11 **Keycloak OIDC 전환**) | §G Choreo · 카탈로그 | PostgreSQL 재사용(스키마 분할). 카탈로그에 실측 엔티티 **10건**(User:portal·Group:platform 포함 — 사인인 리졸버가 짝지을 대상이다). ★★ **2026-09-11 에 guest → Keycloak OIDC 로 바꿨다.** 그러려면 자체 앱 빌드가 전제였고(`docker/backstage/`), 실제로 그것이 유일한 길이었다 — 예제 이미지는 백엔드·프런트 **양쪽이** guest 에 묶여 있다(Gotcha 135). 여전히 게이트웨이 경로 밖이다 — NetworkPolicy 로 ingress 를 전면 차단하고 port-forward 로만 접근한다. ★ 브라우저가 Keycloak 을 **클러스터 안 이름 그대로** 봐야 해서 hosts 한 줄이 필요하다(ACCESS.md §1-c · Gotcha 136) |
-| 4 | ✅ **Gravitee APIM CE 4.12.19** (2026-09-10 배포 · **2026-09-12 경로 편입**) | §A API Manager | **Istio 앞 · Gravitee 뒤**로 공존시켰다 — `바깥 -> Istio Gateway -> Gravitee Gateway -> cmmn-api`. ★★★ 순서가 이 배치의 전부다: 모든 트래픽이 Istio 를 **먼저** 지나므로 계량 지점(액세스 로그 -> Kafka `api-usage` -> OpenMeter)이 움직이지 않는다. 거꾸로 두면 Gotcha 15 에 정면으로 걸린다. ★★ 겹치는 칸을 나눴다 — Istio 가 **계량·쓰로틀**(원천 `pricing-catalog.yaml`), Gravitee 가 **카탈로그·포털·구독/키·변환**. Gravitee 의 플랜·쿼터는 **켜지 않는다**: 켜면 "이 고객이 무엇을 샀는가" 의 원천이 둘이 된다(Gotcha 71). 실측: 토큰 없이 403 · 토큰과 함께 200(두 경로 다) · HTTPRoute `accepted=True`. ★★★ 그 과정에서 **Gravitee 에 관리자가 없다는 것이 드러났다** — 우리 ConfigMap 이 `gravitee.yml` 을 통째로 덮으며 `security:` 절이 빠져 사용자가 0명이었고, 그래서 며칠째 API 0 · 플랜 0 이었다(Gotcha 155). ★ **ADR-079 는 여전히 미결이다** — 이것은 "공존이 가능한가" 에 답한 것이지 "Gravitee 를 쓴다" 가 아니다. 지금도 카탈로그·포털에 실린 것은 시험용 API 하나뿐이고, 4파드가 **1,856 Mi** 를 예약한다. 쓰지 않기로 하면 그만큼 회수된다(노드 89% → 85%) |
+| 4 | ✅ **Gravitee APIM CE 4.12.19** (2026-09-10 배포 · **2026-09-12 경로 편입**) | §A API Manager | **Istio 앞 · Gravitee 뒤**로 공존시켰다 — `바깥 -> Istio Gateway -> Gravitee Gateway -> cmmn-api`. ★★★ 순서가 이 배치의 전부다: 모든 트래픽이 Istio 를 **먼저** 지나므로 계량 지점(액세스 로그 -> Kafka `api-usage` -> OpenMeter)이 움직이지 않는다. 거꾸로 두면 Gotcha 15 에 정면으로 걸린다. ★★ 겹치는 칸을 나눴다 — Istio 가 **계량·쓰로틀**(원천 `pricing-catalog.yaml`), Gravitee 가 **카탈로그·포털·구독/키·변환**. Gravitee 의 플랜·쿼터는 **켜지 않는다**: 켜면 "이 고객이 무엇을 샀는가" 의 원천이 둘이 된다(Gotcha 71). 실측: 토큰 없이 403 · 토큰과 함께 200(두 경로 다) · HTTPRoute `accepted=True`. ★★★ 그 과정에서 **Gravitee 에 관리자가 없다는 것이 드러났다** — 우리 ConfigMap 이 `gravitee.yml` 을 통째로 덮으며 `security:` 절이 빠져 사용자가 0명이었고, 그래서 며칠째 API 0 · 플랜 0 이었다(Gotcha 155). ★★ **2026-09-12 에 ADR-079 가 `Accepted` 로 닫혔다 — 쓰기로 결정했다.** 그래서 HTTPRoute 를 `overlays/local/gravitee-route/` 에서 **`base/service-mesh/ingress-gateway.yaml` 로 승격**했다(local 전용 배치는 "결정이 열려 있는 동안" 의 조치였다). ★★★ 결정 직후 **재현성 결함이 드러났다** — API 정의가 **Mongo 에만 1건, git 에는 0건**이었다. 그 상태로 클러스터를 다시 세우면 라우트는 남고 Gravitee 는 비어 `/managed` 만 404 가 된다(게이트웨이도 파드도 정상이라 원인이 멀다). 원천을 git 으로 옮겼다 — `local/gravitee-apis/*.json` + `local/gravitee-bootstrap.sh`(멱등). **말로 확인하지 않고 실제로 시험했다**: API 와 플랜을 지워 0건으로 만든 뒤 스크립트만 돌려 생성·게시·START 까지 복원되는 것을 보았고(2회차는 "이미 있다"), 곧바로 `/managed/api/menu` 가 다시 200 이었다. ★ 비용: 4파드가 **1,856 Mi** 를 예약한다(노드 89%). 되돌릴 조건은 §5 와 ADR-079 의 복귀 조건에 적었다 |
 
 ## 부록 A — Vault Enterprise → OpenBao + OSS
 

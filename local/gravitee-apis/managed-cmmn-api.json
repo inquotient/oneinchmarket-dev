@@ -1,0 +1,36 @@
+{
+  "name": "managed-cmmn-api",
+  "apiVersion": "1.0",
+  "definitionVersion": "V4",
+  "type": "PROXY",
+  "description": "Istio 뒤에서 Gravitee 가 관리하는 API — /managed -> cmmn-api. 인증·계량·쓰로틀은 앞단(Istio)이 한다.",
+  "listeners": [
+    {
+      "type": "HTTP",
+      "paths": [ { "path": "/managed" } ],
+      "entrypoints": [ { "type": "http-proxy" } ]
+    }
+  ],
+  "endpointGroups": [
+    {
+      "name": "default",
+      "type": "http-proxy",
+      "endpoints": [
+        {
+          "name": "cmmn-api",
+          "type": "http-proxy",
+          "configuration": { "target": "http://cmmn-api-headless:8080" }
+        }
+      ]
+    }
+  ],
+  "_plan": {
+    "definitionVersion": "V4",
+    "name": "keyless",
+    "description": "KEY_LESS 는 의도다 — Gravitee 의 플랜·쿼터를 켜면 '이 고객이 무엇을 샀는가' 의 원천이 Gravitee 의 Mongo 와 OpenMeter 의 PostgreSQL 둘이 된다(Gotcha 71). 구독·한도는 앞단이 소유한다.",
+    "security": { "type": "KEY_LESS" },
+    "mode": "STANDARD",
+    "validation": "AUTO",
+    "flows": []
+  }
+}

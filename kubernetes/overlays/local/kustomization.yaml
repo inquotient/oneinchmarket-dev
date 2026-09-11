@@ -26,7 +26,6 @@ resources:
   # BuildKit — prod 에서는 Kyverno Enforce 에 거부된다(Gotcha 149)
   - buildkit
   # Gravitee 공존 경로 — ADR-079 미결이라 base 에 두지 않는다
-  - gravitee-route
   # L0 랩 관측 계층 — Zeek 을 VM 에서 파드로(§24-4). `zeek-capture` 가
   #   hostNetwork + NET_ADMIN 이라 base 에 두면 prod 가 그 권한을 상속한다.
   - l0-observers
