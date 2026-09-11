@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: temporal
+  labels:
+    app.kubernetes.io/name: temporal
+    app.kubernetes.io/component: orchestration
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+---
+# ★ 헤드리스 — 이 레포의 규약이다. ClusterIP 서비스는 ambient 에서
+#   신원 경로를 흐리고, Temporal 은 멤버십을 파드 주소로 잡는다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: temporal-headless
+  labels:
+    app.kubernetes.io/name: temporal
+    app.kubernetes.io/component: orchestration
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: temporal
+  ports:
+    - { name: grpc,       port: 7233, targetPort: grpc,       protocol: TCP }
+    - { name: membership, port: 6933, targetPort: membership, protocol: TCP }

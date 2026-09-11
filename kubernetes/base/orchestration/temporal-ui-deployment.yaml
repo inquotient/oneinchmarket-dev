@@ -1,0 +1,99 @@
+# Temporal Web UI — 워크플로를 눈으로 보는 창구
+#
+# ★ 이것이 없으면 "워크플로가 어디서 멈췄나" 를 CLI 로만 물어야 한다.
+#   독촉처럼 며칠짜리 절차에서는 그 관찰성이 도입 이유의 절반이다.
+# ★★ 게이트웨이 경로 밖이다 — port-forward 로만 본다(ACCESS.md 규약).
+#   이 UI 에는 인증이 없으므로 ingress 에 올리지 않는다.
+# ★ 라벨을 YAML 앵커로 묶지 않는다 — 앵커는 `---` 문서 경계를 넘지 못해
+#   `found undefined alias` 로 파싱이 깨진다(실측).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: temporal-ui
+  labels:
+    app.kubernetes.io/name: temporal-ui
+    app.kubernetes.io/component: orchestration
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: temporal-ui-headless
+  labels:
+    app.kubernetes.io/name: temporal-ui
+    app.kubernetes.io/component: orchestration
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: temporal-ui
+  ports:
+    - { name: http, port: 8080, targetPort: http, protocol: TCP }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: temporal-ui
+  labels:
+    app.kubernetes.io/name: temporal-ui
+    app.kubernetes.io/component: orchestration
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  # ★ 이 노드에서 maxSurge 기본값은 무중단이 아니라 교착이다(Gotcha 87).
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 0, maxUnavailable: 1 }
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: temporal-ui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: temporal-ui
+        app.kubernetes.io/component: orchestration
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/managed-by: kustomize
+    spec:
+      serviceAccountName: temporal-ui
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: temporal-ui
+          image: docker.io/temporalio/ui:2.54.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: TEMPORAL_ADDRESS
+              value: temporal-headless:7233
+            - name: TEMPORAL_UI_PORT
+              value: "8080"
+            # port-forward 로 보므로 브라우저가 쓰는 주소를 CORS 에 적는다.
+            - name: TEMPORAL_CORS_ORIGINS
+              value: http://localhost:18088
+          ports:
+            - { name: http, containerPort: 8080, protocol: TCP }
+          startupProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 15
+          resources:
+            requests: { cpu: 20m, memory: 64Mi }
+            limits:   { cpu: 200m, memory: 192Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false

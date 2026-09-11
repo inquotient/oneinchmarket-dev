@@ -171,6 +171,12 @@ spec:
               # ★ Backstage — 카탈로그·세션을 여기 둔다. 자체
               #   마이그레이션이 테이블을 만든다(knex).
               ensure backstage      backstage      "$BACKSTAGE_DB_PASSWORD"
+              # ★ Temporal 은 DB 를 **둘** 쓴다 — 이력(temporal)과
+              #   가시성(temporal_visibility). 같은 롤이 둘 다 소유한다.
+              #   auto-setup 이미지가 스키마를 설치하므로 여기서는 DB 만 만든다
+              #   (그 컨테이너는 SKIP_DB_CREATE=true 로 돈다).
+              ensure temporal       temporal            "$TEMPORAL_DB_PASSWORD"
+              ensure temporal       temporal_visibility "$TEMPORAL_DB_PASSWORD"
               # ★★ 확장 셋은 **superuser 권한**이 필요해 여기서 만든다.
               #   midPoint 의 postgres.sql 이 이것들을 요구하는데, 그 SQL 은
               #   **midpoint 롤로** 들어가야 한다(아니면 테이블이 postgres 소유가
@@ -211,6 +217,8 @@ spec:
               valueFrom: { secretKeyRef: { name: backstage-secret, key: db-password } }
             - name: MIDPOINT_DB_PASSWORD
               valueFrom: { secretKeyRef: { name: midpoint-secret, key: db-password } }
+            - name: TEMPORAL_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: temporal-secret, key: db-password } }
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

@@ -80,6 +80,8 @@ spec:
               # ★ Backstage — 카탈로그·세션을 PostgreSQL 에 둔다.
               #   5432 규칙에만 넣는다 — 3306·6033·27017 에는 볼 일이 없다.
               - "*/sa/backstage"
+              # Temporal — 이력·가시성 DB 를 PostgreSQL 에 둔다(2026-09-11).
+              - "*/sa/temporal"
       to:
         - operation:
             ports: ["5432"]

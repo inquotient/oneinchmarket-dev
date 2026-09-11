@@ -1,0 +1,125 @@
+# Temporal — 장기 durable 워크플로 엔진
+#
+# ★ 왜 들이는가 (2026-09-11, 사용자 결정)
+#   독촉(dunning)처럼 **며칠에 걸쳐 재시도·에스컬레이션하는 절차**를 담기
+#   위해서다. WSO2-OSS-MAPPING §9-1 은 Temporal 을 "보류" 로 두고 복귀 조건을
+#   "보상 트랜잭션을 손으로 짜기 시작하면" 으로 적어 두었는데, 그 조건과는
+#   결이 다르다(사가가 아니라 durable timer + 재시도다). 그 판단은 기록으로
+#   남기고 도입은 사용자 결정으로 진행한다 — Coraza 때와 같은 형식이다.
+#
+# ★★ auto-setup 이미지를 쓴다 — frontend·history·matching·worker 네 역할을
+#   **한 프로세스**로 돌린다. 역할을 쪼개면 파드가 넷이 되고 이 노드는
+#   memory requests 가 이미 83% 다(Gotcha 99: 무엇을 넣을지는 산술로 정한다).
+#   쪼개는 것은 노드를 늘린 뒤에 할 일이다.
+#   ★ 그 이미지는 스키마 설치도 함께 한다(temporal-sql-tool). 그래서 별도
+#     부트스트랩 Job 을 두지 않는다 — 다만 **DB 생성은 우리가 한다**
+#     (SKIP_DB_CREATE=true). 롤·DB 의 원천은 postgres-bootstrap 하나다.
+#
+# ★ 이미지 실측(2026-09-11): User=temporal 이고 /etc/passwd 는 1000:1000 이다.
+#   이름만 보고 uid 를 추측하지 않았다(Gotcha 122).
+#   Entrypoint=/etc/temporal/entrypoint.sh · Cmd=autosetup
+#   ExposedPorts=6933-6935,6939(멤버십) 7233(frontend gRPC) 7234/7235/7239
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: temporal
+  labels:
+    app.kubernetes.io/name: temporal
+    app.kubernetes.io/component: orchestration
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  serviceName: temporal-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: temporal
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: temporal
+        app.kubernetes.io/component: orchestration
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/managed-by: kustomize
+    spec:
+      # ★ 전용 SA — ambient 에서 SA 는 곧 신원이다(Gotcha 10). default 로 두면
+      #   allow-database-access 에 principal 을 쓸 수 없다.
+      serviceAccountName: temporal
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: temporal
+          image: docker.io/temporalio/auto-setup:1.29.7
+          imagePullPolicy: IfNotPresent
+          env:
+            # ★ 플러그인 이름은 postgres12 다 — PostgreSQL 12+ 용이고
+            #   이 클러스터는 18.6 이다. `postgres` 로 쓰면 구 스키마를 쓴다.
+            - name: DB
+              value: postgres12
+            - name: POSTGRES_SEEDS
+              value: postgresql-headless
+            - name: DB_PORT
+              value: "5432"
+            - name: POSTGRES_USER
+              value: temporal
+            - name: POSTGRES_PWD
+              valueFrom: { secretKeyRef: { name: temporal-secret, key: db-password } }
+            - name: DBNAME
+              value: temporal
+            - name: VISIBILITY_DBNAME
+              value: temporal_visibility
+            # ★★ DB 생성은 postgres-bootstrap 이 한다. 여기서 또 만들게 두면
+            #   롤·비밀번호의 원천이 둘이 된다(§8-44 와 같은 부류).
+            - name: SKIP_DB_CREATE
+              value: "true"
+            # 스키마 설치는 **이 이미지가** 한다. 멱등이라 재기동해도 안전하다.
+            - name: SKIP_SCHEMA_SETUP
+              value: "false"
+            - name: DEFAULT_NAMESPACE
+              value: oneinchmarket
+            - name: DEFAULT_NAMESPACE_RETENTION
+              value: "72h"
+            # ★ Elasticsearch 가시성은 쓰지 않는다 — 이 클러스터의 ES 는 단일
+            #   노드라 복제본 0 으로 묶여 있고(Gotcha 14·34) 과금·보안 로그가
+            #   이미 얹혀 있다. 표준 가시성(PostgreSQL)으로 충분하다.
+            - name: ENABLE_ES
+              value: "false"
+            # 멤버십 브로드캐스트 주소. 파드 IP 로 알려야 자기 자신을 찾는다.
+            - name: TEMPORAL_BROADCAST_ADDRESS
+              valueFrom: { fieldRef: { fieldPath: status.podIP } }
+          ports:
+            - { name: grpc,       containerPort: 7233, protocol: TCP }
+            - { name: membership, containerPort: 6933, protocol: TCP }
+          # ★ 프로브는 "떠 있는가" 가 아니라 **frontend 가 실제로 받는가** 를
+          #   본다(Gotcha 48). 7233 은 gRPC 라 TCP 로 확인한다 —
+          #   HTTP 프로브를 붙이면 gRPC 핸드셰이크에 걸려 늘 실패한다.
+          startupProbe:
+            tcpSocket: { port: grpc }
+            periodSeconds: 10
+            # 스키마 설치가 첫 기동에 수십 초 걸린다. 예산을 넉넉히 준다.
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket: { port: grpc }
+            periodSeconds: 15
+          livenessProbe:
+            tcpSocket: { port: grpc }
+            periodSeconds: 30
+            failureThreshold: 6
+          resources:
+            requests: { cpu: 100m, memory: 512Mi }
+            limits:   { cpu: "1",  memory: 1Gi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            # ★ readOnlyRootFilesystem 을 켜지 않는다 — 엔트리포인트가
+            #   /etc/temporal/config 에 렌더한 설정을 쓴다. 측정하지 않은 것을
+            #   켜지 않는다(Gotcha 92·97).
+            readOnlyRootFilesystem: false

@@ -6,6 +6,8 @@ resources:
   - scheduling/
   - serviceaccounts/
   - bootstrap/
+  # Temporal — 장기 durable 워크플로(독촉 절차의 뼈대). wave 4.
+  - orchestration/
   - data-lakehouse/
   - messaging/
   - database/

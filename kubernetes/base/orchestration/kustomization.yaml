@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# ★ wave 4 — database(1) 뒤. Temporal 은 기동 시 PostgreSQL 에 스키마를
+#   설치하므로 DB 가 먼저 서 있어야 한다. 그리고 이 wave 의 다른 것들과 달리
+#   **부트스트랩 Job 이 없다** — auto-setup 이미지가 그 일을 한다.
+commonAnnotations:
+  argocd.argoproj.io/sync-wave: "4"
+resources:
+  - temporal-headless.yaml
+  - temporal-statefulset.yaml
+  - temporal-ui-deployment.yaml
