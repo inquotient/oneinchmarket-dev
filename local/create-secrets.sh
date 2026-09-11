@@ -55,7 +55,7 @@ mk redis-secret       "redis-password=$REDIS"
 # ★ oidc-client-secret 은 Keycloak 클라이언트 시크릿이다. **소비자 쪽에** 둔다 —
 #   keycloak-realm 부트스트랩이 이 값을 읽어 클라이언트에 심는다. 반대로 두면
 #   Backstage 가 남의 Secret 을 읽어야 한다.
-mk backstage-secret "db-password=$(gen)" "backend-secret=$(gen 32)" "oidc-client-secret=$(gen 32)"
+mk backstage-secret "db-password=$(gen)" "backend-secret=$(gen 32)" "oidc-client-secret=$(gen 32)" "session-secret=$(gen 32)"
 # Gravitee — MongoDB 전용 사용자(mongodb-bootstrap 이 만든다).
 mk gravitee-secret "db-password=$(gen)" "jwt-secret=$(gen 32)"
 mk shardingsphere-secret "proxy-password=$(gen)"

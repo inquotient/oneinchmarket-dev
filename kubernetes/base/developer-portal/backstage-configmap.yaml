@@ -68,6 +68,12 @@ data:
           ssl: false
 
     auth:
+      # ★★ OIDC 는 **세션이 필요하다** — 없으면 `/api/auth/oidc/start` 가
+      #   `500 Authentication failed, authentication requires session support`
+      #   로 죽는다(실측). guest 에는 없던 요구라 옮길 때 드러난다.
+      #   nonce·state 를 브라우저 세션에 담아 CSRF 를 막는 장치다.
+      session:
+        secret: ${BACKSTAGE_SESSION_SECRET}
       # ★ 이 값이 아래 `oidc.production` 을 고른다. **프런트도 같은 값을 읽는다**
       #   (packages/app/src/modules/auth). 어긋나면 로그인 버튼이 그대로인데
       #   "provider not configured" 로 실패한다.

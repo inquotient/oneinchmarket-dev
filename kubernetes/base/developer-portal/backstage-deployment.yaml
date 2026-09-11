@@ -96,6 +96,10 @@ spec:
             # 로 참조한다 — ConfigMap 에 값을 적지 않기 위해서다.
             - name: BACKSTAGE_OIDC_CLIENT_SECRET
               valueFrom: { secretKeyRef: { name: backstage-secret, key: oidc-client-secret } }
+            # OIDC 흐름의 세션 서명 키. backend-secret 과 **다른 값**을 쓴다 —
+            # 역할이 다르고, 하나가 새면 둘 다 새는 구조를 만들지 않는다(§8-44).
+            - name: BACKSTAGE_SESSION_SECRET
+              valueFrom: { secretKeyRef: { name: backstage-secret, key: session-secret } }
           ports:
             - name: http
               containerPort: 7007

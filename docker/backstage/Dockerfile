@@ -61,6 +61,11 @@ RUN tar xzf skeleton.tar.gz && rm skeleton.tar.gz
 RUN yarn workspaces focus --all --production && yarn cache clean
 COPY --from=build --chown=node:node /app/packages/backend/dist/bundle.tar.gz ./
 RUN tar xzf bundle.tar.gz && rm bundle.tar.gz
+# ★★ 기본 설정 파일은 **번들에 들어 있지 않다.** 빼먹으면 기동이
+#   `NotFoundError: Config file "/app/app-config.yaml" does not exist` 로
+#   즉사한다(실측). 운영 설정(app-config.production.yaml)은 ConfigMap 이
+#   subPath 로 덮어쓰지만, **덮을 대상이 먼저 있어야** 한다.
+COPY --from=build --chown=node:node /app/app-config.yaml /app/app-config.production.yaml ./
 # 카탈로그 파일은 ConfigMap 이 /app/catalog 로 마운트한다(매니페스트 참조).
 COPY --from=build --chown=node:node /app/examples ./examples
 EXPOSE 7007
