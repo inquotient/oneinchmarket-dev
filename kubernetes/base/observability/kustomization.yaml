@@ -18,6 +18,7 @@ resources:
   - opensearch/opensearch-headless.yaml
   - opensearch/opensearch-statefulset.yaml
   - opensearch/opensearch-dashboards-deployment.yaml
+  - opensearch/opensearch-ism.yaml
   # Data Prepper — OpenSearch 의 수집·처리 계층. Filebeat 을 대체하고
   # Logstash 를 축소한다(대체하지 **못하는** 두 가지는 그 ConfigMap 머리말에).
   - data-prepper/data-prepper-configmap.yaml
