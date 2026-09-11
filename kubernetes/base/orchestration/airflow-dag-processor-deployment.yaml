@@ -40,6 +40,32 @@ spec:
         fsGroup: 0
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+        # ★ `-L` 로 링크를 따라가 **파일 내용**을 복사한다. 그냥 `-r` 이면
+        #   `..data` 링크까지 옮겨져 같은 문제가 따라온다.
+        #   그리고 하나도 못 옮겼으면 **기동을 거부한다** — 조용한 빈 폴더보다
+        #   시끄러운 실패가 낫다(Gotcha 86).
+        - name: copy-dags
+          image: docker.io/apache/airflow:3.3.1
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -Eeuo pipefail
+              cp -L /dags-src/*.py /opt/airflow/dags/
+              n=$(ls -1 /opt/airflow/dags/*.py 2>/dev/null | wc -l)
+              echo "[copy-dags] ${n} 개"
+              [ "$n" -ge 1 ] || { echo '[copy-dags] DAG 이 0개다' >&2; exit 1; }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - { name: dags-src, mountPath: /dags-src, readOnly: true }
+            - { name: dags, mountPath: /opt/airflow/dags }
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits:   { cpu: 200m, memory: 128Mi }
       containers:
         - name: dag-processor
           image: docker.io/apache/airflow:3.3.1
@@ -101,7 +127,16 @@ spec:
             requests: { cpu: 100m, memory: 256Mi }
             limits:   { cpu: 1000m, memory: 640Mi }
       volumes:
-        - name: dags
+        # ★★★ ConfigMap 을 DAG 폴더로 **직접 마운트하지 말 것.**
+        #   ConfigMap 볼륨은 `..data -> ..<타임스탬프>` 심볼릭 링크 구조를
+        #   만드는데, Airflow 3 의 디렉터리 순회가 같은 실디렉터리를 두 번
+        #   보고 **재귀 루프로 판정해 죽는다**(실측:
+        #   `RuntimeError: Detected recursive loop when walking DAG directory`).
+        #   그래서 ConfigMap 은 옆(`/dags-src`)에 두고 initContainer 가
+        #   emptyDir 로 **복사**한다 — Gotcha 153.
+        - name: dags-src
           configMap: { name: airflow-dags }
+        - name: dags
+          emptyDir: {}
         - name: logs
           emptyDir: {}
