@@ -1,34 +1,6 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-kibana-access
-  labels:
-    app.kubernetes.io/name: allow-kibana-access
-    app.kubernetes.io/component: network-policies
-    app.kubernetes.io/part-of: oneinchmarket
-    app.kubernetes.io/managed-by: kustomize
-spec:
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/name: kibana
-  policyTypes:
-    - Ingress
-  ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/name: nginx
-        # ECK operator (elastic-system namespace) needs access
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: elastic-system
-      ports:
-        - protocol: TCP
-          port: 5601
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
   name: allow-logstash-access
   labels:
     app.kubernetes.io/name: allow-logstash-access
@@ -42,31 +14,98 @@ spec:
   policyTypes:
     - Ingress
   ingress:
+    # ★ 2026-09-11 에 두 항목이 사라졌다 —
+    #   5044(beats): Filebeat 을 철거했다(otel-agent 가 같은 로그를 걷는다).
+    #   5140(Suricata): otel-gateway 의 syslog 수신기로 옮겼다(§9-18).
+    #   남은 것은 Zeek(5141)와 Alertmanager webhook(5142)뿐이다.
     - from:
         - podSelector:
             matchLabels:
-              app.kubernetes.io/name: filebeat
+              app.kubernetes.io/name: zeek-ship
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: alertmanager
       ports:
         - protocol: TCP
-          port: 5044
-    # ADR-031 — L0(OPNsense)의 Suricata EVE JSON 수신
-    #
-    # ★ 출발지가 클러스터 밖이다. L0 는 별도 호스트(클라우드에서는 VPC-only
-    #   인스턴스)이므로 podSelector 로 표현할 수 없고 ipBlock 이어야 한다.
-    #
-    # ★ 아래 대역은 **환경마다 좁혀야 한다.** 여기 적힌 것은 로컬 랩의
-    #   L0-LAN(10.77.0.0/24)이다. dev/prod 오버레이는 실제 L0 인스턴스 주소로
-    #   대체할 것.
-    #
-    #   로컬에서는 kubectl port-forward 로 들어와 출발지가 노드가 되므로
-    #   이 규칙이 없어도 통한다. 그래서 **로컬 검증만으로는 이 규칙의 부재가
-    #   드러나지 않는다** — 클라우드로 옮길 때 조용히 막힌다.
+          port: 5141
+        - protocol: TCP
+          port: 5142
+---
+# OpenSearch 접근 허용.
+# ★ 이 정책은 2026-09-11 에 한 번 **사고로 사라졌다** — allow-elasticsearch-access
+#   블록을 인덱스로 잘라내며 뒤따르던 이 두 정책까지 함께 지웠고, ArgoCD 가
+#   prune 으로 클러스터에서도 지웠다. Gotcha 145 가 경계하는 부류다.
+#   ★★ 블록 단위 삭제 뒤에는 **무엇이 남았는지 렌더로 셀 것.**
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-opensearch-access
+  labels:
+    app.kubernetes.io/name: allow-opensearch-access
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: opensearch
+  policyTypes:
+    - Ingress
+  ingress:
     - from:
-        - ipBlock:
-            cidr: 10.77.0.0/24
+        - podSelector: {matchLabels: {app.kubernetes.io/name: opensearch-dashboards}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: data-prepper}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: opensearch-ism-setup}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: openmeter-dlq-replay}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: trivy-image-scan}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: grafana}}
       ports:
         - protocol: TCP
-          port: 5140
+          port: 9200
+    # 노드 간 transport. 단일 노드라 지금은 자기 자신뿐이다.
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: opensearch}}
+      ports:
+        - protocol: TCP
+          port: 9300
+---
+# Data Prepper 접근 허용 — OpenSearch 로 가는 유일한 수집 경로다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-data-prepper-access
+  labels:
+    app.kubernetes.io/name: allow-data-prepper-access
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: data-prepper
+  policyTypes:
+    - Ingress
+  ingress:
+    # 컨테이너 로그(21892) · Suricata 전용(21893) — otel-gateway 가 OTLP 로 넘긴다.
+    # ★ 둘을 나눈 이유는 보안 이벤트가 일반 로그에 섞이지 않게 하려는 것이다.
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: otel-gateway}}
+      ports:
+        - protocol: TCP
+          port: 21892
+        - protocol: TCP
+          port: 21893
+    # 축소된 Logstash 가 넘기는 것(alerts·zeek·api-usage DLQ/격리)
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: logstash}}
+      ports:
+        - protocol: TCP
+          port: 2021
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: prometheus}}
+      ports:
+        - protocol: TCP
+          port: 4900
 ---
 # Falcosidekick 접근 허용 - Falco DaemonSet → Falcosidekick
 apiVersion: networking.k8s.io/v1

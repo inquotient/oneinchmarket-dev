@@ -59,6 +59,40 @@ data:
             insecure: false
             cert: /certs/ca.crt
 
+    # ── ①-b Suricata (L0 랩) ───────────────────────────────────
+    #   otel-gateway 의 syslog 수신기가 RFC5424 를 풀어 여기로 넘긴다.
+    #   ★ 일반 로그와 **파이프라인을 분리**한다 — 보안 이벤트가 일반 로그에
+    #     섞이면 탐지 지표가 오염된다(§8-55 와 같은 판단).
+    suricata-pipeline:
+      workers: 1
+      delay: 3000
+      source:
+        otel_logs_source:
+          port: 21893
+          ssl: false
+      sink:
+        # ★ 인덱스 하나로 받는다. EVE 와 엔진 로그를 **인덱스로 가르려던
+        #   시도는 접었다** — Data Prepper 의 `route` 조건이 어느 경로
+        #   표기로도 매칭되지 않았고(`/attributes/...`·`/resource/attributes/...`
+        #   둘 다), 매칭 실패는 **조용한 폐기**다: 인덱스는 만들어지고 문서만
+        #   0건이 된다. 실측으로 그 상태를 두 번 만들었다.
+        #   판정에 쓴 지표(이 함정을 다시 만나면 여기부터 볼 것):
+        #     otelcol_exporter_sent_log_records{exporter="otlp/dataprepper-suricata"} = 2
+        #     suricata_pipeline_BlockingBuffer_recordsWritten_total = 2      (받았다)
+        #     suricata_pipeline_opensearch_bulkRequestLatency_seconds_count = 0  (안 썼다)
+        #   ★★ 구분은 잃지 않는다 — OTel 이 붙인 `oim_target` 필드가 문서에
+        #     남으므로 `oim_target:suricata-engine` 으로 거를 수 있다.
+        #     §8-33 이 인덱스 분리를 요구한 이유(탐지 지표 오염)는 대시보드
+        #     필터로 충족한다. 인덱스 분리가 꼭 필요해지면 OTel 의 routing
+        #     커넥터로 포트를 갈라 보내는 쪽이 확실하다(§9-18).
+        - opensearch:
+            hosts: ["https://opensearch-headless:9200"]
+            username: ingest
+            password: __OPENSEARCH_INGEST_PASSWORD__
+            index: "suricata-%{yyyy.MM.dd}"
+            insecure: false
+            cert: /certs/ca.crt
+
     # ── ② SIEM 이벤트 ──────────────────────────────────────────
     #   Kafka 의 keycloak-events · falco-alerts. Logstash 에서 옮겨 온다.
     #   ★ group_id 를 Logstash 것과 다르게 준다 — 같으면 전환 중에

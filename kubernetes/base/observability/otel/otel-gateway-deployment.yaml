@@ -35,6 +35,8 @@ spec:
             - {containerPort: 4317, name: otlp-grpc, protocol: TCP}
             - {containerPort: 4318, name: otlp-http, protocol: TCP}
             - {containerPort: 4319, name: otlp-usage, protocol: TCP}
+            # L0 랩의 Suricata syslog(RFC5424). NodePort 로 밖에서 들어온다.
+            - {containerPort: 5140, name: suricata, protocol: TCP}
             - {containerPort: 8889, name: prom, protocol: TCP}
             - {containerPort: 8888, name: telemetry, protocol: TCP}
             - {containerPort: 13133, name: health, protocol: TCP}

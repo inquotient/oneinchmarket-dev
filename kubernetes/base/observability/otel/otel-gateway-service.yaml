@@ -19,5 +19,33 @@ spec:
     # ★ 과금 계량 전용 OTLP. 일반 로그(4317)와 포트를 나눠 파이프라인이
     #   섞이지 않게 한다(otel-gateway-configmap 참조).
     - {name: otlp-usage, port: 4319, targetPort: 4319, protocol: TCP}
+    - {name: suricata, port: 5140, targetPort: 5140, protocol: TCP}
     - {name: prom, port: 8889, targetPort: 8889, protocol: TCP}
   selector: {app.kubernetes.io/name: otel-gateway}
+---
+# L0 랩(OPNsense)의 Suricata 를 받는 **유일한 도달 가능 경로**.
+#
+# ★ 2026-09-11 에 Logstash 에서 otel-gateway 로 옮겼다. 옮긴 이유는 성능이
+#   아니라 **그 경로가 죽어 있었기** 때문이다 — `suricata-*` 인덱스가
+#   0건이었다(§25-2). 어차피 처음부터 만들어야 했고, OTel 의 `syslog`
+#   수신기는 RFC5424 를 네이티브로 판다(Logstash 는 정규식으로 수동 제거).
+#
+# ★★ 헤드리스 ClusterIP 로는 클러스터 밖에서 닿을 수 없다 — 그것이 원래
+#   끊겨 있던 이유다. NodePort 를 쓴다(servicelb 비활성이라 LoadBalancer 는
+#   영원히 Pending 이다, Gotcha 7).
+#   ★ nodePort 를 고정한다 — 재생성마다 바뀌면 OPNsense 설정이 어긋난다.
+#   ★★ OPNsense 쪽 syslog-ng 목적지는 **이 레포 밖의 랩 상태**다(§25-2).
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-suricata
+  labels: {app.kubernetes.io/name: otel-gateway, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  type: NodePort
+  # ★ 소스 IP 를 보존한다. 기본값 Cluster 는 SNAT 해서 NetworkPolicy 의
+  #   ipBlock 10.77.0.0/24 규칙이 매칭되지 않는다. 단일 노드라 Local 의
+  #   단점(그 노드에 파드가 없으면 버림)이 성립하지 않는다.
+  externalTrafficPolicy: Local
+  selector: {app.kubernetes.io/name: otel-gateway}
+  ports:
+    - {name: suricata, port: 5140, targetPort: 5140, nodePort: 30514, protocol: TCP}

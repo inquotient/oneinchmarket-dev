@@ -35,6 +35,14 @@ spec:
       ports:
         - {protocol: TCP, port: 4317}
         - {protocol: TCP, port: 4318}
+    # ★ L0 랩(OPNsense)의 Suricata syslog. NodePort(30514) 로 들어온다.
+    #   otel-suricata Service 가 externalTrafficPolicy: Local 이라 소스 IP 가
+    #   보존되므로 이 ipBlock 규칙이 실제로 매칭된다 — 기본값 Cluster 였다면
+    #   SNAT 되어 조용히 막혔을 것이다(§25-2).
+    - from:
+        - ipBlock: {cidr: 10.77.0.0/24}
+      ports:
+        - {protocol: TCP, port: 5140}
     # :8889 는 allow-prometheus-scrape 가 이미 덮는다.
 ---
 apiVersion: networking.k8s.io/v1

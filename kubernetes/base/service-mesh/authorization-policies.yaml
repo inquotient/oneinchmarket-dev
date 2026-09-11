@@ -326,7 +326,8 @@ spec:
             principals: ["*/sa/otel-gateway"]
       to:
         - operation:
-            ports: ["21892"]
+            # 21893 은 Suricata 전용 파이프라인이다(§9-18).
+            ports: ["21892", "21893"]
     # 축소된 Logstash 가 http source(2021)로 넘긴다
     # — alerts · zeek · suricata · api-usage DLQ/격리.
     - from:

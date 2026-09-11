@@ -26,6 +26,97 @@ data:
       #   섞여 Loki 로도 가고 Kafka 로도 간다. 필터로 가르는 방법도 있으나,
       #   필터가 조용히 어긋나면 **청구 데이터가 유실되거나 오염된다.**
       #   포트로 가르면 어긋날 여지가 없다.
+      # ★ L0 랩(OPNsense)의 Suricata EVE JSON.
+      #   2026-09-11 에 Logstash 에서 옮겨 왔다 — 그쪽은 syslog 헤더를
+      #   정규식으로 손수 떼고 있었는데 여기 syslog 수신기는 RFC5424 를
+      #   **네이티브로** 판다(LOCAL-DEPLOYMENT §9-18).
+      #   ★★ 옮긴 진짜 이유는 성능이 아니라 **그 경로가 죽어 있었기** 때문이다
+      #     — `suricata-*` 인덱스가 0건이었다(§25-2). 도는 것을 옮긴 것이 아니라
+      #     고장난 것을 더 나은 자리에 다시 지은 것이다.
+      syslog/suricata:
+        tcp:
+          listen_address: 0.0.0.0:5140
+        # syslog-ng 가 RFC5424 로 보낸다.
+        protocol: rfc5424
+        operators:
+          # ① EVE JSON 인지 엔진 자체 로그인지 가른다.
+          #   ★ expr 에 정규식을 쓰지 않는다 — 백슬래시를 쓰면 수집기가
+          #     기동하지 않는다(Gotcha 22). `contains` 로 충분하다.
+          - type: router
+            id: suricata-split
+            routes:
+              # ★ `body.message` 를 쓰지 말 것 — syslog 수신기는 RFC5424 필드를
+              #   attributes 로 보내고 **body 에는 MSG 문자열만** 남긴다.
+              #   맵인 줄 알고 `body.message` 로 쓰면 expr 이 오류를 내고
+              #   그 엔트리는 통째로 버려진다(실측: "Running expression returned
+              #   an error" -> "Failed to write entry"). string() 으로 감싸면
+              #   body 가 무엇이든 안전하다.
+              # ★ syslog 수신기는 RFC5424 를 풀어 **attributes 로** 보낸다 —
+              #   MSG 는 `attributes.message`, 헤더는 appname·hostname·priority
+              #   등으로 나뉘고 **body 는 원본 줄 그대로** 남는다(실측으로 확인).
+              #   처음에 `body.message` 로 썼다가 expr 오류로 엔트리가 통째로
+              #   버려졌고, `string(body)` 로 바꿔 살렸지만 파싱 출처가 틀려
+              #   EVE 가 풀리지 않았다. 판정은 문서를 직접 열어 보는 것이었다.
+              - expr: 'attributes.message != nil and attributes.message contains "{"'
+                output: suricata-eve
+            default: suricata-engine-mark
+          # ② EVE JSON 을 파싱한다. 실패해도 버리지 않고 그대로 보낸다.
+          - type: json_parser
+            id: suricata-eve
+            parse_from: attributes.message
+            parse_to: body
+            on_error: send
+            output: suricata-eve-mark
+          - type: add
+            id: suricata-eve-mark
+            # ★ 인덱스 이름을 **속성으로 실어 보내지 않는다.** Data Prepper 의
+            #   `${/resource/attributes/...}` 치환에 기대 봤더니 값이 비어
+            #   인덱스가 `-2026.09.11` 이 됐다(실측). 경로를 맞히려 씨름하는
+            #   대신 **OTel 에서 갈라 다른 포트로 보낸다** — Data Prepper 쪽은
+            #   파이프라인마다 인덱스가 **고정**이라 어긋날 여지가 없다.
+            #   (§8-55 가 과금에서 전용 수신기를 쓴 것과 같은 판단이다.)
+            field: resource.oim_target
+            value: suricata
+            output: suricata-time
+          # ★★ EVE 의 timestamp 를 이벤트 시각으로 쓴다. **수신 시각을 쓰지 말 것**
+          #   — 상관분석에서 순서가 어긋난다(Gotcha 33 이 Alertmanager 에서
+          #   같은 이유로 startsAt 을 쓰라고 한 것과 같다).
+          #   실패해도 버리지 않는다(on_error: send).
+          - type: time_parser
+            id: suricata-time
+            parse_from: body.timestamp
+            layout_type: strptime
+            layout: '%Y-%m-%dT%H:%M:%S.%f%z'
+            on_error: send
+            output: suricata-kind
+          # ★ alert 와 그 밖을 가른다. ★★ 단 **syslog 경로에는 drop 이벤트가
+          #   오지 않는다** — OPNsense 의 suricata.yaml 에서 파일 출력은
+          #   alert·anomaly·drop·ssh 인데 syslog 출력은 alert 하나뿐이다(실측).
+          #   차단 여부는 `alert.action == "blocked"` 로 판정한다.
+          - type: add
+            id: suricata-kind
+            field: attributes.event_kind
+            value: 'EXPR(body.event_type == "alert" ? "alert" : "event")'
+            output: suricata-action
+          - type: add
+            id: suricata-action
+            field: attributes.event_action
+            value: 'EXPR(body.alert != nil and body.alert.action != nil ? body.alert.action : "")'
+            output: suricata-common
+          # ③ 엔진 로그. **버리지 않는다** — §8-33 에서 조용히 실패한 신호가
+          #   정확히 이것이었다("1 rule files specified, but no rules were
+          #   loaded!"). 보안 이벤트와 섞으면 탐지 지표가 오염되므로
+          #   인덱스만 분리한다.
+          - type: add
+            id: suricata-engine-mark
+            field: resource.oim_target
+            value: suricata-engine
+            output: suricata-common
+          - type: add
+            id: suricata-common
+            field: resource.event_module
+            value: suricata
+
       otlp/usage:
         protocols:
           grpc:
@@ -106,6 +197,20 @@ data:
           enabled: true
           queue_size: 2000
 
+      # ★ Suricata 전용. 일반 로그(otlp/dataprepper)와 **수신기·내보내기를
+      #   모두 분리**한다 — 한 파이프라인에 필터로 가르면 조용히 어긋날 때
+      #   보안 이벤트가 일반 로그에 섞인다(§8-55 가 과금에서 같은 이유로
+      #   전용 수신기를 쓴 것과 같은 판단이다).
+      otlp/dataprepper-suricata:
+        endpoint: data-prepper:21893
+        tls:
+          insecure: true
+        retry_on_failure:
+          enabled: true
+        sending_queue:
+          enabled: true
+          queue_size: 1000
+
       prometheus:
         endpoint: 0.0.0.0:8889
         resource_to_telemetry_conversion:
@@ -140,6 +245,10 @@ data:
         #   섞이지 않는다. batch 는 두되 memory_limiter 도 같이 둔다 —
         #   과금 이벤트가 폭주해 수집기가 죽으면 그 구간이 통째로 비는데,
         #   그것은 청구 누락으로 이어진다.
+        logs/suricata:
+          receivers: [syslog/suricata]
+          processors: [memory_limiter, batch]
+          exporters: [otlp/dataprepper-suricata]
         logs/usage:
           receivers: [otlp/usage]
           processors: [memory_limiter, batch]

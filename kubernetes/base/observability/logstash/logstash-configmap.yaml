@@ -91,93 +91,24 @@ data:
         codec => json_lines
         add_field => { "[@metadata][pipeline]" => "zeek" }
       }
-      tcp {
-        port => 5140
-        codec => plain { charset => "UTF-8" }
-        add_field => { "[@metadata][pipeline]" => "suricata" }
-      }
     }
 
     filter {
       # ADR-031 — Suricata EVE JSON 정규화
-      if [@metadata][pipeline] == "suricata" {
-        # ★ syslog-ng 가 앞에 붙인 것을 떼고 JSON 만 남긴다. RFC5424 든
-        #   RFC3164 든 EVE JSON 은 '{' 부터 시작하므로 첫 '{' 이후를 취한다.
-        #   grok 으로 헤더 형식을 맞추려 들면 syslog-ng 설정이 바뀔 때마다
-        #   깨진다 — 여기서 필요한 것은 헤더가 아니라 페이로드다.
-        grok {
-          match => { "message" => "(?<eve_json>\{.*\})" }
-          tag_on_failure => ["_suricata_no_json"]
-        }
-        mutate {
-          add_field => { "event.module" => "suricata" }
-          add_field => { "observer.type" => "ids" }
-        }
-
-        if "_suricata_no_json" in [tags] {
-          # ★ 엔진 자체 로그다. program("suricata") 필터는 EVE JSON 뿐 아니라
-          #   suricata 의 기동·룰적재 메시지까지 함께 보낸다.
-          #
-          #   버리지 않는다. §8-33 에서 조용히 실패한 것이 정확히 이 신호였다 —
-          #   "1 rule files specified, but no rules were loaded!" 가 여기로 온다.
-          #   보안 이벤트와 섞으면 탐지 지표가 오염되므로 인덱스만 분리한다.
-          mutate {
-            add_field => { "[@metadata][target_index]" => "suricata-engine" }
-            add_field => { "event.kind" => "event" }
-            add_field => { "event.dataset" => "suricata.engine" }
-          }
-        } else {
-          json {
-            source => "eve_json"
-            skip_on_invalid_json => true
-          }
-          # 파싱에 성공했으면 원본 줄은 중복이다. EVE 한 줄은 payload_printable
-          # 때문에 커질 수 있어 그대로 두면 인덱스가 두 배가 된다.
-          mutate {
-            remove_field => ["eve_json", "message"]
-            add_field => { "[@metadata][target_index]" => "suricata" }
-            add_field => { "event.dataset" => "suricata.eve" }
-          }
-
-          # ★ alert 와 drop 을 구분한다. 이 차이가 IPS 검증의 전부다 —
-          #   탐지만 한 것과 실제로 떨어뜨린 것은 다른 사건이다.
-          #
-          #   ★★ 그런데 **syslog 경로에는 drop 이벤트가 오지 않는다.**
-          #   OPNsense 의 suricata.yaml 템플릿에서 파일 출력의 types 는
-          #   alert·anomaly·drop·ssh 인데 syslog 출력은 alert 하나뿐이다(실측).
-          #   차단 여부는 `alert.action == "blocked"` 로 판정해야 한다.
-          #   drop 이벤트(drop.reason 포함)가 필요하면 파일을 직접 수집하는
-          #   수집기가 있어야 한다 — OPNsense 에는 filebeat 패키지가 없다.
-          if [event_type] == "drop" {
-            mutate {
-              add_field => { "event.kind" => "event" }
-              add_field => { "event.action" => "blocked" }
-            }
-          } else if [event_type] == "alert" {
-            mutate {
-              add_field => { "event.kind" => "alert" }
-              add_field => { "event.action" => "%{[alert][action]}" }
-            }
-          } else {
-            mutate { add_field => { "event.kind" => "event" } }
-          }
-
-          # EVE 의 timestamp 를 쓴다. 수신 시각이 아니라 관측 시각이어야
-          # 상관분석에서 순서가 맞는다.
-          date {
-            match => ["timestamp", "ISO8601"]
-            target => "@timestamp"
-            tag_on_failure => ["_suricata_dateparsefailure"]
-          }
-        }
-      }
+      # ★ Suricata 파이프라인을 걷어냈다(2026-09-11). otel-gateway 의
+      #   syslog 수신기로 옮겼다 — 그쪽은 RFC5424 를 네이티브로 판다
+      #   (LOCAL-DEPLOYMENT §9-18). 옮긴 이유는 성능이 아니라 **이 경로가
+      #   죽어 있었기** 때문이다: suricata-* 인덱스가 0건이었고, 원인은
+      #   헤드리스 ClusterIP 라 클러스터 밖에서 닿을 수 없다는 것이었다(§25-2).
+      #   ★ 엔진 로그를 버리지 않는 규칙(§8-33)과 EVE timestamp 를 관측
+      #     시각으로 쓰는 규칙은 OTel 쪽 연산자로 그대로 옮겼다.
 
       # ADR-031 — Zeek 프로토콜 로그
       #
       # Suricata EVE 와 겹친다(둘 다 dns·http·tls 를 낸다). 의도된 중복이다 —
       # 같은 트래픽을 두 엔진이 어떻게 다르게 보는지 비교하는 것이 L0 랩의
       # 목적 중 하나다. 인덱스를 분리해 두면 나중에 한쪽을 걷어내기 쉽다.
-      else if [@metadata][pipeline] == "zeek" {
+      if [@metadata][pipeline] == "zeek" {
         mutate {
           add_field => { "[@metadata][target_index]" => "zeek" }
         }

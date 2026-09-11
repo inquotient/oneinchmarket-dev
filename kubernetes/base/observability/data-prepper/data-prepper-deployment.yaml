@@ -14,6 +14,7 @@ spec:
   selector: {app.kubernetes.io/name: data-prepper}
   ports:
     - {name: otel-logs, port: 21892, targetPort: 21892, protocol: TCP}
+    - {name: otel-suricata, port: 21893, targetPort: 21893, protocol: TCP}
     - {name: http-ingest, port: 2021, targetPort: 2021, protocol: TCP}
     - {name: api, port: 4900, targetPort: 4900, protocol: TCP}
 ---
@@ -86,6 +87,7 @@ spec:
             - {name: JAVA_OPTS, value: "-Xms640m -Xmx640m"}
           ports:
             - {containerPort: 21892, name: otel-logs, protocol: TCP}
+            - {containerPort: 21893, name: otel-suricata, protocol: TCP}
             - {containerPort: 2021, name: http-ingest, protocol: TCP}
             - {containerPort: 4900, name: api, protocol: TCP}
           securityContext:

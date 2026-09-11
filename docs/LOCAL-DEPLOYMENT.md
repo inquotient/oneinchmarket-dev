@@ -11156,6 +11156,23 @@ Grafana·CronJob) · `kibanaserver`(Dashboards). 셋을 한 번에 바꾸면 전
 **지금 하지 않는 이유**: ②가 ①을 대부분 불필요하게 만드는데, ②는 Keycloak 클라이언트
 설정과 roles_mapping 이 함께 필요해 별도 작업이다. ①을 먼저 만들면 ② 뒤에 버린다.
 
+★★ **2026-09-11 에 ①을 실제로 밟았다 — 여기 적은 예측이 그대로 맞았다.**
+`ingest` 비밀번호를 회전했더니 **수집이 끊겼다**. Secret 을 바꾸고 파드를
+재기동해 `internal_users.yml` 을 다시 구웠는데도 소용이 없었다 —
+`allow_default_init_securityindex` 는 보안 인덱스가 **비어 있을 때만**
+초기화하므로, 이미 초기화된 클러스터에서는 파일을 바꿔도 반영되지 않는다.
+해법은 `securityadmin.sh` 로 밀어 넣는 것이었다:
+
+```
+kubectl exec opensearch-0 -c opensearch -- bash -c '
+  cd /usr/share/opensearch/plugins/opensearch-security/tools
+  ./securityadmin.sh -cd /usr/share/opensearch/config/opensearch-security -icl -nhnv     -cacert  .../config/certs/ca.crt     -cert    .../config/admin-certs/tls.crt     -key     .../config/admin-certs/tls.key -h localhost -p 9200'
+```
+
+실측: `Expected 9 config types ... Done with success` 뒤 수집이 재개됐다.
+★ 즉 **로테이션 Job 을 만든다면 그 스크립트 실행까지 포함해야 한다.**
+  Secret 교체만으로는 조용히 끊긴다 — 그리고 그 침묵이 이 항목의 요점이다.
+
 **복귀 조건**: 이 클러스터가 랩을 벗어나거나, SEC-4xx 가 검색 계층 자격의 수명을
 요구할 때. 그 전에 ②(OIDC)를 먼저 검토할 것 — §9-1 의 OpenSearch 행이 "지금 얻은
 것은 선택지" 라고 적어 둔 그 선택지다.
@@ -14091,6 +14108,12 @@ OPNsense      클러스터 *밖*  →  logstash-headless:5140  (풀 방법이 �
 의 한 변종이다(Gotcha 84·85·95 계열). 과거에 데이터가 들어온 것은
 `kubectl port-forward` 로 우회했기 때문이고, 그것은 파드를 재생성하면 조용히
 끊긴다(§8-50 · Gotcha 12).
+
+★★ **2026-09-11 재정정: Logstash 가 아니라 otel-gateway 로 받는다.**
+`logstash-suricata` NodePort 는 `otel-suricata` 로 바뀌었고(같은 30514),
+Logstash 의 tcp:5140 입력과 suricata 필터는 제거했다. OTel 의 `syslog`
+수신기가 RFC5424 를 네이티브로 파싱한다 — 자세한 근거는 §9-18 이다.
+★ 아래 서술은 그 이전 판이고, NodePort·externalTrafficPolicy 의 이유는 그대로다.
 
 **클러스터 쪽은 고쳤다** — `logstash-suricata` NodePort 를 만들었다
 (`kubernetes/base/observability/logstash/logstash-headless.yaml`):
