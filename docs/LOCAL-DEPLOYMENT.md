@@ -11161,6 +11161,68 @@ Grafana·CronJob) · `kibanaserver`(Dashboards). 셋을 한 번에 바꾸면 전
 것은 선택지" 라고 적어 둔 그 선택지다.
 
 
+### 9-18. Logstash 대안 — 새 컴포넌트 없이 전부 대체할 수 있다 (2026-09-11 조사)
+
+**결론부터**: Logstash 가 하는 네 가지를 **이미 클러스터에서 도는 두 컴포넌트**가
+나눠 가질 수 있다. 새로 들일 것이 없고 전부 Apache 2.0 이다.
+
+**먼저 라이선스 오해를 정리한다** — Logstash 는 **Apache 2.0** 이다. 2021년의
+ELv2/SSPL 전환과 2024년의 AGPL 추가는 **Elasticsearch·Kibana 에만** 적용됐고
+Logstash·Beats 는 대상이 아니었다. 우리 이미지에 `x-pack` 디렉터리가 있어
+배포본은 dual 이지만 **xpack gem 로드가 0개**이고, 쓰는 플러그인
+(`tcp`·`http`·`kafka` 입력, `http` 출력)은 전부 Apache 2.0 코어다.
+**즉 "나중에 비용" 은 이 컴포넌트의 문제가 아니다.** 바꾼다면 근거는
+라이선스가 아니라 "JVM 하나를 줄인다" 이다.
+
+**네 가지와 대안** (실측: `otelcol-contrib 0.160.0 components`)
+
+| Logstash 의 일 | 대안 | 새 컴포넌트 | 비고 |
+|---|---|---|---|
+| Zeek TCP 5141 | OTel **`tcp_log`** 수신기 | 없음 | 이미 도는 otel-gateway |
+| Suricata TCP 5140 | OTel **`syslog`** 수신기 | 없음 | ★ RFC5424 헤더를 **네이티브로** 판다 — Logstash 의 수동 regex 제거보다 낫다 |
+| Alertmanager webhook | OTel **`webhook_event`** 수신기 | 없음 | 임의 HTTP POST 본문을 로그로 받는다. Data Prepper 가 못 받던 "객체 하나" 문제가 사라진다 |
+| 과금 다리 (Kafka→HTTP+DLQ) | **Kafka Connect** HTTP sink | 없음(이미 돈다) | ★ `errors.deadletterqueue.*` 로 **네이티브 DLQ** — 지금 Logstash 가 `http` 필터 + `tag_on_request_failure` 로 손수 만든 것을 런타임이 준다 |
+
+★ 참고로 OTel contrib 에는 **`opensearch` 내보내기**도 있다(logs: Alpha).
+다만 Data Prepper 가 이미 안정적으로 돌고 있으므로 새 수신기들은 기존
+`otel-gateway -> Data Prepper` 경로에 태우는 편이 변경이 작다.
+
+**무엇이 쉽고 무엇이 위험한가 — 갈라서 보아야 한다**
+
+*쉬운 쪽(셋)*: OTel 설정 변경뿐이다. 이미지 재빌드도, 새 매니페스트도 없다.
+Suricata 는 오히려 **좋아진다**(파서가 네이티브가 된다).
+★ 다만 TCP 수신기는 클러스터 밖에서 닿아야 하므로 §25-2 의 NodePort 를
+그쪽으로 옮겨야 한다.
+
+*위험한 쪽(하나)*: 과금 다리다. 두 가지가 걸린다 —
+① `oneinch/kafka-connect` 이미지에 HTTP sink 커넥터를 넣어야 한다(재빌드).
+   지금 플러그인은 `debezium-connector-mariadb` 하나뿐이다.
+② **DLQ 의 모양이 바뀐다** — 지금은 OpenSearch 의 `api-usage-dlq` **인덱스**이고
+   `openmeter-dlq-replay` CronJob 이 그 인덱스를 읽어 재처리한다. Kafka Connect 의
+   DLQ 는 **토픽**이므로 그 CronJob 을 다시 써야 한다.
+   ★★ 이 자리는 이 레포가 **이미 한 번 틀렸던 곳**이다(Gotcha 32: 잡은 오류를
+   읽지 않아 엉뚱한 데서 죽었다). 그리고 Gotcha 23 이 "과금 토픽에 대고
+   실험하지 말 것" 이라고 못박아 두었다.
+
+**권고 순서**
+
+1. 셋을 먼저 옮긴다(저위험·즉시 이득). 그러면 Logstash 는 **과금 다리 하나만**
+   남는 JVM 이 된다 — 그때 비로소 §9-1 이 앞서 잘못 적었던 그 상태가 된다.
+2. 과금 다리는 **별도 토픽에서 끝까지 검증한 뒤** 옮긴다. 검증 항목은
+   ① 성공 경로 ② OpenMeter 5xx 시 DLQ 토픽 적재 ③ 재처리로 중복이 생겨도
+   OpenMeter 의 `id` 중복 제거가 잡는지(Gotcha 32 가 "확실하지 않으면 다시
+   보낸다" 로 정리해 둔 것).
+3. 둘 다 끝나야 Logstash 를 걷는다. 회수액은 **768Mi**(2026-09-11 에 힙을
+   384m 로 줄인 뒤의 값이다 — 그 전이라면 1,536Mi 였다).
+
+**지금 하지 않는 이유**: 1번은 할 만하지만 2번 없이는 Logstash 가 남아
+메모리 이득이 0이다. 즉 **둘을 묶어서 할 때만 값이 있다.** 묶으면 과금 경로를
+건드리는 작업이 되므로 별도 결정으로 둔다.
+
+**복귀 조건**: 과금 다리를 어차피 손볼 일이 생길 때(예: OpenMeter 업그레이드로
+ingest API 가 바뀔 때), 또는 노드 메모리가 다시 압박을 받을 때.
+
+
 ## 10. Hyper-V 배포(ADR-051 A안) 재검토 — 2026-09-05 실측
 
 §8-31 에서 H5(Hyper-V 합성 NIC 의 Cilium eBPF)가 해소되어 **기술적 중단 사유는
