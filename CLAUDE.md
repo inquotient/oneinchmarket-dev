@@ -498,6 +498,8 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 
 149. **rootless BuildKit 은 `allowPrivilegeEscalation: true` 가 없으면 아예 기동하지 않는다 — 그리고 그것은 타협이 아니라 구조다.** rootless 는 사용자 네임스페이스를 만들려고 `newuidmap`/`newgidmap` 을 부르는데 그 둘이 **setuid 바이너리** 라, 이 레포 기본값인 `allowPrivilegeEscalation: false` 에서는 실행 자체가 막힌다 — 실측 `fork/exec /usr/bin/newuidmap: operation not permitted` 로 CrashLoop. ★ 혼동하지 말 것: 이것은 **root 가 되는 것이 아니다**(uid 1000 그대로다). 필요한 것은 setuid 비트를 살려 두는 것이고, 그래서 `capabilities.add: [SETUID, SETGID]` 가 함께 간다. ★★ **prod 에서는 Kyverno `disallow-privilege-escalation` 이 Enforce 라 어드미션에서 거부된다** — 그때 마찰이 적은 쪽은 **Kaniko** 다(데몬이 없어 Job 하나로 끝나고 권한 상승이 필요 없다. 대신 uid 0 이 필요해 `disallow-root-user` 쪽 예외가 든다). Camel K 빌더가 정확히 같은 자리에서 걸렸다(Gotcha 129). ★ 프로브는 HTTP 가 아니라 `buildctl --addr tcp://127.0.0.1:1234 debug workers` 로 볼 것
 
+150. **Istio 요청 지표는 첫 요청에 **생긴다** — "시계열 0건" 을 "그 지표가 없다" 로 읽지 말 것.** SLO 를 세우며 `istio_requests_total` 을 질의했더니 **0건**이어서 "없는 지표로 SLO 를 썼다" 고 결론지었는데, 게이트웨이 NodePort 에 HTTP 요청 **3건**을 보내자 30초 뒤 `시계열 1 · 값 3` 이 나왔다. Envoy/Istio 의 통계는 **지연 생성**이라 트래픽이 한 번도 없던 게이트웨이는 그 이름을 내놓지 않는다. ★ **판정을 질의 결과로 하지 말고 요청을 한 번 보내서 할 것** — 이 사이에 시험 방법으로 두 번 더 틀렸다: 파드 안에 `curl` 이 없어 `grep -c` 가 **0 을 돌려줬고**(Gotcha 56 와 같은 자리), 임시 파드에서 보낸 요청은 `000` 이어서 게이트웨이가 아니라 **경로**가 막힌 것이었다. 동작한 것은 노드에서 NodePort 를 직접 치는 것뿐이다. ★★ 그래서 **SLO 의 빈 그래프는 두 가지 뜻이 있다**: 기록 규칙이 **없으면** 지표가 없는 것(무통)이고, **0 이면** 오류가 없는 것이다. 둘을 묶어 보면 장애가 "좋다" 로 읽힌다 — WSO2-OSS-MAPPING §9-1
+
 ### 매니페스트 작업 시
 
 - `v1/` 매니페스트는 **배포 금지**. 단 CI가 이 경로의 Dockerfile을 참조한다는 모순이 있다
