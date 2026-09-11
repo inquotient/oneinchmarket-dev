@@ -70,7 +70,10 @@ mk temporal-secret "db-password=$(gen)"
 # ★ 이 키를 바꾸면 그 전에 암호화된 연결·변수를 영원히 못 읽는다
 #   (GitLab 의 db_key_base 와 같은 부류 — Gotcha 51·72).
 fernet() { python3 -c "import base64,os,sys; sys.stdout.write(base64.urlsafe_b64encode(os.urandom(32)).decode())"; }
-mk airflow-secret "db-password=$(gen)" "fernet-key=$(fernet)" "api-secret-key=$(gen 32)" "jwt-secret=$(gen 32)" "admin-password=$(gen 24)"
+#   s3-secret-key   MinIO 전용 사용자(airflow)의 비밀키 — 태스크 로그 보존용.
+#     ★ minio-bootstrap 이 이 값으로 MinIO 사용자를 만든다. 원천이 하나여야
+#       회전 때 어긋나지 않는다(Gotcha 117).
+mk airflow-secret "db-password=$(gen)" "fernet-key=$(fernet)" "api-secret-key=$(gen 32)" "jwt-secret=$(gen 32)" "admin-password=$(gen 24)" "s3-secret-key=$(gen 32)"
 # OpenSearch — security 플러그인의 internal_users. StatefulSet 의 initContainer 가
 # 이 값들을 bcrypt 해시로 바꿔 internal_users.yml 을 렌더한다(평문은 저장되지 않는다).
 #   admin      — 사람이 쓰는 관리 계정 · Dashboards 로그인

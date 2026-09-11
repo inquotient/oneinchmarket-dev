@@ -380,6 +380,11 @@ spec:
               # 버킷을 만드는 부트스트랩 Job. 전용 SA 가 없어 `default` 로
               # 돌다가 9000 이 거부됐다 — §8-84
               - "*/sa/minio-bootstrap"
+              # Airflow — 태스크 로그를 airflow-logs 버킷에 쓴다(2026-09-12).
+              #   NetworkPolicy 쪽 allow-minio-access 에도 같은 신원이 있어야
+              #   한다 — 한쪽만 고치면 ztunnel 이 조용히 끊는다.
+              - "*/sa/airflow"
+              - "*/sa/airflow-scheduler"
       to:
         - operation:
             ports: ["9000", "9001"]

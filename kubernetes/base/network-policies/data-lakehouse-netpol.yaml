@@ -26,6 +26,12 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: openbao-snapshot
+        # ★ Airflow — 태스크 로그를 airflow-logs 버킷에 남긴다.
+        #   component 가 orchestration 이라 위 셀렉터에 걸리지 않는다 —
+        #   openbao-snapshot 과 같은 이유로 이름으로 따로 허용한다.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: airflow
       ports:
         - protocol: TCP
           port: 9000

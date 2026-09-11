@@ -48,9 +48,23 @@ data:
   #     한쪽만 하면 UI 에 "로그를 가져올 수 없다" 만 뜬다.
   AIRFLOW__CORE__HOSTNAME_CALLABLE: "airflow.utils.net.get_host_ip_address"
   AIRFLOW__LOGGING__WORKER_LOG_SERVER_PORT: "8793"
-  # ★ 로그는 emptyDir 이라 **파드가 죽으면 사라진다.** 보존이 필요해지면
-  #   MinIO 원격 로깅으로 옮긴다(amazon provider 가 이미지에 있다 — 실측).
-  #   지금 켜지 않는 이유: 연결·버킷·자격이 늘어나는데 아직 보존 요구가 없다.
+  # ★★ 로그 보존 — MinIO 에 남긴다(2026-09-12).
+  #   파드의 /opt/airflow/logs 는 emptyDir 이라 파드가 죽으면 사라진다.
+  #   Airflow 3 은 업로드를 **핸들러가 아니라 `RemoteLogIO`** 가 맡는다 —
+  #   amazon provider 가 `scheme: s3` 로 `S3RemoteLogIO` 를 등록하고,
+  #   그 선택 결과가 `REMOTE_TASK_LOG` 에 실린다. 판정은 핸들러 클래스가
+  #   아니라 **그 값**으로 한다(실측: 켜면 `S3RemoteLogIO`, 끄면 `None`).
+  AIRFLOW__LOGGING__REMOTE_LOGGING: "True"
+  AIRFLOW__LOGGING__REMOTE_BASE_LOG_FOLDER: "s3://airflow-logs/"
+  AIRFLOW__LOGGING__REMOTE_LOG_CONN_ID: "minio_s3"
+  # ★ 연결에 자격을 넣지 않는다. 여기는 ConfigMap 이다 — endpoint 만 담고
+  #   자격은 boto3 의 기본 체인이 `AWS_*` 환경변수에서 집는다
+  #   (실측: `credentials.method == "env"`). `_CMD` 치환이 필요 없으므로
+  #   Gotcha 151 의 함정도 피한다.
+  AIRFLOW_CONN_MINIO_S3: '{"conn_type":"aws","extra":{"endpoint_url":"http://minio-headless:9000","region_name":"us-east-1"}}'
+  # ★ 전용 사용자다 — root 가 아니다. minio-bootstrap 이 이 이름으로
+  #   사용자를 만들고 `airflow-logs` 버킷만 허용하는 정책을 붙인다.
+  AWS_ACCESS_KEY_ID: "airflow"
 
   # ── DAG ───────────────────────────────────────────────────
   # ConfigMap 마운트라 읽기 전용이다. .pyc 를 쓰려 하면 실패하므로 끈다.

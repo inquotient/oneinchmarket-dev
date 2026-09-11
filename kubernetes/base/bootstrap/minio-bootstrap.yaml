@@ -61,7 +61,7 @@ spec:
               echo "[minio-bootstrap] MinIO 대기"
               # MinIO 는 HTTP 다. 로테이션 CronJob 의 https:// + --insecure 는 오류다.
               until mc alias set oim http://minio-headless:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null 2>&1; do sleep 3; done
-              for b in warehouse spark-events livy-recovery; do
+              for b in warehouse spark-events livy-recovery airflow-logs; do
                 mc mb --ignore-existing "oim/$b"
                 echo "[minio-bootstrap] bucket $b"
               done
@@ -70,6 +70,29 @@ spec:
               # 프리픽스가 실재해야 History Server 의 getFileStatus 도 통과한다.
               echo placeholder | mc pipe oim/spark-events/events/.keep
               echo placeholder | mc pipe oim/warehouse/tables/.keep
+              # ── Airflow 전용 사용자 ─────────────────────
+              # ★★★ root 자격을 Airflow 에 주지 않는다. LocalExecutor 는
+              #   **DAG 코드를 scheduler 파드 안에서 실행**하므로, 그 파드가 든
+              #   자격은 DAG 을 쓰는 누구나 쓸 수 있다. root 면 아무 DAG 이나
+              #   `warehouse` 를 지울 수 있다 — 로그를 남기려고 레이크하우스를
+              #   걸 수는 없다. 그래서 `airflow-logs` 버킷만 만질 수 있는
+              #   사용자를 따로 만든다(Gotcha 27 의 ClickHouse 와 같은 이유).
+              # ★ heredoc 을 쓰지 않는다 — 종료자가 열 0 에 놓여야 하는데
+              #   그것은 YAML 블록 스칼라를 끊는다(실측으로 한 번 깨뜨렸다).
+              printf '%s' '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject","s3:AbortMultipartUpload","s3:ListMultipartUploadParts"],"Resource":["arn:aws:s3:::airflow-logs/*"]},{"Effect":"Allow","Action":["s3:ListBucket","s3:GetBucketLocation","s3:ListBucketMultipartUploads"],"Resource":["arn:aws:s3:::airflow-logs"]}]}' > /tmp/airflow-logs-policy.json
+              mc admin policy create oim airflow-logs-rw /tmp/airflow-logs-policy.json >/dev/null 2>&1 || true
+              mc admin user add oim airflow "$AIRFLOW_S3_SECRET_KEY" >/dev/null 2>&1 || true
+              mc admin policy attach oim airflow-logs-rw --user airflow >/dev/null 2>&1 || true
+              # ★ 판정을 exit code 로 하지 말 것 — 위 셋은 "이미 있음" 도 실패로
+              #   내므로 전부 `|| true` 다. 실제로 붙었는지 되읽어 확인한다
+              #   (Gotcha 12·86). 안 붙었으면 여기서 멈춘다.
+              if ! mc admin user info oim airflow 2>/dev/null | grep -c airflow-logs-rw >/dev/null; then
+                echo "[minio-bootstrap] airflow 사용자에 정책이 붙지 않았다" >&2
+                mc admin user info oim airflow || true
+                exit 1
+              fi
+              echo "[minio-bootstrap] airflow 사용자 + airflow-logs-rw 정책 확인"
+
               mc ls oim
               echo "[minio-bootstrap] 완료"
           env:
@@ -77,6 +100,11 @@ spec:
               valueFrom: { secretKeyRef: { name: minio-secret, key: root-user } }
             - name: MINIO_ROOT_PASSWORD
               valueFrom: { secretKeyRef: { name: minio-secret, key: root-password } }
+            # ★ Airflow 전용 사용자의 비밀키. 이 Job 이 MinIO 에 그 사용자를
+            #   만들고, Airflow 파드는 같은 Secret 에서 같은 값을 읽는다 —
+            #   원천이 하나여야 회전 때 어긋나지 않는다(Gotcha 117).
+            - name: AIRFLOW_S3_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: airflow-secret, key: s3-secret-key } }
             - name: MC_CONFIG_DIR
               value: /tmp/.mc
           securityContext:

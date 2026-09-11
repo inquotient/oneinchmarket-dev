@@ -99,6 +99,11 @@ spec:
             - name: AIRFLOW__API_AUTH__JWT_SECRET
               valueFrom:
                 secretKeyRef: { name: airflow-secret, key: jwt-secret }
+            # ★ MinIO 전용 사용자의 비밀키. ConfigMap 의 AWS_ACCESS_KEY_ID 와
+            #   짝이고, boto3 가 환경변수에서 집는다.
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: { name: airflow-secret, key: s3-secret-key }
           # ★ 스키마가 서기 전에는 뜨지 않는다 — db-migrate 훅이 먼저 돈다.
           #   startupProbe 를 넉넉히 주어 그 사이를 견딘다.
           startupProbe:
