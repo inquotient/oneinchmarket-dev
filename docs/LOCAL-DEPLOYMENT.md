@@ -11114,6 +11114,44 @@ wazuh-indexer-0              1,024 Mi
 지금은 디스크 28.68% 라 여유가 있다.
 
 
+### 9-16-b. Suricata 인덱스 분리 — 두 번 시도하고 두 번 접었다 (2026-09-11)
+
+EVE 알림과 엔진 로그를 **다른 인덱스**로 나누려던 시도의 기록이다. §8-33 이
+"보안 이벤트와 섞으면 탐지 지표가 오염되므로 인덱스만 분리한다" 고 적어 둔 것을
+지키려는 것이었다. **지금은 한 인덱스(`suricata-*`)에 `oim_target` 필드로
+구분해 두었다.**
+
+**시도 ① Data Prepper 의 `route`** — 매칭이 되지 않았다. `/attributes/oim_target`
+과 `/resource/attributes/oim_target` 둘 다 써 봤고 둘 다 실패했다.
+★★ **매칭 실패는 조용한 폐기다** — 인덱스는 만들어지고 문서만 0건이 된다.
+판정에 쓴 지표(이 모양을 다시 만나면 여기부터 볼 것):
+
+```
+otelcol_exporter_sent_log_records{exporter="otlp/dataprepper-suricata"}  2   ← 보냈다
+suricata_pipeline_BlockingBuffer_recordsWritten_total                    2   ← 받았다
+suricata_pipeline_opensearch_bulkRequestLatency_seconds_count            0   ← 쓰지 않았다
+```
+
+**시도 ② OTel 의 `routing` 커넥터** — 설정은 수용됐고(OTTL 이 경로에 컨텍스트
+접두를 붙였다는 info 만 남는다) EVE 쪽은 동작했지만, **Data Prepper 가
+`suricata-engine-pipeline` 을 조용히 기동하지 않았다** — 렌더는 "파이프라인 5 개"
+라고 했는데 로그에는 넷만 올라왔고 21894 는 열리지 않았다. 그 결과 게이트웨이가
+`Exporting failed. Will retry` 를 반복했다. ★ **돌던 것이 흔들렸다** —
+그 시점에 되돌렸다(`git stash`, 메시지에 이 절 번호가 있다).
+
+**지금 상태로도 잃는 것이 적은 이유**: 구분은 문서에 남아 있다
+(`resource.attributes.oim_target` = `suricata` 또는 `suricata-engine`).
+그리고 엔진 로그는 **Suricata 가 재시작·룰적재할 때만** 나오므로 평소에는
+0건이다 — 실측으로 `suricata-engine` 태그가 붙은 문서는 합성 시험에서만 생겼다.
+
+★ **다시 할 때 볼 것**: Data Prepper 가 파이프라인을 조용히 건너뛰는 조건을
+먼저 밝힐 것. 렌더된 `pipelines.yaml` 에는 다섯이 있는데 기동 로그에 넷만
+나오는 것이 출발점이다. 그것을 모른 채 커넥터를 다시 얹으면 같은 자리에
+다시 선다.
+
+**복귀 조건**: 엔진 로그가 실제로 쌓이기 시작할 때(룰 갱신을 자동화하면
+그렇게 된다), 또는 탐지 대시보드를 만들며 인덱스 단위 분리가 필요해질 때.
+
 ### 9-17. 검색 계층 비밀번호 로테이션이 없어졌다 (2026-09-11, OpenSearch 전환의 대가)
 
 **커버리지 회귀다. 숨기지 않고 적는다.**
@@ -11172,6 +11210,21 @@ kubectl exec opensearch-0 -c opensearch -- bash -c '
 실측: `Expected 9 config types ... Done with success` 뒤 수집이 재개됐다.
 ★ 즉 **로테이션 Job 을 만든다면 그 스크립트 실행까지 포함해야 한다.**
   Secret 교체만으로는 조용히 끊긴다 — 그리고 그 침묵이 이 항목의 요점이다.
+
+★★ **그 절차를 스크립트로 두었다 — `local/opensearch-apply-security.sh`.**
+Job 은 아직 만들지 않았다(아래 이유 그대로)지만, 손으로 할 때 빠뜨리기 쉬운
+단계를 없앴다. 그 스크립트가 하는 것:
+
+- 파드가 Ready 인지 먼저 본다 — 기동 중에 밀어 넣으면 실패가 **자격 문제처럼** 읽힌다
+- `internal_users.yml` 이 비어 있지 않은지 본다 — 비었는데 밀어 넣으면 더 나빠진다
+- `securityadmin.sh` 를 **admin 인증서**로 돌린다(비밀번호를 만지지 않는다)
+- ★ 판정을 `Done with success` 문구가 아니라 **실제 `ingest` 로그인 200** 으로 한다
+  (Gotcha 12 — 성공 출력이 성공을 뜻하지 않는다)
+
+```
+local/opensearch-apply-security.sh
+kubectl -n local rollout restart deploy/data-prepper   # 새 자격을 읽게 한다
+```
 
 **복귀 조건**: 이 클러스터가 랩을 벗어나거나, SEC-4xx 가 검색 계층 자격의 수명을
 요구할 때. 그 전에 ②(OIDC)를 먼저 검토할 것 — §9-1 의 OpenSearch 행이 "지금 얻은
