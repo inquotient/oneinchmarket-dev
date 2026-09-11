@@ -220,11 +220,16 @@ v1 복원으로 Knox·Ranger가 돌아오면 **원래 목적이 복구된다.**
 
 | 서비스 | 이미지 | Rep | 포트 | PVC | MEM | 로컬 |
 |---|---|:-:|---|---|--:|:-:|
-| **elasticsearch** (ECK CRD) | `8.17.0` | **3 (dev도 3)** | 9200 | `elasticsearch-data` 20Gi `standard` | 3.5 | ✅(1) |
-| **kibana** (ECK CRD) | `8.17.0` | 1 | 5601 | — | 1.5 | ✅ |
-| **logstash** | `docker.elastic.co/logstash/logstash:8.17.0` | 1 (prod 2) | 5044, 9600 | — | 1.5 | ✅ |
-| **filebeat** | `docker.elastic.co/beats/filebeat:8.17.0` | DaemonSet | — | hostPath | 0.3/노드 | ❌ |
-| `elasticsearch-ilm-setup` | `curlimages/curl:latest` | Job (PostSync) | — | — | — | ✅ |
+| **opensearch** | `opensearchproject/opensearch:3.8.0` | 1 | 9200, 9300 | `data` 20Gi `standard` | 2.0 | ✅ |
+| **opensearch-dashboards** | `opensearchproject/opensearch-dashboards:3.8.0` | 1 | 5601 | — | 1.0 | ✅ |
+| **data-prepper** | `opensearchproject/data-prepper:2.16.0` | 1 | 21892, 2021, 4900 | — | 1.0 | ✅ |
+| **logstash**(축소) | `docker.elastic.co/logstash/logstash:9.5.3` | 1 | 5140, 5141, 5142, 9600 | — | 2.0 | ✅ |
+| `opensearch-ism-setup` | `curlimages/curl:8.22.0` | Job (PostSync) | — | — | — | ✅ |
+
+> ★ **2026-09-11 에 Elasticsearch(ECK)·Kibana·Filebeat 를 철거했다** — OpenSearch +
+> Data Prepper 로 갈아탔다(WSO2-OSS-MAPPING §9-1). Filebeat 은 `otel-agent` 가 같은
+> 로그를 이미 걷고 있어 대체물 없이 지웠다. Logstash 는 **축소**되어 남았다 —
+> 과금 다리와 TCP 수신(Zeek·Suricata)만 하고 검색 엔진에 직접 쓰지 않는다.
 | **prometheus** `[목표]` | — | 1 | 9090 | 100Gi | 3.0 | ✅ |
 | **grafana** `[목표]` | — | 1 | 3000 | — | 0.7 | ✅ |
 | **loki** `[목표]` | — | single-binary | 3100 | MinIO | 1.5 | ✅ |

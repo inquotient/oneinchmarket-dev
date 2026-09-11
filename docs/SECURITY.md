@@ -142,7 +142,7 @@ v1 매니페스트를 v2로 복원할 때 **모든 ConfigMap 평문 자격증명
 | default-deny-ingress | `podSelector: {}`, 규칙 없음 | `default-deny.yaml` | 강제. **Ingress만 — egress 차단 없음 (G27)** |
 | allow-* NetworkPolicy 13종 | admin·cmmn-api·nginx·postgresql·mariadb·mongodb·redis·kafka·akhq·kibana·logstash·elasticsearch·falcosidekick | `network-policies/*-netpol.yaml` | 강제 |
 | Istio PeerAuthentication | mTLS | `peer-authentication.yaml:13` | **PERMISSIVE (G6)** |
-| Istio AuthorizationPolicy 4종 | database·kafka·elasticsearch·minio 대상 | `authorization-policies.yaml` | ambient 활성 시에만. **dev 비활성** |
+| Istio AuthorizationPolicy 5종 | database·kafka·**opensearch**·**data-prepper**·minio 대상 | `authorization-policies.yaml` | ambient 활성 시에만. **dev 비활성** |
 | waypoint Gateway | L7 정책 지점 (HBONE 15008) | `waypoint-proxy.yaml` | ambient 활성 시 |
 | Vultr bastion 방화벽 | 22/tcp + 51820/udp만 공개 | `network/vultr/main.tf:18-42` | 강제 |
 | Vultr k3s 방화벽 | **빈 방화벽 그룹 = 공인 IP deny-all** | `network/vultr/main.tf:44-46` | 강제 |
@@ -255,8 +255,9 @@ v1 매니페스트를 v2로 복원할 때 **모든 ConfigMap 평문 자격증명
 | **filebeat** | ⚠️ `runAsUser: 0` | ⚠️ drop ALL + `DAC_READ_SEARCH` | ✅ | ✅ | ✅ | ✅ | **❌** | ✅(소스) |
 | logstash | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅(소스) · **default SA** |
 | keycloak | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **❌** | ❌ |
-| elasticsearch (ECK) | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | ✅ |
-| kibana (ECK) | ✅ | ✅ | ✅ | — | ✅ | — | ✅ | ❌ |
+| opensearch | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | ✅ |
+| opensearch-dashboards | ✅ | ✅ | ✅ | — | ✅ | — | ✅ | ❌ |
+| data-prepper | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | ✅ |
 
 **요약**
 

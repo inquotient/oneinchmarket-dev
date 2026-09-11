@@ -486,6 +486,16 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
      `kubectl get <kind> <이름> -o jsonpath='{range .spec.template.spec.containers[0].env[*]}{.name}{" <- "}{.valueFrom.secretKeyRef.name}{"\n"}{end}'`
      ★ 그래서 **Secret 을 지우는 작업에는 순서가 있다** — ① 매니페스트에서 참조를 걷어내고 ② **살아 있는 오브젝트에서 사라졌는지 확인한 뒤에** ③ Secret 을 지운다. 이번에는 ③이 먼저 일어나(ECK 가 Secret 을 함께 가져갔다) 워크로드 둘이 멈췄다.
 
+
+147. **★★ ambient 메시에서 "차단됐는가" 를 포트 열림 검사로 판정하지 말 것 — 보안 검증이 거짓 경보를 낸다.** `07-netpol-test.sh` 가 비인가 소스에서 PostgreSQL·OpenSearch 로 `nc -w 2` 를 던지고 응답 문구에 `refused|timed out|unreachable` 이 있는지로 갈랐는데, 둘 다 **`ALLOWED (비정상 - 차단 필요)`** 로 보고했다. 실제로는 **둘 다 차단되어 있었다** — 같은 파드에서 프로토콜 계층으로 재니 `curl` 이 `HTTP 000 / exit 35` 였다.
+     ★ 원인은 Gotcha 19 가 부트스트랩 Job 에서 겪은 것과 같다: **ztunnel 은 TCP 연결을 15008 에서 받아들인 뒤 HBONE 계층에서 거부한다.** 그래서 TCP 는 성립하고 `nc` 는 조용히 끝나며, 그 조용함이 "허용됨" 으로 읽힌다.
+     ★★ **처방은 프로토콜 계층에서 재는 것**이다 — 한 바이트라도 **응답이 왔는가**를 본다:
+     ```
+     HTTP(S)     curl -sk -o /dev/null -w '%{http_code}' → 000 이면 차단
+     PostgreSQL  SSLRequest 8바이트를 보내고 1바이트('S'/'N') 응답을 센다 → 0 이면 차단
+     ```
+     ★ **거짓 경보를 방치하지 말 것.** 거짓 안심보다는 낫지만, 빨간불이 상수가 되면 사람이 배경으로 읽는다(Gotcha 73·90 과 같은 구조) — 그때는 진짜 구멍도 함께 묻힌다. ★★ 그리고 이 부류를 만나면 **정책을 고치기 전에 측정부터 의심할 것**: 이번에도 정책은 처음부터 정상이었다(§8-57 · §8-84 와 같은 부류).
+
 ### 매니페스트 작업 시
 
 - `v1/` 매니페스트는 **배포 금지**. 단 CI가 이 경로의 Dockerfile을 참조한다는 모순이 있다
@@ -499,7 +509,7 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 
 ### 검증 스크립트
 
-- `07-netpol-test.sh`는 존재하지 않는 `default-deny-all`을 찾는다 (실제 이름은 `default-deny-ingress`)
+- `07-netpol-test.sh`는 존재하지 않는 `default-deny-all`을 찾는다 (실제 이름은 `default-deny-ingress`). ★ 차단 판정은 2026-09-11 에 **프로토콜 계층으로 고쳤다** — 포트 열림 검사는 ambient 에서 거짓 경보를 낸다(Gotcha 147)
 - `08-age-key-backup.sh`는 오늘 실행하면 `.sops.yaml`과 `.enc.yaml` 12건을 전부 FAIL 처리한다
 
 ### 로컬 개발

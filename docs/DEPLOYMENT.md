@@ -234,7 +234,7 @@ cloud-init seed ISO는 Windows에서 `oscdimg`(Windows ADK) 같은 별도 도구
 | 대상 | 용량 |
 |---|--:|
 | MinIO (레이크하우스 + Tempo blocks + Loki chunks) | 100 GB |
-| Elasticsearch ×1 · Wazuh Indexer ×1 | 100 GB |
+| OpenSearch ×1 · Wazuh Indexer ×1 | 100 GB |
 | HDFS DataNode ×1 · GitLab | 100 GB |
 | DB 4종 · Kafka ×1 | 80 GB |
 | Loki + Prometheus (보존 3일) | 30 GB |
@@ -361,7 +361,7 @@ StatefulSet을 제거해도 **PVC는 자동 삭제되지 않는다.** 프로파�
 | 대상 | 용량 |
 |---|--:|
 | MinIO (레이크하우스 + Tempo + Loki) | 300 GB |
-| Elasticsearch ×3 | 300 GB |
+| OpenSearch ×3 | 300 GB |
 | Wazuh Indexer ×3 | 300 GB |
 | HDFS DataNode ×3 | 300 GB |
 | ClickHouse (Sentry 채택 시) | 200 GB |

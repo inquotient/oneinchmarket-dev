@@ -124,7 +124,7 @@ infra/
 │ L7  관측성                                                       │
 │     OpenTelemetry Collector (Agent DS + Gateway ×3)      [목표]  │
 │     Prometheus · Grafana · Loki · Tempo · Jaeger         [목표]  │
-│     Elasticsearch(ECK) · Kibana · Logstash · Filebeat   [구현됨] │
+│     OpenSearch · Dashboards · Data Prepper · Logstash   [구현됨] │
 └────────────────────────────────┬────────────────────────────────┘
 ┌────────────────────────────────▼────────────────────────────────┐
 │ L8  SIEM · 상관분석                                              │
@@ -180,14 +180,20 @@ infra/
 
 | 도메인 | 저장소 | 담당 데이터 | 조회 주체 |
 |---|---|---|---|
-| **운영 관측성** | Elasticsearch(ECK) ×3 + Kibana | 애플리케이션·인프라 로그(장기 보존·전문 검색), Trivy 리포트 | 운영 |
+| **운영 관측성** | OpenSearch ×1 + OpenSearch Dashboards | 애플리케이션·인프라 로그(장기 보존·전문 검색), Trivy 리포트 | 운영 |
 | **보안 관제** | Wazuh Indexer ×3 + Dashboard | 런타임 위협, 네트워크 IDS, HIDS, 컴플라이언스, 포스처 | 보안 |
 | **메트릭·플로우** | Prometheus + Loki + Grafana | 시계열, 네트워크 플로우(Hubble), 단기 로그(7~14d) | 운영/SRE |
 | **분산 추적** | Tempo(MinIO, 장기) + Jaeger(ES, 단기) | 요청 스팬, 서비스 의존성 | 개발/SRE |
 | **애플리케이션 오류** | Sentry 또는 GlitchTip | 예외·스택트레이스·릴리스 회귀 | 개발 |
 | **취약점 관리** | DefectDojo · Policy Reporter · Dependency-Track | CVE·SBOM·정책 위반 트리아지 | 보안 엔지니어링 |
 
-### 4-1. Loki ↔ Elasticsearch 경계 (ADR-027)
+### 4-1. Loki ↔ OpenSearch 경계 (ADR-027)
+
+> ★ 2026-09-11 에 Elasticsearch 를 OpenSearch 로 바꿨다(§9-1). 경계의 **성질은
+> 그대로**다 — Loki 는 레이블 기반 최근 로그, 검색 엔진은 장기 보존·전문 검색.
+> 다만 지금은 **컨테이너 로그가 양쪽으로 간다**(otel-gateway 가 Loki 와
+> Data Prepper 로 동시에 내보낸다). 하나를 끊고 붙이지 않은 결과이고,
+> 어느 한쪽으로 좁히는 것은 아직 결정하지 않았다.
 
 **보존기간 기반 분리.** Loki는 컨테이너 stdout 7~14일(Grafana 메트릭↔로그 상관), ES는 애플리케이션·인프라 로그 장기 보존(ILM 10GB/7d rollover 기존 설정 유지).
 
@@ -269,14 +275,14 @@ Hive Metastore ──s3a://warehouse/tables──→ MinIO
 
 ```
 Filebeat DS (hostPath /var/log, /var/lib/docker/containers)
-    └──→ Elasticsearch https://elasticsearch-es-http:9200      [직결 — Logstash 우회]
+    └──→ (철거됨) 지금은 Kafka falco-alerts -> Data Prepper -> OpenSearch
 Tetragon/Falco ──→ Falcosidekick ──→ ES(falco-alerts) + Kafka(falco-alerts)
 Trivy CronJob ──→ ES(trivy-reports)
 ES ILM PostSync Job ──→ logstash|falco-alerts|keycloak-events|trivy-reports 별칭·정책
 ```
 
 **문제**
-- **자격증명 분열** — Filebeat·Logstash·ILM Job은 ECK 생성 `elasticsearch-es-elastic-user`를, Falcosidekick(`falcosidekick-deployment.yaml:41-43`)과 Trivy(`trivy-cronjob.yaml:79-81`)는 `elasticsearch-secret`을 쓰는데 **후자는 배포되지 않는다**.
+- ~~**자격증명 분열**~~ — **2026-09-11 에 해소됐다.** Elasticsearch 를 철거하며 ECK 가 만들던 `elasticsearch-es-elastic-user` 가 사라졌고, 검색 계층 자격의 원천이 `opensearch-secret` 하나가 됐다(§9-1). ★ 다만 **비밀번호 로테이션은 함께 없어졌다** — 커버리지 회귀이고 LOCAL-DEPLOYMENT §9-17 에 복귀 조건과 함께 적었다.
 - `trivy-cronjob.yaml:51`이 `aquasec/trivy` 안에서 `kubectl`을 실행하는데 **이미지에 kubectl이 없다.** `--cacert`를 쓰면서 인증서 볼륨도 마운트하지 않는다 → **Trivy Operator로 대체**(ADR-047).
 
 ### 5-4. 시크릿 로테이션
@@ -297,7 +303,7 @@ CronJob (wave 8, "0 3 1,15 * *")
 |---|---|
 | Secret이 하나도 배포되지 않음 | 12개 `*.enc.yaml` 전부 주석 처리 |
 | 키 이름 불일치 7개 중 4개 | PostgreSQL `postgresql-password` vs `postgres-password`(`rotate-postgresql.yaml:58,66`), MariaDB·MongoDB `root-password` vs `*-root-password`, MinIO `root-user/root-password` vs `minio-access-key/minio-secret-key` |
-| 잘못된 시크릿 대상 | `rotate-elasticsearch.yaml:56` — 소비자는 ECK `elasticsearch-es-elastic-user` |
+| ~~잘못된 시크릿 대상~~ | **해소** — `rotate-elasticsearch.yaml` 은 2026-09-11 에 삭제됐다(§9-17) |
 | git-sync 출력 경로 부재 | `base/rotation/secrets/`(`rotation-git-sync.yaml:65`) |
 | 이미지에 도구 없음 | `curlimages/curl`에서 `kubectl`, git-sync는 런타임 `apk add` |
 | RBAC 범위 불일치 | Role은 네임스페이스 한정인데 `rotate-admin.yaml:100`은 argocd NS 시크릿 패치 |

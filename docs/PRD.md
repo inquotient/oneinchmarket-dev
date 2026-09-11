@@ -196,7 +196,7 @@ v1은 **`kind` 기반 로컬 개발 환경**이었다 (`v1/cluster/cluster-confi
 | **Keycloak** | 중앙 인증. OIDC 제공자 |
 | **GitLab EE** | 소스·CI·레지스트리 |
 | **admin / cmmn-api / nginx** | 애플리케이션 계층 |
-| **Elasticsearch + Kibana** | 운영 로그 장기 보존·전문 검색 |
+| **OpenSearch + Dashboards** | 운영 로그 장기 보존·전문 검색 (2026-09-11 에 Elasticsearch 에서 전환 — §9-1) |
 | **Logstash** | **보안 이벤트 정규화·라우팅** (역할 재정의) |
 | **Filebeat** | 호스트·인프라 로그 수집 |
 | **Falco / Tetragon** | 런타임 위협 탐지 (Tetragon은 차단도) |
