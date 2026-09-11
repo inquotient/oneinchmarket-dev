@@ -86,11 +86,21 @@ spec:
               # ★ 판정을 exit code 로 하지 말 것 — 위 셋은 "이미 있음" 도 실패로
               #   내므로 전부 `|| true` 다. 실제로 붙었는지 되읽어 확인한다
               #   (Gotcha 12·86). 안 붙었으면 여기서 멈춘다.
-              if ! mc admin user info oim airflow 2>/dev/null | grep -c airflow-logs-rw >/dev/null; then
-                echo "[minio-bootstrap] airflow 사용자에 정책이 붙지 않았다" >&2
-                mc admin user info oim airflow || true
-                exit 1
-              fi
+              # ★★ 이 이미지에는 **grep 이 없다**(실측:
+              #   `/bin/sh: grep: command not found`). 사용자와 정책은 제대로
+              #   만들어졌는데 **가드가 거짓 실패**를 냈다 — Gotcha 56 과
+              #   같은 자리다(측정 도구가 이미지에 없다).
+              #   셔 내장인 `case` 로 본다 — 외부 명령이 필요 없고
+              #   파이프도 없으니 Gotcha 109 의 SIGPIPE 함정도 없다.
+              info=$(mc admin user info oim airflow 2>/dev/null || true)
+              case "$info" in
+                *airflow-logs-rw*) : ;;
+                *)
+                  echo "[minio-bootstrap] airflow 사용자에 정책이 붙지 않았다" >&2
+                  echo "$info" >&2
+                  exit 1
+                  ;;
+              esac
               echo "[minio-bootstrap] airflow 사용자 + airflow-logs-rw 정책 확인"
 
               mc ls oim
