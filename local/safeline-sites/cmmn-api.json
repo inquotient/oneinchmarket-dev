@@ -1,6 +1,6 @@
 {
-  "comment": "oim cmmn-api — Istio 게이트웨이 뒤, 백엔드 앞. 필드 이름은 지어낸 것이 아니라 SafeLine UI 번들의 zod 스키마에서 읽었다: server_names/ports/upstreams 는 모두 문자열 배열이다.",
+  "comment": "oim cmmn-api — Istio 게이트웨이 뒤, 백엔드 앞. 필드 이름은 지어낸 것이 아니라 SafeLine UI 번들의 zod 스키마에서 읽었다: server_names/ports/upstreams 는 모두 문자열 배열이다. ★★ 포트가 8181 인 이유: 한 파드 안의 컨테이너들이 네트워크 네임스페이스를 공유하는데, 실측으로 80·1443·6060·7777·8000·8001·8080·8088·9000 이 이미 SafeLine 자신의 것들이고 15001·15006·15008·15053 은 Istio ambient 다. 80 이나 8080 으로 만들면 서버가 msg='listen tcp :NN: bind: address already in use' 를 돌려주면서도 err 는 비워 보내 조용히 아무것도 만들지 않는다(Gotcha 65 부류) — 그래서 이 스크립트는 '오류 없음' 이 아니라 '사이트 건수가 늘었는가' 로 판정한다.",
   "server_names": ["api.oneinchmarket.local"],
-  "ports": ["80"],
+  "ports": ["8181"],
   "upstreams": ["http://cmmn-api-headless:8080"]
 }

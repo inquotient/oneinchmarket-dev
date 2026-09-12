@@ -194,18 +194,37 @@ print(','.join(json.load(open(sys.argv[1], encoding='utf-8')).get('server_names'
     continue
   fi
   log "-- ${name}: 만든다 (${want})"
+  before=$(head -1 "$D/cur")
   curl -sk -X POST -H 'Content-Type: application/json' \
     -H "Authorization: $JWT" -H "X-CSRF-Token: $CSRF" \
     --data-binary @"$f" "$B/api/open/site" > "$D/cr.json"
+  # ★★ 가드를 "오류가 없다" 로 두지 말 것 — 실제로 이 API 는 `{}` 를 돌려주고
+  #   아무것도 만들지 않았다(Gotcha 65 부류: 받아들이고 버린다). **건수가
+  #   늘었는지**로 판정한다(Gotcha 117 의 같은 교훈, 다른 자리).
   python3 - "$D/cr.json" <<'PY'
 import json, sys
-d = json.load(open(sys.argv[1], encoding="utf-8"))
+raw = open(sys.argv[1], encoding="utf-8").read()
+try:
+    d = json.loads(raw)
+except Exception:
+    sys.stderr.write("[safeline]   응답이 JSON 이 아니다: %s\n" % raw[:300])
+    raise SystemExit(1)
 if d.get("err"):
     sys.stderr.write("[safeline]   거부됨: err=%r msg=%r\n" % (d.get("err"), d.get("msg")))
     sys.stderr.write("[safeline]   ★ 본문 모양을 서버가 말해 준다 — 지어내지 말고 이 메시지를 따를 것.\n")
     raise SystemExit(1)
-print("[safeline]   만들어졌다: %s" % (d.get("data") or {}))
+print("[safeline]   응답 전문: %s" % raw[:400])
 PY
+  list_sites > "$D/cur"
+  after=$(head -1 "$D/cur")
+  if [ "$after" -le "$before" ]; then
+    echo "[safeline]   ★ 오류는 없는데 건수가 늘지 않았다(${before} -> ${after})." >&2
+    echo "[safeline]     받아들이고 버린 것이다 — 본문에 서버가 요구하는 필드가" >&2
+    echo "[safeline]     빠졌을 가능성이 크다. 위의 '응답 전문' 과 UI 번들의" >&2
+    echo "[safeline]     사이트 생성 스키마를 대조할 것." >&2
+    exit 1
+  fi
+  log "  만들어졌다 (${before} -> ${after}건)"
 done
 [ "$found" = 1 ] || die "$SITES 에 정의가 0건이다"
 

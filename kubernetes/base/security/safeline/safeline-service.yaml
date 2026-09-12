@@ -54,6 +54,19 @@ spec:
       targetPort: proxy
       protocol: TCP
       name: proxy
+    # ★★★ 보호 대상(사이트)이 실제로 듣는 포트. 2026-09-12 에 SafeLine 을
+    #   트래픽 경로에 넣으며 생겼다 — Istio Gateway 가 이 포트로 보낸다.
+    # ★ 왜 80 이 아닌가: 한 파드 안의 컨테이너들이 네트워크 네임스페이스를
+    #   공유하는데 :80 은 이미 mgt 가 듣고 있다. 실측으로 80·1443·6060·
+    #   7777·8000·8001·8080·8088·9000 이 SafeLine 자신의 것이고 15001·
+    #   15006·15008·15053 은 Istio ambient 다. 8181 이 비어 있었다.
+    # ★★ 사이트를 만들 포트를 바꿀 때는 **`local/safeline-sites/*.json` 의
+    #   `ports` 와 이 값이 함께 움직여야 한다.** 어긋나면 Service 는 열려
+    #   있는데 tengine 이 그 포트를 듣지 않아 502 가 된다.
+    - port: 8181
+      targetPort: 8181
+      protocol: TCP
+      name: site
   selector:
     app.kubernetes.io/name: safeline
     app.kubernetes.io/instance: core

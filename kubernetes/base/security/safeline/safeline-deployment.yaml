@@ -110,9 +110,44 @@ spec:
             limits:   { cpu: "2",  memory: 1536Mi }
         - name: tengine
           image: docker.io/chaitin/safeline-tengine:9.4.1
+          # ★★★ Gotcha 79 를 여기서 막는다. 이미지의 nginx.conf 2행이
+          #   `# worker_processes 4;` 로 **주석 처리**돼 있어 기본값 auto 가
+          #   되고, 컨테이너 안 프로세스는 limit 이 아니라 **호스트 코어 수**를
+          #   읽는다. 실측(2026-09-12, WAF 를 트래픽 경로에 넣은 직후):
+          #     nginx 프로세스 25개(마스터 1 + 워커 24 = 노드 코어 23.5)
+          #     tengine 실사용 1799Mi (requests 1024Mi)
+          #   §8-93 이 잰 피크 1783Mi 와 같은 값이다 — 누수가 아니라 병렬도다.
+          # ★★ 왜 ConfigMap 으로 nginx.conf 를 덮지 않는가 — 그러면 이미지
+          #   기본값을 통째로 대체하게 되고, 버전이 오르며 키가 늘면 조용히
+          #   어긋난다(Gotcha 155 가 Gravitee 에서 겪은 그것). 한 줄만 고친다.
+          # ★ 고친 값을 **되읽어 확인하고 다르면 죽는다**(Gotcha 86) —
+          #   sed 가 조용히 빗나가면 아무 일도 안 한 것과 같은데 파드는
+          #   1/1 Running 이다. 조용한 오설정보다 CrashLoop 가 낫다.
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    set -e
+                    for i in $(seq 1 30); do
+                      [ -s /var/run/nginx.pid ] && break
+                      sleep 1
+                    done
+                    sed -i 's/^# *worker_processes .*/worker_processes 2;/' \
+                      /etc/nginx/nginx.conf
+                    grep -q '^worker_processes 2;' /etc/nginx/nginx.conf \
+                      || { echo "worker_processes 치환 실패 — nginx.conf 모양이 바뀌었다" >&2; exit 1; }
+                    nginx -s reload
           ports:
             - containerPort: 80
               name: proxy
+              protocol: TCP
+            # ★ 보호 대상(사이트)이 듣는 포트. Service 의 `site` 포트와
+            #   `local/safeline-sites/*.json` 의 `ports` 셋이 함께 움직인다.
+            - containerPort: 8181
+              name: site
               protocol: TCP
           env:
             # compose 의 SUBNET_PREFIX.N 이 같은 파드에서는 전부 루프백이다.

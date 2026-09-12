@@ -199,11 +199,27 @@ spec:
         - path:
             type: PathPrefix
             value: /
+      # ★★★ 2026-09-12: 백엔드가 cmmn-api 에서 **SafeLine(WAF)** 으로 바뀌었다.
+      #   경로는 `바깥 -> Istio Gateway -> SafeLine -> cmmn-api` 다.
+      #   ★ 순서가 이 배치의 전부다 — Istio 가 **먼저**라야 계량 지점이
+      #     움직이지 않는다(Gotcha 15). WAF 를 앞에 두면 액세스 로그가
+      #     WAF 뒤에서 나오게 되어 이미 청구한 이력이 흔들린다.
+      #   ★★ 그 전까지 SafeLine 은 **아무것도 막지 않고 있었다** — 이 경로에
+      #     들어오기 전 실측은 tengine 액세스 로그 0줄 · proxy_pass 0건 ·
+      #     이 WAF 를 가리키는 HTTPRoute 0건인데 1,504Mi 를 예약하고 있었다.
+      #   ★★★ 이 라우트가 200 을 주려면 SafeLine 안에 **보호 대상(사이트)**
+      #     이 있어야 한다. 그 정의는 mgt 의 DB 에만 살아 매니페스트로
+      #     복구되지 않는다 — 원천은 `local/safeline-sites/*.json` 이고
+      #     `local/safeline-bootstrap.sh` 가 밀어 넣는다(Gotcha 159).
+      #     클러스터를 다시 세우면 반드시 다시 돌릴 것. 빠뜨리면 이 경로만
+      #     죽는데 게이트웨이도 파드도 정상이라 원인이 멀다.
+      #   ★ 포트 8181 은 `safeline-sites/*.json` 의 `ports` 와 짝이다.
+      #     한쪽만 바꾸면 Service 는 열려 있는데 tengine 이 듣지 않아 502 다.
       backendRefs:
         - group: ""
           kind: Service
-          name: cmmn-api-headless
-          port: 8080
+          name: safeline
+          port: 8181
           weight: 1
 
 ---
