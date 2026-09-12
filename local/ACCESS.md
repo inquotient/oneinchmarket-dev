@@ -159,7 +159,7 @@ kubectl -n local port-forward keycloak-0 8080:8080
 | Wazuh Indexer | `$K port-forward svc/wazuh-indexer 9201:9200` | https://localhost:9201 | `admin` | `pw wazuh-secret indexer-admin-password` |
 | **DefectDojo** | `$K port-forward svc/defectdojo 8085:8080` | http://localhost:8085 | `admin` | `pw defectdojo-secret admin-password` |
 | **Dependency-Track** | `$K port-forward svc/dependency-track 8086:8080` | http://localhost:8086 | `admin`/`admin` | 최초 로그인 시 변경 요구 |
-| SafeLine | `$K port-forward svc/safeline-mgt 1443:1443` | https://localhost:1443 | — | `caldera-secret`·`safeline-secret` 의 키를 먼저 확인할 것 |
+| **SafeLine** | `$K port-forward svc/safeline-mgt 1443:1443` | https://localhost:1443 | `admin` | `pw safeline-secret admin-password` — ★ **2026-09-12 에 생겼다.** 그 전에는 관리자 자격이 아무 데도 없었다: mgt 가 첫 기동에 만들어 **로그에 한 번만** 찍는데 그 로그는 이미 사라져 있었다. `mgt-cli reset-admin` 으로 회전시켜 Secret 에 넣었다. ★★ 이 값은 `create-secrets.sh` 가 만들지 못한다 — 난수가 아니라 **mgt 가 발급**하는 값이다(GitLab 배포 토큰과 같은 부류, Gotcha 118). 클러스터를 다시 세우면 `reset-admin` 을 다시 돌려 Secret 을 채울 것. ★ `--once` 플래그는 **한 번만** 듣는다 — 이미 쓴 뒤에는 플래그 없이 돌려야 한다(빈 출력이 나오면 그 이유다) |
 | Caldera | `$K port-forward deploy/caldera 8887:8888` | http://localhost:8887 | `red`/`blue` | `$K get secret caldera-secret -o json` 로 키 확인 |
 
 > **★ Ranger 로그인을 반복 실패하지 말 것.** 계정이 영구히 잠기고 파드를
