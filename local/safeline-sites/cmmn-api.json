@@ -1,0 +1,6 @@
+{
+  "comment": "oim cmmn-api — Istio 게이트웨이 뒤, 백엔드 앞. 필드 이름은 지어낸 것이 아니라 SafeLine UI 번들의 zod 스키마에서 읽었다: server_names/ports/upstreams 는 모두 문자열 배열이다.",
+  "server_names": ["api.oneinchmarket.local"],
+  "ports": ["80"],
+  "upstreams": ["http://cmmn-api-headless:8080"]
+}
