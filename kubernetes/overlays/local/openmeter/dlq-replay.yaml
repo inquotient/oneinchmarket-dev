@@ -32,6 +32,16 @@ metadata:
     app.kubernetes.io/part-of: oneinchmarket
     app.kubernetes.io/managed-by: kustomize
 spec:
+  # ★★★ 2026-09-12: Airflow 로 전환했다 — 이 CronJob 은 **정지**다.
+  #   넷은 순서가 실재하는데(재처리 -> 구독 동기화 -> 인보이스 진행 -> 수금)
+  #   CronJob 은 서로를 몰라 시각으로 밀어 맞출 뿐이다. 재처리가 실패해도
+  #   인보이스가 그대로 진행되고, 그 결과가 §8-90 이 실측한 매출 누락이다.
+  #   지금은 `openmeter_billing_chain` DAG 이 같은 jobTemplate 으로 Job 을
+  #   만들어 순서대로 돌린다(앞이 실패하면 뒤는 돌지 않는다).
+  # ★★ 이 값을 false 로 되돌리려면 **DAG 을 먼저 정지시킬 것** — 둘이 함께
+  #   돌면 인보이스를 두 번 진행하고 청구는 소급 재해석이 불가능하다
+  #   (Gotcha 15). DAG 의 첫 태스크가 이 값을 검사해 살아 있으면 실패한다.
+  suspend: true
   schedule: "*/15 * * * *"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 2

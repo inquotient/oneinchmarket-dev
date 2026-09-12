@@ -76,11 +76,18 @@ data:
         그대로 진행된다. 그 결과가 §8-90 이 실측한 것이다 — 경계 이전
         사용량이 어느 인보이스에도 실리지 않는 **매출 누락**.
 
-    ★★ 기본이 **정지(paused)** 다. 그리고 첫 태스크가 CronJob 넷이 실제로
-        suspend 되었는지 검사하고 아니면 **실패한다**. 둘을 함께 돌리면
-        인보이스를 두 번 진행하게 되는데, 청구는 소급 재해석이 불가능하다
-        (Gotcha 15). 전환은 "CronJob 을 suspend 하고 → 이 DAG 을 켠다"
-        순서로만 한다.
+    ★★ 첫 태스크가 CronJob 넷이 실제로 suspend 되었는지 검사하고 아니면
+        **실패한다**. 둘을 함께 돌리면 인보이스를 두 번 진행하게 되는데,
+        청구는 소급 재해석이 불가능하다(Gotcha 15). 전환은 "CronJob 을
+        suspend 하고 → 이 DAG 을 켠다" 순서로만 한다.
+
+    ★★★ 2026-09-12 에 **전환을 끝냈다.** 그 전까지 이 DAG 은 정지였고
+        CronJob 넷이 돌고 있었다. 지금은 반대다 — git 이 넷을 모두
+        `suspend: true` 로 박았고(overlays/local/openmeter/) 이 DAG 이
+        기본으로 켜진 채 태어난다. 둘은 **함께** 움직여야 한다:
+        한쪽만 되돌리면 청구가 두 번 되거나(CronJob 부활) 통째로
+        멈춘다(DAG 만 정지). 되돌릴 때도 순서는 반대로 밟을 것 —
+        DAG 을 먼저 정지시키고 CronJob 을 깨운다.
     """
     from __future__ import annotations
 
@@ -118,7 +125,14 @@ data:
         start_date=pendulum.datetime(2026, 9, 1, tz="Asia/Seoul"),
         catchup=False,
         max_active_runs=1,
-        is_paused_upon_creation=True,
+        # ★★★ 2026-09-12 에 False 로 바꿨다 — 전환이 끝났기 때문이다.
+        #   True 로 두면 **클러스터를 다시 세울 때 아무것도 돌지 않는다**:
+        #   git 이 CronJob 넷을 suspend: true 로 박아 두었으므로 그쪽도
+        #   멈춰 있고, DAG 도 정지로 태어나면 과금 배치가 통째로 서고
+        #   아무도 알려주지 않는다. 전환은 양쪽이 함께 움직여야 한다.
+        # ★ 동시 실행 위험은 아래 assert_cronjobs_suspended 가 막는다 —
+        #   CronJob 이 하나라도 살아 있으면 이 DAG 은 첫 태스크에서 실패한다.
+        is_paused_upon_creation=False,
         default_args={"retries": 0},
         tags=["billing", "openmeter"],
     )
