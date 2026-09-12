@@ -55,22 +55,53 @@ spec:
                 taskmanager.memory.process.size: 1536m
                 taskmanager.numberOfTaskSlots: 2
                 parallelism.default: 1
+                # ★★★ 이 두 줄이 없으면 TaskManager 가 영원히 0/1 이다.
+                #   Flink 의 `taskmanager.rpc.port`·`taskmanager.data.port`
+                #   기본값은 **0 = 랜덤 포트**다. 그런데 아래 ports 는 6122·
+                #   6121 을 선언하고 프로브도 6122 를 본다 — 아무도 듣지 않는
+                #   포트를 두드리는 셈이다.
+                #   ★ 증상이 앱을 가리키지 않는다(Gotcha 152 와 같은 부류):
+                #     TM 로그는 `Successful registration at resource manager`
+                #     로 **정상**이고, 단서는 kubelet 이벤트 한 줄뿐이다 —
+                #     `Startup probe failed: dial tcp <ip>:6122: connection
+                #     refused`. 그러다 failureThreshold(30×10초)를 채우면
+                #     죽고 다시 등록하기를 되풀이해, JM 의 /overview 는
+                #     `taskmanagers: 0` 으로 남는다.
+                #   ★★ 그러니 NetworkPolicy 가 6121·6122 를 여는 것도 이 두
+                #     줄이 있어야 뜻이 생긴다. 포트를 선언하면 고정할 것.
+                taskmanager.rpc.port: 6122
+                taskmanager.data.port: 6121
           ports:
             - {name: data, containerPort: 6121, protocol: TCP}
             - {name: rpc,  containerPort: 6122, protocol: TCP}
+          # ★ tcpSocket 은 기본 1초로도 대개 충분하지만, 명시해 두면 다음
+          #   사람이 "정하지 않은 것" 과 "1초로 정한 것" 을 구분할 수 있다
+          #   (Gotcha 152 는 exec 에서 이것 때문에 CrashLoop 을 겪었다).
+          # ★★ TM 은 REST 가 없어 TCP 로 본다 — 다만 그것은 "포트가 열렸는가"
+          #   이지 "JM 에 등록됐는가" 가 아니다. 슬롯이 실제로 붙었는지는
+          #   JM 의 /overview 가 말해 준다(taskmanagers·slotsTotal).
           startupProbe:
             tcpSocket: {port: rpc}
             periodSeconds: 10
+            timeoutSeconds: 5
             failureThreshold: 30
           readinessProbe:
             tcpSocket: {port: rpc}
             periodSeconds: 15
+            timeoutSeconds: 5
           livenessProbe:
             tcpSocket: {port: rpc}
             periodSeconds: 30
+            timeoutSeconds: 5
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: {drop: ["ALL"]}
           resources:
+            # ★★ cpu limit 을 빠뜨리면 **prod 어드미션에서 거부된다** —
+            #   Kyverno `require-resource-limits` 가 prod 에서 Enforce 다.
+            #   local 은 Audit 이라 통과하고 이벤트만 남아, 배포 시점에야
+            #   드러난다(Caldera·BuildKit 이 걸린 자리와 같은 부류).
+            #   실측: 이 레포 컨테이너 116개 중 110개가 cpu limit 을 갖고
+            #   있어 규범이고, Flink 둘만 예외였다.
             requests: {cpu: 200m, memory: 1536Mi}
-            limits: {memory: 1792Mi}
+            limits: {cpu: 2000m, memory: 1792Mi}

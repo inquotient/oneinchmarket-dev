@@ -28,7 +28,21 @@ resources:
   - integration/
   # ★ wave 4 — PostgreSQL 부트스트랩 Job 뒤여야 한다.
   - developer-portal/
-  # ★ 배포만 한다 — 트래픽 경로에 넣지 않는다(ADR-079 미결, Gotcha 15).
+  # ★ 2026-09-12 에 ADR-079 가 `Accepted` 로 닫혀 **트래픽 경로에 들어왔다** —
+  #   `바깥 -> Istio -> Gravitee -> 백엔드`. HTTPRoute 는 service-mesh/ 에 있다.
   - api-management/
+  # ★★ Flink — 2026-09-12 에 보류를 뒤집어 연결했다(사용자 결정).
+  #   ★ 정직하게 적는다: **복귀 조건이 충족되어 넣은 것이 아니다.** §9-1 의
+  #     조건은 "Kafka Streams 로 손수 짠 패턴 매칭이 셋을 넘을 때" 인데
+  #     실측은 **0건**이었다(레포 참조 0 · 스트림 워크로드 0).
+  #     즉 이것은 KEDA·Crossplane·kpack 과 같은 "일감 없는 도입" 이다.
+  #   ★★ 다만 보류 사유의 한 기둥은 **이미 무너져 있었다** — 그 행은
+  #     "Iceberg 적재는 Kafka Connect 로 된다" 고 적었는데, Gotcha 116 이
+  #     그 근거(Central 의 1.11.0)를 정정했고 실측 플러그인 4종에도
+  #     Iceberg 가 **없다**. 지금 Kafka -> Iceberg 를 하는 것은 0개다.
+  #     그러니 Flink 에게 줄 첫 일감의 유력 후보가 바로 그것이다.
+  #   ★ 비용: requests 2,560Mi(JM 1,024 + TM 1,536). 넣기 전 노드 88% ->
+  #     넣은 뒤 약 94%. 걷어내려면 이 한 줄을 지우면 된다.
+  - streaming/
   - network-policies/
   - rotation/

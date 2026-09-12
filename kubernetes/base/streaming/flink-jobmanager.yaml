@@ -103,16 +103,24 @@ spec:
             - {name: rest, containerPort: 8081, protocol: TCP}
           # ★ JM 은 REST 가 있으니 "떠 있는가" 가 아니라 "설정이 섰는가" 를 본다
           #   (Gotcha 48 의 교훈) — /config 는 실제 설정을 돌려준다.
+          # ★★ timeoutSeconds 를 명시한다 — 기본값이 **1초**다(Gotcha 152).
+          #   httpGet 이라 대개 드러나지 않지만 **드러나지 않는 것이지
+          #   안전한 것은 아니다**: 이 엔드포인트는 JVM 이 돌려주고,
+          #   기동 직후와 full GC 중에는 1초를 넘길 수 있다. 그러면
+          #   로그는 멀쩡한데 startupProbe 가 영원히 통과하지 못한다.
           startupProbe:
             httpGet: {path: /config, port: rest}
             periodSeconds: 10
+            timeoutSeconds: 10
             failureThreshold: 30
           readinessProbe:
             httpGet: {path: /overview, port: rest}
             periodSeconds: 15
+            timeoutSeconds: 10
           livenessProbe:
             httpGet: {path: /config, port: rest}
             periodSeconds: 30
+            timeoutSeconds: 15
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: {drop: ["ALL"]}
@@ -121,5 +129,8 @@ spec:
             #   가 아니라, 여기서는 **못 켜는 것을 확인했다.**
           resources:
             # process.size 1024m + JVM 이 계산에 넣지 않는 몫
+            # ★★ cpu limit 을 빠뜨리면 prod 어드미션에서 거부된다 —
+            #   Kyverno `require-resource-limits` 가 prod 에서 Enforce 다
+            #   (local 은 Audit 이라 이벤트만 남고 통과한다).
             requests: {cpu: 200m, memory: 1024Mi}
-            limits: {memory: 1280Mi}
+            limits: {cpu: 1000m, memory: 1280Mi}
