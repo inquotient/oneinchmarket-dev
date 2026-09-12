@@ -15,6 +15,9 @@
 #   하나만 마운트된다. 그래서 이 스크립트는 생성 뒤에 `slo-to-configmap.py` 를 불러
 #   그 ConfigMap 안으로 **넣는 것까지** 한다. 확장자는 `.yml` 이어야 한다.
 #
+# ★★★★ 이 스크립트는 Pyrra 의 SLO 정의도 함께 생성한다 — 원천이 둘이면
+#   어긋나고, 실제로 어긋나 있었다(2026-09-12 실측: 기간 30d 대 4w).
+#
 # 사용
 #   local/render-slo.sh            # slo/*.yaml -> slo/generated/*.rules.yaml
 #   local/render-slo.sh --check    # 뒤처졌으면 1
@@ -73,6 +76,23 @@ if [ "$CHECK" = "1" ]; then
   python3 "$HERE/local/slo-to-configmap.py" "$CM" "$OUT" --check || rc=1
 else
   python3 "$HERE/local/slo-to-configmap.py" "$CM" "$OUT"
+fi
+
+# ── Pyrra 의 ServiceLevelObjective 도 같은 원천에서 생성 ────────
+# ★★★ 2026-09-12: 같은 SLO 를 **두 파일이 각자** 적고 있었고 이미 어긋나
+#   있었다 -- slo/gateway.yaml 은 기간 30d(Sloth 기본), pyrra.yaml 의
+#   ConfigMap 은 4w(=28d). 목표는 둘 다 99% 인데 오차 예산이 다르다.
+#   어느 쪽도 틀렸다고 말해 주지 않는다(Gotcha 71 과 같은 모양).
+# ★ 그래서 원천을 slo/*.yaml 하나로 두고 Pyrra CR 을 생성한다.
+# ★★ Pyrra 의 **규칙**은 Prometheus 에 넣지 않는다 -- 넣으면 같은 값을
+#   다른 이름으로 두 번 계산하게 되어(slo:sli_error:ratio_rate5m 대
+#   istio_requests:burnrate5m) 고치려던 결함을 규칙 계층에서 되살린다.
+#   Pyrra 는 UI 로만 쓴다. 자세한 사연은 local/slo-to-pyrra.py 머리말.
+PY_CM="$HERE/kubernetes/base/observability/pyrra/pyrra.yaml"
+if [ "$CHECK" = "1" ]; then
+  python3 "$HERE/local/slo-to-pyrra.py" "$PY_CM" "$SRC" --check || rc=1
+else
+  python3 "$HERE/local/slo-to-pyrra.py" "$PY_CM" "$SRC"
 fi
 
 [ "$CHECK" = "1" ] && [ "$rc" = "0" ] && log "생성 결과가 git 과 같다"

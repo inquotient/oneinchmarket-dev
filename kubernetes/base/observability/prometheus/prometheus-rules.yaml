@@ -96,6 +96,35 @@ data:
               description: >-
                 이 경보 자체도 도달하지 못한다. Prometheus UI 의 Alerts 를
                 직접 볼 것.
+
+          # ★★★ Gotcha 150 이 적어 둔 구멍을 여기서 막는다.
+          #   "SLO 의 빈 그래프는 두 가지 뜻이 있다: 지표가 **없으면**
+          #    무통이고, **0 이면** 오류가 없는 것이다. 둘을 묶어 보면
+          #    장애가 '좋다' 로 읽힌다."
+          #   Sloth 가 만드는 규칙에는 이 구분이 없다 — 분모가 사라지면
+          #   `slo:sli_error:ratio_rate*` 가 그냥 시계열을 잃고, 대시보드는
+          #   빈 그래프를, 번레이트 경보는 침묵을 보여 준다.
+          #   ★ Pyrra 는 이 경보를 자기 규칙에 넣는다(SLOMetricAbsent).
+          #     우리는 Pyrra 규칙을 Prometheus 에 넣지 않기로 했으므로
+          #     (local/slo-to-pyrra.py 머리말 — 같은 값을 두 번 계산하지
+          #     않기 위해서다) 그 한 조각만 여기로 가져온다.
+          #   ★★ `for` 를 짧게 두지 말 것 — 이 클러스터의 게이트웨이는
+          #     트래픽이 없는 시간대가 있고, Envoy 통계는 지연 생성이라
+          #     한동안 이름 자체가 없다(Gotcha 150). 10분으로 둔다.
+          - alert: SLOMetricAbsent
+            expr: absent(istio_requests_total{reporter="source"}) == 1
+            for: 10m
+            labels:
+              severity: critical
+              slo: gateway-availability
+            annotations:
+              summary: "SLO 의 원천 지표가 사라졌다 — 빈 그래프를 '좋다' 로 읽지 말 것"
+              description: >-
+                istio_requests_total{reporter="source"} 가 10분째 없다.
+                게이트웨이가 요청을 한 건도 받지 못했거나, 계량 경로가
+                끊겼거나(Gotcha 158 — meshConfig 의 extensionProviders 가
+                지워지면 조용히 이렇게 된다), Prometheus 가 게이트웨이를
+                수집하지 못하는 것이다. 셋은 처방이 다르다.
   # >>> sloth-generated — local/render-slo.sh 가 쓴다. 손으로 고치지 말 것
   slo-gateway.rules.yml: |
 

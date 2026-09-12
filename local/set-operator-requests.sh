@@ -33,19 +33,47 @@ CHECK=no
 
 log() { echo "[req] $*"; }
 
+# ★★★ 이 블록에 산문을 넣지 말 것 -- TARGETS 는 큰따옴표 문자열이라
+#   백틱은 명령 치환이 되고 set -e 가 그 자리에서 스크립트를 죽인다.
+#   2026-09-10 에 아래 사연을 문자열 안에 적으면서 그렇게 됐고,
+#   그때부터 2026-09-12 까지 이 스크립트는 아무것도 적용하지 못했다
+#   (증상이 없다: 오류는 나지만 requests 는 그냥 옛 값으로 남는다).
+#
+# ■ argocd-application-controller 의 값이 두 번 움직인 사연
+#
+#   2026-09-10 -- 1Gi 에서 OOMKilled 가 96회 일어났다(17시간).
+#     증상이 원인과 아주 멀다: 파드는 Running 으로 보이고(0/1 이지만),
+#     드러나는 것은 동기화가 끝나지 않는 것이다 -- 작업이 옛 리비전에
+#     고정된 채 남고, 이미 끝난 훅을 기다린다고 말하며, 새 커밋을
+#     집어 들지 않는다. 컨트롤러가 매번 동기화 도중에 죽기 때문이다.
+#     판정은 restartCount 와 lastState.terminated.reason
+#     (=OOMKilled, exitCode 137)으로 한다. 그때 1Gi -> 2Gi.
+#     실측: CRD 112 · 관리 리소스 541 · 파드 130여.
+#
+#   2026-09-12 -- 다시 봐야 할 날이 왔다. 실측 [실사용 2043Mi /
+#     limit 2048Mi] = 99.8% 에 restarts=1 · OOMKilled. 클러스터가
+#     그만큼 자랐다: CRD 112 -> 139, 파드 130여 -> 185.
+#     ★★ 그런데 2043Mi 는 수요가 아니었다 -- limit 에 눌린 값이라
+#       천장을 읽은 것이다(Gotcha 108 의 장부값 대 소모량과 같은 부류).
+#       limit 을 3Gi 로 올려 여유를 준 뒤 다시 재니 모양이 전혀 달랐다:
+#         기동 직후 2154Mi (cpu 625m)  <- 클러스터 전체 캐시 적재
+#         +90초  538Mi  (cpu 2m)
+#         +180초 540Mi  (cpu 4m)       <- 정상 상태
+#       즉 이 워크로드는 쌍봉이다. OOMKill 은 상시 부족이 아니라
+#       기동 스파이크가 2048Mi 를 넘어서 일어난 것이고, 그래서 처방은
+#       limit 을 올리는 것이지 requests 를 올리는 것이 아니다.
+#     ★ 그래서 requests 는 정상 상태(540Mi)에 여유를 얹어 1Gi 로 둔다.
+#       2Gi 로 두면 노드에서 1.5Gi 를 영구히 놀린다 -- 그 노드는 이미
+#       메모리 예약 91% 다. limit 3Gi 가 스파이크를 받는다.
+#     ★★ 판정 순서를 헷갈리지 말 것: 값이 limit 에 붙어 있으면
+#       그것은 관측이 아니라 한계다. 먼저 한계를 걷고 다시 재라.
+#
+#   ★ 컨트롤러는 클러스터 전체를 캐시하므로 CRD·리소스 수에 비례해
+#     자란다. 큰 컴포넌트를 더한 뒤에는 이 값을 다시 잴 것.
+
 # ns  kind         name                              container                         cpuReq memReq memLim
 TARGETS="
-# ★★★ 2026-09-10: 1Gi 에서 **OOMKilled 가 96회** 일어났다(17시간간).
-#   증상이 원인과 아주 멀다 — 파드는 `Running` 으로 보이고(0/1 이지만),
-#   드러나는 것은 **동기화가 끝나지 않는 것**이다: 작업이 옛 리비전에
-#   고정된 채 Running 으로 남고, 이미 끝난 훅을 기다린다고 말하며,
-#   새 커밋을 집어 들지 않는다. 컨트롤러가 매번 동기화 도중에
-#   죽었기 때문이다. 판정은 `restartCount` 와 `lastState.terminated.reason`
-#   (=OOMKilled, exitCode 137)로 한다.
-#   ★ 컬러스터가 커지면 이 값을 다시 봐야 한다 — 컨트롤러는 클러스터
-#     전체를 캐시하므로 CRD·리소스 수에 비례해 자란다(이때 실측:
-#     CRD 112 · 관리 리소스 541 · 파드 130여).
-argocd          statefulset argocd-application-controller     argocd-application-controller     100m 768Mi 2Gi
+argocd          statefulset argocd-application-controller     argocd-application-controller     100m 1Gi  3Gi
 argocd          deployment  argocd-repo-server                argocd-repo-server                50m  192Mi 512Mi
 argocd          deployment  argocd-server                     argocd-server                     50m  128Mi 256Mi
 argocd          deployment  argocd-applicationset-controller  argocd-applicationset-controller  20m  64Mi  128Mi

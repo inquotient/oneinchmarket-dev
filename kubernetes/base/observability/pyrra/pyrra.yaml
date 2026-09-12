@@ -26,9 +26,11 @@ metadata:
   name: pyrra-slos
   labels: {app.kubernetes.io/name: pyrra, app.kubernetes.io/component: observability, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
 data:
-  # ★ 첫 SLO 는 **이미 계량되고 있는 것**으로 잡는다. 없는 지표로 SLO 를 쓰면
-  #   그래프가 비고, 그 빈 그래프가 "SLO 가 좋다" 로 읽힌다.
-  #   api-usage 경로는 게이트웨이 액세스 로그에서 나온다(ADR-072).
+  # ★★ 이 아래는 `slo/*.yaml`(Sloth 명세)에서 **생성**된다 --
+  #   `local/slo-to-pyrra.py`. 손으로 고치지 말 것.
+  #   2026-09-12 이전에는 여기와 `slo/gateway.yaml` 이 **각자** 같은 SLO 를
+  #   적고 있었고 이미 어긋나 있었다(기간 4w 대 30d). 원천을 하나로 모았다.
+  # >>> slo-generated -- local/render-slo.sh 가 쓴다. 손으로 고치지 말 것
   gateway-availability.yaml: |
     apiVersion: pyrra.dev/v1alpha1
     kind: ServiceLevelObjective
@@ -39,7 +41,7 @@ data:
         pyrra.dev/team: platform
     spec:
       target: "99"
-      window: 4w
+      window: 30d
       description: "ingress 게이트웨이의 5xx 비율. 5xx 는 우리 잘못이라 청구에서도 제외한다(§8-87)."
       indicator:
         ratio:
@@ -47,6 +49,7 @@ data:
             metric: istio_requests_total{reporter="source",response_code=~"5.."}
           total:
             metric: istio_requests_total{reporter="source"}
+  # <<< slo-generated
 ---
 apiVersion: v1
 kind: Service
