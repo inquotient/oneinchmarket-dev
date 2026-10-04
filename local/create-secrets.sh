@@ -174,7 +174,16 @@ mk safeline-secret "db-password=$(gen)"
 #   접속하므로, 둘이 어긋나면 인증 실패가 난다.
 #   ★ preshared-key 가 없으면 OPENFGA_AUTHN_METHOD=preshared 가 기동하지 않는다.
 OPENFGA_PW=$(gen)
-mk openfga-secret     "db-password=$OPENFGA_PW" \n                      "datastore-uri=postgres://openfga:${OPENFGA_PW}@postgresql-headless:5432/openfga?sslmode=disable" \n                      "preshared-key=$(gen 32)"
+# ★★★ 2026-10-04: 이 줄의 줄 이음이 **문자 그대로의 `\n`** 이었다 —
+#   Gotcha 8 이 `build-images.sh` 에서 적어 둔 것과 **같은 결함이 여기에도**
+#   있었다. bash 는 `\n` 을 인자 `n` 으로 넘기므로
+#   `error: invalid literal source n, expected key=value` 가 나고
+#   **openfga-secret 이 아예 만들어지지 않는다.**
+#   ★ `bash -n` 은 통과한다 — 문법적으로 완결된 다른 명령이 되기 때문이다.
+#     판정은 `grep -c -F '\n' <file>` 다. 이 레포에서 두 번째 사례다.
+mk openfga-secret     "db-password=$OPENFGA_PW" \
+                      "datastore-uri=postgres://openfga:${OPENFGA_PW}@postgresql-headless:5432/openfga?sslmode=disable" \
+                      "preshared-key=$(gen 32)"
 
 # DefectDojo — Django SECRET_KEY 와 자격 3종.
 #   credential-aes-256-key 는 DB 에 저장하는 연동 자격을 암호화하는 키다.
