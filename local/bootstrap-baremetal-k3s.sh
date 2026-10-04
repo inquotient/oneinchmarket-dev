@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+# 베어메탈 Ubuntu control-plane k3s 부트스트랩 (2026-10-04)
+#
+# ★★★ 이 환경이 **새 로컬 서버**다 — WSL2 를 대체한다.
+#   실측 노드: Intel NUC15 CRSU9 · 16코어 · 60 GiB · NVMe 915G(854G 여유)
+#              Ubuntu 26.04.1 LTS(resolute) · 커널 7.0 · cgroup v2
+#   2대가 있고(192.168.0.103 server · 192.168.0.104 agent) **둘 다 필요하다**:
+#   플랫폼 CPU 요청이 19,725m 인데 한 노드의 할당가능이 ~15.5 vCPU 다.
+#   메모리는 49.3 GiB 요청 / ~54 GiB 라 한 대에 들어가지만 CPU 가 먼저 막는다.
+#
+# ────────────────────────────────────────────────────────────────
+# `bootstrap-wsl-k3s.sh` 와 무엇이 다른가 — 그 차이가 이 파일의 존재 이유다
+# ────────────────────────────────────────────────────────────────
+#  1. ★★ `--node-ip` · `--tls-san` 을 **명시한다.**
+#     WSL 판에는 없다 — 인터페이스가 하나뿐이어서 드러나지 않았다. 여기서는
+#     생략하면 k3s 가 주소를 자동으로 고르고, 그 주소가 인증서와 kine 의
+#     `masterleases` 에 박힌다. 주소가 바뀌면 apiserver->kubelet 이 끊기고
+#     Cilium -> CoreDNS -> Kyverno 순으로 연쇄 붕괴한다(Gotcha 49).
+#     더 나쁜 것은 **죽은 주소가 kine 에 남아 k3s 재시작으로도 안 풀리는 것**
+#     이다(Gotcha 55) — 그래서 설치 **전에** 주소를 고정해야 하고, 이 스크립트는
+#     고정되지 않았으면 기동을 거부한다.
+#  2. ★★ `--resolv-conf` 를 상류 파일로 지정한다.
+#     Ubuntu 의 `/etc/resolv.conf` 는 `127.0.0.53` 스텁이다. CoreDNS 는
+#     `forward . /etc/resolv.conf` 이므로 그 값을 받으면 **파드의 루프백**을
+#     가리켜 모든 파드의 외부 DNS 가 죽는다 — 내부 이름은 멀쩡하고 외부만
+#     죽어서 원인이 멀다(Gotcha 111 이 WSL 에서 세 층을 헤맨 그 부류).
+#  3. zram 을 넣지 않는다.
+#     WSL 노드는 43 GiB 였고 zram 32G 이 requests 를 실사용보다 낮게 잡는 것을
+#     **안전하게** 만드는 장치였다(Gotcha 101). 60 GiB 에서는 그 전제가 약해지고,
+#     여기 스왑은 디스크 파일 8 GiB(zram 보다 훨씬 느리다)라 의지할 대상이
+#     아니다. kubelet 의 `LimitedSwap` 은 그대로 둔다 — 안전망으로만 쓴다.
+#  4. `mount-rshared` · `mount-debugfs` 를 넣지 않는다.
+#     둘 다 WSL2 가 `/` 를 private 으로 두고 debugfs 를 안 올리는 것에 대한
+#     우회였다. 실측으로 이 노드는 `/` 가 이미 **shared** 이고 debugfs 가
+#     마운트돼 있다 — 그래도 **확인하고, 아니면 멈춘다**(추측하지 않는다).
+#  5. 사전 점검에 **주소 고정**과 **DNS 스텁** 검사를 넣었다.
+#     WSL 판의 네 검사(MemTotal·BTF·cgroup2·systemd)는 그대로 둔다.
+#
+# ★ 데이터스토어는 기본값(SQLite/kine)이다 — `--cluster-init`(내장 etcd)을
+#   쓰지 않는다. 기계가 2대뿐이라 어차피 HA 정족수(3)가 성립하지 않고, 이
+#   레포의 Gotcha 55 가 kine 을 전제로 쓰여 있다. **서버를 3대로 늘릴 날**
+#   그때 etcd 로 가되 재구축이 필요하다는 것을 알고 가야 한다.
+#
+# 사용
+#   local/bootstrap-baremetal-k3s.sh              # 설치
+#   NODE_IP=192.168.0.103 local/bootstrap-baremetal-k3s.sh
+#   local/bootstrap-baremetal-k3s.sh --check      # 점검만 하고 끝낸다
+set -Eeuo pipefail
+trap 'echo "[bootstrap][ERROR] line $LINENO: $BASH_COMMAND" >&2' ERR
+
+# ★★ install-operators.sh 의 ISTIO_VERSION 과 짝이 맞아야 한다(§8-73, Gotcha 47).
+#   Istio 1.31 은 k8s **1.32~1.36** 만 지원한다 — 이 값을 1.32 미만으로 내리면
+#   메시가 뜨지 않고, 1.36 을 넘기면 Istio 쪽이 지원 밖으로 나간다.
+K3S_VERSION="${K3S_VERSION:-v1.36.4+k3s1}"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+UPSTREAM_RESOLV="/run/systemd/resolve/resolv.conf"
+
+CHECK=no
+[ "${1:-}" = "--check" ] && CHECK=yes
+
+log()  { echo "[bootstrap] $*"; }
+fail() { echo "[bootstrap] FAIL: $*" >&2; exit 1; }
+
+# ── 0. 사전 점검 ────────────────────────────────────────────────
+log "사전 점검"
+
+[ "$(id -u)" = 0 ] || fail "root 로 돌릴 것"
+
+# (1) 기본 도구 — curl 이 없으면 k3s 설치 자체가 불가능하다. Ubuntu 26.04
+#     데스크톱 설치본에는 **curl 과 git 이 없다**(실측).
+for c in curl git python3; do
+  command -v "$c" >/dev/null || fail "$c 없음 — apt-get install -y curl git 먼저"
+done
+
+# (2) 커널·런타임 전제 (WSL 판과 같은 네 가지)
+MEM_GIB=$(( $(awk '/MemTotal/{print $2}' /proc/meminfo) / 1024 / 1024 ))
+[ "$MEM_GIB" -ge 40 ] || fail "MemTotal ${MEM_GIB}GiB — 이 플랫폼은 49.3 GiB 를 요청한다"
+[ -r /sys/kernel/btf/vmlinux ] || fail "BTF 없음 — Cilium·Falco·Tetragon CO-RE 불가"
+[ "$(stat -fc %T /sys/fs/cgroup)" = cgroup2fs ] || fail "cgroup v2 아님"
+[ "$(ps -p 1 -o comm=)" = systemd ] || fail "PID1 이 systemd 가 아니다"
+
+# (3) ★★ WSL 에서는 유닛으로 만들어 줘야 했던 둘 — 여기서는 **확인만** 한다.
+#     istio-cni 가 /var/run/netns 에 진입하려면 / 가 shared 여야 한다.
+PROP="$(findmnt -no PROPAGATION /)"
+[ "$PROP" = shared ] || fail "/ 전파가 '$PROP' 다 — istio-cni 가 netns 에 못 들어간다"
+findmnt -no TARGET /sys/kernel/debug >/dev/null 2>&1 \
+  || fail "debugfs 미마운트 — Tetragon·Falco 가 쓴다"
+
+# (4) ★★★ 주소 고정 — 이것이 이 스크립트의 가장 중요한 검사다.
+#     DHCP 주소는 `ip addr` 에 **dynamic** 으로 표시된다. k3s 를 깔기 전에
+#     고정해야 한다(Gotcha 49·55). 되돌릴 수 없는 비용이 거기서 생긴다.
+IFACE="$(ip -o -4 route show default | awk '{print $5; exit}')"
+[ -n "$IFACE" ] || fail "기본 경로 인터페이스를 찾지 못했다"
+NODE_IP="${NODE_IP:-$(ip -o -4 addr show dev "$IFACE" scope global | awk '{print $4}' | cut -d/ -f1 | head -1)}"
+[ -n "$NODE_IP" ] || fail "$IFACE 에 전역 IPv4 주소가 없다"
+if ip -o -4 addr show dev "$IFACE" | grep -qw dynamic; then
+  fail "$IFACE 의 주소가 DHCP(dynamic)다. netplan 에 static 으로 박은 뒤 다시 돌릴 것 —
+  주소가 바뀌면 인증서와 kine masterleases 가 어긋나고 재시작으로도 풀리지 않는다(Gotcha 49·55)."
+fi
+
+# (5) ★★ DNS — k3s/CoreDNS 에 줄 파일이 스텁이 아닌지 본다.
+[ -r "$UPSTREAM_RESOLV" ] || fail "$UPSTREAM_RESOLV 가 없다 — systemd-resolved 를 확인할 것"
+grep -qE '^nameserver[[:space:]]+[0-9]' "$UPSTREAM_RESOLV" \
+  || fail "$UPSTREAM_RESOLV 에 실제 상류 nameserver 가 없다"
+if grep -qE '^nameserver[[:space:]]+127\.0\.0\.53' "$UPSTREAM_RESOLV"; then
+  fail "$UPSTREAM_RESOLV 가 스텁(127.0.0.53)을 가리킨다 — 파드의 외부 DNS 가 죽는다"
+fi
+
+log "OK — ${MEM_GIB}GiB · $(nproc)코어 · BTF · cgroup2 · systemd · / shared · debugfs"
+log "     노드 IP ${NODE_IP} (${IFACE}, static) · DNS $(awk '/^nameserver/{printf "%s ", $2}' "$UPSTREAM_RESOLV")"
+
+if [ "$CHECK" = yes ]; then log "점검만 하고 끝낸다"; exit 0; fi
+
+# ── 1. kubelet 설정 ────────────────────────────────────────────
+# NodeSwap·swapBehavior·maxPods 는 kubelet 설정 파일에만 있는 필드다
+# (대응 CLI 플래그가 없어 `unknown flag` 로 기동을 거부한다).
+# ★ 설치 시점에만 정할 수 있으므로 여기서 넣는다.
+log "kubelet 설정 설치"
+mkdir -p /etc/rancher/k3s
+install -m 0644 "${REPO_ROOT}/local/kubelet-config.yaml" /etc/rancher/k3s/kubelet-config.yaml
+
+# ── 2. k3s server ──────────────────────────────────────────────
+# --flannel-backend=none   Cilium 이 CNI 다. 설치 전까지 NotReady 가 정상
+# --disable-network-policy  Cilium 이 정책을 한다
+# --disable traefik         진입점은 Istio Gateway 다(ADR-071)
+# --disable servicelb       NodePort 로 받는다. LoadBalancer 는 영원히 Pending 이다
+log "k3s ${K3S_VERSION} 설치 (node-ip=${NODE_IP})"
+curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="${K3S_VERSION}" sh -s - server \
+  --write-kubeconfig-mode 644 \
+  --node-ip "${NODE_IP}" \
+  --tls-san "${NODE_IP}" \
+  --resolv-conf "${UPSTREAM_RESOLV}" \
+  --disable traefik \
+  --disable servicelb \
+  --flannel-backend=none \
+  --disable-network-policy \
+  --kubelet-arg=config=/etc/rancher/k3s/kubelet-config.yaml \
+  || log "설치 스크립트가 비정상 종료했다 — 아래에서 실제 상태를 확인한다"
+
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+mkdir -p ~/.kube && cat /etc/rancher/k3s/k3s.yaml > ~/.kube/config && chmod 600 ~/.kube/config
+
+log "k3s 기동 대기 (CNI 부재로 NotReady 가 정상)"
+for i in $(seq 1 60); do kubectl get node >/dev/null 2>&1 && break; sleep 3; done
+kubectl get node -o wide
+
+# ★ 실제로 그 주소로 섰는지 확인한다 — 인자를 줬다고 반영됐다고 가정하지 않는다.
+GOT_IP="$(kubectl get node -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')"
+[ "$GOT_IP" = "$NODE_IP" ] || fail "노드 InternalIP 가 ${GOT_IP} 다 (기대 ${NODE_IP})"
+log "노드 InternalIP = ${GOT_IP} 확인"
+
+# ── 3. StorageClass 'standard' 별칭 ────────────────────────────
+# 배포 블로커 #5 — 전 PVC 가 존재하지 않는 'standard' 를 참조한다.
+# ★★ 2노드가 되면 성질이 바뀐다: local-path 는 **노드 고정** 볼륨이라
+#   PVC 를 받은 파드는 그 노드를 떠날 수 없다. ADR-015(스토리지)가 Open 인
+#   이유가 여기다 — 분산 스토리지 없이는 상태 있는 워크로드의 HA 가 성립하지
+#   않는다(Gotcha 35 와 같은 뿌리).
+log "StorageClass 'standard' (local-path 의 default 해제)"
+kubectl apply -f "${REPO_ROOT}/local/storageclass-standard.yaml"
+kubectl patch storageclass local-path \
+  -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}' >/dev/null
+kubectl get storageclass
+
+# ── 4. 에이전트 조인에 필요한 것 ────────────────────────────────
+log "에이전트(192.168.0.104) 조인용:"
+log "  K3S_URL=https://${NODE_IP}:6443"
+log "  토큰:   /var/lib/rancher/k3s/server/node-token  (값은 출력하지 않는다)"
+
+log "완료. 다음: local/install-platform.sh (Cilium · Gateway API)"
+log "★ Cilium 의 k8sServiceHost 는 ${NODE_IP} 여야 한다 — 127.0.0.1 은 단일 노드 전제다"
