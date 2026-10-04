@@ -6,7 +6,19 @@ set -Eeuo pipefail
 trap 'echo "[platform][ERROR] line $LINENO: $BASH_COMMAND" >&2' ERR
 export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/config}"
 
-CILIUM_VERSION="${CILIUM_VERSION:-1.16.5}"
+# ★★★ Cilium 은 k3s 버전과 **짝이 맞아야 한다** — Gotcha 47 과 같은 부류다.
+#   2026-10-04 정정: 1.16.5 -> 1.20.2.
+#   1.16 은 k8s 1.26~1.31 이고 1.19 는 `>=1.32 <1.36` 이라 **둘 다 우리
+#   k3s v1.36.4 를 지원하지 않는다.** 1.20.2 가 k8s **1.33~1.36** 을 e2e
+#   테스트한다(상류 compatibility 문서 실측, 2026-10-04). 이 값을 내리면
+#   CNI 가 지원 밖으로 나가고 증상은 "노드가 Ready 가 안 된다" 로 뭉뚱그려져
+#   원인이 멀어진다. ★ 추측하지 말고 상류 문서를 읽어서 정할 것.
+CILIUM_VERSION="${CILIUM_VERSION:-1.20.2}"
+# ★★ 아래 다섯은 **install-operators.sh 에 같은 이름이 또 있다** — Gotcha 117
+#   이 경고한 "같은 목록을 두 곳에 적어 두는" 모양이고 실제로 어긋나 있다:
+#   여기 ISTIO_VERSION 은 1.24.2 인데 install-operators.sh 는 1.31.0 이며
+#   클러스터가 쓰는 값은 후자다. 이 파일은 Istio 를 설치하지 않으므로(그쪽이
+#   한다) 지금 사고를 내지는 않지만, 고치려면 원천을 하나로 모아야 한다.
 ISTIO_VERSION="${ISTIO_VERSION:-1.24.2}"
 GATEWAY_API_VERSION="${GATEWAY_API_VERSION:-v1.2.0}"
 ECK_VERSION="${ECK_VERSION:-2.16.0}"

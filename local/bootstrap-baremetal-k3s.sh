@@ -157,8 +157,24 @@ log "노드 InternalIP = ${GOT_IP} 확인"
 #   않는다(Gotcha 35 와 같은 뿌리).
 log "StorageClass 'standard' (local-path 의 default 해제)"
 kubectl apply -f "${REPO_ROOT}/local/storageclass-standard.yaml"
+# ★★ `local-path` 를 **기다려야 한다.** 갓 설치한 클러스터에서는 k3s 의
+#   local-storage 애드온이 아직 적용되지 않아 그 SC 가 없고, 바로 patch 하면
+#   `storageclasses.storage.k8s.io "local-path" not found` 로 죽는다
+#   (실측 2026-10-04: 설치 직후 18초쯤 뒤에 나타났다). WSL 판은 이미 돌던
+#   클러스터에 돌려서 드러나지 않았다 — "있을 것이다" 를 전제로 쓴 코드다.
+log "local-path SC 대기 (k3s 애드온이 적용될 때까지)"
+for i in $(seq 1 40); do
+  kubectl get storageclass local-path >/dev/null 2>&1 && break
+  sleep 3
+done
+kubectl get storageclass local-path >/dev/null 2>&1 \
+  || fail "local-path SC 가 120초 안에 생기지 않았다 — k3s 애드온을 확인할 것"
 kubectl patch storageclass local-path \
   -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}' >/dev/null
+# ★ 기본 SC 가 **하나도 없는 것**이 의도다 — 둘이면 storageClassName 을 생략한
+#   PVC 의 동작이 정의되지 않는다(Gotcha 5). 전 PVC 가 명시하도록 고쳐져 있다.
+DEFAULTS="$(kubectl get sc -o jsonpath='{range .items[*]}{.metadata.annotations.storageclass\.kubernetes\.io/is-default-class}{" "}{end}' | tr ' ' '\n' | grep -c true || true)"
+[ "$DEFAULTS" = 0 ] || fail "기본 SC 가 ${DEFAULTS}개 남았다 — 0개여야 한다"
 kubectl get storageclass
 
 # ── 4. 에이전트 조인에 필요한 것 ────────────────────────────────
@@ -167,4 +183,10 @@ log "  K3S_URL=https://${NODE_IP}:6443"
 log "  토큰:   /var/lib/rancher/k3s/server/node-token  (값은 출력하지 않는다)"
 
 log "완료. 다음: local/install-platform.sh (Cilium · Gateway API)"
-log "★ Cilium 의 k8sServiceHost 는 ${NODE_IP} 여야 한다 — 127.0.0.1 은 단일 노드 전제다"
+# ★★ Cilium 버전은 k3s 와 짝이 맞아야 한다 — install-platform.sh 가 1.20.2 로
+#   정정돼 있다(1.16/1.19 는 k8s 1.36 을 지원하지 않는다, Gotcha 47 부류).
+# ★ k8sServiceHost=127.0.0.1 을 **섣불리 바꾸지 말 것.** k3s 에이전트는
+#   127.0.0.1:6443 에 로컬 로드밸런서를 띄워 서버로 전달하므로 다중 노드에서도
+#   그 값이 성립한다 — 다만 이것은 **104 가 조인한 뒤 실제로 확인할 일**이다
+#   (에이전트의 cilium 파드가 apiserver 에 붙는지).
+log "노드 Ready 가 되려면 CNI 가 필요하다 — 지금 NotReady 인 것이 정상이다"
