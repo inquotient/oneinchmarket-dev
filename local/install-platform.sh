@@ -14,6 +14,25 @@ export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/config}"
 #   CNI 가 지원 밖으로 나가고 증상은 "노드가 Ready 가 안 된다" 로 뭉뚱그려져
 #   원인이 멀어진다. ★ 추측하지 말고 상류 문서를 읽어서 정할 것.
 CILIUM_VERSION="${CILIUM_VERSION:-1.20.2}"
+
+# ★★★ k8sServiceHost — 2026-10-04 에 `127.0.0.1` 에서 **서버 노드 IP** 로
+#   고쳤다. 그 값은 **단일 노드 전제**였고, 에이전트를 조인하는 순간 깨진다.
+#   실측(192.168.0.104 조인 직후):
+#     · 에이전트의 `ss -lntp` 에 6443 리스너가 **없다**(*:10250 뿐)
+#     · cilium 의 첫 init 컨테이너 `config` 가 1분을 재시도하다
+#       `dial tcp 127.0.0.1:6443: connect: connection refused` 로 죽고
+#       `Build config failed` -> CrashLoopBackOff
+#     · 그래서 그 노드는 `cni plugin not initialized` 로 **영원히 NotReady**
+#   ★ 증상이 원인을 가리키지 않는다 — 노드가 NotReady 라 CNI/커널을 의심하게
+#     되는데, 진짜 단서는 **init 컨테이너 로그 한 줄**이다. 파드 목록에는
+#     `Init:0/6` 으로만 보이고(6개 중 첫째에서 막힌 것) 그 사실이 보이지 않는다.
+#   ★★ "k3s 에이전트는 127.0.0.1:6443 에 로컬 로드밸런서를 띄운다" 는 말을
+#     믿지 말 것 — 이 버전(v1.36.4+k3s1)에서는 **열려 있지 않다.** 실측으로
+#     확인했고, 추측으로 그렇게 적었다가 한 번 틀렸다.
+#   ★ 그래서 **노드 IP 가 고정이어야** 이 값이 성립한다(Gotcha 49 와 같은 뿌리).
+K8S_SERVICE_HOST="${K8S_SERVICE_HOST:-$(ip -o -4 addr show dev "$(ip -o -4 route show default | awk '{print $5; exit}')" scope global | awk '{print $4}' | cut -d/ -f1 | head -1)}"
+[ -n "$K8S_SERVICE_HOST" ] || { echo "[platform] k8sServiceHost 를 정하지 못했다 — K8S_SERVICE_HOST 로 넘길 것" >&2; exit 1; }
+case "$K8S_SERVICE_HOST" in 127.*|localhost) echo "[platform] k8sServiceHost 가 루프백(${K8S_SERVICE_HOST})이다 — 에이전트가 붙지 못한다" >&2; exit 1;; esac
 # ★★ 아래 다섯은 **install-operators.sh 에 같은 이름이 또 있다** — Gotcha 117
 #   이 경고한 "같은 목록을 두 곳에 적어 두는" 모양이고 실제로 어긋나 있다:
 #   여기 ISTIO_VERSION 은 1.24.2 인데 install-operators.sh 는 1.31.0 이며
@@ -60,7 +79,7 @@ if ! kubectl get ds -n kube-system cilium >/dev/null 2>&1; then
   cilium install --version "${CILIUM_VERSION}" \
     --set socketLB.hostNamespaceOnly=true \
     --set cni.exclusive=false \
-    --set k8sServiceHost=127.0.0.1 \
+    --set k8sServiceHost="${K8S_SERVICE_HOST}" \
     --set k8sServicePort=6443 \
     --set operator.replicas=1 \
     --set hubble.relay.enabled=true \
