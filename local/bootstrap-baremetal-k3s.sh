@@ -42,9 +42,17 @@
 #   그때 etcd 로 가되 재구축이 필요하다는 것을 알고 가야 한다.
 #
 # 사용
-#   local/bootstrap-baremetal-k3s.sh              # 설치
-#   NODE_IP=192.168.0.103 local/bootstrap-baremetal-k3s.sh
-#   local/bootstrap-baremetal-k3s.sh --check      # 점검만 하고 끝낸다
+#   local/bootstrap-baremetal-k3s.sh                     # server(기본)
+#   local/bootstrap-baremetal-k3s.sh --check             # 점검만
+#   K3S_URL=https://192.168.0.103:6443 K3S_TOKEN=... \
+#     local/bootstrap-baremetal-k3s.sh agent             # agent 조인
+#
+# ★★ 왜 한 파일에 두 역할을 담는가 — **사전 점검이 같기 때문이다.** BTF·
+#   cgroup2·systemd·/ shared·debugfs·주소 고정·DNS 스텁은 server 든 agent 든
+#   똑같이 요구된다. 두 파일로 쪼개면 그 목록이 두 곳에 살고 반드시 어긋난다
+#   (Gotcha 117 이 이미지 목록에서 실제로 밟은 자리다).
+# ★ 토큰은 **환경변수로만** 받고 출력하지 않는다. 서버에서 꺼내는 경로는
+#   /var/lib/rancher/k3s/server/node-token 이다.
 set -Eeuo pipefail
 trap 'echo "[bootstrap][ERROR] line $LINENO: $BASH_COMMAND" >&2' ERR
 
@@ -56,7 +64,13 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UPSTREAM_RESOLV="/run/systemd/resolve/resolv.conf"
 
 CHECK=no
-[ "${1:-}" = "--check" ] && CHECK=yes
+ROLE=server
+case "${1:-}" in
+  --check) CHECK=yes ;;
+  agent)   ROLE=agent ;;
+  server|"") ROLE=server ;;
+  *) echo "사용: $0 [server|agent|--check]" >&2; exit 2 ;;
+esac
 
 log()  { echo "[bootstrap] $*"; }
 fail() { echo "[bootstrap] FAIL: $*" >&2; exit 1; }
@@ -108,6 +122,15 @@ fi
 
 log "OK — ${MEM_GIB}GiB · $(nproc)코어 · BTF · cgroup2 · systemd · / shared · debugfs"
 log "     노드 IP ${NODE_IP} (${IFACE}, static) · DNS $(awk '/^nameserver/{printf "%s ", $2}' "$UPSTREAM_RESOLV")"
+log "     역할 ${ROLE}"
+
+# (6) agent 는 서버 주소와 토큰이 있어야 한다. 없으면 설치 스크립트가 **server**
+#     로 돌아버려 두 번째 클러스터가 생긴다 — 조용히 틀리는 자리라 먼저 막는다.
+if [ "$ROLE" = agent ] && [ "$CHECK" != yes ]; then
+  [ -n "${K3S_URL:-}" ]   || fail "agent 인데 K3S_URL 이 없다 (예: https://192.168.0.103:6443)"
+  [ -n "${K3S_TOKEN:-}" ] || fail "agent 인데 K3S_TOKEN 이 없다 — 서버의 /var/lib/rancher/k3s/server/node-token"
+  log "     서버 ${K3S_URL} · 토큰 ${#K3S_TOKEN}자 (값은 출력하지 않는다)"
+fi
 
 if [ "$CHECK" = yes ]; then log "점검만 하고 끝낸다"; exit 0; fi
 
@@ -124,7 +147,34 @@ install -m 0644 "${REPO_ROOT}/local/kubelet-config.yaml" /etc/rancher/k3s/kubele
 # --disable-network-policy  Cilium 이 정책을 한다
 # --disable traefik         진입점은 Istio Gateway 다(ADR-071)
 # --disable servicelb       NodePort 로 받는다. LoadBalancer 는 영원히 Pending 이다
-log "k3s ${K3S_VERSION} 설치 (node-ip=${NODE_IP})"
+log "k3s ${K3S_VERSION} 설치 (role=${ROLE} node-ip=${NODE_IP})"
+if [ "$ROLE" = agent ]; then
+  # ★ agent 에는 --flannel-backend / --disable / --tls-san 이 없다. 그것들은
+  #   서버(컨트롤 플레인)의 인자다. agent 가 공유해야 하는 것은 셋이다:
+  #   노드 IP 고정 · 상류 resolv.conf · kubelet 설정(NodeSwap·maxPods).
+  curl -sfL https://get.k3s.io | \
+    INSTALL_K3S_VERSION="${K3S_VERSION}" \
+    K3S_URL="${K3S_URL}" K3S_TOKEN="${K3S_TOKEN}" \
+    sh -s - agent \
+      --node-ip "${NODE_IP}" \
+      --resolv-conf "${UPSTREAM_RESOLV}" \
+      --kubelet-arg=config=/etc/rancher/k3s/kubelet-config.yaml \
+    || log "설치 스크립트가 비정상 종료했다 — 아래에서 실제 상태를 확인한다"
+
+  log "k3s-agent 기동 대기"
+  for i in $(seq 1 60); do
+    systemctl is-active --quiet k3s-agent && break
+    sleep 3
+  done
+  systemctl is-active k3s-agent | sed 's/^/[bootstrap]   k3s-agent=/'
+  # ★ 여기서는 kubeconfig 가 없다(agent 에는 apiserver 가 없다). 조인 성공
+  #   판정은 **서버에서** `kubectl get node` 로 해야 한다 — 이 노드에서
+  #   서비스가 active 인 것은 "붙었다" 를 뜻하지 않는다.
+  log "조인 판정은 서버에서: kubectl get node -o wide"
+  log "완료 (agent)"
+  exit 0
+fi
+
 curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="${K3S_VERSION}" sh -s - server \
   --write-kubeconfig-mode 644 \
   --node-ip "${NODE_IP}" \
