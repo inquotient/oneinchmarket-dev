@@ -63,6 +63,27 @@ fi
 
 # ── 3. Kyverno ─────────────────────────────────────────────────
 # 정책 6종은 base 에 있으나 컨트롤러 설치 경로가 없었다.
+# ── 0-2. `local` 네임스페이스 ──────────────────────────────────
+# ★★★ 2026-10-04: 새 클러스터에서 이 스크립트가 **Reloader 단계에서 죽었다**
+#   — `Error from server (NotFound): namespaces "local" not found`.
+#   Reloader 를 scoped 모드로 넣기 때문이다(`reloader.namespaces={local}`,
+#   Gotcha 84). 그 네임스페이스는 **ArgoCD 가 관리하는 오버레이**가 만드는데
+#   오퍼레이터 계층은 ArgoCD 보다 **먼저** 선다 — 순서 의존이 숨어 있었다.
+#   WSL 클러스터에서는 이미 있던 네임스페이스라 드러나지 않았다.
+# ★ `kubectl create ns local` 로 때우지 않는다 — 그러면 PSS(`enforce:
+#   privileged`)와 ambient 라벨이 빠진 네임스페이스가 생기고, ArgoCD 가
+#   라벨을 얹기 전까지 파드가 admit 되지 않거나 메시 밖에 남는다.
+#   **레포의 정의를 그대로 적용한다** — 원천을 하나로 둔다.
+# ★★ ambient 라벨이 함께 들어가는데 지금은 그 네임스페이스에 파드가 0개라
+#   안전하다. 그 라벨의 전제(AuthorizationPolicy 를 먼저 맞출 것)는
+#   namespace.yaml 머리말에 적혀 있다(§8-47).
+# ★ REPO_ROOT 는 이 파일에 **없었다** — 여기서 정의한다.
+REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+NS_FILE="${REPO_ROOT}/kubernetes/overlays/local/namespace.yaml"
+[ -f "$NS_FILE" ] || { echo "[operators] $NS_FILE 가 없다" >&2; exit 1; }
+log "네임스페이스 'local' (오퍼레이터가 참조하므로 ArgoCD 보다 먼저)"
+kubectl apply -f "$NS_FILE"
+
 log "Kyverno ${KYVERNO_VERSION}"
 kubectl apply --server-side -f "https://github.com/kyverno/kyverno/releases/download/${KYVERNO_VERSION}/install.yaml"
 
