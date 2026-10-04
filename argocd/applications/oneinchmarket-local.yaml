@@ -27,7 +27,17 @@ spec:
   project: oneinchmarket-local
 
   source:
-    repoURL: http://gitlab-registry.local.svc.cluster.local/infra/oneinchmarket-infra.git
+    # ★★★ 2026-10-04: 클러스터 안 GitLab -> GitHub 로 바꿨다.
+    #   순환 의존 때문이다 — GitLab 은 ArgoCD 가 wave 5 에 배포하므로, 처음
+    #   세우는 클러스터에서 ArgoCD 가 그 GitLab 을 읽으려 하면 아무것도
+    #   시작되지 않는다(베어메탈 이전에서 실제로 막혔다).
+    # ★ 되돌리려면 AppProject 의 sourceRepos 에 그 주소가 남아 있으니 이 한
+    #   줄만 되돌리면 된다 — 다만 **GitHub -> GitLab 동기화 수단이 먼저**
+    #   있어야 한다(GitLab 의 pull 미러링은 Premium 이고 이 GitLab 은 Free 다).
+    # ★★ 원천이 하나면 Gotcha 144(원격이 둘인데 하나만 push 되어 커밋이
+    #   영원히 클러스터에 닿지 않는 문제)가 구조적으로 불가능해진다. 그래서
+    #   GitLab 으로 되돌리는 것이 "원래 자리" 라는 이유만으로는 낫지 않다.
+    repoURL: https://github.com/inquotient/oneinchmarket-dev.git
     targetRevision: local
     path: kubernetes/overlays/local
 

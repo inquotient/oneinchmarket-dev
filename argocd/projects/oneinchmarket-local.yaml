@@ -23,6 +23,23 @@ spec:
   description: OneinchMarket — local (WSL2 단일 노드)
 
   sourceRepos:
+    # ★★★ 2026-10-04: GitHub 를 더했다 — **순환 의존을 끊기 위해서다.**
+    #   클러스터 안 GitLab 은 ArgoCD 가 wave 5 에 배포한다. 그런데 ArgoCD 가
+    #   읽을 곳이 그 GitLab 이면, 처음 세우는 클러스터에서는
+    #     "GitLab 을 띄우려면 레포를 읽어야 하고, 레포를 읽으려면 GitLab 이
+    #      떠 있어야 한다"
+    #   가 되어 **아무것도 시작되지 않는다.** 베어메탈로 옮기며 실제로 막혔다.
+    # ★ 둘을 다 남긴다 — GitLab 이 뜬 뒤 그쪽으로 되돌릴 선택지를 닫지 않는다.
+    #   다만 그때는 **GitHub -> GitLab 동기화 수단이 먼저** 있어야 한다:
+    #   GitLab 의 pull 미러링은 **Premium 기능이고 이 GitLab 은 Free 로 돈다**
+    #   (Gotcha 77 이 Ultimate 전용 기능이 조용히 무시되는 것을 실측했다).
+    #   그래서 `rotation-git-sync` 뼈대를 쓴 CronJob 이 필요하다.
+    # ★★ 원천을 GitHub 하나로 두면 Gotcha 144(원격이 둘인데 하나만 push 되어
+    #   커밋이 영원히 클러스터에 닿지 않는 문제)가 **구조적으로 불가능**해진다.
+    # ★ 레포가 **공개**라 지금은 자격이 필요 없다. 비공개로 바꾸는 날
+    #   `repo-creds` Secret 을 먼저 넣을 것 — 그 전까지 ArgoCD 는 **조용히**
+    #   못 읽고 증상은 "Synced 인데 옛 리비전" 이다(Gotcha 144·145).
+    - "https://github.com/inquotient/oneinchmarket-dev.git"
     - "http://gitlab-registry.local.svc.cluster.local/infra/oneinchmarket-infra.git"
 
   destinations:
