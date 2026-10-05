@@ -21,7 +21,13 @@ metadata:
     #   방식대로 훅으로 다뤄 **만들기 전에 지우게** 한다.
     argocd.argoproj.io/hook: Sync
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
-    argocd.argoproj.io/sync-wave: "6"
+    # ★★★ wave 6 -> 7 (2026-10-05). 이 Job 은 `glitchtip-config`
+    #   ConfigMap 을 마운트하는데 그것은 **wave 7**(observability)이다.
+    #   `local/check-wave-order.py` 가 렌더 전수에서 찾아냈다 — 아직
+    #   동기화가 wave 6 에 닿기 전이었다. 닿았으면 hive-schematool 과
+    #   똑같이 **침묵하며** 멈췄을 것이다(마운트할 것이 없는 파드는
+    #   CrashLoop 이 아니라 Init 에서 기다린다).
+    argocd.argoproj.io/sync-wave: "7"
 spec:
   # 다른 부트스트랩 Job 과 같은 규약 — 24시간 뒤 정리한다.
   # migrate 는 멱등이라 TTL 만료 후 재생성되어 다시 돌아도 무해하다.

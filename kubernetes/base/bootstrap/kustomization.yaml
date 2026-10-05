@@ -3,7 +3,9 @@ kind: Kustomization
 
 # sync-wave 를 commonAnnotations 로 두지 않는다.
 # 각 Job 이 의존 대상에 따라 서로 다른 wave 를 갖는다.
-#   postgres/mariadb/clickhouse 1 · kafka-topics/hive-schematool 2 · minio 3
+#   postgres/mariadb/clickhouse 1 · kafka-topics 2 · hive-schematool/minio 3
+#   ★ hive-schematool 은 2026-10-05 에 2 -> 3 으로 옮겼다 — 마운트하는
+#     ConfigMap 이 wave 3 이다(그 파일 머리말 참조).
 resources:
   - postgres-bootstrap.yaml
   - mariadb-bootstrap.yaml

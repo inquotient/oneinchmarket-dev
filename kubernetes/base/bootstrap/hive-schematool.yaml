@@ -33,7 +33,16 @@ metadata:
     app.kubernetes.io/part-of: oneinchmarket
     app.kubernetes.io/managed-by: kustomize
   annotations:
-    argocd.argoproj.io/sync-wave: "2"
+    # ★★★ wave 2 -> 3 (2026-10-05). 이 Job 은 `hive-metastore-config`
+    #   ConfigMap 을 마운트하는데 그것은 **wave 3**(data-lakehouse)이다.
+    #   wave 2 에 두면 파드가 `Init:0/1` 에서 영원히 기다린다 —
+    #   `MountVolume.SetUp failed ... configmap "hive-metastore-config"
+    #   not found`. ★ 마운트할 것이 없는 파드는 CrashLoop 이 아니라
+    #   **침묵**이고, 그래서 wave 2 가 통째로 선다(실측: Synced 167/582).
+    #   ★★ PostgreSQL(wave 1)만 보고 2 로 둔 것이 원인이다 — 의존은
+    #   DB 하나가 아니다. 같은 부류를 전수로 보는 검사가
+    #   `local/check-wave-order.py` 다.
+    argocd.argoproj.io/sync-wave: "3"
     argocd.argoproj.io/hook: Sync
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
