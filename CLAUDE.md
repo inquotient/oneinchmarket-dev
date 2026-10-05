@@ -603,6 +603,30 @@ bash local/openbao-init.sh     # 초기화 · 봉인 해제 · openbao-keys Secr
 ★ 그래서 ExternalSecret 29건도 그때까지 동기화되지 않는다 — "Secret 이 안
 만들어진다" 로 읽히지만 원인은 두 단계 위다.
 
+**★★★ wave 5 이후에 손으로 돌려야 하는 것** — 이 목록이 어디에도 모여 있지
+않아 재구축 때 빠뜨리기 쉽다. 전부 **"클러스터가 떠야 비로소 할 수 있는" 일**
+이고, 빠뜨렸을 때의 증상이 하나같이 원인과 멀다:
+
+```bash
+# wave 5 에서 GitLab 이 뜬 뒤
+bash local/configure-node-registry.sh        # 이제 ClusterIP 가 있으니 /etc/hosts 가 채워진다
+bash local/gitlab-registry-bootstrap.sh --secret   # ★ Gotcha 118 — 그냥 재실행하면 배포 토큰이 회전한다
+bash local/build-images.sh                   # 레지스트리로 push (Trivy 가 스캔할 수 있게 된다)
+bash local/gitlab-repo-bootstrap.sh          # ★★ 통째로 돌리지 말 것 — 끝에서 argocd-read 토큰을 회전시킨다(Gotcha 144)
+bash local/gravitee-bootstrap.sh             # API 정의 — Mongo 에만 사는 원천(Gotcha 159)
+bash local/configure-istio-usage-logging.sh  # ★ 과금 계량 — Istio 재설치 뒤에는 반드시(Gotcha 158)
+bash local/opensearch-apply-security.sh      # wave 7 뒤. 빠뜨리면 수집이 401 로 조용히 끊긴다
+bash local/safeline-bootstrap.sh             # wave 8 뒤. 사이트 정의 — mgt 의 PostgreSQL 에만 산다
+bash local/set-operator-requests.sh          # ★ Gotcha 80 — k3s 재시작만으로도 되돌아간다
+```
+
+★ **빠뜨리면 이렇게 보인다**(전부 "오류 없이 반쪽"이다):
+  · `configure-node-registry.sh` 미실행 → 레지스트리 pull 이 HTTPS 로 가서 실패
+  · `gravitee-bootstrap.sh` 미실행 → `/managed` 만 404, 게이트웨이·파드는 정상
+  · `configure-istio-usage-logging.sh` 미실행 → **트래픽은 정상인데 청구만 사라진다**
+  · `opensearch-apply-security.sh` 미실행 → 수집이 401 로 조용히 끊긴다
+  · `safeline-bootstrap.sh` 미실행 → WAF 가 **아무것도 막지 않으면서 있는 것처럼 보인다**
+
 **이 레포 밖에 있는 노드 상태** — 클러스터를 새로 세우면 다시 해야 한다:
 `/etc/rancher/k3s/registries.yaml`(**두 노드 다**, Gotcha 126) ·
 control-plane → 다른 노드 **root ssh 키 인증**(이미지 반입에 필요, Gotcha 175) ·
