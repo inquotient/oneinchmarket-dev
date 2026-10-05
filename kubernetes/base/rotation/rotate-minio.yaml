@@ -23,6 +23,16 @@ spec:
             app.kubernetes.io/part-of: oneinchmarket
         spec:
           serviceAccountName: secret-rotator
+          # ★★★ quay.io 자격 (2026-10-05). MinIO 는 2026-09-11 에 Docker Hub
+          #   에서 **저장소째 삭제**됐고(실측: `object not found`) quay.io 는
+          #   2026-09-24 부터 익명 pull 을 막는다(실측: manifest HEAD 가 401,
+          #   404 가 아니다 — 즉 자격이 있으면 받아진다).
+          #   mirror.gcr.io·public.ecr.aws 에도 없다.
+          # ★ 이 Secret 은 **이 레포가 만들지 못한다** — quay 로봇 토큰이다.
+          #   `local/quay-pull-secret.sh` 가 넣는다. 레포 밖 원천 목록은
+          #   LOCAL-DEPLOYMENT §25-00.
+          imagePullSecrets:
+            - name: quay-pull-secret
           restartPolicy: OnFailure
           securityContext:
             runAsUser: 1000
@@ -33,7 +43,7 @@ spec:
               type: RuntimeDefault
           containers:
             - name: rotate-minio
-              image: docker.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+              image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
               command:
                 - /bin/sh
                 - -c

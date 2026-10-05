@@ -38,6 +38,7 @@ EXTERNAL = {
     "gitlab-runner-token": "GitLab 이 발급한다 (local/gitlab-runner-register.sh)",
     "openbao-keys": "openbao-init.sh 가 봉인 해제 키를 넣는다",
     "gitlab-registry-secret": "gitlab-registry-bootstrap.sh --secret (Gotcha 118)",
+    "quay-pull-secret": "local/quay-pull-secret.sh (quay 로봇 토큰 — MinIO 가 Docker Hub 에서 삭제됐다)",
 }
 
 REF_RE = re.compile(r"^(\s*)(secretKeyRef|configMapKeyRef):\s*$")

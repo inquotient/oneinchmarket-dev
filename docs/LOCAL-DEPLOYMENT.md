@@ -14106,6 +14106,7 @@ Hyper-V 에 남은 의존이 하나도 없었다는 것을 이 삭제가 증명�
 | `/etc/rancher/k3s/registries.yaml` | **두 노드 다** 필요하다 | 레지스트리 pull 이 HTTPS 로 가서 실패(Gotcha 126) |
 | `/etc/hosts` 의 레지스트리 항목 | 두 노드 다 | 이름 해석 실패 |
 | **control-plane → 다른 노드 root ssh 키 인증** | **새 항목** | `build-images.sh` 가 그 노드에 반입하지 못하고, 거기 스케줄된 파드가 `ImagePullBackOff`(Gotcha 175) |
+| **`quay-pull-secret`**(quay.io 로봇 토큰) | **새 항목** — `local/quay-pull-secret.sh` | MinIO·mc 이미지를 받지 못해 wave 3 이 통째로 선다 |
 | **`podman` 설치** | **새 항목** — 부트스트랩 전제 검사에 없다 | `build-images.sh` 가 첫 줄에서 죽는다 |
 | 노드 IP 고정 | 둘 다. 부트스트랩이 `dynamic` 이면 거부한다 | kine 에 죽은 주소가 남는다(Gotcha 49·55) |
 
