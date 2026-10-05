@@ -585,8 +585,23 @@ bash local/configure-node-registry.sh   # registries.yaml + /etc/hosts (두 노�
 bash local/install-argocd.sh
 kubectl apply -f argocd/projects/oneinchmarket-local.yaml   # ★ 따로 적용(Gotcha 57)
 kubectl apply -f argocd/applications/oneinchmarket-local.yaml
-python3 local/check-secret-refs.py --check          # 참조 전수 검사
+python3 local/check-secret-refs.py --check          # 참조 전수 검사 (결함 0 이어야 한다)
+python3 local/check-wave-order.py  --check          # wave 뒤집힌 의존 전수 (0 이어야 한다)
 ```
+
+**★★ 동기화가 wave 4 에서 서면 OpenBao 를 초기화해야 한다** — ArgoCD 가
+`waiting for healthy state of apps/StatefulSet/openbao` 에서 멈춘다. 봉인된
+OpenBao 는 **1/2** 이고 그 상태로는 영원히 Healthy 가 되지 않는다(로그는
+`core: security barrier not initialized` 만 반복한다). 이것은 **ArgoCD 가 할 수
+없는 일**이다 — `bao operator init` 은 한 번만 성공하고 그 출력의 unseal 키를
+그 순간에 보관해야 한다:
+
+```bash
+bash local/openbao-init.sh     # 초기화 · 봉인 해제 · openbao-keys Secret 보관
+```
+
+★ 그래서 ExternalSecret 29건도 그때까지 동기화되지 않는다 — "Secret 이 안
+만들어진다" 로 읽히지만 원인은 두 단계 위다.
 
 **이 레포 밖에 있는 노드 상태** — 클러스터를 새로 세우면 다시 해야 한다:
 `/etc/rancher/k3s/registries.yaml`(**두 노드 다**, Gotcha 126) ·
