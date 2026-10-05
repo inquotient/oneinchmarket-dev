@@ -73,6 +73,11 @@ spec:
             limits:   {cpu: 200m, memory: 128Mi}
           volumeMounts:
             - {name: ranger-plugin, mountPath: /ranger}
+            # ★ authorizer 가 생성될 때 읽는 설정도 함께 준다 — 본 컨테이너와
+            #   같은 조건으로 둬야 "format 은 되는데 기동은 안 된다"(또는 그 반대)
+            #   가 생기지 않는다. 같은 ConfigMap 이라 비용이 없다.
+            - {name: ranger-config, mountPath: /opt/hadoop/etc/hadoop/ranger-hdfs-security.xml, subPath: ranger-hdfs-security.xml}
+            - {name: ranger-config, mountPath: /opt/hadoop/etc/hadoop/ranger-hdfs-audit.xml, subPath: ranger-hdfs-audit.xml}
         - name: format-namenode
           image: docker.io/apache/hadoop:3.5.0
           command: ["/bin/bash","-c"]
@@ -88,6 +93,20 @@ spec:
               echo "[format] 완료"
           env:
             - {name: HADOOP_CONF_DIR, value: /opt/hadoop/etc/hadoop}
+            # ★★★ 2026-10-05: format 단계도 **플러그인 클래스패스가 필요하다.**
+            #   이 컨테이너는 본 컨테이너와 **같은 hdfs-site.xml** 을 마운트하고,
+            #   그 파일이 `dfs.namenode.inode.attributes.provider.class` 로
+            #   RangerHdfsAuthorizer 를 선언한다. 그래서 `hdfs namenode -format`
+            #   이 그 클래스를 인스턴스화하려다 죽는다:
+            #     ClassNotFoundException: org.apache.ranger.authorization.hadoop.RangerHdfsAuthorizer
+            #   ★ **이미 포맷된 클러스터에서는 드러나지 않는다** — 위의
+            #     `/hadoop/dfs/name/current` 검사가 먼저 걸려 즉시 exit 0 이다.
+            #     처음 세우는 클러스터에서만 나오고, 그때 wave 3 이 통째로 선다
+            #     (Gotcha 58·166 과 같은 부류: 평소에 돌지 않는 경로).
+            #   ★★ `/ranger/*` 만으로는 부족하다 — Java 의 `dir/*` 는 하위
+            #     디렉터리를 포함하지 않고 구현체는 `ranger-hdfs-plugin-impl/`
+            #     안에 있다(Gotcha 37). 본 컨테이너와 **같은 값**을 쓴다.
+            - {name: HADOOP_CLASSPATH, value: "/ranger/*:/ranger/ranger-hdfs-plugin-impl/*"}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: {drop: ["ALL"]}
@@ -99,6 +118,14 @@ spec:
             - {name: data, mountPath: /hadoop/dfs}
             - {name: config, mountPath: /opt/hadoop/etc/hadoop/core-site.xml, subPath: core-site.xml}
             - {name: config, mountPath: /opt/hadoop/etc/hadoop/hdfs-site.xml, subPath: hdfs-site.xml}
+            # ★ 플러그인 jar 는 fetch-ranger-plugin 이 여기에 둔다. format 이
+            #   authorizer 를 로드해야 하므로 이 컨테이너도 마운트한다.
+            - {name: ranger-plugin, mountPath: /ranger}
+            # ★ authorizer 가 생성될 때 읽는 설정도 함께 준다 — 본 컨테이너와
+            #   같은 조건으로 둬야 "format 은 되는데 기동은 안 된다"(또는 그 반대)
+            #   가 생기지 않는다. 같은 ConfigMap 이라 비용이 없다.
+            - {name: ranger-config, mountPath: /opt/hadoop/etc/hadoop/ranger-hdfs-security.xml, subPath: ranger-hdfs-security.xml}
+            - {name: ranger-config, mountPath: /opt/hadoop/etc/hadoop/ranger-hdfs-audit.xml, subPath: ranger-hdfs-audit.xml}
       containers:
         - name: hadoop-namenode
           image: docker.io/apache/hadoop:3.5.0
