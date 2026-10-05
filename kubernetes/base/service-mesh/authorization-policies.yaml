@@ -203,6 +203,9 @@ spec:
               - "*-openreplay"
               # ★ OpenMeter — 데이터베이스 `openmeter` 를 쓴다(ADR-070 개정).
               - "*/sa/openmeter"
+              # ★★ clickhouse-bootstrap — openmeter 사용자·DB 를 만드는 Job.
+              #   이 줄이 없으면 Job 이 오류 없이 **무한 대기**한다(Gotcha 19).
+              - "*/sa/clickhouse-bootstrap"
       to:
         - operation:
             ports: ["8123", "9000"]

@@ -1,0 +1,143 @@
+# ★★★ OpenMeter 의 ClickHouse 자격은 **아무도 만들지 않고 있었다** (2026-10-05).
+#
+# clickhouse-statefulset 은 `CLICKHOUSE_USER=openreplay` 하나만 만든다. 그런데
+# OpenMeter 는 사용자 `openmeter` · 데이터베이스 `openmeter` 로 붙는다
+# (ADR-070 개정 — 인스턴스를 공유하고 데이터베이스로 용도를 나눈다).
+# WSL 클러스터에서는 그 사용자를 **손으로** 만들었고 그 사실이 어디에도
+# 적혀 있지 않았다 — Gotcha 27 이 "새 소비자에게는 전용 사용자를 만들고
+# GRANT 로 범위를 좁힐 것" 이라고 적어 둔 그 작업이다.
+#
+# 베어메탈로 옮기며 드러났다: `clickhouse-secret` 에 `openmeter-password` 키가
+# 없어 openmeter 5종이 전부 `Init:CreateContainerConfigError` 였고, 그것이
+# **wave 0 을 영원히 붙잡아** 573건 중 아무것도 뒤로 넘어가지 못했다.
+# 키를 더하는 것만으로는 부족하다 — ClickHouse 쪽에 그 사용자가 있어야 한다.
+#
+# ★ 왜 initdb.d 가 아니라 Job 인가
+#   `/docker-entrypoint-initdb.d` 는 **데이터 디렉터리가 빌 때만** 돈다.
+#   그러면 이미 데이터가 있는 클러스터에서는 되돌릴 방법이 없고, 재현성을
+#   위해 만드는 것이 정작 "다시 돌릴 수 없는" 것이 된다. Job 은 언제든
+#   다시 돌 수 있고 Complete/Failed 로 **보인다.**
+#
+# ★★ 대가는 네트워크 홉이다 — 이 Job 은 메시를 지나 9000 에 붙으므로
+#   전용 SA 가 `allow-database-access` 의 ClickHouse 규칙에, 파드 라벨이
+#   `allow-clickhouse-access` NetworkPolicy 에 **각각** 있어야 한다.
+#   둘 중 하나만 있으면 증상이 오류가 아니라 **무한 대기**다(Gotcha 19·147).
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: clickhouse-bootstrap
+  labels:
+    app.kubernetes.io/name: clickhouse-bootstrap
+    app.kubernetes.io/component: bootstrap
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+automountServiceAccountToken: false
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: clickhouse-bootstrap
+  labels:
+    app.kubernetes.io/name: clickhouse-bootstrap
+    app.kubernetes.io/component: bootstrap
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    # wave 1 — ClickHouse 와 같은 wave 다. ArgoCD 가 한 wave 를 함께 적용하므로
+    # 서버가 아직 안 떴을 수 있다. 그래서 아래 대기 루프가 있다(postgres-bootstrap
+    # 과 같은 모양).
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 20
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: clickhouse-bootstrap
+        app.kubernetes.io/component: bootstrap
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: clickhouse-bootstrap
+      restartPolicy: OnFailure
+      priorityClassName: batch-low
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: bootstrap
+          # ★ 서버와 **같은 태그**를 쓴다 — 노드에 이미 있으므로 추가 pull 이
+          #   없고, 클라이언트·서버 버전이 갈리지 않는다(Gotcha 53 ★).
+          image: docker.io/clickhouse/clickhouse-server:26.8
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              CH="clickhouse-client -h clickhouse-headless --port 9000"
+              ADMIN="--user ${CH_ADMIN_USER} --password ${CH_ADMIN_PASSWORD}"
+
+              # ★ 대기 루프에 `-q`/`>/dev/null` 를 쓰지 않는다 — 출력을 죽이면
+              #   "응답 없음" 과 "자격 거부" 가 구분되지 않는다(Gotcha 120).
+              n=0
+              until $CH $ADMIN -q "SELECT 1" ; do
+                n=$((n+1))
+                if [ "$n" -ge 60 ]; then
+                  echo "[error] ClickHouse 가 60회(약 5분) 동안 응답하지 않았다" >&2
+                  exit 1
+                fi
+                echo "[info] ClickHouse 대기 중 ($n/60)"
+                sleep 5
+              done
+              echo "[ok] ClickHouse 접속 성공"
+
+              # ★★ 멱등하다. 비밀번호는 **매번 다시 쓴다** — Secret 이 로테이션
+              #   되면 ClickHouse 쪽도 따라가야 하고, 그러지 않으면 증상이
+              #   "인증 실패" 로만 보인다. 사용자 생성과 비밀번호 설정을
+              #   분리해 두는 이유다.
+              $CH $ADMIN -q "CREATE DATABASE IF NOT EXISTS openmeter"
+              $CH $ADMIN -q "CREATE USER IF NOT EXISTS openmeter IDENTIFIED WITH sha256_password BY '${OPENMETER_CH_PASSWORD}'"
+              $CH $ADMIN -q "ALTER USER openmeter IDENTIFIED WITH sha256_password BY '${OPENMETER_CH_PASSWORD}'"
+              # ★ 범위를 좁힌다 — openmeter 는 openreplay 데이터베이스를 보지
+              #   못해야 한다(Gotcha 27).
+              $CH $ADMIN -q "GRANT ALL ON openmeter.* TO openmeter"
+
+              # ★★ 판정을 "오류가 없다" 로 두지 않는다 — 실제로 그 자격으로
+              #   붙어 본다(Gotcha 117·163 ①: 가드는 결과로 세워야 한다).
+              got=$(clickhouse-client -h clickhouse-headless --port 9000 \
+                      --user openmeter --password "${OPENMETER_CH_PASSWORD}" \
+                      --database openmeter -q "SELECT currentUser()")
+              if [ "$got" != "openmeter" ]; then
+                echo "[error] openmeter 자격으로 붙지 못했다 (받은 값: '${got}')" >&2
+                exit 1
+              fi
+              echo "[ok] openmeter 사용자·데이터베이스 준비 완료"
+          env:
+            # 관리 자격 — statefulset 이 CLICKHOUSE_USER 로 만든 사용자다.
+            # `CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1` 이라 CREATE USER 가 된다.
+            - name: CH_ADMIN_USER
+              value: openreplay
+            - name: CH_ADMIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: clickhouse-secret, key: password } }
+            # ★ openmeter 의 ClickHouse 비밀번호는 `clickhouse-secret` 안에 있다
+            #   — 상류 차트의 선택이고 render-openmeter.py 가 그 이름을 읽는다.
+            #   PostgreSQL 쪽은 같은 Secret 의 `openmeter-pg-password` 로 다르다.
+            - name: OPENMETER_CH_PASSWORD
+              valueFrom: { secretKeyRef: { name: clickhouse-secret, key: openmeter-password } }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

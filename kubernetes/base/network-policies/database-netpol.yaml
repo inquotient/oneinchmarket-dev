@@ -216,6 +216,12 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: openmeter
+        # ★ clickhouse-bootstrap — openmeter 사용자·DB 를 만드는 Job.
+        #   Istio 인가(allow-database-access)와 **둘 다** 필요하다 —
+        #   하나만 있으면 증상이 오류가 아니라 무한 대기다.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: clickhouse-bootstrap
       ports:
         - { protocol: TCP, port: 8123 }
         - { protocol: TCP, port: 9000 }

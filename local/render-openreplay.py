@@ -130,9 +130,32 @@ def fix_container(c):
     if add:
         c["env"] = add + envs
 
+# ★★★ 차트의 Secret 둘을 **버린다** (2026-10-05).
+#   `helm template` 이 그 값을 치환하지 못해 전부 리터럴
+#   `{{ randAlphaNum 20 }}` 로 남는다 — 실측: or-secrets 의 12키 중 10키,
+#   openreplay-secrets 의 3키(MINIO_ACCESS_KEY·MINIO_SECRET_KEY·PGPASSWORD).
+#   그러면 두 가지가 동시에 나쁘다:
+#     (1) JWT 서명 키가 **공개 레포에 박힌 상수**가 된다 — 이 레포는 공개다.
+#         `jwt-secret`·`jwt-refresh-secret`·`token-secret` 등 7키가 실제로
+#         `secretKeyRef` 로 읽히고 있었다. 즉 OpenReplay 는 누구나 아는
+#         문자열로 토큰에 서명하고 있었다.
+#     (2) 값이 쓸모없는데 존재하니 "자격이 있다" 로 읽힌다 — 이 레포가
+#         반복해서 경계하는 부류다(Gotcha 33·84·141).
+#   DB·ClickHouse·MinIO 자격은 위 FORCE/INJECT 가 이미 우리 Secret 으로
+#   돌려 놓았다. 남은 JWT 계열은 `create-secrets.sh` 의 `mk or-secrets` 가
+#   **실제 난수로** 만든다(그래서 렌더 산출물에 평문이 남지 않는다).
+# ★ `openreplay-secrets` 는 **아무도 참조하지 않는다** — 실측으로 렌더 전체에서
+#   `openreplay-secrets` 가 나오는 곳이 자기 선언 1건뿐이었다. 죽은 오브젝트다.
+# ★★ 지우는 쪽이 아니라 **만드는 쪽**을 고쳤다 — 생성 파일을 손으로 고치면
+#   다음 렌더에 되돌아온다(이 레포가 §8-94 에서 밟은 자리다).
+DROP_SECRETS = {"or-secrets", "openreplay-secrets"}
+
 docs = []
 for d in yaml.safe_load_all(open('/tmp/or-raw.yaml', encoding='utf-8')):
     if not d: continue
+    if d.get('kind') == 'Secret' and d.get('metadata', {}).get('name') in DROP_SECRETS:
+        print(f"  버림: Secret/{d['metadata']['name']} (미치환 템플릿 상수)")
+        continue
     d.setdefault('metadata', {}).setdefault('labels', {}).update({
         'app.kubernetes.io/part-of': 'oneinchmarket',
         'app.kubernetes.io/component': 'observability',

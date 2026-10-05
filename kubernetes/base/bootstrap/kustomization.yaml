@@ -3,13 +3,15 @@ kind: Kustomization
 
 # sync-wave 를 commonAnnotations 로 두지 않는다.
 # 각 Job 이 의존 대상에 따라 서로 다른 wave 를 갖는다.
-#   postgres/mariadb 1 · kafka-topics/hive-schematool 2 · minio 3
+#   postgres/mariadb/clickhouse 1 · kafka-topics/hive-schematool 2 · minio 3
 resources:
   - postgres-bootstrap.yaml
   - mariadb-bootstrap.yaml
   # ★ MongoDB 에만 이런 Job 이 없었다 — 그래서 MongoDB 를 쓰는
   #   새 워크로드는 root 자격을 빌려야 했다(§8-44 가 지적한 결함).
   - mongodb-bootstrap.yaml
+  # ★ OpenMeter 의 ClickHouse 사용자·DB — 손으로 만들던 것을 git 으로 옮겼다
+  - clickhouse-bootstrap.yaml
   - kafka-topics.yaml
   - hive-schematool.yaml
   - minio-bootstrap.yaml

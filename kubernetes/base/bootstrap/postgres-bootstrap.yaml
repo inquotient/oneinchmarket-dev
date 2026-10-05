@@ -181,6 +181,16 @@ spec:
               #   스키마는 `airflow db migrate`(airflow-db-migrate Job)가 넣는다 —
               #   여기서는 DB 와 롤만 만든다. Temporal 과 달리 DB 는 하나다.
               ensure airflow        airflow             "$AIRFLOW_DB_PASSWORD"
+              # ★★ OpenMeter — 미터 정의·요금제·구독이 여기 있다(Gotcha 29·66).
+              #   이 롤·DB 는 WSL 에서 **손으로** 만들었고 어디에도 적혀 있지
+              #   않았다. 베어메탈 첫 구축에서 openmeter 5종이 전부
+              #   `Init:CreateContainerConfigError` 로 멈춰 드러났다.
+              #   ★ 비밀번호 원천이 `openmeter-secret` 이 **아니다** —
+              #     `clickhouse-secret/openmeter-pg-password` 다. 상류 차트가
+              #     두 자격(ClickHouse·PostgreSQL)을 한 Secret 에 두었고
+              #     render-openmeter.py 가 그 이름을 읽는다. 여기서 다른 이름을
+              #     쓰면 값이 갈리고 증상은 "인증 실패" 하나뿐이다.
+              ensure openmeter      openmeter           "$OPENMETER_PG_PASSWORD"
               # ★★ 확장 셋은 **superuser 권한**이 필요해 여기서 만든다.
               #   midPoint 의 postgres.sql 이 이것들을 요구하는데, 그 SQL 은
               #   **midpoint 롤로** 들어가야 한다(아니면 테이블이 postgres 소유가
@@ -225,6 +235,8 @@ spec:
               valueFrom: { secretKeyRef: { name: temporal-secret, key: db-password } }
             - name: AIRFLOW_DB_PASSWORD
               valueFrom: { secretKeyRef: { name: airflow-secret, key: db-password } }
+            - name: OPENMETER_PG_PASSWORD
+              valueFrom: { secretKeyRef: { name: clickhouse-secret, key: openmeter-pg-password } }
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
