@@ -50,7 +50,15 @@ for f in "$SRC"/*.yaml; do
   # ★ `generate` 는 stdin 을 읽지 않는다 — `-i` 로 파일을 줘야 한다
   #   (실측: `error: "generate" command failed: stat : no such file or directory`).
   #   그래서 정의 디렉터리를 마운트해 컨테이너 안 경로로 넘긴다.
-  $runner run --rm -v "$SRC":/slo:ro "$IMAGE" generate -i "/slo/$(basename "$f")" > "$tmp"
+  # ★ `--network=none` 이 필요하다 (2026-10-06). 기본 네트워크로 돌리면
+  #   podman 이 veth 쌍을 만들려다 실패해 **게이트가 아예 돌지 못한다**:
+  #     Error: netavark: create veth pair: Netlink error: Invalid argument
+  #   이 노드는 Cilium 이 CNI 를 잡고 있어 podman 의 기본 브리지와 부딪힌다.
+  #   sloth `generate` 는 **파일을 읽어 stdout 으로 쓰는 순수 변환**이라
+  #   네트워크가 전혀 필요 없다 — 끄는 것이 맞고 더 안전하다.
+  #   ★ 돌지 못하는 게이트는 없는 게이트보다 나쁘다(Gotcha 73·90) —
+  #     `--check` 가 126 을 돌려주는데 그것을 "드리프트" 로 읽기 쉽다.
+  $runner run --rm --network=none -v "$SRC":/slo:ro "$IMAGE" generate -i "/slo/$(basename "$f")" > "$tmp"
   # ★ 빈 출력을 통과시키지 말 것 — sloth 가 조용히 실패하면 0바이트가 나오고
   #   그것을 커밋하면 규칙이 사라진다(Gotcha 117 의 "비어 있지 않다" 가드 교훈).
   if ! grep -q 'record:\|alert:' "$tmp"; then
