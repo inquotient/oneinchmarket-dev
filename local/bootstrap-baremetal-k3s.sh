@@ -74,6 +74,7 @@ esac
 
 log()  { echo "[bootstrap] $*"; }
 fail() { echo "[bootstrap] FAIL: $*" >&2; exit 1; }
+warn() { echo "[bootstrap] WARN: $*" >&2; WARNED=$(( ${WARNED:-0} + 1 )); }
 
 # ── 0. 사전 점검 ────────────────────────────────────────────────
 log "사전 점검"
@@ -85,6 +86,28 @@ log "사전 점검"
 for c in curl git python3; do
   command -v "$c" >/dev/null || fail "$c 없음 — apt-get install -y curl git 먼저"
 done
+
+# (1-b) ★★ 로컬 빌드 이미지용 전제 — 2026-10-05 에 더했다.
+#   `local/build-images.sh` 는 podman 으로 11종을 빌드하고 **모든 노드에**
+#   반입한다. 베어메탈 첫 구축에서 둘 다 빠져 있었다:
+#     · podman 이 없어 그 스크립트가 첫 빌드에서 죽는다
+#     · control-plane -> 다른 노드 ssh 가 안 되면 반입이 **한 노드에만** 들어가고,
+#       거기 스케줄되지 않은 파드는 `ImagePullBackOff` 다. 그런데 오류 문구가
+#       레지스트리 DNS 실패라 "레지스트리가 없다" 로 읽힌다(Gotcha 175).
+#   ★ 그래서 **치명이 아니라 경고**로 둔다 — k3s 자체는 이것 없이도 선다.
+#     막아 세우면 "이미지는 나중에" 라는 정상 절차를 못 쓴다.
+if ! command -v podman >/dev/null; then
+  warn "podman 없음 — local/build-images.sh 가 돌지 않는다 (apt-get install -y podman)"
+fi
+if [ "$ROLE" = server ]; then
+  # 노드가 둘 이상일 때만 뜻이 있다. 지금은 조인 전이라 셀 수 없으므로
+  # 키가 있는지만 본다 — 없으면 반입이 이 노드에만 들어간다.
+  if [ ! -f /root/.ssh/id_ed25519 ] && [ ! -f /root/.ssh/id_rsa ]; then
+    warn "root ssh 키가 없다 — 다른 노드로 이미지 반입이 안 된다. 노드를 더한 뒤:
+      ssh-keygen -q -t ed25519 -N '' -f /root/.ssh/id_ed25519
+      ssh-copy-id -i /root/.ssh/id_ed25519.pub root@<다른 노드>"
+  fi
+fi
 
 # (2) 커널·런타임 전제 (WSL 판과 같은 네 가지)
 MEM_GIB=$(( $(awk '/MemTotal/{print $2}' /proc/meminfo) / 1024 / 1024 ))
@@ -132,7 +155,12 @@ if [ "$ROLE" = agent ] && [ "$CHECK" != yes ]; then
   log "     서버 ${K3S_URL} · 토큰 ${#K3S_TOKEN}자 (값은 출력하지 않는다)"
 fi
 
-if [ "$CHECK" = yes ]; then log "점검만 하고 끝낸다"; exit 0; fi
+if [ "$CHECK" = yes ]; then
+  # ★ 경고는 치명이 아니지만 **셋을 보여 주고 끝낸다** — 조용히 넘기면
+  #   "점검 통과" 로 읽히고 나중에 이미지 반입에서 막힌다.
+  log "점검만 하고 끝낸다 (경고 ${WARNED:-0}건)"
+  exit 0
+fi
 
 # ── 1. kubelet 설정 ────────────────────────────────────────────
 # NodeSwap·swapBehavior·maxPods 는 kubelet 설정 파일에만 있는 필드다
