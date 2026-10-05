@@ -671,11 +671,23 @@ kubectl -n external-secrets rollout restart deploy external-secrets   # ★ ESO 
 # wave 5 에서 GitLab 이 뜬 뒤
 bash local/configure-node-registry.sh        # 이제 ClusterIP 가 있으니 /etc/hosts 가 채워진다
 bash local/gitlab-registry-bootstrap.sh --secret   # ★ Gotcha 118 — 그냥 재실행하면 배포 토큰이 회전한다
-bash local/build-images.sh                   # 레지스트리로 push (Trivy 가 스캔할 수 있게 된다)
+bash local/build-images.sh                   # 레지스트리로 push
+                                             # ★ 사유가 낡았다 — 전에는 "Trivy 가 스캔할 수 있게 된다" 였는데
+                                             #   Gotcha 133 에서 Trivy 가 **노드 containerd 에서 읽도록** 바뀌었다.
+                                             #   실측(2026-10-06): mode=ClientServer · containerd 소켓 마운트됨 ·
+                                             #   스캔 Job 완료 5 · 진행 2 로 **레지스트리 없이도 돌고 있다**.
+                                             #   리포트가 적은 것은 처리량 문제다(Gotcha 54).
+                                             # ★ 그래서 push 가 필요한 때는 ① Camel K 가 kit 이미지를 올리고 받을 때
+                                             #   ② 반입하지 않은 노드가 pull 해야 할 때 다.
 bash local/gitlab-runner-bootstrap.sh        # ★★ 러너 0개면 파이프라인이 만들어지고도 하나도 돌지 않는다.
                                              #   gitlab-runner 는 이 Secret 이 없으면 Init:CreateContainerConfigError 이고,
                                              #   wave 5 라 **뒤의 wave 6~8 이 전부 선다**(실측 2026-10-06)
-bash local/gitlab-repo-bootstrap.sh          # ★★ 통째로 돌리지 말 것 — 끝에서 argocd-read 토큰을 회전시킨다(Gotcha 144)
+# bash local/gitlab-repo-bootstrap.sh        # ★ **지금은 필요하지 않다**(2026-10-06 실측).
+                                             #   ArgoCD 의 repoURL 이 GitHub 이고 `origin` 과 **같다** —
+                                             #   즉 Gotcha 144 의 "원격이 둘" 위험이 이 클러스터에는 없다.
+                                             #   돌리면 argocd-read 토큰만 회전시키고 얻는 것이 없다.
+                                             # ★ repoURL 을 클러스터 안 GitLab 로 되돌리는 날 다시 필요해진다.
+                                             #   그때도 **통째로 돌리지 말 것** — push 한 줄만 쓴다(Gotcha 144).
 bash local/gravitee-bootstrap.sh             # API 정의 — Mongo 에만 사는 원천(Gotcha 159)
 bash local/configure-istio-usage-logging.sh  # ★ 과금 계량 — Istio 재설치 뒤에는 반드시(Gotcha 158)
 # bash local/opensearch-apply-security.sh    # ★ 첫 구축에는 **필요하지 않다**(2026-10-06 실측).
