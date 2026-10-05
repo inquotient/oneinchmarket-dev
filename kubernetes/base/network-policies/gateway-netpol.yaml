@@ -1,0 +1,82 @@
+# ★★★ Istio 인그레스 게이트웨이의 80·443 을 허용한다 (2026-10-06).
+#
+# **이것이 없어서 외부 진입점이 한 번도 닿은 적이 없었다.** ADR-071 은 이
+# 게이트웨이를 외부 진입점으로 적어 두었는데, `default-deny-ingress` 가
+# `podSelector: {}` 로 네임스페이스 전체를 덮으므로 게이트웨이도 함께 막힌다.
+# 그런데 80·443 을 여는 정책은 **gitlab·lam·nginx 용 셋뿐**이었다(렌더 전수).
+#
+# ★ 베어메탈 첫 구축에서 드러난 경로가 멀다 — 찾은 순서가 그대로 교훈이다:
+#     ① 과금 계량(Gotcha 158)을 복구하고 2단계 판정을 했다.
+#        ①단계(meshConfig 의 extensionProviders)는 통과, ②단계(요청을 보낸 뒤
+#        게이트웨이 로그에 `^{` 줄이 늘어나는가)가 **0** 이었다.
+#     ② "설정이 안 들어갔나" 로 의심했으나 **Envoy 는 설정을 받고 있었다** —
+#        config_dump 에 계약 형식의 `specversion` 이 12회, stdout 로거 1개,
+#        Telemetry 셀렉터도 파드 라벨과 일치.
+#     ③ 진짜 단서는 **`downstream_rq_total` 지표가 아예 없는 것**이었다.
+#        Envoy 통계는 지연 생성이므로(Gotcha 150) 그것이 없다는 것은
+#        **요청이 한 번도 닿지 않았다**는 뜻이다.
+#     ④ 주소를 갈라 쟀다 — `127.0.0.1`·노드 IP 둘·ClusterIP·**파드 IP 직접**이
+#        전부 `000`. NodePort 도 노드 간 경로도 아니다(Cilium 은 그 매핑을
+#        `0.0.0.0:32421 -> 10.0.1.141:80 (active)` 로 정확히 알고 있었다).
+#     ⑤ 대조군으로 확정했다 — 다른 노드의 파드에서 그 파드 IP 로도 `000`.
+#        남는 것은 정책이고, 게이트웨이를 선택하는 정책 5건 중 80·443 을
+#        여는 것이 없었다.
+#
+# ★★ 그래서 증상이 **과금 쪽에 나왔다.** "트래픽은 정상인데 청구만 사라진다"
+#   를 경계하라던 Gotcha 158 과 모양이 반대다 — 여기서는 **트래픽 자체가
+#   없었고** 그것이 계량 0건으로 보였다. 계량을 의심하기 전에
+#   **요청이 닿는지부터 볼 것**(Envoy 의 `downstream_rq_total` 유무).
+#
+# ★★★ `from` 을 비워 **모든 출발지**를 허용하는 것은 의도된 선택이다.
+#   이 워크로드는 정의상 외부 진입점이고, 출발지를 좁히면 외부 접근이 깨진다.
+#   **실제 인가는 네트워크 계층이 아니라 위에서 한다** — `api-require-jwt`
+#   AuthorizationPolicy 가 토큰 없는 요청을 403 으로 막고(Gotcha 18),
+#   SafeLine 이 그 뒤에서 WAF 로 본다(Gotcha 163). 15008 을 넓게 열고 인가를
+#   ztunnel 에 맡기는 것과 같은 논리다(Gotcha 13).
+#   ★ 그래서 이 정책의 범위는 **80·443 과 그 게이트웨이 파드로 좁혀 둔다** —
+#     `podSelector` 를 비우면 네임스페이스 전체가 열려 default-deny 가
+#     무의미해진다.
+#
+# ★ base 에 두는 이유: 진입점은 환경과 무관하게 필요하다(ADR-071). dev 처럼
+#   Gateway 가 없는 환경에서는 매칭되는 파드가 없어 무해하다.
+#
+# ★ 판정은 "정책이 있다" 가 아니라 **요청이 닿는지**로 한다:
+#     curl -s -o /dev/null -w '%{http_code}' http://<노드IP>:<nodePort>/ \
+#          -H 'Host: api.oneinchmarket.local'
+#   `000` 이면 아직 막힌 것, `403` 이면 닿고 인증에서 걸린 것(정상),
+#   `200` 이면 토큰까지 통과한 것이다 — 세 값이 **다른 층**이다(Gotcha 157).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-gateway
+  labels:
+    app.kubernetes.io/name: allow-ingress-gateway
+    app.kubernetes.io/component: network-policies
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  # Istio 가 Gateway API 의 Gateway 로부터 만들어 주는 Deployment 의 라벨이다.
+  # Telemetry `api-usage` 가 쓰는 셀렉터와 **같은 라벨**을 쓴다 — 둘이 어긋나면
+  # 계량과 접근 허용이 서로 다른 워크로드를 가리키게 된다.
+  # ★★★ `matchLabels` 가 아니라 `matchExpressions` 를 쓴다 - 이유가 있다.
+  #   오버레이의 라벨 변환기가 `spec/podSelector/matchLabels` 에 `environment:`
+  #   를 **주입한다.** 그런데 이 파드는 kustomize 가 만든 것이 아니라 Istio 의
+  #   게이트웨이 컨트롤러가 만들어서 그 라벨이 **없다**(실측 라벨 7개에 없다).
+  #   그대로 두면 정책이 **아무것도 선택하지 않는다** - 있으나 마나다.
+  #   변환기는 `matchExpressions` 는 건드리지 않으므로 이 형태가 안전하다.
+  #   ★ 판정: `kubectl kustomize` 결과의 podSelector 에 `environment` 가
+  #     끼지 않았는지 **눈으로 확인할 것**(Gotcha 67 - 파일에 쓴 값이 렌더
+  #     결과라고 가정하지 말 것).
+  podSelector:
+    matchExpressions:
+      - key: gateway.networking.k8s.io/gateway-name
+        operator: In
+        values: ["ingress"]
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 443
