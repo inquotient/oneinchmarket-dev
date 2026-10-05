@@ -105,7 +105,6 @@ spec:
               API="http://kafka-connect-headless:8083"
 
               echo "[connectors] Connect 워커 대기"
-              i=0
               # ★★ 상한을 둔다 — 무한 대기는 ArgoCD 동기화를 **영원히** 세운다.
               #   실측(2026-10-06): 타임아웃 없는 curl 하나가 멈춘 연결에 걸려
               #   apicurio-rules 훅이 11분 넘게 Running 이었고 동기화 전체가 그
@@ -118,10 +117,6 @@ spec:
                   echo "[kafka-connect-connectors 대기 실패] 300초 동안 응답이 없다 — 의존 대상을 확인할 것" >&2
                   exit 1
                 fi
-                sleep 3
-              done
-                i=$((i+1))
-                [ "$i" -gt 100 ] && { echo "Connect 가 5분 안에 응답하지 않았다"; exit 1; }
                 sleep 3
               done
 
