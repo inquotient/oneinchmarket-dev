@@ -294,6 +294,38 @@ push_to_registry() {
 PUSH_OK=0
 if push_to_registry; then PUSH_OK=1; fi
 
+# ★★★ 반입 대상은 **모든 노드**다 (2026-10-05). 2노드 베어메탈로 옮기며 드러났다.
+#   `k3s ctr images import` 는 **이 스크립트를 돌리는 노드의 containerd** 에만
+#   넣는다. 실측: proxysql 을 103 에서 반입했는데 파드가 **104 에 스케줄**되어
+#   `ImagePullBackOff` 였다. 그리고 그 오류 문구는 레지스트리 DNS 실패
+#   (`lookup gitlab-registry...: Try again`)라 **"레지스트리가 없다" 로 읽힌다** —
+#   진짜 원인은 "이 노드에 그 이미지가 없다" 다. 원인이 멀다.
+# ★ 레지스트리로 풀게 할 수 없다 — GitLab 은 wave 5 인데 이 이미지를 쓰는
+#   워크로드는 wave 1(proxysql)부터 있다. 그래서 반입이 유일한 길이다.
+# ★★ 노드 목록은 **클러스터에서 읽는다** — 하드코딩하면 노드를 더할 때 어긋난다
+#   (Gotcha 117 과 같은 부류). 자기 자신은 건너뛴다.
+# ★ 전제: control-plane 에서 다른 노드로 **root ssh 키 인증**이 된다.
+#   이것은 노드 상태라 이 레포 밖이다 — LOCAL-DEPLOYMENT §25-0 에 적어 둔다.
+#   안 되면 그 노드를 건너뛰고 **경고를 남긴다**(조용히 넘어가지 않는다).
+OTHER_NODE_IPS="$(kubectl get nodes -o jsonpath='{range .items[*]}{.status.addresses[?(@.type=="InternalIP")].address}{"\n"}{end}' 2>/dev/null \
+  | grep -v '^$' | grep -vxF "$(hostname -I | awk '{print $1}')" | tr '\n' ' ')"
+[ -n "$OTHER_NODE_IPS" ] && log "다른 노드로도 반입한다: $OTHER_NODE_IPS"
+
+import_everywhere() {  # import_everywhere <ref> <local-tag>
+  local ref="$1" local_tag="$2" ip
+  sudo podman save --format docker-archive "$ref" \
+    | sudo k3s ctr -n k8s.io images import --base-name "$ref" - >/dev/null
+  log "  imported $ref  (이 노드)"
+  for ip in $OTHER_NODE_IPS; do
+    if sudo podman save --format docker-archive "$ref" \
+         | ssh -o BatchMode=yes -o ConnectTimeout=10 "root@${ip}" \
+             "k3s ctr -n k8s.io images import --base-name '$ref' - >/dev/null"; then
+      log "  imported $ref  (${ip})"
+    else
+      log "  ★ ${ip} 반입 실패 — 그 노드에 스케줄되면 ImagePullBackOff 가 된다"
+    fi
+  done
+}
 log "k3s containerd 로 반입 + 레지스트리 push"
 # ★ 매니페스트가 참조하는 **정확한 이름**을 반입해야 한다.
 #   2026-09-07 부터 그 이름에는 레지스트리 호스트가 붙는다
@@ -307,8 +339,7 @@ for it in $IMAGE_TAGS; do
   base="${img%%:*}"; want "${base#oneinch/}" || continue
   ref="${REGISTRY_HOST}/${img}"
   sudo podman tag "localhost/${img}" "$ref"
-  sudo podman save --format docker-archive "$ref"     | sudo k3s ctr -n k8s.io images import --base-name "$ref" - >/dev/null
-  log "  imported $ref"
+  import_everywhere "$ref" "localhost/${img}"
   if [ "$PUSH_OK" = "1" ]; then
     if sudo podman push --tls-verify=false "localhost/${img}" "$ref" >/dev/null 2>&1; then
       log "  pushed   $ref"
@@ -319,7 +350,15 @@ for it in $IMAGE_TAGS; do
 done
 
 log "반입 확인"
+# ★ 확인도 **모든 노드에서** 한다 — 이 노드만 보면 "반입했다" 가 거짓이 된다
+#   (실측으로 그 거짓을 한 번 믿었다: 103 에만 있는데 파드는 104 였다).
+printf '  [이 노드] '; sudo k3s ctr -n k8s.io images ls 2>/dev/null | awk '{print $1}' | grep -c oneinch || true
 sudo k3s ctr -n k8s.io images ls 2>/dev/null | awk '{print $1}' | grep oneinch || true
+for ip in $OTHER_NODE_IPS; do
+  n=$(ssh -o BatchMode=yes -o ConnectTimeout=10 "root@${ip}" \
+        "k3s ctr -n k8s.io images ls 2>/dev/null | awk '{print \$1}' | grep -c oneinch" 2>/dev/null || echo "조회실패")
+  log "  [${ip}] oneinch 이미지 ${n}개"
+done
 if [ "$PUSH_OK" != "1" ]; then
   log "★ 레지스트리 push 를 건너뛰었다 — Trivy Operator 는 이 이미지들을"
   log "  스캔하지 못한다. GitLab 이 뜬 뒤 이 스크립트를 다시 돌릴 것."
