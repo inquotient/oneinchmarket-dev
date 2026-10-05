@@ -60,6 +60,11 @@ patches:
   #   자세한 측정 기록은 그 패치 파일 머리말에 있다.
   - path: patches/openreplay-migrate-hook-local.yaml
 
+  # ★★★ MongoDB 8.0 이 이 노드의 커널(7.0.0-38)에서 기동을 거부한다
+  #   — SERVER-121912. 7.0 LTS 로 내린다. 측정 기록과 복귀 조건은
+  #   그 패치 파일 머리말에 있다. base 를 고치지 않는 이유도 거기 있다.
+  - path: patches/mongodb-local.yaml
+
   # ★ Elasticsearch·Kibana 패치를 걷어냈다(2026-09-11) — base 에서 그
   #   리소스를 지웠기 때문이다(WSO2-OSS-MAPPING 9-1). **패치는 대상이
   #   사라지면 렌더 자체를 실패시킨다**:
