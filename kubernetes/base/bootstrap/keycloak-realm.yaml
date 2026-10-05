@@ -104,10 +104,23 @@ spec:
             - |
               set -eu
               echo "[0/6] Keycloak 대기"
-              until curl -sf -o /dev/null "${KC}/realms/master"; do sleep 5; done
+              # ★★ 상한을 둔다 — 무한 대기는 ArgoCD 동기화를 **영원히** 세운다.
+              #   실측(2026-10-06): 타임아웃 없는 curl 하나가 멈춘 연결에 걸려
+              #   apicurio-rules 훅이 11분 넘게 Running 이었고 동기화 전체가 그
+              #   자리에 섰다. **멈추면 실패로 끝나야 한다** — 실패는 보이지만
+              #   대기는 보이지 않는다(Gotcha 19·120 이 같은 것을 적어 두었다).
+              n=0
+              until curl --connect-timeout 5 --max-time 30 -sf -o /dev/null "${KC}/realms/master"; do
+                n=$((n+1))
+                if [ "$n" -ge 100 ]; then
+                  echo "[keycloak-realm 대기 실패] 300초 동안 응답이 없다 — 의존 대상을 확인할 것" >&2
+                  exit 1
+                fi
+                sleep 3
+              done
 
               echo "[1/6] 관리 토큰"
-              TOK=$(curl -sf -X POST "${KC}/realms/master/protocol/openid-connect/token" \
+              TOK=$(curl --connect-timeout 5 --max-time 30 -sf -X POST "${KC}/realms/master/protocol/openid-connect/token" \
                 -d "client_id=admin-cli" -d "username=admin" \
                 -d "password=${ADMIN_PASSWORD}" -d "grant_type=password" \
                 | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
@@ -115,10 +128,10 @@ spec:
               A="Authorization: Bearer ${TOK}"
 
               echo "[2/6] realm ${REALM}"
-              if curl -sf -o /dev/null -H "$A" "${KC}/admin/realms/${REALM}"; then
+              if curl --connect-timeout 5 --max-time 30 -sf -o /dev/null -H "$A" "${KC}/admin/realms/${REALM}"; then
                 echo "  이미 있음"
               else
-                curl -sf -X POST "${KC}/admin/realms" -H "$A" \
+                curl --connect-timeout 5 --max-time 30 -sf -X POST "${KC}/admin/realms" -H "$A" \
                   -H 'Content-Type: application/json' \
                   -d "{\"realm\":\"${REALM}\",\"enabled\":true,
                        \"accessTokenLifespan\":300}"
@@ -129,9 +142,9 @@ spec:
               # ★ 하드코딩 클레임 매퍼가 핵심이다. 이 클라이언트가 받은 토큰에는
               #   tenant=acme-corp 가 반드시 들어가고, 클라이언트는 그 값을
               #   바꿀 수 없다. 게이트웨이는 이것만 믿는다.
-              EXIST=$(curl -sf -H "$A" "${KC}/admin/realms/${REALM}/clients?clientId=${SMOKE_TENANT}" | head -c 3)
+              EXIST=$(curl --connect-timeout 5 --max-time 30 -sf -H "$A" "${KC}/admin/realms/${REALM}/clients?clientId=${SMOKE_TENANT}" | head -c 3)
               if [ "$EXIST" = "[]" ]; then
-                curl -sf -X POST "${KC}/admin/realms/${REALM}/clients" -H "$A" \
+                curl --connect-timeout 5 --max-time 30 -sf -X POST "${KC}/admin/realms/${REALM}/clients" -H "$A" \
                   -H 'Content-Type: application/json' \
                   -d "{\"clientId\":\"${SMOKE_TENANT}\",
                        \"enabled\":true,
@@ -171,14 +184,14 @@ spec:
               JSON
               )
               BSQ="${KC}/admin/realms/${REALM}/clients?clientId=backstage"
-              if [ "$(curl -sf -H "$A" "$BSQ" | head -c 3)" = "[]" ]; then
-                curl -sf -X POST "${KC}/admin/realms/${REALM}/clients" -H "$A" -H 'Content-Type: application/json' -d "$BS_JSON"
+              if [ "$(curl --connect-timeout 5 --max-time 30 -sf -H "$A" "$BSQ" | head -c 3)" = "[]" ]; then
+                curl --connect-timeout 5 --max-time 30 -sf -X POST "${KC}/admin/realms/${REALM}/clients" -H "$A" -H 'Content-Type: application/json' -d "$BS_JSON"
                 echo "  생성"
               else
                 # 이미 있으면 갱신한다 — 콜백 URL 이나 시크릿이 바뀌었을 수 있고,
                 # 낡은 값을 그대로 두면 로그인이 조용히 깨진다.
-                CID=$(curl -sf -H "$A" "$BSQ" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-                curl -sf -X PUT "${KC}/admin/realms/${REALM}/clients/${CID}" -H "$A" -H 'Content-Type: application/json' -d "$BS_JSON"
+                CID=$(curl --connect-timeout 5 --max-time 30 -sf -H "$A" "$BSQ" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+                curl --connect-timeout 5 --max-time 30 -sf -X PUT "${KC}/admin/realms/${REALM}/clients/${CID}" -H "$A" -H 'Content-Type: application/json' -d "$BS_JSON"
                 echo "  갱신"
               fi
 
@@ -192,18 +205,18 @@ spec:
               JSON
               )
               UQ="${KC}/admin/realms/${REALM}/users?username=${PORTAL_USER}&exact=true"
-              if [ "$(curl -sf -H "$A" "$UQ" | head -c 3)" = "[]" ]; then
-                curl -sf -X POST "${KC}/admin/realms/${REALM}/users" -H "$A" -H 'Content-Type: application/json' -d "$U_JSON"
+              if [ "$(curl --connect-timeout 5 --max-time 30 -sf -H "$A" "$UQ" | head -c 3)" = "[]" ]; then
+                curl --connect-timeout 5 --max-time 30 -sf -X POST "${KC}/admin/realms/${REALM}/users" -H "$A" -H 'Content-Type: application/json' -d "$U_JSON"
                 echo "  생성"
               else
-                PUID=$(curl -sf -H "$A" "$UQ" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+                PUID=$(curl --connect-timeout 5 --max-time 30 -sf -H "$A" "$UQ" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
                 PW_JSON=$(printf '{"type":"password","value":"%s","temporary":false}' "${PORTAL_PASSWORD}")
-                curl -sf -X PUT "${KC}/admin/realms/${REALM}/users/${PUID}/reset-password" -H "$A" -H 'Content-Type: application/json' -d "$PW_JSON"
+                curl --connect-timeout 5 --max-time 30 -sf -X PUT "${KC}/admin/realms/${REALM}/users/${PUID}/reset-password" -H "$A" -H 'Content-Type: application/json' -d "$PW_JSON"
                 echo "  비밀번호 갱신"
               fi
 
               echo "[6/6] 검증 — 발급된 토큰에 tenant 클레임이 있는가"
-              AT=$(curl -sf -X POST "${KC}/realms/${REALM}/protocol/openid-connect/token" \
+              AT=$(curl --connect-timeout 5 --max-time 30 -sf -X POST "${KC}/realms/${REALM}/protocol/openid-connect/token" \
                 -d "grant_type=client_credentials" \
                 -d "client_id=${SMOKE_TENANT}" -d "client_secret=${SMOKE_SECRET}" \
                 | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')

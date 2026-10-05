@@ -76,16 +76,29 @@ spec:
               API="http://apicurio-registry-headless:8080/apis/registry/v3"
 
               echo "[apicurio-rules] 레지스트리 대기"
-              until curl -sf "$API/system/info" >/dev/null 2>&1; do sleep 3; done
+              # ★★ 상한을 둔다 — 무한 대기는 ArgoCD 동기화를 **영원히** 세운다.
+              #   실측(2026-10-06): 타임아웃 없는 curl 하나가 멈춘 연결에 걸려
+              #   apicurio-rules 훅이 11분 넘게 Running 이었고 동기화 전체가 그
+              #   자리에 섰다. **멈추면 실패로 끝나야 한다** — 실패는 보이지만
+              #   대기는 보이지 않는다(Gotcha 19·120 이 같은 것을 적어 두었다).
+              n=0
+              until curl --connect-timeout 5 --max-time 30 -sf "$API/system/info" >/dev/null 2>&1; do
+                n=$((n+1))
+                if [ "$n" -ge 100 ]; then
+                  echo "[apicurio-rules 대기 실패] 300초 동안 응답이 없다 — 의존 대상을 확인할 것" >&2
+                  exit 1
+                fi
+                sleep 3
+              done
 
               set_rule() {   # set_rule <RULE_TYPE> <CONFIG>
                 local rt="$1" cfg="$2" code
                 # 있으면 409 가 온다. 그때는 PUT 으로 값을 맞춘다.
-                code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API/admin/rules" \
+                code=$(curl --connect-timeout 5 --max-time 30 -s -o /dev/null -w '%{http_code}' -X POST "$API/admin/rules" \
                         -H 'Content-Type: application/json' \
                         -d "{\"ruleType\":\"${rt}\",\"config\":\"${cfg}\"}")
                 if [ "$code" = "409" ]; then
-                  code=$(curl -s -o /dev/null -w '%{http_code}' -X PUT "$API/admin/rules/${rt}" \
+                  code=$(curl --connect-timeout 5 --max-time 30 -s -o /dev/null -w '%{http_code}' -X PUT "$API/admin/rules/${rt}" \
                           -H 'Content-Type: application/json' \
                           -d "{\"ruleType\":\"${rt}\",\"config\":\"${cfg}\"}")
                   echo "  ${rt}=${cfg}  (기존 규칙 갱신, http ${code})"
@@ -103,7 +116,7 @@ spec:
               ok=0
               for want in "VALIDITY:FULL" "COMPATIBILITY:BACKWARD"; do
                 rt="${want%%:*}"; cfg="${want##*:}"
-                got=$(curl -s "$API/admin/rules/${rt}" | grep -o "\"config\":\"[^\"]*\"" | cut -d'"' -f4)
+                got=$(curl --connect-timeout 5 --max-time 30 -s "$API/admin/rules/${rt}" | grep -o "\"config\":\"[^\"]*\"" | cut -d'"' -f4)
                 echo "  ${rt} -> ${got:-없음}"
                 [ "$got" = "$cfg" ] && ok=$((ok+1))
               done
