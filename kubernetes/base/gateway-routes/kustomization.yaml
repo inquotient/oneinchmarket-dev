@@ -1,0 +1,7 @@
+# ★ commonAnnotations 로 sync-wave 를 두지 않는다 — 이 디렉터리의 두 라우트는
+#   **서로 다른 wave** 다(api 8 · managed-api 5). 각 리소스에 직접 적는다.
+#   commonAnnotations 를 두면 같은 키를 덮어 둘이 같은 wave 가 된다(Gotcha 67).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - http-routes.yaml

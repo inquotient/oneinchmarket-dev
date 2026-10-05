@@ -19,6 +19,11 @@ resources:
   - service-mesh/
   # ★ service-mesh/ 와 분리한다 — 그쪽 commonAnnotations 가 wave 를 0 으로
   #   덮어쓰는데, 이 RLS 는 Redis(wave 1) 뒤에 떠야 한다(§8-89).
+  # ★ service-mesh/ 와 분리한다 — 그쪽 commonAnnotations 가 wave 를 0 으로
+  #   덮는데, 이 두 HTTPRoute 의 백엔드는 훨씬 뒤다(safeline 8 · gravitee 5).
+  #   wave 0 에 두면 백엔드가 없어 **영원히 Degraded** 이고 동기화가 거기서
+  #   멈춘다 — 베어메탈 첫 구축에서 `Synced 126/575` 로 실측했다(Gotcha 173).
+  - gateway-routes/
   - gateway-ratelimit/
   # ★ messaging/ 과 분리한다 — 그쪽 commonAnnotations 가 wave 를 2 로
   #   덮는데, Connect 는 Kafka(2)·MariaDB(1) 뒤인 3 이어야 한다(Gotcha 67).
