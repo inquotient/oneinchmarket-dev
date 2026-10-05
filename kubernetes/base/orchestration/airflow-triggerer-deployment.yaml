@@ -127,9 +127,24 @@ spec:
           volumeMounts:
             - { name: dagbag, mountPath: /opt/airflow/dags, readOnly: true }
             - { name: logs, mountPath: /opt/airflow/logs }
+          # ★★★ 2026-10-05: memory 512Mi -> 1Gi · requests 256Mi -> 512Mi.
+          #   512Mi 에서 **OOMKilled(exit 137)** 였다. ★ 증상이 앱을 가리키지
+          #   않는다 — 로그는 `Starting the triggerer` · `Application startup
+          #   complete` 까지 정상으로 찍히고 프로브 실패 이벤트도 없다. 보이는
+          #   것은 `Back-off restarting failed container` 한 줄뿐이라 설정·DB 를
+          #   먼저 뒤지게 된다. **판정은 `lastState.terminated` 의 exitCode·reason** 다.
+          #   ★★ 값은 추측하지 않고 **cgroup 에서 읽었다** — 1Gi 로 올려 띄운 뒤
+          #     컨테이너 안에서:
+          #       memory.current 487.6 MiB · memory.peak **614.2 MiB**
+          #     그래서 512Mi 는 피크보다 작았다. requests 는 정상 사용에 맞춰
+          #     512Mi, limit 은 측정으로 돌아간 값 1Gi 로 둔다.
+          #   ★ Airflow 는 파이썬이라 JVM 의 "힙을 limit 의 60~70%"(Gotcha 82)가
+          #     적용되지 않는다 — 대신 피크를 재서 정한다.
+          #   ★ scheduler·api-server·dag-processor 는 같은 증상이 없었다 —
+          #     triggerer 만 uvicorn 로그 서버 + asyncio 루프를 함께 든다.
           resources:
-            requests: { cpu: 100m, memory: 256Mi }
-            limits:   { cpu: 1000m, memory: 512Mi }
+            requests: { cpu: 100m, memory: 512Mi }
+            limits:   { cpu: 1000m, memory: 1Gi }
       volumes:
         # ★★★ ConfigMap 을 DAG 폴더로 **직접 마운트하지 말 것.**
         #   ConfigMap 볼륨은 `..data -> ..<타임스탬프>` 심볼릭 링크 구조를
