@@ -44,15 +44,33 @@ RUN curl -sSL -o s.tgz \
 WORKDIR /src/apache-ranger-2.9.0
 
 # master 에서 최소한만 가져온다. RangerRESTClient 는 Jersey 2 재작성이 필요한
-# 유일한 파일이고, 나머지 둘은 그것이 참조하는 것이다.
+# 유일한 파일이고, 나머지는 그것이 참조하는 것이다.
+#
+# ★★★ 2026-10-05: `master` 를 **커밋 SHA 로 고정했다.** 그 전까지는 브랜치
+#   이름으로 받고 있어서 **우리가 아무것도 바꾸지 않아도 빌드가 깨졌다** —
+#   실제로 깨졌다: 상류가 `plugin/authn/JwtProvider.java` 를 다른 모듈로
+#   옮기고 이름까지 바꿨다(`authz-remote/.../authn/RangerRemoteJwtProvider.java`).
+#   받던 URL 이 404 가 되고 `curl --fail` 이 빌드를 중단시켰다. 로그 끝은
+#   `curl: (22) ... error: 404` 한 줄이고, 그 위의 `+ curl ...` 줄을 봐야
+#   어느 파일인지 알 수 있다. Gotcha 45·60 과 같은 부류다 —
+#   **참조 뒤의 내용물이 움직인다.**
+# ★ 그 파일은 **이제 필요 없다** — master 의 RangerRESTClient 가 더 이상
+#   JwtProvider 를 import 하지 않는다(실측: import 목록에 없다). 상류가 JWT
+#   취득을 `ranger.common.auth.jwt.retriever.class` 로 분리했다.
+# ★★ SHA 를 올릴 때는 **그 커밋의 RangerRESTClient import 목록을 먼저 읽을 것** —
+#   참조가 다시 늘면 여기에 파일을 더해야 한다.
 RUN set -eux; \
     AC=agents-common/src/main/java/org/apache/ranger; \
-    RAW=https://raw.githubusercontent.com/apache/ranger/master/agents-common/src/main/java/org/apache/ranger; \
-    mkdir -p "$AC/plugin/authn"; \
+    RANGER_SHA=b7f823187f09711a45ce33db609105460b75f3c5; \
+    RAW="https://raw.githubusercontent.com/apache/ranger/${RANGER_SHA}/agents-common/src/main/java/org/apache/ranger"; \
     for P in plugin/util/RangerRESTClient.java \
-             plugin/util/RangerJersey2ClientBuilder.java \
-             plugin/authn/JwtProvider.java; do \
+             plugin/util/RangerJersey2ClientBuilder.java; do \
       curl -sSL --fail -o "$AC/$P" "$RAW/$P"; \
+    done; \
+    for P in plugin/util/RangerRESTClient.java \
+             plugin/util/RangerJersey2ClientBuilder.java; do \
+      grep -q "package org.apache.ranger.plugin.util;" "$AC/$P" \
+        || { echo "[guard] $P 내용이 기대와 다르다 — 상류가 또 움직였다" >&2; exit 1; }; \
     done
 
 # 2.9.0 원본 4개는 유지하고 Jersey 1 사용처만 기계적으로 옮긴다.
