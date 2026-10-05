@@ -14103,7 +14103,7 @@ Hyper-V 에 남은 의존이 하나도 없었다는 것을 이 삭제가 증명�
 | 항목 | 상태 | 빠뜨리면 |
 |---|---|---|
 | `/etc/resolv.conf` 고정 + `chattr +i` | **불필요해졌다** — WSL DNS 프록시가 없다. 대신 k3s 에 `--resolv-conf=/run/systemd/resolve/resolv.conf` 를 준다(부트스트랩이 한다) | 파드 외부 DNS 전멸 |
-| `/etc/rancher/k3s/registries.yaml` | **두 노드 다** 필요하다 | 레지스트리 pull 이 HTTPS 로 가서 실패(Gotcha 126) |
+| `/etc/rancher/k3s/registries.yaml` | **두 노드 다** 필요하다 — 이제 `local/configure-node-registry.sh` 가 한다(`--check` 로 반영 여부 판정) | 레지스트리 pull 이 HTTPS 로 가서 실패(Gotcha 126) |
 | `/etc/hosts` 의 레지스트리 항목 | 두 노드 다 | 이름 해석 실패 |
 | **control-plane → 다른 노드 root ssh 키 인증** | **새 항목** | `build-images.sh` 가 그 노드에 반입하지 못하고, 거기 스케줄된 파드가 `ImagePullBackOff`(Gotcha 175) |
 | **`quay-pull-secret`**(quay.io 로봇 토큰) | **새 항목** — `local/quay-pull-secret.sh` | MinIO·mc 이미지를 받지 못해 wave 3 이 통째로 선다 |
