@@ -14094,6 +14094,30 @@ Hyper-V 에 남은 의존이 하나도 없었다는 것을 이 삭제가 증명�
 앞의 둘은 WSL 배포판 파일시스템에 있어 재부팅을 견딘다 — **재설치·재구축 때만**
 다시 해야 한다. 셋째는 WSL 이 매 부팅에 다시 만들므로 §3-1 에 있다.
 
+
+### 25-00. 베어메탈 2노드로 옮기며 바뀐 "레포 밖" 목록 (2026-10-05 추가)
+
+위 표는 **WSL2 시절**의 것이다. 2026-10-04 에 노드가 `192.168.0.103`(server) ·
+`192.168.0.104`(agent) 둘로 바뀌면서 목록이 이렇게 달라졌다.
+
+| 항목 | 상태 | 빠뜨리면 |
+|---|---|---|
+| `/etc/resolv.conf` 고정 + `chattr +i` | **불필요해졌다** — WSL DNS 프록시가 없다. 대신 k3s 에 `--resolv-conf=/run/systemd/resolve/resolv.conf` 를 준다(부트스트랩이 한다) | 파드 외부 DNS 전멸 |
+| `/etc/rancher/k3s/registries.yaml` | **두 노드 다** 필요하다 | 레지스트리 pull 이 HTTPS 로 가서 실패(Gotcha 126) |
+| `/etc/hosts` 의 레지스트리 항목 | 두 노드 다 | 이름 해석 실패 |
+| **control-plane → 다른 노드 root ssh 키 인증** | **새 항목** | `build-images.sh` 가 그 노드에 반입하지 못하고, 거기 스케줄된 파드가 `ImagePullBackOff`(Gotcha 175) |
+| **`podman` 설치** | **새 항목** — 부트스트랩 전제 검사에 없다 | `build-images.sh` 가 첫 줄에서 죽는다 |
+| 노드 IP 고정 | 둘 다. 부트스트랩이 `dynamic` 이면 거부한다 | kine 에 죽은 주소가 남는다(Gotcha 49·55) |
+
+★ **`local/build-images.sh` 는 control-plane 에서 돌릴 것** — 거기서 다른 노드로
+ssh 해 반입한다. agent 에서 돌리면 자기 노드와 control-plane 에 넣는데,
+`kubectl` 이 없어 노드 목록을 읽지 못한다.
+
+★★ **WSL2 시절의 항목 중 사라진 것**: `.wslconfig`(56GB 상한·`vmIdleTimeout`) ·
+`keepalive.ps1` · 콜드 부팅마다의 ambient 재편입(§3-1). 노드가 유휴로 꺼지지
+않으므로 §3-1 의 절반은 더 이상 필요하지 않다. 다만 **"ztunnel 을 재시작하면
+istio-cni 도 함께" 는 유효하다**(Gotcha 50) — 그것은 WSL 특성이 아니다.
+
 ### 25-0. 노드 파일이 아니라 **클러스터 안 데이터**로 사는 원천 (2026-09-12 추가)
 
 위 표는 *노드의 파일*이고, 그것과 별개로 **매니페스트가 아니라 살아 있는

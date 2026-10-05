@@ -20,7 +20,7 @@ metadata:
     app.kubernetes.io/managed-by: argocd
     environment: local
 spec:
-  description: OneinchMarket — local (WSL2 단일 노드)
+  description: OneinchMarket — local (베어메탈 2노드 · 192.168.0.103 server · .104 agent)
 
   sourceRepos:
     # ★★★ 2026-10-04: GitHub 를 더했다 — **순환 의존을 끊기 위해서다.**

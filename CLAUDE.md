@@ -14,7 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | [docs/SECURITY.md](docs/SECURITY.md) | SEC-xxx 68건, 통제 인벤토리, 워크로드 커버리지 |
 | [docs/COMPONENTS.md](docs/COMPONENTS.md) | 구성요소 카탈로그, v1↔v2 대조, 의존 관계 |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | INFRA-xxx 56건, 배포 절차, 배포 블로커, 용량·비용 |
-| [docs/LOCAL-DEPLOYMENT.md](docs/LOCAL-DEPLOYMENT.md) | **브랜치 `local`.** WSL2 단일 노드 k3s + zram (B안). **§8 에 실배포 기록** — WSL2 고유 블로커 3건, 결함 32건 해소. **§9 는 뒤로 미룬 일** — 지금 하지 않기로 **결정한** 목록이다(잊은 것이 아니다). ★ **노드 상태 두 가지가 이 레포 밖에 있다** — `/etc/resolv.conf` 고정(§24-8)과 `/etc/rancher/k3s/registries.yaml`(Gotcha 126, 클러스터 안 레지스트리를 평문 HTTP 로 알려 준다). **클러스터를 새로 세우면 둘 다 다시 해야 한다.** **§3-1 은 콜드 부팅 뒤 체크리스트** — WSL 이 꺼졌다 켜지면 반드시 볼 것. **§23 은 56GB 상한**(§22 의 결론을 뒤집는다) · **§24 는 L0 랩의 KVM 이전**(완료 — Hyper-V 자산은 지웠다) · **§25 는 이 레포 밖의 노드 상태 목록**(재구축 때 빠뜨리기 쉽다) · **§15-6 은 KVM 다중 노드** — H5 가 열려 판단 근거가 바뀌었다. 새 작업을 시작하기 전에 볼 것 |
+| [docs/LOCAL-DEPLOYMENT.md](docs/LOCAL-DEPLOYMENT.md) | **브랜치 `local`.** ★★★ **2026-10-04 에 WSL2 단일 노드에서 베어메탈 2노드로 옮겼다** — `192.168.0.103`(control-plane) · `192.168.0.104`(agent), Intel NUC15 CRSU9 둘, Ubuntu 26.04·kernel 7.0.0-38, 합산 allocatable **cpu 31,000m · mem 117.1 GiB**(WSL 대비 CPU 1.3배·메모리 2.2배). 부트스트랩은 `local/bootstrap-baremetal-k3s.sh [server|agent|--check]` 다. zram·`.wslconfig`·keepalive 는 **더 이상 쓰이지 않는다**(Gotcha 6·49·104·105 는 그 시절 기록이다). 아래 §8 이하의 WSL2 서술은 **이전 환경의 기록**으로 읽을 것. **§8 에 실배포 기록** — WSL2 고유 블로커 3건, 결함 32건 해소. **§9 는 뒤로 미룬 일** — 지금 하지 않기로 **결정한** 목록이다(잊은 것이 아니다). ★ **노드 상태 두 가지가 이 레포 밖에 있다** — `/etc/resolv.conf` 고정(§24-8)과 `/etc/rancher/k3s/registries.yaml`(Gotcha 126, 클러스터 안 레지스트리를 평문 HTTP 로 알려 준다). **클러스터를 새로 세우면 둘 다 다시 해야 한다.** **§3-1 은 콜드 부팅 뒤 체크리스트** — WSL 이 꺼졌다 켜지면 반드시 볼 것. **§23 은 56GB 상한**(§22 의 결론을 뒤집는다) · **§24 는 L0 랩의 KVM 이전**(완료 — Hyper-V 자산은 지웠다) · **§25 는 이 레포 밖의 노드 상태 목록**(재구축 때 빠뜨리기 쉽다) · **§15-6 은 KVM 다중 노드** — H5 가 열려 판단 근거가 바뀌었다. 새 작업을 시작하기 전에 볼 것 |
 | [local/ACCESS.md](local/ACCESS.md) | **Windows 에서 접근하는 법.** UI 40여 종의 port-forward·URL·계정 + DBeaver 용 DB 접속 정보. 비밀번호는 값이 아니라 **조회 명령**으로 적혀 있다 |
 | [docs/APP-INTEGRATION.md](docs/APP-INTEGRATION.md) | **애플리케이션 연동 가이드.** 앱을 이 플랫폼에 붙이는 법 — OTel·GlitchTip·Pyroscope·Kafka·계약, 새 워크로드 규약, 지금 안 되는 것 |
 | [docs/ADR-CANDIDATES.md](docs/ADR-CANDIDATES.md) | 아키텍처 결정 기록 후보 60건 |
@@ -541,6 +541,8 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 171. **★★★ `create-secrets.sh` 의 `mk` 가 "Secret 이 있으면 통째로 건너뛴다" 였다 — 그래서 **나중에 더한 키가 영원히 빠졌고** 아무도 알려 주지 않았다.** 값을 덮지 않으려는 의도는 옳았지만 그 대가가 이것이었다. 베어메탈 첫 구축에서 렌더 전수 검사를 처음 돌려 보니 **필수 참조 91건 중 12건이 비어 있었다** — 키 없음 8건(`clickhouse-secret/openmeter-password`·`/openmeter-pg-password` · `ranger-secret/{admin,keyadmin,tagsync,usersync}-password` · `ds389-secret/sync-password` · `keycloak-secret/smoke-client-secret`), 오브젝트 없음 1건(`midpoint-secret` — 참조는 둘 있었다), 레포 밖 원천 3건. ★ **`ACCESS.md` 는 처음부터 `pw ranger-secret admin-password` 를 안내하고 있었다** — 즉 문서가 **없는 키**를 가리켜 왔다. 문서를 근거로 "있다" 고 판단하지 말 것. ★★ 증상이 원인을 가리키지 않는다: 파드는 `Init:CreateContainerConfigError` 뿐이고 **이벤트를 읽어야** `couldn't find key <키> in Secret` 이 나온다. 그 파드가 앞 wave 에 있으면 동기화가 그 자리에 선다. ★★★ 판정은 기억이 아니라 **렌더 전수**로 한다 — `local/check-secret-refs.py`(`--check` 로 게이트). `optional: true` 참조와 레포 밖 원천은 세지 않는다: **달성할 수 없는 게이트는 없는 게이트보다 나쁘다**(Gotcha 73·90). ★ 그리고 Ranger 넷은 **비밀번호 정책**(대소문자·숫자·특수)을 통과해야 한다 — `gen()` 의 hex 로 적었다가 고쳤다. 걸리면 setup 이 조용히 넘어가 그 계정이 **기본값으로 남는다**
 172. **★★★ `helm template` 이 치환하지 못한 값이 **공개 레포에 박힌 서명 키**가 되어 있었다.** OpenReplay 차트의 `or-secrets`·`openreplay-secrets` 를 디코드해 보니 값이 전부 리터럴 **`{{ randAlphaNum 20 }}`** 였다(or-secrets 12키 중 10키, openreplay-secrets 3키). 그런데 그중 **7키가 실제로 `secretKeyRef` 로 읽히고 있었다** — `jwt-secret`·`jwt-refresh-secret`·`jwt-spot-secret`·`jwt-spot-refresh-secret`·`assist-jwt-secret`·`assist-key`·`token-secret`. 즉 **누구나 아는 문자열로 토큰에 서명하고 있었고 그 문자열이 공개 저장소에 들어 있었다.** ★ 생성기(`render-openreplay.py`)는 이 문제를 **부분적으로 알고 있었다** — DB·ClickHouse·MinIO 자격은 우리 Secret 으로 돌려 놓았는데(FORCE/INJECT) JWT 계열은 손대지 않았다. **"일부를 고쳤다" 가 "고쳤다" 로 기억된 자리다.** ★★ 처방은 생성기가 그 Secret 둘을 **버리고**(DROP_SECRETS) `create-secrets.sh` 가 실제 난수로 만드는 것이다 — **생성 파일을 손으로 고치지 말 것**(다음 렌더에 되돌아온다). ★ `openreplay-secrets` 는 **아무도 참조하지 않았다**(렌더 전체에서 자기 선언 1건뿐) — 죽은 오브젝트였다. ★★ 판정법: 렌더의 Secret 을 **디코드해서 읽을 것**. `data:` 가 base64 라서 눈으로 넘기기 쉽고, 플레이스홀더와 진짜 난수는 디코드해야만 구분된다(Gotcha 75 가 "자리표시자를 Critical 로 읽는다" 고 적은 것의 **반대 방향** 실수다)
 173. **★★ sync-wave 를 **선언하지 않으면 0 이다** — 그리고 0 은 "아무래도 좋다" 가 아니라 "제일 먼저" 다.** openmeter 오버레이에는 wave 선언이 없어 9종(Deployment 5·CronJob 4)이 전부 wave 0 이었는데, OpenMeter 는 PostgreSQL·ClickHouse·Redis(wave 1)와 Kafka(wave 2)를 필요로 한다. ArgoCD 는 wave 경계마다 Healthy 를 기다리므로 그 다섯 파드가 **wave 0 을 영원히 붙잡았다** — 실측 `Synced 138/575` · 파드 8개 · openmeter 5종 CrashLoopBackOff. ★ **이미 떠 있는 클러스터에서는 드러나지 않는다** — DB 가 이미 있으니 wave 0 이어도 아무 일도 없다. Gotcha 58 이 말한 그대로다. ★★ 전수로 셀 것: 렌더에서 `Deployment|StatefulSet|DaemonSet|Job|CronJob` 중 `sync-wave` 가 없거나 0 인 것을 뽑으면 **openmeter 9종뿐**이었다. 파드를 하나씩 쫓는 것보다 세는 쪽이 빠르고, "다른 것도 그런가" 에 답을 준다
+174. **★★★ 새 하드웨어의 커널이 데이터스토어를 거부할 수 있다 — MongoDB 8.0 은 이 노드에서 **뜨지 않는다.**** 베어메탈 노드는 Ubuntu 26.04 · **kernel 7.0.0-38-generic** 이고 `mongodb-0` 이 CrashLoopBackOff 였다. 사유는 로그 한 줄이다 — `MongoDB cannot start: Linux kernel versions 6.19 and newer has a known incompatibility ... (SERVER-121912)`. 6.19~7.0.13 구간에서 MongoDB 가 벤더링한 TCMalloc 이 커널 rseq 동작 변화와 어긋나 메모리가 상하고, 최근 8.0.x 는 그 구간을 감지해 **일부러 뜨지 않는다**(손상된 채 도는 것보다 낫다는 판단이다). ★ **커널을 올려서 풀 수 없다** — Ubuntu 26.04 가 주는 커널은 전부 `7.0.0-NN` 이고(실측 -30·-31·-34·-38) MongoDB 의 검사는 **버전 문자열**을 본다. 업스트림 수정이 7.0.14 에 들어갔으므로 `7.0.0` 은 영원히 통과하지 못한다. Ubuntu 가 백포트했는지는 changelog 로 확인되지 않는다(`rseq` 언급 0건). ★★ **태그를 추측하지 말고 띄워 보고 고를 것** — 일회성 파드에서 `mongod` 를 직접 돌려 셋을 갈랐다: `8.0.32-14`(2026-09-23) **거부** · `8.0.4-2`(2025-02-19) 기동 · `7.0.43-23`(2026-09-22) 기동. 공개 날짜를 함께 볼 것 — `8.0.4-2` 는 "검사가 없을 뿐" 인 20개월 묵은 빌드여서 조용한 손상 위험이 그대로 남고 보안 패치가 뒤처진다. 고른 것은 **7.0.43-23**(유지되는 7.0 LTS, 문제의 TCMalloc 이전). ★ 고치는 자리는 **base 가 아니라 local 오버레이**다 — 이것은 이 노드의 커널 속성이고 아키텍처 결정이 아니다(`overlays/local/patches/mongodb-local.yaml`, 복귀 조건이 머리말에 있다). ★★ 1 레플리카 StatefulSet 은 **이미지를 바꿔도 파드가 교체되지 않는다** — 컨트롤러가 기존 파드가 Ready 가 아니면 롤링을 진행하지 않기 때문이다. 손으로 `kubectl delete pod` 해야 끊긴다. ★ 그리고 patch target 에 `namespace` 를 적으면 렌더가 깨진다 — base 의 StatefulSet 은 그것을 선언하지 않는다(openreplay 쪽 패치는 **반대**다. 대상이 선언하는지 보고 맞출 것, Gotcha 170)
+175. **★★ `k3s ctr images import` 는 **그 노드 하나**에만 넣는다 — 노드를 둘로 늘리자 로컬 빌드 이미지가 절반의 확률로 없어졌다.** 실측: `proxysql` 을 103 에서 반입했는데 파드가 **104 에 스케줄**되어 `ImagePullBackOff` 였다. ★ **오류 문구가 원인을 가린다** — `failed to resolve reference ... lookup gitlab-registry.local.svc.cluster.local: Try again` 이라 "레지스트리가 없다/DNS 가 깨졌다" 로 읽힌다. 진짜 원인은 **"이 노드에 그 이미지가 없다"** 다. 레지스트리를 세워 풀게 할 수도 없다 — GitLab 은 wave 5 인데 이 이미지를 쓰는 워크로드는 **wave 1(proxysql)부터** 있다(Gotcha 126 이 적은 순환 의존이 2노드에서 더 아프게 돌아온다). ★★ 그래서 `build-images.sh` 가 **모든 노드에** 반입한다(`import_everywhere`) — 노드 목록은 하드코딩하지 않고 `kubectl get nodes` 의 InternalIP 에서 읽는다. 전제는 **control-plane → 다른 노드 root ssh 키 인증**이고 그것은 노드 상태라 이 레포 밖이다(LOCAL-DEPLOYMENT §25-0). ★ 확인 단계도 **모든 노드를 센다** — 이 노드만 보고 "반입했다" 는 거짓을 한 번 믿었다. 그리고 노드에 `podman` 이 **없었다** — 부트스트랩 전제 목록에 빠져 있던 항목이다
 
 ### 매니페스트 작업 시
 
@@ -560,4 +562,39 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 
 ### 로컬 개발
 
-로컬 타깃(Hyper-V + k3s)은 설계 단계다 (ADR-051). 전 구성요소 동시 배포에는 **128 GB RAM**이 필요하고, 64 GB에서는 Kustomize Component 기반 프로파일 전환이 필요하다. 자세한 산정은 [docs/DEPLOYMENT.md §4](docs/DEPLOYMENT.md).
+**★★★ 2026-10-04 부터 로컬은 베어메탈 2노드다.** `192.168.0.103`(control-plane) ·
+`192.168.0.104`(agent) — Intel NUC15 CRSU9 둘, 16코어·60 GiB·NVMe 915G,
+Ubuntu 26.04.1 LTS · kernel 7.0.0-38-generic, iface `enp86s0`.
+합산 allocatable **cpu 31,000m · mem 117.1 GiB** 다.
+
+```bash
+# 노드마다 한 번 (root)
+bash local/bootstrap-baremetal-k3s.sh --check      # 전제 검사만
+bash local/bootstrap-baremetal-k3s.sh server       # 103
+K3S_URL=https://192.168.0.103:6443 K3S_TOKEN=... \
+  bash local/bootstrap-baremetal-k3s.sh agent      # 104
+# 그 다음 (103 에서)
+bash local/install-platform.sh     # Cilium 1.20.2 + Gateway API
+bash local/install-operators.sh    # Istio ambient 1.31.0 + 오퍼레이터 13종
+bash local/create-secrets.sh       # Secret 37종
+bash local/build-images.sh         # 로컬 빌드 이미지 11종 — **모든 노드로 반입한다**
+bash local/install-argocd.sh
+kubectl apply -f argocd/projects/oneinchmarket-local.yaml   # ★ 따로 적용(Gotcha 57)
+kubectl apply -f argocd/applications/oneinchmarket-local.yaml
+python3 local/check-secret-refs.py --check          # 참조 전수 검사
+```
+
+**이 레포 밖에 있는 노드 상태** — 클러스터를 새로 세우면 다시 해야 한다:
+`/etc/rancher/k3s/registries.yaml`(**두 노드 다**, Gotcha 126) ·
+control-plane → 다른 노드 **root ssh 키 인증**(이미지 반입에 필요, Gotcha 175) ·
+`podman` 설치(부트스트랩 전제 목록에 없었다) · 전체 목록은 LOCAL-DEPLOYMENT §25-0.
+
+WSL2 시절의 제약은 **더 이상 적용되지 않는다** — zram · `.wslconfig` 56GB 상한 ·
+`keepalive.ps1` · 콜드 부팅 뒤 ambient 재편입(Gotcha 6·49·50·104·105)은
+그 환경의 기록이다. 다만 **Gotcha 50 의 "ztunnel 을 재시작하면 istio-cni 도
+함께 재시작할 것" 은 그대로 유효하다** — 그것은 WSL 특성이 아니다.
+
+~~로컬 타깃(Hyper-V + k3s)은 설계 단계다 (ADR-051).~~ 전 구성요소 동시 배포에
+**128 GB RAM** 이 필요하다는 산정(ADR-051)은 이제 **거의 충족된다**(117.1 GiB).
+64 GB 전제의 Kustomize Component 프로파일 전환은 그래서 급하지 않다.
+자세한 산정은 [docs/DEPLOYMENT.md §4](docs/DEPLOYMENT.md).
