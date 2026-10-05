@@ -577,6 +577,29 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 
 184. **★★ JVM 의 메모리에는 **세 번째 덩이**가 있다 — Netty 의 direct memory 기본 상한은 최대 힙과 같다.** Gotcha 82 는 "힙을 limit 의 60~70% 로" 까지 적었는데 그것으로 부족한 경우가 있다. 실측: `data-prepper` 가 `-Xms640m -Xmx640m` / limit 1Gi(=62.5%, 기준을 지킨 값)인데 **`exit=137`(OOMKilled)로 8회 재시작**했고 **로그에는 오류가 한 줄도 없었다** — 파이프라인 6개를 전부 `Started` 로 띄운 뒤 조용히 죽는다. 기동 직후 cgroup 은 148MiB 였다. ★ Gotcha 123 의 함정(상류 스크립트가 자기 `-Xmx` 를 뒤에 붙임)부터 배제했다 — `/proc/1/cmdline` 에 `-Xmx` 가 우리 값 하나뿐이었다. ★★ 원인은 **Netty** 다: `-XX:MaxDirectMemorySize` 를 명시하지 않으면 **최대 힙과 같은 값**이 쓰인다. 즉 `640m 힙 + 640m direct` 만으로 limit 1Gi 를 넘고, **그 몫은 GC 가 줄여 주지 않으므로** 힙이 차기 전에 커널이 먼저 죽인다. Armeria·Netty 로 OTLP·HTTP 를 받고 OpenSearch·Kafka 클라이언트까지 쓰는 워크로드에서 이 몫이 작지 않다. ★ 처방은 **명시하는 것**이다(`-XX:MaxDirectMemorySize=256m`) — 묶어 두면 초과 시 `OutOfMemoryError: Direct buffer memory` 로 **보이는 실패**가 되고, 조용한 OOMKill 보다 낫다. 합계 640+256+약150(메타스페이스·코드캐시·스레드 스택)을 보고 limit 을 1536Mi 로 함께 올렸다. 실측 결과 **재시작 0 으로 61분** 유지. ★★★ 그리고 **이 OOM 이 다른 워크로드의 OOM 을 데려왔다** — `otel-gateway`(limit 384Mi)가 export 실패로 재시도 큐가 자라 함께 OOMKilled 였다. 뿌리를 고치자 둘이 함께 멎었다. **연쇄 OOM 에서는 상류부터 고칠 것** — 하류의 limit 을 올리는 것은 증상을 미루는 것이다
 
+
+185. **★★★ 외부 진입점이 한 번도 닿은 적이 없었다 — `default-deny-ingress` 가 게이트웨이도 덮는데 80·443 을 여는 정책이 없었다. 그리고 그 증상이 **과금 쪽에 나왔다.**** 2026-10-06 실측. ADR-071 은 Istio 인그레스 게이트웨이를 외부 진입점으로 적어 두었는데, `default-deny-ingress` 는 `podSelector: {}` 로 네임스페이스 전체를 덮고 렌더 전수에서 80·443 ingress 를 여는 정책은 **gitlab·lam·nginx 셋뿐**이었다(게이트웨이를 선택하는 것 0건). 즉 밖에서 아무것도 들어올 수 없었다.
+     ★ **찾은 경로가 교훈이다 — 증상과 원인이 다른 계층에 있었다**:
+       ① 과금 계량(Gotcha 158)을 복구하고 2단계 판정을 했다. ①단계(`meshConfig` 의 `extensionProviders`)는 통과인데 ②단계(요청 뒤 게이트웨이 로그의 `^{` 줄)가 **0**.
+       ② "설정이 안 들어갔나" 로 의심했으나 **Envoy 는 받고 있었다** — `config_dump` 에 계약 형식의 `specversion` 이 12회, stdout 로거 1개, Telemetry 셀렉터도 파드 라벨과 일치.
+       ③ 진짜 단서는 **`downstream_rq_total` 지표가 아예 없는 것**이었다. Envoy 통계는 지연 생성이므로(Gotcha 150) **그 이름이 없다는 것은 요청이 한 번도 닿지 않았다는 뜻이다.** 이것이 "계량이 고장났나" 와 "트래픽이 없나" 를 가르는 유일한 값이다.
+       ④ 주소를 갈라 쟀다 — `127.0.0.1`·노드 IP 둘·ClusterIP·**파드 IP 직접**이 전부 `000`. NodePort 도 노드 간 경로도 아니었다(Cilium 은 `0.0.0.0:32421 -> 10.0.1.141:80 (active)` 로 정확히 알고 있었고 `kubeProxyReplacement=true` 였다).
+       ⑤ **대조군**으로 확정했다 — 다른 노드의 파드에서 그 파드 IP 로도 `000`. 호스트발도 아니고 LB 도 아니면 남는 것은 정책이다.
+     ★★ **`000 → 403` 이 성공 신호다.** 정책을 넣자 두 노드에서 403 이 됐고 그것이 **의도된 동작**이다(`api-require-jwt` 가 토큰 없는 요청을 막는다, Gotcha 18). `000`·`403`·`200` 은 **세 개의 다른 층**이고(Gotcha 157) 403 을 장애로 읽으면 멀쩡한 것을 고치게 된다. 그 뒤 ②단계가 통과했다 — 요청 5건에 `^{` 줄이 **2 → 7, 정확히 +5**. 이벤트도 계약을 지켰다(`status` 가 `403` **정수** — Gotcha 15 의 `logFormat.labels` 함정을 피했고, `id` 는 `x-request-id` UUID 로 멱등성 키가 섰다).
+     ★★★ **오퍼레이터가 만든 파드를 NetworkPolicy 로 선택할 때의 함정 — 처음 쓴 정책은 아무것도 선택하지 않았다.** 이 레포의 오버레이는 라벨 변환기로 `environment: local` 을 붙이는데, 그것이 **`spec/podSelector/matchLabels` 에도 주입된다.** 그런데 게이트웨이 Deployment 는 kustomize 가 아니라 **Istio 의 게이트웨이 컨트롤러**가 만들어서 그 라벨이 **없다**(실측 라벨 7개에 없다). 그래서 렌더 결과가
+     ```
+     podSelector:
+       matchLabels:
+         environment: local                              <- 주입됨. 그 파드엔 없다
+         gateway.networking.k8s.io/gateway-name: ingress
+     ```
+     가 되어 **매칭 0건**이 된다 — 정책은 있고 아무것도 하지 않는다(Gotcha 85·95 부류). ★ 처방은 **`matchExpressions` 를 쓰는 것**이다: 변환기는 `matchLabels` 만 건드리므로 그 형태는 오염되지 않는다(실측으로 `environment` 가 끼지 않았다). ★★ 일반화하면 — **오퍼레이터·컨트롤러가 만드는 파드를 고르는 셀렉터는 kustomize 가 붙이는 라벨에 기대지 말 것.** 그 라벨은 git 의 매니페스트에만 붙는다. ★ 그리고 **파일에 쓴 값이 렌더 결과라고 가정하지 말 것**(Gotcha 67) — 이것은 `kubectl kustomize` 의 podSelector 를 눈으로 보고 잡았다.
+     ★ 같은 라벨을 쓰는 이유도 적어 둘 것: Telemetry `api-usage` 의 셀렉터와 **같은 라벨**(`gateway-name: ingress`)을 쓴다 — 둘이 어긋나면 계량과 접근 허용이 서로 다른 워크로드를 가리킨다.
+     ★★ `from` 을 비워 **전 출발지 허용**으로 둔 것은 의도다. 진입점은 정의상 그래야 하고, 실제 인가는 네트워크가 아니라 위에서 한다(JWT 403 · SafeLine WAF) — 15008 을 넓게 열고 인가를 ztunnel 에 맡기는 것과 같은 논리다(Gotcha 13). 다만 **`podSelector` 는 비우지 말 것** — 비우면 네임스페이스 전체가 80·443 에 열려 default-deny 가 무의미해진다
+
+
+186. **★★ CLI 출력에서 비밀번호를 뽑을 때 **ANSI 이스케이프를 먼저 벗길 것** — 안 벗기면 Secret 에 `\x1b[0m` 이 붙은 값이 들어가고 증상은 "자격이 틀렸다" 로만 보인다.** 실측(2026-10-06): SafeLine 의 `mgt-cli reset-admin` 출력이 색을 입혀 나온다 — `\x1b[92m[INFO] Initial password：1nZu0e9T\x1b[0m`. 줄 끝을 `(\S+)$` 로 집으면 **8자 비밀번호 + 4바이트 리셋 시퀀스 = 12자**가 잡히고, base64 로 Secret 에 들어가면 그 뒤로 로그인이 영원히 실패한다. ★ **길이를 재서 잡았다** — 눈으로 본 값은 8자인데 추출 결과가 12자였다. 값을 출력하지 않는 규약을 지키면서도 **길이·`isprintable()`·`isalnum()` 은 찍을 수 있다**(그것이 값을 노출하지 않는 검증이다). ★★ 그리고 **구분자가 전각일 수 있다** — 그 출력은 `：`(U+FF1A)를 쓴다. `[:：]` 둘 다 받게 할 것. ★★★ **마스킹 임계를 길이로 두지 말 것** — 출력을 가리려고 `{10,}` 로 치환했는데 비밀번호가 8자여서 **그대로 찍혔다.** 노출된 값은 되돌릴 수 없으므로 **손상된 것으로 취급해 다시 발급**하는 것이 유일한 처방이다(Gotcha 76 과 같은 결론). 애초에 **민감한 출력은 마스킹해서 보여 주려 하지 말고 아예 보지 말 것** — 구조(줄 수·추출 성공 여부·길이)만 보고하면 충분하다
+
 ### 매니페스트 작업 시
 
 - `v1/` 매니페스트는 **배포 금지**. 단 CI가 이 경로의 Dockerfile을 참조한다는 모순이 있다
@@ -656,6 +679,10 @@ bash local/gitlab-repo-bootstrap.sh          # ★★ 통째로 돌리지 말 �
 bash local/gravitee-bootstrap.sh             # API 정의 — Mongo 에만 사는 원천(Gotcha 159)
 bash local/configure-istio-usage-logging.sh  # ★ 과금 계량 — Istio 재설치 뒤에는 반드시(Gotcha 158)
 bash local/opensearch-apply-security.sh      # wave 7 뒤. 빠뜨리면 수집이 401 로 조용히 끊긴다
+kubectl -n local exec deploy/safeline -c mgt -- /app/mgt-cli reset-admin   # ★ 선행 조건
+                                             #   관리자 자격은 mgt 가 발급한다 — create-secrets.sh 가 만들지 못한다(Gotcha 118 부류).
+                                             #   출력에서 값을 뽑아 safeline-secret/admin-password 에 넣어야 하고,
+                                             #   ★ ANSI 이스케이프를 먼저 벗길 것(Gotcha 186)
 bash local/safeline-bootstrap.sh             # wave 8 뒤. 사이트 정의 — mgt 의 PostgreSQL 에만 산다
 bash local/set-operator-requests.sh          # ★ Gotcha 80 — k3s 재시작만으로도 되돌아간다
 ```
