@@ -33,16 +33,15 @@ CILIUM_VERSION="${CILIUM_VERSION:-1.20.2}"
 K8S_SERVICE_HOST="${K8S_SERVICE_HOST:-$(ip -o -4 addr show dev "$(ip -o -4 route show default | awk '{print $5; exit}')" scope global | awk '{print $4}' | cut -d/ -f1 | head -1)}"
 [ -n "$K8S_SERVICE_HOST" ] || { echo "[platform] k8sServiceHost 를 정하지 못했다 — K8S_SERVICE_HOST 로 넘길 것" >&2; exit 1; }
 case "$K8S_SERVICE_HOST" in 127.*|localhost) echo "[platform] k8sServiceHost 가 루프백(${K8S_SERVICE_HOST})이다 — 에이전트가 붙지 못한다" >&2; exit 1;; esac
-# ★★ 아래 다섯은 **install-operators.sh 에 같은 이름이 또 있다** — Gotcha 117
-#   이 경고한 "같은 목록을 두 곳에 적어 두는" 모양이고 실제로 어긋나 있다:
-#   여기 ISTIO_VERSION 은 1.24.2 인데 install-operators.sh 는 1.31.0 이며
-#   클러스터가 쓰는 값은 후자다. 이 파일은 Istio 를 설치하지 않으므로(그쪽이
-#   한다) 지금 사고를 내지는 않지만, 고치려면 원천을 하나로 모아야 한다.
-ISTIO_VERSION="${ISTIO_VERSION:-1.24.2}"
+# ★★★ 2026-10-05: 쓰이지 않던 버전 변수 넷을 **지웠다**(ISTIO·ECK·KYVERNO·
+#   CERT_MANAGER). 선언만 되어 있고 이 파일에서 참조가 **0건**이었다(실측).
+#   그런데 같은 이름이 `install-operators.sh` 에도 있고 값이 달랐다 —
+#   여기 ISTIO_VERSION 은 1.24.2, 그쪽은 1.31.0 이며 클러스터가 쓰는 값은
+#   후자다. 사고를 내지는 않았지만 **다음 사람이 어느 쪽이 진짜인지 알 수 없다.**
+#   Gotcha 117("같은 목록을 두 곳에 적어 두고 주석으로 막지 말 것")의 가장 싼
+#   형태다 — 쓰지 않는 쪽을 지우면 원천이 하나가 된다.
+# ★ 이 파일이 실제로 설치하는 것은 **Cilium 과 Gateway API 둘뿐**이다.
 GATEWAY_API_VERSION="${GATEWAY_API_VERSION:-v1.2.0}"
-ECK_VERSION="${ECK_VERSION:-2.16.0}"
-KYVERNO_VERSION="${KYVERNO_VERSION:-v1.13.2}"
-CERT_MANAGER_VERSION="${CERT_MANAGER_VERSION:-v1.16.2}"
 
 log() { echo "[platform] $*"; }
 
