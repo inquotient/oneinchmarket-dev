@@ -53,6 +53,13 @@ patches:
   # cmmn-api 의 테이블을 Hibernate 가 만들게 한다 — local 전용 스톱갓(§8-99)
   - path: patches/cmmn-api-schema-local.yaml
 
+  # ★★★ databases-migrate 를 PreSync -> Sync 로 (2026-10-05)
+  #   상류 차트의 helm 훅이 PreSync 로 해석되는데 그 Job 은 wave 1 의
+  #   DB 를 필요로 한다 — 처음 세우는 클러스터에서 **성립할 수 없고**
+  #   PreSync 훅이 실패하면 ArgoCD 가 작업 전체를 중단한다(실측 1/573).
+  #   자세한 측정 기록은 그 패치 파일 머리말에 있다.
+  - path: patches/openreplay-migrate-hook-local.yaml
+
   # ★ Elasticsearch·Kibana 패치를 걷어냈다(2026-09-11) — base 에서 그
   #   리소스를 지웠기 때문이다(WSO2-OSS-MAPPING 9-1). **패치는 대상이
   #   사라지면 렌더 자체를 실패시킨다**:
