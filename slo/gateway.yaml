@@ -18,7 +18,22 @@ slos:
       events:
         # ★ **이미 계량되는 지표**로 잡는다. 없는 지표로 SLO 를 쓰면 그래프가
         #   비고, 빈 그래프는 "SLO 가 좋다" 로 읽힌다.
-        error_query: sum(rate(istio_requests_total{reporter="source",response_code=~"5.."}[{{.window}}]))
+        # ★★★ `or on() vector(0)` 가 필요하다 (2026-10-06 실측).
+        #   이것이 없으면 **오류가 0일 때 SLI 가 통째로 비어 버린다.**
+        #   PromQL 에서 선택자가 아무것도 고르지 못하면 `sum(rate(...))` 는
+        #   0 이 아니라 **빈 벡터**를 내고, `빈 벡터 / 무엇` 도 빈 벡터다.
+        #   즉 5xx 가 한 건도 없는 **건강한 상태**에서 기록 규칙이
+        #   아무 값도 남기지 않는다.
+        #   ★ 실측으로 확정했다: 요청 10건(전부 403)을 보내 분모가
+        #     0.037 로 올라간 뒤에도 `slo:sli_error:ratio_rate5m` 가 EMPTY
+        #     였고, 같은 식에 `or on() vector(0)` 을 넣으니 **0** 이 나왔다.
+        #   ★★ 이것이 Gotcha 150·161 이 적어 둔 구멍이다 — "빈 그래프는
+        #     지표가 없는 것이고 0 은 오류가 없는 것인데, 둘을 묶어 보면
+        #     장애가 좋다로 읽힌다". 고치지 않으면 **완벽한 건강과
+        #     완전한 장애가 똑같이 빈 그래프**로 보인다.
+        #   ★ 트래픽이 아예 없을 때는 여전히 `0/0 = NaN` 이고 그것은 정직하다
+        #     — 그 경우를 말해 주는 것은 `SLOMetricAbsent` 다(분모가 사라진 것).
+        error_query: sum(rate(istio_requests_total{reporter="source",response_code=~"5.."}[{{.window}}])) or on() vector(0)
         total_query: sum(rate(istio_requests_total{reporter="source"}[{{.window}}]))
     alerting:
       name: GatewayHighErrorRate

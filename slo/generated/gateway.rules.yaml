@@ -8,7 +8,7 @@ groups:
   rules:
   - record: slo:sli_error:ratio_rate5m
     expr: |
-      (sum(rate(istio_requests_total{reporter="source",response_code=~"5.."}[5m])))
+      (sum(rate(istio_requests_total{reporter="source",response_code=~"5.."}[5m])) or on() vector(0))
       /
       (sum(rate(istio_requests_total{reporter="source"}[5m])))
     labels:
@@ -19,7 +19,7 @@ groups:
       sloth_window: 5m
   - record: slo:sli_error:ratio_rate30m
     expr: |
-      (sum(rate(istio_requests_total{reporter="source",response_code=~"5.."}[30m])))
+      (sum(rate(istio_requests_total{reporter="source",response_code=~"5.."}[30m])) or on() vector(0))
       /
       (sum(rate(istio_requests_total{reporter="source"}[30m])))
     labels:
@@ -30,7 +30,7 @@ groups:
       sloth_window: 30m
   - record: slo:sli_error:ratio_rate1h
     expr: |
-      (sum(rate(istio_requests_total{reporter="source",response_code=~"5.."}[1h])))
+      (sum(rate(istio_requests_total{reporter="source",response_code=~"5.."}[1h])) or on() vector(0))
       /
       (sum(rate(istio_requests_total{reporter="source"}[1h])))
     labels:
@@ -41,7 +41,7 @@ groups:
       sloth_window: 1h
   - record: slo:sli_error:ratio_rate2h
     expr: |
-      (sum(rate(istio_requests_total{reporter="source",response_code=~"5.."}[2h])))
+      (sum(rate(istio_requests_total{reporter="source",response_code=~"5.."}[2h])) or on() vector(0))
       /
       (sum(rate(istio_requests_total{reporter="source"}[2h])))
     labels:
@@ -52,7 +52,7 @@ groups:
       sloth_window: 2h
   - record: slo:sli_error:ratio_rate6h
     expr: |
-      (sum(rate(istio_requests_total{reporter="source",response_code=~"5.."}[6h])))
+      (sum(rate(istio_requests_total{reporter="source",response_code=~"5.."}[6h])) or on() vector(0))
       /
       (sum(rate(istio_requests_total{reporter="source"}[6h])))
     labels:
@@ -63,7 +63,7 @@ groups:
       sloth_window: 6h
   - record: slo:sli_error:ratio_rate1d
     expr: |
-      (sum(rate(istio_requests_total{reporter="source",response_code=~"5.."}[1d])))
+      (sum(rate(istio_requests_total{reporter="source",response_code=~"5.."}[1d])) or on() vector(0))
       /
       (sum(rate(istio_requests_total{reporter="source"}[1d])))
     labels:
@@ -74,7 +74,7 @@ groups:
       sloth_window: 1d
   - record: slo:sli_error:ratio_rate3d
     expr: |
-      (sum(rate(istio_requests_total{reporter="source",response_code=~"5.."}[3d])))
+      (sum(rate(istio_requests_total{reporter="source",response_code=~"5.."}[3d])) or on() vector(0))
       /
       (sum(rate(istio_requests_total{reporter="source"}[3d])))
     labels:
