@@ -105,6 +105,16 @@ spec:
     spec:
       initContainers:
         - name: git
+          # ★ `CHOWN` 을 걷는다 (2026-10-06) — chown 을 건너뛰게 된 뒤로
+          #   목적이 없고, 애초에 **무력했다**: 이 컨테이너는
+          #   `allowPrivilegeEscalation: false` 인 비-root(uid 1001)라
+          #   `NoNewPrivs` 가 걸려 어떤 경로로도 capability 를 얻지 못한다.
+          #   남겨 두면 매니페스트가 **거짓을 또렷하게** 적고 있는 셈이고,
+          #   `local/check-nonroot-caps.py --check` 가 1 을 돌려준다.
+          securityContext:
+            capabilities:
+              add: null
+              drop: ["ALL"]
           env:
             - name: SKIP_PERMISSION_CHANGE
               value: "true"

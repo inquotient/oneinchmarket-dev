@@ -556,7 +556,27 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 
      ★ 그리고 이 상황의 **진짜 진행 지표는 `len(syncResult.resources)`** 다 — 재시도가 돌면 그 배열이 **0 에서 다시 채워지므로**(실측: 384 → 124 → 173 → 249) 줄어들어도 후퇴가 아니다. `Synced N/M` 은 diff 상태라 진행을 전혀 말하지 않는다.
 
+     ★★★ 같은 이유로 **동기화가 끝난 뒤의 `operationState` 는 지난 기록이다.** 실측(2026-10-06 첫 동기화 완료 시점): 앱이 `sync=Synced · health=Healthy · revision=218a64c`(최신 커밋)인데 `operationState` 는 `phase=Failed · syncResult.revision=203502f`(직전 작업)였다. `.operation` 은 비어 있다. **그 Failed 를 현재 상태로 읽으면 "아직 깨져 있다" 가 된다.** 판정 순서: ① `.operation` 이 비었는가(작업이 없다) ② `.status.sync.status` 와 `.status.sync.revision` ③ `.status.health.status`. ★ 앱 수준 `health.status` 는 컨트롤러가 리소스 트리에서 집계한 값이라 **권위가 있다** — Gotcha 106 이 경계한 것은 `.status.resources[].health`(비어 있다)이고 `.status.resources[].status` 는 채워진다. 실측 624건 중 575 Synced · 49 `None`, 그 49는 ESO 가 소유한 Secret 31 · Sync 훅 Job 16 · Camel K 가 만든 CamelCatalog 2 로 **git 원천이 없는 것들**이다(`requiresPruning` 이 정확히 훅 16건 — Gotcha 61 과 일치)
      ★★ 측정 방법 쪽으로 하나 더 — **`kubectl -o jsonpath` 은 경로가 틀리면 오류와 함께 오브젝트 전문을 찍는다.** 훅 Job 의 셸을 보려고 `containers[0].command[2]` 를 썼고 `array index out of bounds` 를 받았는데(셸은 `command` 가 아니라 **`args[0]`** 에 있다), 그 채로 표준출력을 파일에 받아 `bash -n` 에 넘겼다. 오류는 **stderr** 로 나가므로 그 파일은 **비어 있어** `bash -n` 이 "문법 OK" 를 돌려줬다 — 가짜 통과다. 문법 검사는 **빈 입력을 거부**하게 만들 것(`[ -s f ] || exit 1`) — Gotcha 117·148 의 "가드를 '비어 있지 않다' 로 두지 말 것" 이 여기에도 그대로 적용된다
+
+182. **★★★ `capabilities.add` 는 비-root 컨테이너에 권한을 주지 않는다 — bounding set 만 넓힌다. 그리고 그 구분을 가르는 것은 `allowPrivilegeEscalation` 이다.** 2026-10-06 베어메탈 첫 동기화에서 `databases-migrate` 의 `git` 초기화 컨테이너가 `chown: /mnt/efs: Operation not permitted` 로 `Init:Error` 였고, 그 Job 이 backoffLimit 을 소진해 **OpenReplay 스키마가 만들어지지 않았다.** 증상은 엉뚱한 곳에 나왔다 — `chalice-openreplay` 가 `relation "public.tenants" does not exist` 로 CrashLoop 한 것이다. ★ **일회성 파드로 직접 쟀다**(uid 1001 · `capabilities: {add: [CHOWN], drop: [ALL]}`):
+     ```
+     CapBnd: 0000000000000001   <- add 는 bounding set 에만 들어간다
+     CapPrm: 0000000000000000
+     CapEff: 0000000000000000   <- 실효 권한은 0이다
+     CapAmb: 0000000000000000   <- 쿠버네티스는 ambient set 을 설정하지 않는다
+     chown: Operation not permitted
+     ```
+     비-root 프로세스는 permitted/effective 를 물려받지 못한다. 즉 `add` 는 **"가질 수 있는 최대치" 만** 넓히고 실제로 주지는 않는다. ★★ **다만 언제나 무력한 것은 아니다 — 이 구분이 중요하고, 처음 쓴 검사기는 그것을 놓쳐 buildkit 을 거짓 양성으로 잡았다.** bounding set 은 "앞으로 얻을 수 있는 상한" 이므로, 컨테이너가 나중에 **setuid 바이너리**를 실행하면 그때 얻는 capability 의 상한이 바로 그것이다. 그래서 `drop: [ALL]` 로 비운 뒤 `add` 로 되돌려 두는 것이 **필요하다.** 가르는 값은 하나다:
+     · `allowPrivilegeEscalation: false` -> `NoNewPrivs` 가 걸려 setuid 비트가 무시된다. 어떤 경로로도 권한을 얻을 수 없으므로 **확정적으로 무력**하다.
+     · `allowPrivilegeEscalation: true` -> setuid 경로가 살아 있어 `add` 가 **뜻이 있다.**
+     실측(local 렌더 196 컨테이너): `buildkit/buildkitd` uid=1000 · `true` · `[SETUID,SETGID]` -> **필요하다**(rootless BuildKit 이 `newuidmap`/`newgidmap` 을 부른다, Gotcha 149). `databases-migrate/git` uid=1001 · `false` · `[CHOWN]` -> **무력하다.**
+     ★★★ **이 레포는 그 함정에 이미 한 번 빠져 있었다** — §8-49 가 Kyverno `disallow-root` 를 통과시키려고 root 였던 그 Job 을 "CAP_CHOWN 으로 낮췄다". **정책은 통과했고 chown 은 죽었다.** 옛 클러스터에는 스키마가 이미 있어 아무도 아프지 않았으므로 **재구축에서야 청구됐다**(Gotcha 166 그대로다). ★ 처방 셋 — 어느 것이든 좋다: ① **그 일이 정말 필요한지 다시 묻는다**(이번 답은 "아니오" 였다 — `/mnt/efs` 는 hostPath 이고 그것을 마운트하는 것은 그 초기화 컨테이너 하나뿐이며, 실제 마이그레이션을 하는 `postgres`·`clickhouse` 는 보지도 않는다) ② `fsGroup` 으로 푼다(권한이 아니라 소유권 문제일 때가 많다) ③ 그 일만 하는 **root 초기화 컨테이너**로 떼어낸다. ★★ 판정은 기억이 아니라 **렌더 전수**로 한다 — `local/check-nonroot-caps.py`(`--check` 로 게이트). **`allowPrivilegeEscalation: true` 인 것은 세지 않는다**: 달성할 수 없는 게이트는 없는 게이트보다 나쁘다(Gotcha 73·90)
+
+183. **★★ 노드 sysctl 기본값이 파드 100여 개를 받치지 못한다 — 그리고 Falco 가 그것을 가리키지 않는다.** 첫 동기화가 wave 7 에서 `waiting for healthy state of apps/DaemonSet/falco` 로 섰고, 두 노드의 falco 가 똑같이 CrashLoop 이었다. 로그 마지막 줄은 `Error: could not initialize inotify handler` 다. ★ **커널도 eBPF 드라이버도 아니었다** — 새 하드웨어의 커널이 7.0.0 이라 Gotcha 174(MongoDB)처럼 "커널 비호환" 을 먼저 의심하게 되는데, 원인은 노드의 자원 한도였다: `fs.inotify.max_user_instances` 기본값 **128** 인데 실측으로 이미 **192개**가 쓰이고 있었다(파드 128개). ★ 판정은 둘을 대조하는 것이다 — `sysctl -n fs.inotify.max_user_instances` 와 `find /proc/*/fd -lname 'anon_inode:inotify' | wc -l`. ★★ 처방을 **노드 상태로 두지 않았다** — `bootstrap-baremetal-k3s.sh` 가 `/etc/sysctl.d/99-oim-k8s.conf`(1024 / 524288)를 넣고 **되읽어 확인한 뒤 아니면 멈춘다**(Gotcha 86). §25-0 의 "레포 밖" 목록을 늘리는 것보다 스크립트가 하는 쪽이 낫다 — 빠뜨렸을 때 증상이 원인과 아주 멀기 때문이다. 재적용 뒤 파드를 다시 띄우면 30초 안에 둘 다 Ready 가 된다
+
+184. **★★ JVM 의 메모리에는 **세 번째 덩이**가 있다 — Netty 의 direct memory 기본 상한은 최대 힙과 같다.** Gotcha 82 는 "힙을 limit 의 60~70% 로" 까지 적었는데 그것으로 부족한 경우가 있다. 실측: `data-prepper` 가 `-Xms640m -Xmx640m` / limit 1Gi(=62.5%, 기준을 지킨 값)인데 **`exit=137`(OOMKilled)로 8회 재시작**했고 **로그에는 오류가 한 줄도 없었다** — 파이프라인 6개를 전부 `Started` 로 띄운 뒤 조용히 죽는다. 기동 직후 cgroup 은 148MiB 였다. ★ Gotcha 123 의 함정(상류 스크립트가 자기 `-Xmx` 를 뒤에 붙임)부터 배제했다 — `/proc/1/cmdline` 에 `-Xmx` 가 우리 값 하나뿐이었다. ★★ 원인은 **Netty** 다: `-XX:MaxDirectMemorySize` 를 명시하지 않으면 **최대 힙과 같은 값**이 쓰인다. 즉 `640m 힙 + 640m direct` 만으로 limit 1Gi 를 넘고, **그 몫은 GC 가 줄여 주지 않으므로** 힙이 차기 전에 커널이 먼저 죽인다. Armeria·Netty 로 OTLP·HTTP 를 받고 OpenSearch·Kafka 클라이언트까지 쓰는 워크로드에서 이 몫이 작지 않다. ★ 처방은 **명시하는 것**이다(`-XX:MaxDirectMemorySize=256m`) — 묶어 두면 초과 시 `OutOfMemoryError: Direct buffer memory` 로 **보이는 실패**가 되고, 조용한 OOMKill 보다 낫다. 합계 640+256+약150(메타스페이스·코드캐시·스레드 스택)을 보고 limit 을 1536Mi 로 함께 올렸다. 실측 결과 **재시작 0 으로 61분** 유지. ★★★ 그리고 **이 OOM 이 다른 워크로드의 OOM 을 데려왔다** — `otel-gateway`(limit 384Mi)가 export 실패로 재시도 큐가 자라 함께 OOMKilled 였다. 뿌리를 고치자 둘이 함께 멎었다. **연쇄 OOM 에서는 상류부터 고칠 것** — 하류의 limit 을 올리는 것은 증상을 미루는 것이다
+
 ### 매니페스트 작업 시
 
 - `v1/` 매니페스트는 **배포 금지**. 단 CI가 이 경로의 Dockerfile을 참조한다는 모순이 있다
@@ -597,6 +617,7 @@ kubectl apply -f argocd/projects/oneinchmarket-local.yaml   # ★ 따로 적용(
 kubectl apply -f argocd/applications/oneinchmarket-local.yaml
 python3 local/check-secret-refs.py --check          # 참조 전수 검사 (결함 0 이어야 한다)
 python3 local/check-wave-order.py  --check          # wave 뒤집힌 의존 전수 (0 이어야 한다)
+python3 local/check-nonroot-caps.py --check          # 비-root 컨테이너의 무력한 capability (0 이어야 한다)
 ```
 
 **★★ 동기화가 wave 4 에서 서면 OpenBao 를 초기화해야 한다** — ArgoCD 가
