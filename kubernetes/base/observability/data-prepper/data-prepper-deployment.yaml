@@ -84,7 +84,25 @@ spec:
           env:
             # ★ JVM 이다. 힙을 명시하지 않으면 컨테이너 인식이 JDK 버전에
             #   따라 어긋난다(Gotcha 81). limit 의 약 60% 로 둔다(Gotcha 82).
-            - {name: JAVA_OPTS, value: "-Xms640m -Xmx640m"}
+            # ★★★ `-XX:MaxDirectMemorySize` 를 함께 명시한다 (2026-10-06).
+            #   힙을 60% 로 두는 것만으로는 부족했다 — 실측으로 이 파드가
+            #   `exit=137`(OOMKilled)로 8회 재시작했고 **로그에는 오류가 한 줄도
+            #   없었다**(파이프라인 6개를 전부 `Started` 로 띄운 뒤 조용히 죽는다).
+            #   기동 직후 cgroup 은 148MiB 였고 `-Xmx` 는 우리 값 하나뿐이었다
+            #   (Gotcha 123 의 함정은 아니다).
+            #   원인은 Netty 다: **direct memory 기본 상한이 최대 힙과 같다.**
+            #   즉 `640m 힙 + 640m direct` 만으로 limit 1Gi 를 넘고, 그 몫은
+            #   GC 가 줄여 주지 않으므로 힙이 차기 전에 커널이 먼저 죽인다.
+            #   Data Prepper 는 Armeria(Netty)로 OTLP·HTTP 를 받고
+            #   OpenSearch·Kafka 클라이언트까지 쓰므로 이 몫이 작지 않다.
+            #   ★ 명시하지 않으면 그 값이 얼마인지 아무도 말해 주지 않는다.
+            #     묶어 두면 초과 시 `OutOfMemoryError: Direct buffer memory` 로
+            #     **보이는 실패**가 된다 — 조용한 OOMKill 보다 낫다.
+            #   ★★ 합계 640+256+약150(메타스페이스·코드캐시·스레드) ≈ 1046Mi 라
+            #     limit 도 1Gi -> 1536Mi 로 함께 올렸다.
+            #   ★ 이 OOM 이 otel-gateway 의 OOM 을 **데려왔다** — export 가
+            #     실패하면 재시도 큐가 자라 그쪽도 384Mi 를 넘는다. 뿌리는 이쪽이다.
+            - {name: JAVA_OPTS, value: "-Xms640m -Xmx640m -XX:MaxDirectMemorySize=256m"}
           ports:
             - {containerPort: 21892, name: otel-logs, protocol: TCP}
             - {containerPort: 21893, name: otel-suricata, protocol: TCP}
@@ -95,7 +113,7 @@ spec:
             capabilities: {drop: ["ALL"]}
           resources:
             requests: {cpu: 100m, memory: 768Mi}
-            limits:   {cpu: 1000m, memory: 1Gi}
+            limits:   {cpu: 1000m, memory: 1536Mi}
           startupProbe:
             httpGet: {path: /list, port: 4900}
             periodSeconds: 10

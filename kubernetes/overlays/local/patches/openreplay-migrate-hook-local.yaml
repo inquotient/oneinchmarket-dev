@@ -64,3 +64,47 @@ metadata:
     #   두 번째 동기화에서 `field is immutable` 로 **전체가 멈춘다**(Gotcha 58).
     argocd.argoproj.io/hook: Sync
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+#
+# ★★★ 그리고 `SKIP_PERMISSION_CHANGE=true` 로 둔다 (2026-10-06) — 그 chown 은
+#   **쓸모가 없으면서 Job 을 죽이고 있었다.** 실측 로그:
+#       + '[' false '!=' true ]
+#       + chown 1001:1001 /mnt/efs
+#       chown: /mnt/efs: Operation not permitted
+#   그래서 `git` 초기화 컨테이너가 `Init:Error` 로 끝나고 Job 이
+#   backoffLimit 을 소진한다. 그 결과 **스키마가 만들어지지 않아**
+#   `chalice-openreplay` 가 `relation "public.tenants" does not exist` 로
+#   CrashLoop 한다 — 증상은 chalice 에 나오고 원인은 이 Job 이다.
+#
+# ★ 건너뛰어도 안전한 근거(추측이 아니라 실측이다): `/mnt/efs` 는
+#   **hostPath** 이고 이 Job 에서 그것을 마운트하는 것은 `git` 초기화
+#   컨테이너 **하나뿐**이다. 실제로 마이그레이션을 하는 `postgres`·
+#   `clickhouse` 컨테이너는 `/opt/openreplay`(emptyDir)와
+#   `/opt/migrations/`(ConfigMap)만 본다. 즉 그 디렉터리의 소유권은
+#   이 Job 의 어느 단계에도 쓰이지 않는다.
+#
+# ★★★ 애초에 **성공할 수 없는 구조였다 — `capabilities.add` 는 비-root
+#   컨테이너에게 아무 권한도 주지 않는다.** 일회성 파드로 직접 쟀다
+#   (uid 1001 · `capabilities: {add: [CHOWN], drop: [ALL]}`):
+#       CapBnd: 0000000000000001     <- add 는 **bounding set** 에만 들어간다
+#       CapPrm: 0000000000000000
+#       CapEff: 0000000000000000     <- 실효 권한은 0이다
+#       CapAmb: 0000000000000000     <- 쿠버네티스는 ambient 를 설정하지 않는다
+#       chown: Operation not permitted
+#   비-root 프로세스는 permitted/effective 를 물려받지 못하므로, `add` 로
+#   적어 둔 capability 는 **문서처럼 보이기만 한다.**
+#   ★ 그래서 §8-49 의 "실제로 root 였던 마이그레이션 Job 하나는 CAP_CHOWN
+#     으로 낮췄다" 는 **Kyverno 정책만 통과시키고 chown 은 죽인 수정**이었다.
+#     드러나지 않은 이유는 옛 클러스터에 스키마가 이미 있어서 이 Job 이
+#     실패해도 아무도 아프지 않았기 때문이다 — **재구축이 그 차이를
+#     한 번에 청구한다**(Gotcha 166).
+#   ★★ 교훈: **비-root 컨테이너에 capability 를 적지 말 것.** 정말 필요하면
+#     ① 그 일을 root 초기화 컨테이너로 떼어내거나 ② `fsGroup` 으로 해결하거나
+#     ③ 이 경우처럼 **그 일이 필요한지 다시 물을 것.**
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: git
+          env:
+            - name: SKIP_PERMISSION_CHANGE
+              value: "true"

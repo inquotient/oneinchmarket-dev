@@ -113,4 +113,4 @@ EOF
 done
 
 shred -u /tmp/mig-keys.json /tmp/mig-root.txt /tmp/mig-src.json /tmp/mig-cmd.txt /tmp/mig-back.json 2>/dev/null || true
-log "완료 — 적용 후 `kubectl -n ${NS} get externalsecret` 로 SecretSynced 를 확인할 것"
+log "완료 — 적용 후 'kubectl -n ${NS} get externalsecret' 로 SecretSynced 를 확인할 것"

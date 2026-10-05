@@ -162,7 +162,35 @@ if [ "$CHECK" = yes ]; then
   exit 0
 fi
 
-# ── 1. kubelet 설정 ────────────────────────────────────────────
+
+# ── 1. 커널 sysctl (inotify) ───────────────────────────────────
+# ★★★ 기본값 `fs.inotify.max_user_instances=128` 은 파드 100여 개짜리 노드에서
+#   모자란다. 실측(2026-10-06, local 파드 128개): 이미 **192개**가 쓰이고 있어
+#   Falco 가 `Error: could not initialize inotify handler` 로 CrashLoop 했고,
+#   그 DaemonSet 이 Healthy 가 되지 않아 **wave 7 에서 동기화가 섰다.**
+# ★ 증상이 Falco 를 가리킨다 — 커널 버전과 eBPF 드라이버를 먼저 의심하게
+#   되는데(Gotcha 174 의 MongoDB 와 같은 모양) 원인은 노드의 자원 한도다.
+#   판정은 둘을 대조하는 것이다:
+#       sysctl -n fs.inotify.max_user_instances
+#       find /proc/*/fd -lname 'anon_inode:inotify' 2>/dev/null | wc -l
+# ★★ 노드 상태이지만 **이 스크립트가 넣는다** — 레포 밖에 두면 재구축 때
+#   빠뜨리고, 빠뜨린 증상이 원인과 아주 멀다. §25-0 목록을 늘리는 것보다
+#   스크립트가 하는 쪽이 낫다.
+log "sysctl 튜닝 (inotify)"
+cat > /etc/sysctl.d/99-oim-k8s.conf <<'SYSCTL'
+# OneinchMarket k3s 노드 - pods 100+ 를 전제로 한 한도.
+# default (instances 128) 에서는 Falco 가 inotify handler 를 얻지 못한다.
+fs.inotify.max_user_instances = 1024
+fs.inotify.max_user_watches = 524288
+SYSCTL
+chmod 0644 /etc/sysctl.d/99-oim-k8s.conf
+sysctl -q --system
+# ★ 되읽어 확인한다 — 적용되지 않았으면 멈춘다(Gotcha 86: 조용한 오설정보다
+#   실패가 낫다).
+GOT_INST=$(sysctl -n fs.inotify.max_user_instances)
+[ "$GOT_INST" -ge 1024 ] || fail "inotify instances 가 ${GOT_INST} 다 - sysctl 이 적용되지 않았다"
+log "     fs.inotify.max_user_instances=${GOT_INST}"
+# ── 2. kubelet 설정 ────────────────────────────────────────────
 # NodeSwap·swapBehavior·maxPods 는 kubelet 설정 파일에만 있는 필드다
 # (대응 CLI 플래그가 없어 `unknown flag` 로 기동을 거부한다).
 # ★ 설치 시점에만 정할 수 있으므로 여기서 넣는다.
@@ -170,7 +198,7 @@ log "kubelet 설정 설치"
 mkdir -p /etc/rancher/k3s
 install -m 0644 "${REPO_ROOT}/local/kubelet-config.yaml" /etc/rancher/k3s/kubelet-config.yaml
 
-# ── 2. k3s server ──────────────────────────────────────────────
+# ── 3. k3s server ──────────────────────────────────────────────
 # --flannel-backend=none   Cilium 이 CNI 다. 설치 전까지 NotReady 가 정상
 # --disable-network-policy  Cilium 이 정책을 한다
 # --disable traefik         진입점은 Istio Gateway 다(ADR-071)
@@ -227,7 +255,7 @@ GOT_IP="$(kubectl get node -o jsonpath='{.items[0].status.addresses[?(@.type=="I
 [ "$GOT_IP" = "$NODE_IP" ] || fail "노드 InternalIP 가 ${GOT_IP} 다 (기대 ${NODE_IP})"
 log "노드 InternalIP = ${GOT_IP} 확인"
 
-# ── 3. StorageClass 'standard' 별칭 ────────────────────────────
+# ── 4. StorageClass 'standard' 별칭 ────────────────────────────
 # 배포 블로커 #5 — 전 PVC 가 존재하지 않는 'standard' 를 참조한다.
 # ★★ 2노드가 되면 성질이 바뀐다: local-path 는 **노드 고정** 볼륨이라
 #   PVC 를 받은 파드는 그 노드를 떠날 수 없다. ADR-015(스토리지)가 Open 인
@@ -255,7 +283,7 @@ DEFAULTS="$(kubectl get sc -o jsonpath='{range .items[*]}{.metadata.annotations.
 [ "$DEFAULTS" = 0 ] || fail "기본 SC 가 ${DEFAULTS}개 남았다 — 0개여야 한다"
 kubectl get storageclass
 
-# ── 4. 에이전트 조인에 필요한 것 ────────────────────────────────
+# ── 5. 에이전트 조인에 필요한 것 ────────────────────────────────
 log "에이전트(192.168.0.104) 조인용:"
 log "  K3S_URL=https://${NODE_IP}:6443"
 log "  토큰:   /var/lib/rancher/k3s/server/node-token  (값은 출력하지 않는다)"
