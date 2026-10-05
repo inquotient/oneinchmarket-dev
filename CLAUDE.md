@@ -678,7 +678,11 @@ bash local/gitlab-runner-bootstrap.sh        # ★★ 러너 0개면 파이프�
 bash local/gitlab-repo-bootstrap.sh          # ★★ 통째로 돌리지 말 것 — 끝에서 argocd-read 토큰을 회전시킨다(Gotcha 144)
 bash local/gravitee-bootstrap.sh             # API 정의 — Mongo 에만 사는 원천(Gotcha 159)
 bash local/configure-istio-usage-logging.sh  # ★ 과금 계량 — Istio 재설치 뒤에는 반드시(Gotcha 158)
-bash local/opensearch-apply-security.sh      # wave 7 뒤. 빠뜨리면 수집이 401 로 조용히 끊긴다
+# bash local/opensearch-apply-security.sh    # ★ 첫 구축에는 **필요하지 않다**(2026-10-06 실측).
+                                             #   initContainer 가 보안 인덱스를 초기화하므로 신선한 클러스터는 그대로 된다 —
+                                             #   실측 admin 200 · ingest 200 · 인덱스 9 · 내부 사용자 3.
+                                             #   이것이 필요한 때는 **opensearch-secret 을 회전한 뒤**다(그때는 파일이 바뀌어도
+                                             #   살아 있는 설정이 그대로여서 수집이 401 로 조용히 끊긴다, §9-17).
 kubectl -n local exec deploy/safeline -c mgt -- /app/mgt-cli reset-admin   # ★ 선행 조건
                                              #   관리자 자격은 mgt 가 발급한다 — create-secrets.sh 가 만들지 못한다(Gotcha 118 부류).
                                              #   출력에서 값을 뽑아 safeline-secret/admin-password 에 넣어야 하고,
@@ -695,7 +699,8 @@ bash local/set-operator-requests.sh          # ★ Gotcha 80 — k3s 재시작�
   · `configure-node-registry.sh` 미실행 → 레지스트리 pull 이 HTTPS 로 가서 실패
   · `gravitee-bootstrap.sh` 미실행 → `/managed` 만 404, 게이트웨이·파드는 정상
   · `configure-istio-usage-logging.sh` 미실행 → **트래픽은 정상인데 청구만 사라진다**
-  · `opensearch-apply-security.sh` 미실행 → 수집이 401 로 조용히 끊긴다
+  · `opensearch-apply-security.sh` — 첫 구축에는 불필요하다. **Secret 을 회전한 뒤**에
+    빠뜨리면 수집이 401 로 조용히 끊긴다
   · `safeline-bootstrap.sh` 미실행 → WAF 가 **아무것도 막지 않으면서 있는 것처럼 보인다**
 
 **이 레포 밖에 있는 노드 상태** — 클러스터를 새로 세우면 다시 해야 한다:
