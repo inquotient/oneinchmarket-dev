@@ -23,6 +23,24 @@ resources:
   - openmeter.yaml
   - dlq-replay.yaml
 
+# ★★★ sync-wave 3 — 2026-10-05 에 **처음** 붙였다. 그 전까지 이 오버레이에는
+#   wave 선언이 없어 전부 **wave 0** 이었다. 그런데 OpenMeter 는
+#   PostgreSQL·ClickHouse·Redis(wave 1)와 Kafka(wave 2)를 필요로 한다.
+#   그러면 처음 세우는 클러스터에서 **동기화가 wave 0 에서 영원히 선다** —
+#   ArgoCD 는 wave 경계마다 Healthy 를 기다리고, 이 다섯 파드는 DB 가 없어
+#   절대 Healthy 가 되지 않는다. 실측: `Synced 138/575` · `local` 파드 8개 ·
+#   openmeter 5종 CrashLoopBackOff. 575건 중 나머지가 통째로 멈췄다.
+# ★ 기존 클러스터에서는 드러날 수 없는 결함이다 — 이미 떠 있는 DB 에
+#   붙으므로 wave 가 0 이어도 아무 일도 없다(Gotcha 58 이 적어 둔 그대로:
+#   "GitOps 를 켜는 것은 평소에 돌지 않던 것을 전부 다시 돌리는 일이다").
+# ★★ 왜 3 인가: ClickHouse·Redis 가 1, Kafka 가 2 다. sink-worker 가 Kafka 를
+#   소비하므로 2 보다 뒤여야 한다. 소비자 쪽(Logstash 7 · 과금 CronJob 8 ·
+#   Airflow DAG)은 모두 더 뒤이거나 스케줄 기반이라 상한을 걸지 않는다.
+# ★★★ 전수로 세서 찾았다 — 렌더의 워크로드 중 wave 가 없는 것은
+#   **openmeter 9종뿐**이었다. "기억이 아니라 렌더에서 셀 것"(Gotcha 19).
+commonAnnotations:
+  argocd.argoproj.io/sync-wave: "3"
+
 # ★★ reloader 어노테이션을 여기서 붙인다 — 생성 파일을 고치면 다음
 #   렌더에 지워진다. 이 워크로드들은 redis-secret·minio-secret 을 참조하는데
 #   상류 차트가 어노테이션을 붙이지 않아 **로테이션 된 뒤에도 옛 자격을**
