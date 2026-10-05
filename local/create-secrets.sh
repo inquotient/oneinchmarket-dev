@@ -17,10 +17,46 @@ NS="${NS:-local}"
 # pipefail 이 이를 잡아 스크립트 전체가 중단된다.
 gen() { openssl rand -hex "$(( ${1:-24} / 2 ))"; }
 
+# ★★★ mk 는 "있으면 건너뛴다" 가 **아니다** — 없는 키는 더한다 (2026-10-05).
+#   예전 판은 Secret 이 있으면 통째로 건너뛰었다. 그래서 **나중에 더한 키가
+#   영원히 빠졌고**, 아무도 알려 주지 않았다. 베어메탈 첫 구축에서 렌더
+#   전수 조사로 드러났다 — 필수 참조 91건 중 **8건이 키 없음**이었다:
+#     clickhouse-secret/openmeter-password · /openmeter-pg-password
+#     ranger-secret/{admin,keyadmin,tagsync,usersync}-password
+#     ds389-secret/sync-password · keycloak-secret/smoke-client-secret
+#   그리고 midpoint-secret 은 **아예 없었다**(참조는 있었다).
+#   증상은 `Init:CreateContainerConfigError` 인데 이벤트를 읽어야 비로소
+#   `couldn't find key ... in Secret` 이 나온다 — 파드 목록만 보면 알 수 없다.
+# ★ 값은 **바꾸지 않는다.** 이미 있는 키를 덮으면 기동 중인 워크로드가
+#   깨진다(그것이 원래의 "건너뛴다" 가 지키려던 것이다). 없는 키만 더한다.
+# ★ 판정은 렌더에서 한다 — `local/check-secret-refs.py` 가 그 일을 한다.
 mk() {  # mk <secret-name> <key=value> ...
   local name="$1"; shift
   if kubectl -n "$NS" get secret "$name" >/dev/null 2>&1; then
-    echo "  skip   $name (이미 존재)"
+    local have kv k v missing=()
+    have=" $(kubectl -n "$NS" get secret "$name" \
+               -o go-template='{{range $k,$v := .data}}{{$k}} {{end}}') "
+    for kv in "$@"; do
+      k="${kv%%=*}"
+      case "$have" in *" $k "*) ;; *) missing+=("$kv");; esac
+    done
+    if [ "${#missing[@]}" -eq 0 ]; then
+      echo "  skip   $name (이미 존재)"
+      return
+    fi
+    # stringData 로 패치한다 — base64 를 직접 만들지 않아도 API 서버가 합친다.
+    local patch='{"stringData":{' first=1
+    for kv in "${missing[@]}"; do
+      k="${kv%%=*}"; v="${kv#*=}"
+      # JSON 문자열에서 깨지는 두 글자만 escape 한다
+      v="${v//\/\\}"; v="${v//\"/\\\"}"
+      [ "$first" -eq 1 ] || patch+=','
+      first=0
+      patch+="\"$k\":\"$v\""
+    done
+    patch+='}}'
+    kubectl -n "$NS" patch secret "$name" -p "$patch" >/dev/null
+    echo "  patch  $name  (+keys: $(printf '%s ' "${missing[@]}" | sed 's/=[^ ]*//g'))"
     return
   fi
   local args=()
@@ -58,6 +94,11 @@ mk redis-secret       "redis-password=$REDIS"
 mk backstage-secret "db-password=$(gen)" "backend-secret=$(gen 32)" "oidc-client-secret=$(gen 32)" "session-secret=$(gen 32)"
 # Temporal — 이력·가시성 DB 를 같은 롤로 쓴다(postgres-bootstrap 이 둘을 만든다).
 mk temporal-secret "db-password=$(gen)"
+# ★★ midPoint — 이 Secret 은 **아예 없었다**(2026-10-05에 더했다). 참조는
+#   둘이었다: postgres-bootstrap 이 이 값으로 midpoint 롤을 만들고
+#   midpoint-deployment 가 같은 키를 읽는다. 없으면 두 쪽이 모두 멈추는데
+#   증상은 `Init:CreateContainerConfigError` 뿐이라 원인이 멀다(§8-103).
+mk midpoint-secret "db-password=$(gen)"
 # Airflow — 넷이 필요하고 서로 역할이 다르다.
 #   db-password     메타데이터 DB (postgres-bootstrap 이 같은 값을 쓴다)
 #   fernet-key      연결·변수를 DB 에 암호화해 넣는 키
@@ -102,7 +143,7 @@ mk minio-secret       "root-user=oimadmin"           "root-password=$MINIO_PW" \
 #    postgres-bootstrap Job 이 이 Secret 들을 읽어 같은 값으로 롤을 만든다.
 # portal-user-password — 개발자 포털에 로그인할 realm 사용자(`portal`).
 # 이 realm 에는 사용자가 없어서 클라이언트만 만들면 로그인할 대상이 없다.
-mk keycloak-secret       "admin-password=$KC_ADMIN"  "db-password=$(gen)" "portal-user-password=$(gen)"
+mk keycloak-secret       "admin-password=$KC_ADMIN"  "db-password=$(gen)" "portal-user-password=$(gen)" "smoke-client-secret=$(gen 32)"
 mk gitlab-secret         "db-password=$(gen)"        "root-password=$GL_ROOT" "admin-token=$(gen 32)"
 mk gitlab-deploy-token   "token=$(gen 32)"
 mk apicurio-secret       "db-password=$(gen)"
@@ -117,9 +158,33 @@ mk glitchtip-secret      "db-password=$(gen)"        "secret-key=$(gen 64)"
 JK_ADMIN="Jk$(gen 16)#A1"
 mk jenkins-secret        "admin-password=$JK_ADMIN"
 # ClickHouse — OpenReplay 전용(ADR-070).
-mk clickhouse-secret     "password=$(gen)"
+# ★ openmeter 는 ClickHouse 와 PostgreSQL 을 둘 다 쓰고 자격이 **다르다**.
+#   둘을 같은 Secret 에 두는 것은 상류 차트의 선택이다(render-openmeter.py 가
+#   그 이름을 읽는다). 이 둘이 없어 openmeter 5종이 전부
+#   `Init:CreateContainerConfigError` 였다 — 베어메탈 첫 구축 실측.
+mk clickhouse-secret     "password=$(gen)" "openmeter-password=$(gen)" "openmeter-pg-password=$(gen)"
 # OpenReplay — PostgreSQL 롤. ClickHouse·Redis·Kafka·MinIO 는 기존 것을 쓴다.
 mk openreplay-secret     "db-password=$(gen)"
+# ★★★ or-secrets — OpenReplay 의 앱 내부 서명 키. 2026-10-05 에 **여기로
+#   옮겼다.** 그 전까지는 차트가 렌더한 Secret 이 git 에 있었고, 값이 전부
+#   미치환 리터럴 `{{ randAlphaNum 20 }}` 였다 — 즉 **누구나 아는 문자열로
+#   토큰에 서명하고 있었고 그 문자열이 공개 레포에 박혀 있었다.**
+#   실측으로 `secretKeyRef` 로 읽히는 키가 10개였다(아래 전부).
+#   ★ 이제 `render-openreplay.py` 가 그 Secret 을 버린다(DROP_SECRETS) —
+#     양쪽이 같은 이름을 만들면 소유권을 다투기 때문이다.
+#   ★★ DB·ClickHouse·MinIO 자격은 **여기 없다** — 렌더가 컨테이너의 env 를
+#     openreplay-secret·clickhouse-secret·minio-secret 으로 돌려 놓는다.
+#     그래서 같은 자격이 두 곳에 생기지 않는다(Gotcha 71 과 같은 원칙).
+mk or-secrets "jwt-secret=$(gen 40)" \
+              "jwt-refresh-secret=$(gen 40)" \
+              "jwt-spot-secret=$(gen 40)" \
+              "jwt-spot-refresh-secret=$(gen 40)" \
+              "assist-jwt-secret=$(gen 40)" \
+              "assist-key=$(gen 40)" \
+              "token-secret=$(gen 40)" \
+              "scim-access-secret-key=$(gen 40)" \
+              "scim-refresh-secret-key=$(gen 40)" \
+              "license-key="
 mk argocd-admin-secret   "admin-password=$(gen)"
 # Slack 미연동. 빈 값이면 Falcosidekick 이 Slack 출력을 비활성한다.
 mk falcosidekick-secret  "slack-webhook-url="
@@ -136,9 +201,28 @@ mk falcosidekick-secret  "slack-webhook-url="
 DS_DM=$(gen); LAM_PW=$(gen); KNOX_MS=$(gen 32)
 RANGER_PW="Rg$(gen 16)#A1"
 
-mk ds389-secret   "dm-password=$DS_DM"          # cn=Directory Manager
+# ★ sync-password — ds389-bootstrap 이 이 값으로 동기화 바인드 계정을 만들고
+#   ranger-admin(LDAP_BIND_PASSWORD)·ranger-usersync 가 같은 키를 읽는다.
+#   양쪽이 같은 Secret 을 보므로 난수여도 된다.
+mk ds389-secret   "dm-password=$DS_DM" "sync-password=$(gen)"   # cn=Directory Manager
 mk lam-secret     "master-password=$LAM_PW"     # LAM 마스터 설정 비밀번호
-mk ranger-secret  "db-password=$RANGER_PW"      # ranger 롤 + admin 웹 로그인
+# ★★ Ranger 는 **자격이 다섯**이다 — db-password 하나로는 부족하다.
+#   매니페스트가 RANGER_ADMIN/KEYADMIN/TAGSYNC/USERSYNC_PASSWORD 를 각각
+#   별도 키로 읽는데 **그 넷이 없었다**(베어메탈 첫 구축 실측). 없으면
+#   ranger-admin 이 `CreateContainerConfigError` 로 아예 기동하지 못한다.
+#   ★ ACCESS.md 는 처음부터 `pw ranger-secret admin-password` 를 안내하고
+#     있었다 — 즉 **문서가 없는 키를 가리키고 있었다.**
+#   ★★★ 넷 다 위의 비밀번호 정책을 통과해야 한다. `gen()` 의 hex 를 쓰면
+#     소문자+숫자뿐이라 정책에 걸리고, 걸리면 setup 이 **조용히 넘어가
+#     그 계정이 기본값으로 남는다**(위 주석이 admin 에서 실제로 겪은 것이다).
+#     한 번 그렇게 적었다가 고쳤다 — 같은 함정에 두 번 걸릴 자리다.
+#   ★ admin 은 RANGER_PW 와 같게 둔다 — 이미지의 ranger.sh 가 DB 와 웹
+#     로그인에 같은 값을 쓰고, 아래 요약 출력도 그 값을 안내한다.
+#   ★ Gotcha 11 — Ranger 는 로그인 실패가 쌓이면 계정을 영구히 잠근다.
+mk ranger-secret  "db-password=$RANGER_PW" "admin-password=$RANGER_PW" \
+                  "keyadmin-password=Rk$(gen 16)#A1" \
+                  "tagsync-password=Rt$(gen 16)#A1" \
+                  "usersync-password=Ru$(gen 16)#A1"
 mk knox-secret    "master-secret=$KNOX_MS"      # Knox 키스토어 마스터 시크릿
 
 # ── 4단계 security-min ────────────────────────────────────────────
