@@ -7,6 +7,16 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
+# ★ 도구가 없는 것을 "점수 N/A = FAIL" 로 적지 않는다 — 그것은 측정하지
+#   못한 것이다. 옛 판은 kubesec 이 없으면 **모든 파일을 FAIL** 로 세어
+#   exit 1 을 돌려줬고, 그러면 빨간불이 상수가 되어 사람이 배경으로 읽는다
+#   (Gotcha 73·90). 종료 코드 2 는 "측정 불가" 를 뜻한다.
+if ! command -v kubesec >/dev/null 2>&1; then
+  echo "[측정 불가] kubesec 이 설치되어 있지 않다 (https://kubesec.io)"
+  echo "            설치한 뒤 다시 돌릴 것. 이것은 통과가 아니다."
+  exit 2
+fi
+
 PASS=0
 WARN=0
 FAIL=0

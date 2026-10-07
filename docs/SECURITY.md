@@ -219,7 +219,7 @@ v1 매니페스트를 v2로 복원할 때 **모든 ConfigMap 평문 자격증명
 | `04-rotation-dryrun.sh` | 로테이션 CronJob/Secret/RBAC | — |
 | `05-kyverno-audit.sh` | 6정책 존재 + dry-run | — |
 | `06-falco-test.yaml` | 탐지 규칙 트리거 | — |
-| `07-netpol-test.sh` | 허용/차단 트래픽 | **`default-deny-all`을 찾음 — 실제는 `default-deny-ingress`. 항상 MISS (G33)** |
+| `07-netpol-test.sh` | 허용/차단 트래픽 | 2026-10-07 수정 — `default-deny-ingress` 를 찾고, 응답 **바이트 수**로 차단을 판정하며, 장치 대조군이 실패하면 **측정 불가(rc=2)** 로 보고한다 (G33 해소) |
 | `08-age-key-backup.sh` | age 키 보관 상태 | **오늘 실행 시 `.sops.yaml` + `.enc.yaml` 12건 전부 FAIL (G33)** |
 | `09-rbac-audit.sh` | 와일드카드 RBAC, default SA | `nginx`·`falcosidekick`·`logstash` 탐지 예상 (G34) |
 
@@ -494,7 +494,7 @@ Vault 채택 시 **G19·G20·G21·G30·SEC-403이 전부 소멸**한다. CronJob
 | SEC-705 | 런타임 탐지 규칙을 실제 트리거로 검증한다 | ✅ | `06-falco-test.yaml` |
 | SEC-706 | NetworkPolicy 허용·차단을 실트래픽으로 검증한다 | 🔶 | **정책 이름 오류로 항상 MISS (G33)** |
 | SEC-707 | age 키 보관 상태를 검증한다 | 🔶 | **오늘 실행 시 전부 FAIL (G33)** |
-| SEC-708 | RBAC 최소권한을 감사한다 | ✅ | `09-rbac-audit.sh` |
+| SEC-708 | RBAC 최소권한을 감사한다 | 🎯 | `09-rbac-audit.sh` — ★ 2026-10-07 까지 이 ✅ 는 **완주하지 못하는 스크립트**에 근거하고 있었다(wildcard 검사가 항상 WARN, automount 계수가 `set -e` 로 스크립트를 죽였다). 지금은 돌지만 **감사가 돌았다는 뜻이고 최소권한이 달성됐다는 뜻은 아니다** |
 | SEC-709 | 클러스터 포스처를 프레임워크 기준으로 점검한다 | 🎯 | Kubescape |
 | SEC-710 | 네트워크 플로우 드롭 원인을 추적할 수 있다 | 🎯 | Hubble + ztunnel 로그 |
 | SEC-711 | 적대적 시뮬레이션으로 탐지 스택 유효성을 검증한다 | 🎯 | Caldera — **dev/local 전용, prod 금지** |

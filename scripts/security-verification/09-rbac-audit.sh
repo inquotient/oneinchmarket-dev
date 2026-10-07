@@ -1,113 +1,199 @@
 #!/usr/bin/env bash
-# 7-9: RBAC 최소 권한 검증
+# 7-9: RBAC 최소 권한 감사
+#
 # 사전 조건: kubectl (클러스터 연결 상태)
-# 실행: ./09-rbac-audit.sh
+# 실행: ./09-rbac-audit.sh [namespace]
+#
+# 종료 코드: 0 통과 · 1 실패 · 2 측정 불가
+#
+# ★★★ 2026-10-07 실측으로 옛 판의 결함 셋을 고쳤다. 셋 다 "오류 없이
+#   틀린 답" 이라 아무도 알려 주지 않았다:
+#
+#   ① wildcard 검사가 **항상 WARN** 이었다.
+#        kubectl ... -o json | grep -l '"*"'
+#      grep -l 은 매칭된 **파일 이름**을 찍는데 stdin 이면 "(standard input)"
+#      을 찍는다. 즉 결과 변수가 절대로 비지 않아 매번 "Wildcard 권한 발견"
+#      이었다. 게다가 BRE 에서 "*" 는 따옴표 0회 이상 + 따옴표라 **아무 따옴표
+#      한 개**에 매칭된다 — 실측으로 wildcard 가 있는 JSON 과 없는 JSON 이
+#      똑같이 1 로 세어졌다. 올바른 것은 고정 문자열 매칭이다.
+#
+#   ② secret verb 검사가 JSON 을 grep -A5 로 읽었다.
+#      필드 순서를 가정한 것이라 resources 와 verbs 가 5줄 안에 함께 없으면
+#      **조용히 빗나간다.** jsonpath 로 규칙 단위로 뽑아 비교한다.
+#
+#   ③ automount 계수가 **스크립트를 죽였다.**
+#        V=$(kubectl ... | grep -c '...' || echo "0")
+#      grep -c 는 0건일 때 "0" 을 찍고 **종료 코드 1** 을 낸다. 그러면
+#      || echo "0" 이 추가로 실행되어 값이 두 줄이 되고,
+#      [ "$V" -gt 0 ] 이 "integer expression expected" 로 rc=2 를 돌려준다.
+#      set -e 가 거기서 스크립트를 끝내므로 **요약에 도달한 적이 없다.**
+#      실측으로 rc=2 와 그 오류 문구를 재현했다.
+#
+# ★★ 그리고 판정 범위를 **이 프로젝트가 소유한 롤**로 좁혔다. 클러스터에는
+#   cluster-admin 처럼 wildcard 를 가진 내장 ClusterRole 이 원래 많다 —
+#   그것까지 세면 빨간불이 상수가 되어 사람이 배경으로 읽는다(Gotcha 73·90).
+#   달성할 수 없는 게이트는 없는 게이트보다 나쁘다.
+#
+# ★ 판정은 둘이 아니라 셋이다 — 통과 / 실패 / **측정 불가**(07 과 같다).
 
 set -euo pipefail
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+RED=$'\033[0;31m'
+GREEN=$'\033[0;32m'
+YELLOW=$'\033[1;33m'
+BLUE=$'\033[0;34m'
+NC=$'\033[0m'
 
 NAMESPACE="${1:-dev}"
+PROJECT_LABEL="app.kubernetes.io/part-of=oneinchmarket"
+
+FAILED=0
+WARNED=0
+UNMEASURED=0
 
 echo "============================================"
-echo "  RBAC 최소 권한 검증 (namespace: $NAMESPACE)"
+echo "  RBAC 최소 권한 감사 (namespace: $NAMESPACE)"
 echo "============================================"
 echo ""
 
-# 1. ServiceAccount 목록
+# API 에 닿는지 먼저 본다. "읽을 수 없다" 를 "없다" 로 적지 않기 위해서다.
+if ! kubectl get namespace "$NAMESPACE" >/dev/null 2>&1; then
+  printf "%s[측정 불가]%s 네임스페이스 %s 를 읽을 수 없다 — API 에 닿지 못했다\n" "$YELLOW" "$NC" "$NAMESPACE"
+  echo ""
+  echo "============================================"
+  printf "  판정: %s측정 불가%s — 감사하지 못했다\n" "$YELLOW" "$NC"
+  echo "============================================"
+  exit 2
+fi
+
+# ───────────────────────────────────────────────
 echo "=== 1. ServiceAccount 목록 ==="
-kubectl get sa -n "$NAMESPACE" -o custom-columns='NAME:.metadata.name,SECRETS:.secrets[*].name' 2>/dev/null \
-  || echo "  Failed to list ServiceAccounts"
+SA_COUNT=$(kubectl get sa -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l | tr -d ' ')
+printf "  ServiceAccount %s개\n" "$SA_COUNT"
+kubectl get sa -n "$NAMESPACE" --no-headers 2>/dev/null | awk '{printf "    - %s\n", $1}' | head -40
+if [ "$SA_COUNT" -gt 40 ]; then printf "    ... (상위 40개만 표시)\n"; fi
 echo ""
 
-# 2. Role/RoleBinding 확인
-echo "=== 2. Role 권한 확인 ==="
-ROLES=$(kubectl get roles -n "$NAMESPACE" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null)
-for role in $ROLES; do
-  printf "\n${BLUE}Role: %s${NC}\n" "$role"
-  kubectl get role "$role" -n "$NAMESPACE" -o jsonpath='{range .rules[*]}  resources: {.resources}  verbs: {.verbs}{"\n"}{end}' 2>/dev/null
-done
+# ───────────────────────────────────────────────
+# 규칙을 한 줄에 하나씩 뽑는다. 형식: <이름> <TAB> verbs <TAB> resources
+# jsonpath 는 배열을 ["a","b"] 로 찍으므로 고정 문자열 매칭이 정확하다.
+RULE_FMT='{range .items[*]}{.metadata.name}{"\t"}{range .rules[*]}{.verbs}{"\t"}{.resources}{"\n"}{end}{end}'
+
+echo "=== 2. 네임스페이스 Role 규칙 ==="
+NS_RULES=$(kubectl get roles -n "$NAMESPACE" -o jsonpath="$RULE_FMT" 2>/dev/null || echo "")
+if [ -z "$NS_RULES" ]; then
+  printf "  %s(Role 이 없다)%s\n" "$BLUE" "$NC"
+else
+  printf "%s\n" "$NS_RULES" | awk -F'\t' 'NF>=3 {printf "    %-28s verbs=%-34s resources=%s\n", $1, $2, $3}'
+fi
 echo ""
 
-# 3. ClusterRole 확인 (프로젝트 관련만)
-echo "=== 3. ClusterRole 확인 (oneinchmarket) ==="
-CLUSTER_ROLES=$(kubectl get clusterroles -l app.kubernetes.io/part-of=oneinchmarket \
-  -o jsonpath='{.items[*].metadata.name}' 2>/dev/null)
-
-for cr in $CLUSTER_ROLES; do
-  printf "\n${BLUE}ClusterRole: %s${NC}\n" "$cr"
-  kubectl get clusterrole "$cr" -o jsonpath='{range .rules[*]}  resources: {.resources}  verbs: {.verbs}{"\n"}{end}' 2>/dev/null
-done
+echo "=== 3. 프로젝트 ClusterRole 규칙 ($PROJECT_LABEL) ==="
+CR_RULES=$(kubectl get clusterroles -l "$PROJECT_LABEL" -o jsonpath="$RULE_FMT" 2>/dev/null || echo "")
+if [ -z "$CR_RULES" ]; then
+  printf "  %s(라벨이 붙은 ClusterRole 이 없다)%s\n" "$BLUE" "$NC"
+  echo "    ★ 라벨이 없으면 이 감사의 범위에서 빠진다 — 새 ClusterRole 에는"
+  echo "      app.kubernetes.io/part-of: oneinchmarket 을 붙일 것"
+else
+  printf "%s\n" "$CR_RULES" | awk -F'\t' 'NF>=3 {printf "    %-28s verbs=%-34s resources=%s\n", $1, $2, $3}'
+fi
 echo ""
 
-# 4. 과도한 권한 검출
+ALL_RULES=$(printf "%s\n%s\n" "$NS_RULES" "$CR_RULES")
+
+# ───────────────────────────────────────────────
 echo "=== 4. 과도한 권한 검출 ==="
 
-# 4-1. wildcard(*) 사용 확인
+# 4-1. wildcard. 고정 문자열 "*" 를 찾는다 — 정규식으로 쓰면 아무 따옴표에나 걸린다.
 echo "--- 4-1. Wildcard(*) 권한 ---"
-WILD_ROLES=$(kubectl get roles,clusterroles -A -o json 2>/dev/null \
-  | grep -l '"*"' 2>/dev/null || true)
-if [ -z "$WILD_ROLES" ]; then
-  printf "${GREEN}[OK]${NC}   Wildcard 권한 없음\n"
+WILD=$(printf "%s\n" "$ALL_RULES" | grep -F '"*"' || true)
+if [ -z "$WILD" ]; then
+  printf "%s[OK]%s   프로젝트 소유 롤에 wildcard 권한 없음\n" "$GREEN" "$NC"
 else
-  printf "${YELLOW}[WARN]${NC} Wildcard 권한 발견\n"
+  printf "%s[FAIL]%s wildcard 권한을 가진 규칙:\n" "$RED" "$NC"
+  printf "%s\n" "$WILD" | awk -F'\t' '{printf "         %-28s verbs=%s resources=%s\n", $1, $2, $3}'
+  FAILED=$((FAILED + 1))
 fi
-
-# 4-2. secrets verb 확인
-echo "--- 4-2. Secret 접근 권한 ---"
-for role in $(kubectl get roles -n "$NAMESPACE" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
-  SECRET_VERBS=$(kubectl get role "$role" -n "$NAMESPACE" -o json 2>/dev/null \
-    | grep -A5 '"secrets"' | grep '"verbs"' || true)
-  if [ -n "$SECRET_VERBS" ]; then
-    VERBS=$(echo "$SECRET_VERBS" | grep -o '\[.*\]')
-    if echo "$VERBS" | grep -q '"delete"\|"create"\|"\*"'; then
-      printf "${RED}[WARN]${NC} %-25s secret 권한 과도: %s\n" "$role" "$VERBS"
-    else
-      printf "${GREEN}[OK]${NC}   %-25s secret 권한 적절: %s\n" "$role" "$VERBS"
-    fi
-  fi
-done
-
-# 4-3. default ServiceAccount 사용 확인
 echo ""
+
+# 4-2. Secret 에 대한 쓰기 권한. 규칙 단위로 보고 verbs 와 resources 를 함께 본다.
+echo "--- 4-2. Secret 접근 권한 ---"
+SEC_RULES=$(printf "%s\n" "$ALL_RULES" | awk -F'\t' 'NF>=3 && $3 ~ /"secrets"/' || true)
+if [ -z "$SEC_RULES" ]; then
+  printf "%s[OK]%s   secrets 를 참조하는 규칙 없음\n" "$GREEN" "$NC"
+else
+  while IFS=$'\t' read -r rname rverbs rres; do
+    [ -n "${rname:-}" ] || continue
+    case "$rverbs" in
+      *'"*"'*)
+        printf "%s[FAIL]%s %-26s secrets 에 wildcard verb: %s\n" "$RED" "$NC" "$rname" "$rverbs"
+        FAILED=$((FAILED + 1)) ;;
+      *'"delete"'*|*'"create"'*|*'"deletecollection"'*)
+        printf "%s[WARN]%s %-26s secrets 에 쓰기 verb: %s\n" "$YELLOW" "$NC" "$rname" "$rverbs"
+        WARNED=$((WARNED + 1)) ;;
+      *)
+        printf "%s[OK]%s   %-26s %s\n" "$GREEN" "$NC" "$rname" "$rverbs" ;;
+    esac
+  done <<< "$SEC_RULES"
+  echo "         (권장: 로테이션은 get+patch 로 충분하다. create/delete 는 사유를 적을 것)"
+fi
+echo ""
+
+# 4-3. default ServiceAccount 로 도는 파드. 이 레포는 0 을 목표로 한다(Gotcha 19).
 echo "--- 4-3. default ServiceAccount 사용 Pod ---"
 DEFAULT_SA_PODS=$(kubectl get pods -n "$NAMESPACE" \
-  -o jsonpath='{range .items[?(@.spec.serviceAccountName=="default")]}{.metadata.name}{"\n"}{end}' 2>/dev/null)
+  -o jsonpath='{range .items[?(@.spec.serviceAccountName=="default")]}{.metadata.name}{"\n"}{end}' 2>/dev/null || echo "")
+DEFAULT_SA_PODS=$(printf "%s\n" "$DEFAULT_SA_PODS" | sed '/^$/d')
 if [ -z "$DEFAULT_SA_PODS" ]; then
-  printf "${GREEN}[OK]${NC}   모든 Pod가 전용 ServiceAccount 사용\n"
+  printf "%s[OK]%s   모든 Pod 가 전용 ServiceAccount 를 쓴다\n" "$GREEN" "$NC"
 else
-  printf "${YELLOW}[WARN]${NC} default SA 사용 Pod:\n"
-  echo "$DEFAULT_SA_PODS" | while read -r pod; do
-    printf "         - %s\n" "$pod"
-  done
+  CNT=$(printf "%s\n" "$DEFAULT_SA_PODS" | wc -l | tr -d ' ')
+  printf "%s[FAIL]%s default SA 로 도는 Pod %s개:\n" "$RED" "$NC" "$CNT"
+  printf "%s\n" "$DEFAULT_SA_PODS" | awk '{printf "         - %s\n", $1}'
+  echo "         (ambient 에서 SA 는 곧 신원이다 — 공유하면 정책을 쓸 수 없다, Gotcha 10)"
+  FAILED=$((FAILED + 1))
 fi
-
 echo ""
 
-# 5. automountServiceAccountToken 확인
-echo "=== 5. SA Token 자동 마운트 확인 ==="
-AUTOMOUNT_PODS=$(kubectl get pods -n "$NAMESPACE" -o json 2>/dev/null \
-  | grep -c '"automountServiceAccountToken": true' || echo "0")
-TOTAL_PODS=$(kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l)
-printf "  Pod 총 수: %s\n" "$TOTAL_PODS"
-printf "  SA Token 자동 마운트: %s\n" "$AUTOMOUNT_PODS"
-if [ "$AUTOMOUNT_PODS" -gt 0 ]; then
-  printf "${YELLOW}[WARN]${NC} 불필요한 SA Token 마운트가 있을 수 있음\n"
-  echo "         automountServiceAccountToken: false 설정 검토"
+# ───────────────────────────────────────────────
+# ★ 질문을 바르게 세울 것: automountServiceAccountToken 의 기본값은 true 이고
+#   대부분의 파드 스펙에는 **그 필드가 아예 없다.** 그러므로 "true 인 것을
+#   세는" 것은 거의 언제나 0 이 나오고 그 0 은 좋은 뜻이 아니다.
+#   세야 하는 것은 **명시적으로 끈 파드의 수**다(SEC-202 의 목표).
+echo "=== 5. SA Token 자동 마운트 (SEC-202) ==="
+TOTAL_PODS=$(kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l | tr -d ' ')
+OPTED_OUT=$(kubectl get pods -n "$NAMESPACE" \
+  -o jsonpath='{range .items[?(@.spec.automountServiceAccountToken==false)]}{.metadata.name}{"\n"}{end}' 2>/dev/null \
+  | sed '/^$/d' | wc -l | tr -d ' ')
+OPTED_OUT=${OPTED_OUT:-0}
+printf "  Pod 총 수:            %s\n" "$TOTAL_PODS"
+printf "  automount 를 끈 Pod:  %s\n" "$OPTED_OUT"
+if [ "$TOTAL_PODS" -gt 0 ]; then
+  printf "  (나머지 %s개는 기본값 true 로 토큰을 마운트한다)\n" "$((TOTAL_PODS - OPTED_OUT))"
 fi
-
+printf "  %s[목표]%s SEC-202 는 아직 달성 상태가 아니다 — 실패로 세지 않고 수치만 남긴다\n" "$BLUE" "$NC"
 echo ""
+
+# ───────────────────────────────────────────────
 echo "============================================"
-echo "  RBAC Audit 완료"
+echo "  RBAC 감사 결과"
 echo "============================================"
+printf "  실패:      %d\n" "$FAILED"
+printf "  경고:      %d\n" "$WARNED"
+printf "  측정 불가: %d\n" "$UNMEASURED"
 echo ""
 echo "  권장사항:"
-echo "  1. Secret 접근: get, patch만 허용 (delete, create 불가)"
-echo "  2. 모든 워크로드에 전용 ServiceAccount 할당"
-echo "  3. Wildcard(*) 권한 사용 금지"
-echo "  4. 불필요한 Pod에서 automountServiceAccountToken: false"
+echo "   1. Secret 접근은 get·patch 까지. create·delete 는 사유를 매니페스트에 적을 것"
+echo "   2. 모든 워크로드에 전용 ServiceAccount (ambient 에서 SA 는 신원이다)"
+echo "   3. 프로젝트 소유 롤에 wildcard(*) 금지"
+echo "   4. 새 ClusterRole 에 app.kubernetes.io/part-of: oneinchmarket 라벨 (없으면 감사 범위 밖)"
 echo "============================================"
+if [ "$FAILED" -gt 0 ]; then
+  printf "  판정: %s실패%s\n" "$RED" "$NC"
+  exit 1
+elif [ "$UNMEASURED" -gt 0 ]; then
+  printf "  판정: %s측정 불가%s — 통과가 아니다\n" "$YELLOW" "$NC"
+  exit 2
+else
+  printf "  판정: %s통과%s (경고 %d건)\n" "$GREEN" "$NC" "$WARNED"
+fi

@@ -542,7 +542,7 @@ dev에서 ambient는 꺼져 있다(`overlays/dev/namespace.yaml:10`, 커밋 `33e
 | **G30** | — | `secret-rotator` Role에 `resourceNames` 없음 | `secret-rotator-rbac.yaml:20-23` |
 | **G31** | — | prod 핀닝이 `alpine/git`·`curlimages/curl`·`minio/mc`·`bitnami/redis-cluster`·`aquasec/trivy`·falco 계열 미포함 | `overlays/prod/kustomization.yaml:19-53` |
 | **G32** | — | GitLab이 `drop: ALL` 없이 capability 8종 추가 | `gitlab-statefulset.yaml:76-85` |
-| **G33** | — | `07-netpol-test.sh:27`이 없는 `default-deny-all`을 찾음. `08-age-key-backup.sh:80-94`는 오늘 실행 시 13건 FAIL | — |
+| **G33** | ✅ | ~~`07-netpol-test.sh:27`이 없는 `default-deny-all`을 찾음~~ -> 2026-10-07 에 `default-deny-ingress` 로 고쳤다. ~~`08-age-key-backup.sh`는 오늘 실행 시 13건 FAIL~~ -> **실측은 실패 0 · 경고 13** 이었다(전부 자리표시자). 두 스크립트 모두 판정이 셋(통과/실패/측정 불가)이 되고 종료 코드를 낸다 | Gotcha 191 |
 | **G34** | — | `nginx`·`falcosidekick`·`logstash`가 `default` SA 사용 | — |
 | **G35** | — | `require-standard-labels`·`require-health-probes`는 prod에도 Enforce 패치 없음 | `overlays/prod/patches/` |
 | **G37** | — | 이미지 다이제스트 핀닝 없음 | — |

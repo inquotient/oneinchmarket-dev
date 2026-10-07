@@ -6,6 +6,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
+# ★ 도구가 없으면 측정 불가(2)다. 옛 판은 trivy 가 없어도 끝까지 돌며
+#   "Clean 0 / Vulnerable 0" 을 찍고 **종료 코드 0** 을 돌려줬다.
+if ! command -v trivy >/dev/null 2>&1; then
+  echo "[측정 불가] trivy 가 설치되어 있지 않다 (https://trivy.dev)"
+  echo "            설치한 뒤 다시 돌릴 것. 이것은 통과가 아니다."
+  exit 2
+fi
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
