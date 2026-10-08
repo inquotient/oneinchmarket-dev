@@ -99,7 +99,7 @@ echo ""
 PROBE=netpol-probe
 
 create_probe() {
-  kubectl run "$PROBE" -n "$NAMESPACE" --image=busybox:latest \
+  kubectl run "$PROBE" -n "$NAMESPACE" --image=docker.io/library/busybox:1.37.0 \
     --restart=Never \
     --overrides='{
       "spec": {
@@ -107,7 +107,7 @@ create_probe() {
                             "seccompProfile": {"type": "RuntimeDefault"}},
         "containers": [{
           "name": "probe",
-          "image": "busybox:latest",
+          "image": "docker.io/library/busybox:1.37.0",
           "command": ["sleep", "300"],
           "securityContext": {"allowPrivilegeEscalation": false, "capabilities": {"drop": ["ALL"]}},
           "resources": {"requests": {"cpu": "10m", "memory": "16Mi"},
@@ -148,15 +148,60 @@ if ! kubectl exec "$PROBE" -n "$NAMESPACE" -- sh -c 'command -v nc >/dev/null' 2
   exit 2
 fi
 printf "%s[OK]%s   nc 있음\n" "$GREEN" "$NC"
+
+# ★★★ 하드 타임아웃이 **필수**다 — 측정이 멈출 수 있기 때문이다.
+#   실측(2026-10-09): opensearch-headless:9200 프로브가 **끝나지 않았다.**
+#   ztunnel 은 TCP 를 받아들인 뒤 HBONE 계층에서 거부하면서 연결을 닫지 않고
+#   (Gotcha 147), 그러면 busybox 의 -w 는 발동하지 않는다. 바깥에서 죽이면
+#   kubectl exec 가 137 을 돌려주고 set -e 가 스크립트를 거기서 끝낸다 —
+#   실제로 그렇게 rc=137 로 죽었다. **멈추지 않는 측정은 측정이 아니다.**
+if ! kubectl exec "$PROBE" -n "$NAMESPACE" -- sh -c 'command -v timeout >/dev/null' 2>/dev/null; then
+  printf "%s[측정 불가]%s 파드 안에 timeout 이 없다 — 프로브가 멈출 수 있어 시험하지 않는다\n" "$YELLOW" "$NC"
+  exit 2
+fi
+printf "%s[OK]%s   timeout 있음 (프로브가 멈추지 않는다)\n" "$GREEN" "$NC"
 echo ""
 
 # 응답 바이트를 센다. 0 이면 상대가 한 마디도 하지 않은 것이다.
 #   $1 호스트  $2 포트  $3 보낼 바이트(printf 형식)
+#
+# ★★★ 2026-10-09: 이 함수에 결함이 둘 있었고, 둘 다 **거짓 안심**을 만든다.
+#   ① busybox 의 nc 는 **stdin 이 EOF 되면 응답을 읽지 않고 끝낸다.** 그래서
+#      'printf ... | nc -w 5 host port | wc -c' 는 상대가 멀쩡히 답해도
+#      **언제나 0 바이트**였다. 차단 시험만 보면 "0 = 차단" 이 전부 성립해
+#      **무엇이 열려 있어도 초록불**이 된다.
+#   ② exec 가 실패하거나 프로브가 끝나지 않은 것을 0 으로 돌려주면 그것도
+#      차단으로 읽힌다. 그래서 이 함수는 **숫자 또는 ERR** 을 돌려주고,
+#      호출부가 ERR 를 측정 불가로 적는다.
+# ★★ 실측으로 방법을 골랐다(2026-10-09, local):
+#      nc -w 5                      -> 0 바이트 (게이트웨이·ClusterIP·NodePort 전부)
+#      wget                         -> HTTP/1.1 404 (Envoy 까지 도달한다)
+#      nc -w 5 -i 2                 -> 172 바이트. 그런데 **opensearch 9200 에서
+#                                      끝나지 않았다**(TLS 포트에 평문을 보내면
+#                                      서버가 핸드셰이크를 기다린다). 안쪽
+#                                      timeout 도 듣지 않아 exec 가 매달렸다.
+#      { printf; sleep 3; } | nc -w 5 -> 채택. 전 대상이 3~4초에 끝나고
+#                                      게이트웨이 172 · 나머지 0 으로 갈린다.
+#   stdin 을 3초 열어 두면 nc 가 응답(또는 리셋)을 읽을 틈이 생기고, 그 뒤
+#   EOF 로 스스로 끝난다 — -i 처럼 매달리지 않는다.
+# ★ 타임아웃을 두 겹으로 둔다(안쪽 timeout 10, 바깥 timeout 25). kubectl 의
+#   --request-timeout 은 exec 에 적용되지 않으므로 바깥이 필요하다.
+#   **멈추지 않는 측정은 측정이 아니다.**
+# ★ 한계: "거부됨" 과 "아무도 듣지 않음" 은 둘 다 0 이다. 이 시험의 질문이
+#   "비인가 출발지가 말을 걸 수 있나" 이므로 그 둘을 가르지 않아도 된다.
+# ★★ TCP connect 성공을 허용으로 읽지 말 것 — ztunnel 은 연결을 받아들인 뒤
+#   HBONE 계층에서 거부한다(Gotcha 19·147). 실측: opensearch 9200 은
+#   connect_rc=0 인데 wget 은 Connection reset 이고 응답 바이트가 0 이다.
 probe_bytes() {
-  local host=$1 port=$2 payload=$3
-  kubectl exec "$PROBE" -n "$NAMESPACE" -- sh -c \
-    "printf '$payload' | nc -w 5 $host $port 2>/dev/null | wc -c" 2>/dev/null \
-    | tr -dc '0-9' | head -c 10
+  local host=$1 port=$2 payload=$3 out rc=0
+  out=$(timeout 25 kubectl exec "$PROBE" -n "$NAMESPACE" -- sh -c \
+        "{ printf '$payload'; sleep 3; } | timeout 10 nc -w 5 $host $port 2>/dev/null | wc -c" 2>/dev/null) || rc=$?
+  out=$(printf '%s' "$out" | tr -dc '0-9' | head -c 10)
+  if [ "${rc:-0}" -ne 0 ] || [ -z "$out" ]; then
+    echo ERR
+  else
+    echo "$out"
+  fi
 }
 
 echo "=== 4. 장치 대조군 (이 측정이 작동하는지) ==="
@@ -170,8 +215,10 @@ if [ -z "$GW_SVC" ]; then
 else
   printf "  대조군 대상: %s:80 ... " "$GW_SVC"
   CTRL=$(probe_bytes "$GW_SVC" 80 'GET / HTTP/1.0\r\nHost: ctrl\r\n\r\n')
-  CTRL=${CTRL:-0}
-  if [ "$CTRL" -gt 0 ]; then
+  if [ "$CTRL" = ERR ]; then
+    printf "%s측정 실패 — 프로브가 끝나지 않았거나 exec 가 실패했다%s\n" "$YELLOW" "$NC"
+    UNMEASURED=$((UNMEASURED + 1))
+  elif [ "$CTRL" -gt 0 ]; then
     printf "%s응답 %s바이트 — 측정 장치 정상%s\n" "$GREEN" "$CTRL" "$NC"
     APPARATUS_OK=1
   else
@@ -202,8 +249,12 @@ else
     port=${rest%%:*};              rest=${rest#*:}
     name=${rest%%:*};              payload=${rest#*:}
     printf "  %-12s (%s:%s) ... " "$name" "$host" "$port"
-    N=$(probe_bytes "$host" "$port" "$payload"); N=${N:-0}
-    if [ "$N" -eq 0 ]; then
+    N=$(probe_bytes "$host" "$port" "$payload")
+    if [ "$N" = ERR ]; then
+      # ★ 여기를 "차단" 으로 적으면 거짓 안심이다. 재지 못한 것이다.
+      printf "%s측정 불가 (프로브가 끝나지 않았다)%s\n" "$YELLOW" "$NC"
+      UNMEASURED=$((UNMEASURED + 1))
+    elif [ "$N" -eq 0 ]; then
       printf "%s차단 (정상)%s\n" "$GREEN" "$NC"
     else
       printf "%s허용 (비정상 - 응답 %s바이트)%s\n" "$RED" "$N" "$NC"

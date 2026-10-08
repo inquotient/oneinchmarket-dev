@@ -76,11 +76,24 @@ echo ""
 
 # ───────────────────────────────────────────────
 # 규칙을 한 줄에 하나씩 뽑는다. 형식: <이름> <TAB> verbs <TAB> resources
-# jsonpath 는 배열을 ["a","b"] 로 찍으므로 고정 문자열 매칭이 정확하다.
-RULE_FMT='{range .items[*]}{.metadata.name}{"\t"}{range .rules[*]}{.verbs}{"\t"}{.resources}{"\n"}{end}{end}'
+#
+# ★★★ 2026-10-09: 옛 판은 jsonpath 였고 **규칙이 둘 이상인 롤에서 어긋났다.**
+#   이름을 **규칙 루프 밖에서** 찍었으므로 두 번째 규칙부터는 이름 열이 비고
+#   필드가 한 칸씩 밀린다. 그리고 어긋나는 데서 그치지 않았다 — 실측에서
+#   falco 의 3번째 규칙(nonResourceURLs)은 resources 가 없어 필드가 **둘**이라
+#   awk -F'\t' 의 NF>=3 에 **조용히 걸러졌다.** 즉 보지 않은 규칙이 있었다.
+# ★ 이름을 안쪽으로 옮기는 것으로는 고칠 수 없다 — kubectl jsonpath 에는
+#   부모를 가리키는 연산자가 없어 규칙 루프 안에서 롤 이름을 읽을 길이 없다.
+#   go-template 은 바깥에서 변수를 묶을 수 있다.
+# ★★ 그런데 배열을 그대로 찍으면 [get list] 가 되어 **소비처의 "*" ·
+#   "secrets" 매칭이 깨진다.** 그래서 따옴표까지 직접 조립해 jsonpath 와 같은
+#   모양(["get","list"])을 유지한다 — 소비처를 손대지 않아도 된다.
+# ★ 실측(local, 2026-10-09): 19줄 전부 NF>=3 · 이름 누락 0 · 빈 resources 는
+#   [] 로 찍히고 wildcard 2건을 그대로 검출한다.
+RULE_TMPL='{{range .items}}{{$n := .metadata.name}}{{range .rules}}{{$n}}{{"\t"}}[{{range $i, $v := .verbs}}{{if $i}},{{end}}"{{$v}}"{{end}}]{{"\t"}}[{{range $i, $r := .resources}}{{if $i}},{{end}}"{{$r}}"{{end}}]{{"\n"}}{{end}}{{end}}'
 
 echo "=== 2. 네임스페이스 Role 규칙 ==="
-NS_RULES=$(kubectl get roles -n "$NAMESPACE" -o jsonpath="$RULE_FMT" 2>/dev/null || echo "")
+NS_RULES=$(kubectl get roles -n "$NAMESPACE" -o go-template="$RULE_TMPL" 2>/dev/null || echo "")
 if [ -z "$NS_RULES" ]; then
   printf "  %s(Role 이 없다)%s\n" "$BLUE" "$NC"
 else
@@ -89,7 +102,7 @@ fi
 echo ""
 
 echo "=== 3. 프로젝트 ClusterRole 규칙 ($PROJECT_LABEL) ==="
-CR_RULES=$(kubectl get clusterroles -l "$PROJECT_LABEL" -o jsonpath="$RULE_FMT" 2>/dev/null || echo "")
+CR_RULES=$(kubectl get clusterroles -l "$PROJECT_LABEL" -o go-template="$RULE_TMPL" 2>/dev/null || echo "")
 if [ -z "$CR_RULES" ]; then
   printf "  %s(라벨이 붙은 ClusterRole 이 없다)%s\n" "$BLUE" "$NC"
   echo "    ★ 라벨이 없으면 이 감사의 범위에서 빠진다 — 새 ClusterRole 에는"
