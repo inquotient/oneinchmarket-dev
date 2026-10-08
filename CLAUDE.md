@@ -711,6 +711,34 @@ python3 local/check-wave-order.py  --check          # wave 뒤집힌 의존 전�
 python3 local/check-nonroot-caps.py --check          # 비-root 컨테이너의 무력한 capability (0 이어야 한다)
 ```
 
+**★★ 노드가 재부팅 뒤 스스로 돌아오는지 보는 것은 따로 있다** —
+`local/node-rejoin-check.sh` 다. 부트스트랩의 `--check` 는 **설치 전·자기
+기계**만 보고(sysctl 절보다 먼저 끝난다) 살아 있는 클러스터에는 다시 돌릴 수
+없으므로(k3s 를 설치해 버린다), 이미 멤버인 노드 **전부**를 ssh 로 돌며
+재부팅 생존만 본다.
+
+```bash
+bash local/node-rejoin-check.sh --check   # 검사만 (게이트용)
+bash local/node-rejoin-check.sh           # 고칠 수 있는 것은 고치고 검증
+```
+
+보는 것: k3s 유닛 `enabled` · 주소가 static 인지 · 유닛의 `--node-ip` 가 실제
+주소와 같은지 · 유닛이 참조하는 `/etc/rancher/k3s/*` 존재 · agent 의
+`K3S_URL`·`K3S_TOKEN`(값이 아니라 길이만) · `/etc/rancher/node/password`
+(없으면 서버가 `Node password rejected` 로 거부한다 — 부팅은 되고 **조인만**
+안 되므로 네트워크 문제로 읽힌다) · inotify 가 **`/etc/sysctl.d` 에 선언**되어
+있는지(런타임 값만 맞으면 재부팅에 사라진다, Gotcha 183) · 시계 NTP 동기 ·
+`registries.yaml`(Gotcha 126) · `oim-thermal-policy`(Gotcha 192).
+★ sysctl 값을 두 곳에 적지 않는다 — 이 스크립트는 그 값을
+`bootstrap-baremetal-k3s.sh` 에서 **읽어서** 쓰고, 2줄을 읽지 못하면 멈춘다
+(Gotcha 117 과 같은 자리).
+★★ 판정은 **셋**이다 — 통과 / 실패 / **측정 불가**(종료 코드 0/1/2). 꺼져 있는
+노드를 통과로 접지 않는다. 실측 2026-10-08: `통과 1 · 실패 0 · 측정 불가 1`
+(104 가 꺼져 있었다)로 **2** 를 돌려줬다.
+★★★ 이것이 **재지 못하는 것**은 실제 부팅 경로(펌웨어·디스크·NIC)다 — 노드가
+네트워크에 오지 못하는 원인은 여기서 보이지 않는다. 스크립트가 끝에 그 한계를
+스스로 출력한다.
+
 **★★ 동기화가 wave 4 에서 서면 OpenBao 를 초기화해야 한다** — ArgoCD 가
 `waiting for healthy state of apps/StatefulSet/openbao` 에서 멈춘다. 봉인된
 OpenBao 는 **1/2** 이고 그 상태로는 영원히 Healthy 가 되지 않는다(로그는
