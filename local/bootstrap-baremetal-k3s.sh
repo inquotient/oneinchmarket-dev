@@ -147,6 +147,20 @@ log "OK — ${MEM_GIB}GiB · $(nproc)코어 · BTF · cgroup2 · systemd · / sh
 log "     노드 IP ${NODE_IP} (${IFACE}, static) · DNS $(awk '/^nameserver/{printf "%s ", $2}' "$UPSTREAM_RESOLV")"
 log "     역할 ${ROLE}"
 
+# (1-c) ★★ 열·전력 정책 — 2026-10-09 에 더했다. 이 섀시는 **열용량이 거의 없다**:
+#   실측으로 포크 루프 하나(1코어)만으로 패키지가 56C -> 93C 로 튀고, EC 팬이
+#   1300 <-> 2400 RPM 을 끊임없이 왕복한다. **그 오르내림이 소음이다.**
+# ★ 원인은 부하가 아니다 — 16코어 중 1~2개만 돌고 90% 유휴이며 60초간 스로틀
+#   증분이 0 이었다. 원인은 터보 정책이다: scaling_max 5.4GHz · PL1 **200W** ·
+#   EPP balance_performance. 열용량이 없으니 순간 전력에 온도가 즉시 따라붙는다.
+# ★★ 그래서 "온도가 높다" 가 아니라 "스파이크가 잦다" 가 맞는 진단이고, 처방도
+#   냉각이 아니라 **스파이크를 없애는 것**이다. 아래 §1-b 가 그 일을 한다.
+if [ -r /sys/firmware/acpi/platform_profile ]; then
+  CUR_PP="$(cat /sys/firmware/acpi/platform_profile)"
+  [ "$CUR_PP" = quiet ] \
+    || warn "platform_profile=${CUR_PP} — quiet 가 아니면 팬이 1300<->2400 을 왕복한다(§1-b 가 고친다)"
+fi
+
 # (6) agent 는 서버 주소와 토큰이 있어야 한다. 없으면 설치 스크립트가 **server**
 #     로 돌아버려 두 번째 클러스터가 생긴다 — 조용히 틀리는 자리라 먼저 막는다.
 if [ "$ROLE" = agent ] && [ "$CHECK" != yes ]; then
@@ -190,6 +204,106 @@ sysctl -q --system
 GOT_INST=$(sysctl -n fs.inotify.max_user_instances)
 [ "$GOT_INST" -ge 1024 ] || fail "inotify instances 가 ${GOT_INST} 다 - sysctl 이 적용되지 않았다"
 log "     fs.inotify.max_user_instances=${GOT_INST}"
+
+# ── 1-b. 열·전력 정책 (팬 왕복 억제) ───────────────────────────
+# 사연은 §0 의 (1-c) 에 있다. 요약: 짧은 터보 버스트가 93C 를 찍어 EC 팬이
+# 왕복한다. platform_profile=quiet + EPP=power 로 없앤다.
+# ★ 실측 전후(2026-10-09, 192.168.0.103 · Core Ultra 9 285H · NUC15CRSU9,
+#   같은 샘플러 60초):
+#       전: pkg 평균 57 · 최고 93 · 80C 이상 14/120 · fan 1300~2400
+#       후: pkg 평균 51 · 최고 55 · 80C 이상  0/120 · fan 0
+#   같은 일을 낮은 클럭으로 하므로 **평균까지 6C 내려간다** — 성능을 깎아
+#   온도를 산 것이 아니라, 하지 않아도 될 터보를 멈춘 것이다.
+# ★★ 식는 능력을 잃지 않았다는 것을 **부하를 줘서 확인했다**: 8코어를 30초
+#   꽉 채워도 최고 **66C** 이고 스로틀 증분 0, 팬은 22초 뒤 1300 RPM 으로
+#   정상 복귀했다. 검증하지 않은 조용한 설정은 이 레포가 거듭 경고한 자리다.
+# ★ PL1 은 **깎지 않는다**(200W 그대로) — 실측으로 도달하지 않는 값이고,
+#   사유 없는 회피책을 남기면 복귀 조건을 모르게 된다(Gotcha 131).
+# ★★★ 이 둘은 sysfs 라 **재부팅하면 사라진다** — sysctl 처럼 /etc 에 선언할
+#   수 없으므로 부팅마다 쓰는 유닛을 둔다. 레포 밖 노드 상태로 두지 않는
+#   이유는 Gotcha 183 과 같다: 빠뜨렸을 때 증상이 원인과 아주 멀다.
+log "열·전력 정책 (팬 왕복 억제)"
+# ★ 생성 파일은 **ASCII 만** 쓴다 — 한글 주석 한 줄이 control-plane 을 내린
+#   적이 있다(Gotcha 177). 쓴 뒤 세어서 확인한다.
+cat > /usr/local/sbin/oim-thermal-policy.sh <<'THERMAL'
+#!/bin/sh
+# OneinchMarket k3s node thermal policy.  ASCII only (Gotcha 177).
+#
+# Why: this chassis has almost no thermal mass.  A sub-second turbo burst
+# takes the package from ~55C to ~93C, so the EC fan oscillates between
+# 1300 and 2400 RPM.  The noise is the oscillation, not sustained heat --
+# the node runs 1-2 of 16 cores and is ~90% idle.
+#
+# Measured 2026-10-09 (192.168.0.103, Core Ultra 9 285H, NUC15CRSU9),
+# same 60s sampler before and after:
+#   before  pkg avg 57  max 93   >=80C in 14/120   fan 1300-2400
+#   after   pkg avg 51  max 55   >=80C in  0/120   fan 0
+# Load test after the change: 8 cores pegged for 30s reached 66C, thermal
+# throttle delta 0, fan returned to 1300 RPM after ~22s.  Cooling works.
+#
+# PL1 is left at its firmware value (200W) on purpose: measured, it is
+# never reached, and a workaround with no stated cause outlives its reason.
+set -eu
+
+if [ -w /sys/firmware/acpi/platform_profile ]; then
+  if grep -qw quiet /sys/firmware/acpi/platform_profile_choices 2>/dev/null; then
+    echo quiet > /sys/firmware/acpi/platform_profile || true
+  fi
+fi
+
+for f in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do
+  [ -w "$f" ] || continue
+  echo power > "$f" || true
+done
+
+exit 0
+THERMAL
+chmod 0755 /usr/local/sbin/oim-thermal-policy.sh
+
+cat > /etc/systemd/system/oim-thermal-policy.service <<'UNIT'
+[Unit]
+Description=OneinchMarket k3s node thermal policy (quiet fan curve, power EPP)
+After=multi-user.target
+ConditionPathExists=/usr/local/sbin/oim-thermal-policy.sh
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/oim-thermal-policy.sh
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+chmod 0644 /etc/systemd/system/oim-thermal-policy.service
+
+for f in /usr/local/sbin/oim-thermal-policy.sh /etc/systemd/system/oim-thermal-policy.service; do
+  NON_ASCII=$(LC_ALL=C grep -c '[^[:print:][:space:]]' "$f" || true)
+  [ "${NON_ASCII:-0}" = 0 ] || fail "$f 에 비-ASCII 가 ${NON_ASCII}줄 있다 — systemd 가 거부할 수 있다(Gotcha 177)"
+done
+
+systemctl daemon-reload
+systemctl enable --now oim-thermal-policy.service >/dev/null 2>&1 \
+  || fail "oim-thermal-policy.service 를 켜지 못했다 — journalctl -u oim-thermal-policy 를 볼 것"
+
+# ★ 되읽어 확인한다(Gotcha 86). 단 **없는 하드웨어는 경고**다 — 달성할 수 없는
+#   게이트는 없는 게이트보다 나쁘다(Gotcha 73·90).
+GOT_PP="n/a"
+if [ -r /sys/firmware/acpi/platform_profile ]; then
+  GOT_PP="$(cat /sys/firmware/acpi/platform_profile)"
+  if grep -qw quiet /sys/firmware/acpi/platform_profile_choices 2>/dev/null; then
+    [ "$GOT_PP" = quiet ] || fail "platform_profile 이 ${GOT_PP} 다 — 유닛이 적용되지 않았다"
+  else
+    warn "이 펌웨어에 quiet 프로파일이 없다 (선택지: $(cat /sys/firmware/acpi/platform_profile_choices 2>/dev/null))"
+  fi
+else
+  warn "platform_profile 이 없다 — 이 하드웨어에는 팬 커브 레버가 없다"
+fi
+GOT_EPP="$(cat /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference 2>/dev/null || echo none)"
+case "$GOT_EPP" in
+  power) log "     platform_profile=${GOT_PP} · EPP=${GOT_EPP} · 유닛 oim-thermal-policy enabled" ;;
+  none)  warn "EPP 손잡이가 없다 — driver=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_driver 2>/dev/null)" ;;
+  *)     fail "EPP 가 ${GOT_EPP} 다 — 유닛이 적용되지 않았다" ;;
+esac
 # ── 2. kubelet 설정 ────────────────────────────────────────────
 # NodeSwap·swapBehavior·maxPods 는 kubelet 설정 파일에만 있는 필드다
 # (대응 CLI 플래그가 없어 `unknown flag` 로 기동을 거부한다).
