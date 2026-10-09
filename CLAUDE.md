@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 |---|---|
 | [docs/PRD.md](docs/PRD.md) | 제품 요구사항, 목표·비목표, Phase 달성도, 미결정 사항 |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 계층 구조, 데이터 흐름, 구현 vs 목표 갭(G1~G41), TODO 47건 |
-| [docs/SECURITY.md](docs/SECURITY.md) | SEC-xxx 90건, 통제 인벤토리, 워크로드 커버리지 |
+| [docs/SECURITY.md](docs/SECURITY.md) | SEC-xxx **93건**(2026-10-10 실측 — 세는 명령이 그 문서 §8 끝에 있다. 이 칸은 사본이다), 통제 인벤토리, 워크로드 커버리지. ★ **§8 과 §4 는 범례가 다르다** — 섞어 세면 틀린다 |
 | [docs/COMPONENTS.md](docs/COMPONENTS.md) | 구성요소 카탈로그, v1↔v2 대조, 의존 관계 |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | INFRA-xxx 56건, 배포 절차, 배포 블로커, 용량·비용 |
 | [docs/LOCAL-DEPLOYMENT.md](docs/LOCAL-DEPLOYMENT.md) | **브랜치 `local`.** ★★★ **2026-10-04 에 WSL2 단일 노드에서 베어메탈 2노드로 옮겼다** — `192.168.0.103`(control-plane) · `192.168.0.104`(agent), Intel NUC15 CRSU9 둘, Ubuntu 26.04·kernel 7.0.0-38, 합산 allocatable **cpu 31,000m · mem 117.1 GiB**(WSL 대비 CPU 1.3배·메모리 2.2배). 부트스트랩은 `local/bootstrap-baremetal-k3s.sh [server|agent|--check]` 다. zram·`.wslconfig`·keepalive 는 **더 이상 쓰이지 않는다**(Gotcha 6·49·104·105 는 그 시절 기록이다). 아래 §8 이하의 WSL2 서술은 **이전 환경의 기록**으로 읽을 것. **§8 에 실배포 기록** — WSL2 고유 블로커 3건, 결함 32건 해소. **§9 는 뒤로 미룬 일** — 지금 하지 않기로 **결정한** 목록이다(잊은 것이 아니다). ★ **노드 상태 두 가지가 이 레포 밖에 있다** — `/etc/resolv.conf` 고정(§24-8)과 `/etc/rancher/k3s/registries.yaml`(Gotcha 126, 클러스터 안 레지스트리를 평문 HTTP 로 알려 준다). **클러스터를 새로 세우면 둘 다 다시 해야 한다.** **§3-1 은 콜드 부팅 뒤 체크리스트** — WSL 이 꺼졌다 켜지면 반드시 볼 것. **§23 은 56GB 상한**(§22 의 결론을 뒤집는다) · **§24 는 L0 랩의 KVM 이전**(완료 — Hyper-V 자산은 지웠다) · **§25 는 이 레포 밖의 노드 상태 목록**(재구축 때 빠뜨리기 쉽다) · **§15-6 은 KVM 다중 노드** — H5 가 열려 판단 근거가 바뀌었다. 새 작업을 시작하기 전에 볼 것 |

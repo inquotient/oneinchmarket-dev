@@ -1338,7 +1338,7 @@ Current version:            ← 빈 값
 ## 관련 문서
 
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — 계층 구조, 갭 목록(G1~G41), TODO 47건
-- [SECURITY.md](./SECURITY.md) — SEC-xxx 68건
+- [SECURITY.md](./SECURITY.md) — SEC-xxx **93건**(2026-10-10 실측. 이 줄은 사본이고 세는 명령은 그 문서 §8 끝에 있다)
 - [DEPLOYMENT.md](./DEPLOYMENT.md) — INFRA-xxx 56건
 - [COMPONENTS.md](./COMPONENTS.md) — 구성요소 카탈로그
 - [PRD.md](./PRD.md) — 목표·비목표, Phase 달성도
