@@ -23,10 +23,43 @@ spec:
         app.kubernetes.io/name: falco
         app.kubernetes.io/component: observability
         app.kubernetes.io/part-of: oneinchmarket
+        # ★ ztunnel 에 포획되면 안 된다 — ingress 게이트웨이와 같은 이유다
+        #   (ingress-gateway.yaml 의 infrastructure.labels). Falco 는
+        #   privileged 로 도는 센서이고 자기 경보를 스스로 내보낸다. 메시에
+        #   넣으면 그 출력이 ztunnel 을 타게 되어 **탐지 경로가 데이터
+        #   플레인에 매달린다** — 메시가 흔들리면 경보도 함께 끊긴다.
+        #   아래에서 파드 네트워크로 옮긴 목적은 **신원을 얻는 것**이고
+        #   mTLS 가 아니다. NetworkPolicy 는 파드 라벨만 보면 된다.
+        istio.io/dataplane-mode: none
     spec:
       serviceAccountName: falco
-      hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
+      # ★★★ hostNetwork 를 쓰지 않는다 — 2026-10-09 에 걷었다(Gotcha 197).
+      #   hostNetwork 파드는 **파드 신원이 없다**(Gotcha 110 ②). 그래서
+      #   NetworkPolicy 가 고를 수 없는데, `allow-falcosidekick-access` 는
+      #   2801 을 `app.kubernetes.io/name: falco` 파드 라벨로만 연다. 결과:
+      #   Falco 는 **같은 노드**의 falcosidekick 에만 닿았고(Cilium 이
+      #   host->로컬 파드를 허용한다) 다른 노드에서 오면
+      #   `remote-node`(identity 6) 가 되어 **조용히 버려졌다.**
+      #   실측: 싱크가 본 hostname 시계열이 한 노드뿐 · 반대 노드의 falco
+      #   로그에 `"http" output timeout, all output channels are blocked`
+      #   105줄. 즉 **노드 하나의 런타임 탐지가 통째로 유실돼 있었다**
+      #   (SEC-301 이 "모든 노드" 라고 적고 있었다).
+      #   ★ 그 결함은 falcosidekick 이 어느 노드에 뜨는지에 따라 **옮겨
+      #     다닌다** — 파드 재기동 하나가 커버리지를 바꾼다.
+      #
+      #   ★★ hostNetwork 가 사주던 것이 없다 — 실측으로 확인했다:
+      #     · falco 를 선택하는 Service 0개 (들어오는 트래픽이 없다)
+      #     · 8765 는 자기 liveness/readiness 프로브뿐
+      #     · `hostPID` 는 애초에 쓰지 않는다
+      #   syscall 수집은 modern_ebpf 가 커널에서 하므로 netns 와 무관하다
+      #   (실측: 파드 네트워크에서 드라이버·규칙 정상 로드 · 전송 오류 0건).
+      #   libbpf 의 TOCTOU tracepoint 경고는 hostNetwork 파드에도 있던
+      #   것이라 이 변경과 무관하다(대조군으로 확인).
+      #
+      #   ★★★ 복귀 조건: **Kubernetes audit webhook**(SEC-307)을 Wazuh 가
+      #   아니라 Falco 로 받기로 하면, API 서버가 노드 IP 의 8765 로 POST
+      #   해야 하므로 hostNetwork 또는 전용 Service 가 다시 필요해진다.
+      dnsPolicy: ClusterFirst
       tolerations:
         - effect: NoSchedule
           operator: Exists
@@ -39,6 +72,22 @@ spec:
             - engine.kind=modern_ebpf
           env:
             - name: FALCO_K8S_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            # ★★ hostNetwork 를 걷으면 경보의 `hostname` 이 노드명에서
+            #   **파드명**으로 바뀐다 — Falco 는 uname 의 hostname 을 쓰고,
+            #   hostNetwork 일 때 그것이 노드명이었을 뿐이다. 그러면
+            #   `06-falco-test.sh` 의 노드 커버리지 판정(싱크의 hostname
+            #   라벨로 노드를 귀속한다)이 **조용히 무의미해진다** — 경보는
+            #   그대로 오는데 어느 노드에서 왔는지 알 수 없다.
+            #   실측으로 확인했다: 이 변수 없이는
+            #   hostname="falco-nonet-test", 주면
+            #   hostname="local-ubuntu4-nuc15crsu9".
+            # ★ 덤으로 값이 **`kubectl get nodes` 와 정확히 일치**한다 —
+            #   hostNetwork 시절에는 OS 호스트명(대문자 섞인
+            #   `local-ubuntu3-NUC15CRSU9`)이어서 대소문자가 어긋나 있었다.
+            - name: FALCO_HOSTNAME
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
