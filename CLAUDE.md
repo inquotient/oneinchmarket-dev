@@ -812,6 +812,21 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
      ★ **그 간격의 비용은 재서 판단할 것 — 여기서는 0이었다.** `Cannot read host init process proc root: 13` 이 두 줄 남지만, privileged 와 대조해 **컨테이너 규칙 4종 + 노드 자격 절 · 호스트 규칙(조상 사슬 `proc.aname[2..4]`·`user.loginuid`·exepath 실경로) · `user.name`/`container.name` 해석이 전부 동일**하고 `<NA>` 가 0건이었다. 그래서 Unconfined 로 되돌리지 않았다 — **복귀 조건은 매니페스트에 적었다.**
      ★★ **seccomp 이 조용히 꺼져 있던 것도 그때 드러났다** — `privileged` 가 끄기 때문이다(실측 `Seccomp: 0`). 걷으면 `RuntimeDefault` 가 걸리고(`Seccomp: 2`) 관문은 그 프로파일이 `bpf`·`perf_event_open` 을 허용하는지 하나인데, 드라이버가 열리고 자극 전부가 발화했다. **`privileged` 를 걷는 것은 capability 를 좁히는 일만이 아니라 seccomp 을 되살리는 일이다.**
      ★ **hostPath 는 "열린 fd" 와 "떼어 보기" 로 가를 것.** `/host/dev`·`/host/boot` 는 커널 모듈·legacy eBPF 시절의 유산이었다 — 열린 fd 0개이고 `/host/boot` 는 파드가 뜬 뒤 **atime 조차 갱신되지 않았다.** 다만 atime 은 relatime 때문에 약한 증거이므로 **떼어 놓고 자극을 걸어** 확정했다.
+     ★★★ **좁히기가 끝난 뒤에 전혀 다른 결함이 드러났다 — Falco 의 TOCTOU 완화가 이 클러스터에서 한 번도 동작한 적이 없다.** 로그에 이 다섯 줄이 상시 있다:
+     ```
+     libbpf: failed to determine tracepoint 'syscalls/sys_enter_openat' perf event ID: No such file or directory
+     libpman: failure while attaching TOCTOU mitigation program for 'connect'/'creat'/'open'/'openat'/'openat2'
+       -> "Detection will continue to work, but TOCTOU mitigation may not properly work"
+     ```
+     원인은 **컨테이너 안에 tracefs 가 없는 것**이다(`/sys/kernel/tracing` 이 디렉터리만 있고 `events/.../id` 를 읽을 수 없다). ★ **특권과 무관하다** — privileged 든 capability 셋이든 seccomp 를 켜든 끄든 **전부 5건**이다(실측). 즉 내 좁히기가 만든 것이 아니다.
+     ★★ **그 대가가 추상적이지 않다 — 센서가 죽는다.** 실측으로 한 번 이렇게 끝났다:
+     ```
+     Error: could not parse param 2 (name) for event ... of type 307 (openat): expected length 2, found 32
+     -> exitCode 1, 파드 재시작 1회
+     ```
+     TOCTOU 완화가 막으려는 바로 그 경로 경합이다. 즉 TOCTOU 가 꺼져 있으면 ① 파일 규칙이 경로 교체로 회피될 수 있고 ② 그 경합이 **탐지기 자체를 종료시킨다.**
+     ★ **처방은 측정했다**: `/sys/kernel/tracing` 을 **읽기 전용 hostPath** 로 물리면 실패가 **5 → 0** 이고 tracefs 가 읽힌다(`id=756`). 대가는 hostPath 2 → 3 이다 — 하드닝 축 하나(마운트 수)를 내주고 탐지 축 둘(회피 내성 · 센서 생존)을 얻는 거래다. **적용하지 않고 남겨 두었다** — 방향이 반대인 변경이라 결정이 필요하다.
+     ★★★ **이 조사에서 내 측정이 두 번 틀렸고 둘 다 같은 원인이다 — 로그를 너무 일찍 셌다.** TOCTOU 줄은 `One ring buffer every 'N' CPUs` **뒤에** 나오는데, 그 줄이 보이자마자 세서 **`0건`** 을 얻었다. 그래서 먼저 "seccomp 가 원인" 이라는 **거짓 확증**을 만들고(대조군 둘이 모두 0 이라 믿었다) 이어서 "특권과 무관" 이라는 결론도 근거 없이 얻었다(결과적으로는 맞았지만 그때는 재지 않은 것이다). **로그로 판정할 때는 "그 줄이 나올 때까지" 를 조건으로 둘 것** — 파드가 Running 인 것도, 앞 단계 줄이 보이는 것도 그 뒤 줄이 나왔다는 뜻이 아니다. 이 레포의 "측정값이 이상하면 측정 방법부터"(Gotcha 25·56·147·187)와 "측정 대상이 그 자리에 있는지부터"(Gotcha 198)에 이어 **"측정 시점이 그 뒤인지부터"** 다.
      ★★★ 그리고 **좁힌 결과를 PodSecurity 경고와 Kyverno 로 되읽을 것** — 경고가 `privileged (...)` + `hostPath 4종` 에서 `non-default capabilities (BPF, PERFMON, SYS_RESOURCE)` + `hostPath 2종` 으로 바뀌었고, **`disallow-privilege-escalation` 위반이 사라졌다**(그 정책은 `exclude` 가 없고 prod 에서 Enforce 다 — 즉 **몰랐던 prod 배포 블로커가 하나 없어진 것**이다). ★ 반면 `disallow-root` 예외는 **남는다** — uid 0 을 유지해야 `add` 가 실효가 되기 때문이다(Gotcha 182). **"예외를 없앴다" 와 "예외를 좁혔다" 를 구분해서 적을 것**: PSS `baseline`·`restricted` 는 hostPath 와 비기본 capability 를 금지하므로 Falco 는 **여전히 admit 되지 않는다.**
 
 ### 매니페스트 작업 시
