@@ -55,7 +55,7 @@ spec:
           env:
             - name: SAFELINE_DB_PASSWORD
               valueFrom: { secretKeyRef: { name: safeline-secret, key: db-password } }
-            # 공용 PostgreSQL 을 쓴다(ADR-071 과 같은 판단 — 전용 인스턴스는
+            # 공용 PostgreSQL 을 쓴다(ADR-077 과 같은 판단 — 전용 인스턴스는
             # 세 환경에 하나씩 늘어난다). 상류는 자체 postgres:15.2 를 번들한다.
             - name: MGT_PG
               value: postgres://safeline:$(SAFELINE_DB_PASSWORD)@postgresql-headless/safeline?sslmode=disable

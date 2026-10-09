@@ -4,7 +4,7 @@
 # 결과가 지금은 로그·ES·CR 로 흩어져 있다. DefectDojo 가 이를 한 곳에서
 # 중복 제거·트리아지·SLA 관리한다.
 #
-# 공용 PostgreSQL(ADR-071) + 공용 Redis(DB 인덱스 5)를 쓴다. 전용 인스턴스를
+# 공용 PostgreSQL(ADR-077) + 공용 Redis(DB 인덱스 5)를 쓴다. 전용 인스턴스를
 # 두지 않는 근거는 ADR-038 과 같다.
 apiVersion: v1
 kind: ConfigMap

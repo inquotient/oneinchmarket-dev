@@ -53,7 +53,7 @@ INJECT = {
 #   즉 지원 매트릭스 지연이지 알려진 비호환이 아니다.
 #
 #   ★ 이건 로컬만의 일탈이 아니다. dev/prod 의 공용 PostgreSQL 도 18.6 이라
-#     거기서도 같은 선택이 필요하다 — ADR-071 참조.
+#     거기서도 같은 선택이 필요하다 — ADR-077 참조.
 def patch_version_gate(spec):
     for c in spec.get("containers", []) + spec.get("initContainers", []):
         args = c.get("args")
