@@ -5,12 +5,12 @@
 # 종료 코드: 0 신규 실패 없음 · 1 실패 있음 · 2 측정 불가만 있음
 #
 # 검증 항목:
-#   7-1: kube-bench (CIS Benchmark)           — 참고(판정하지 않는다)
+#   7-1: kube-bench (CIS Benchmark)           — k3s 전용 벤치마크로 판정한다
 #   7-2: kubesec (매니페스트 보안 점수)
 #   7-3: Trivy (이미지 CVE + 매니페스트 스캔)
 #   7-4: 로테이션 dry-run
 #   7-5: Kyverno Audit (정책 위반 리포트)
-#   7-6: Falco 규칙 테스트                    — 참고(판정하지 않는다)
+#   7-6: Falco 규칙 검증                      — 검증된 자극으로 판정한다
 #   7-7: NetworkPolicy (허용/차단 트래픽)
 #   7-8: age 키 백업 검증                     — 기존 결함(SOPS 미작동)
 #   7-9: RBAC 최소 권한 감사
@@ -68,10 +68,19 @@ SUMMARY="$REPORT_DIR/summary.txt"
 KNOWN_FAILING=""
 
 # 참고 항목 — 수치 판정을 하지 않고 출력만 남긴다.
-#   7-1 kube-bench · 7-6 falco 는 Job 을 띄워 결과가 로그에 남는 형태라
-#   이 러너가 통과/실패를 정하지 않는다. **정하지 않는다고 적는 것**이
-#   정하는 척하는 것보다 낫다.
-INFO_ONLY="7-1 7-6"
+#   ★★★ 2026-10-09 에 비웠다. 그때까지 여기에 "7-1 7-6" 이 있었고, 그 둘은
+#   매니페스트를 apply 하기만 하는 형태라 **판정이 없었다**(run_yaml 이
+#   "로그는 사람이 읽을 것" 을 찍었다). 그래서 스위트 아홉 중 둘이 늘
+#   "참고" 였다 — 그것은 "정하지 않는다고 적는 것" 이라기보다 **재지 않는
+#   것**이었다. 같은 날 둘을 스크립트로 바꿔 스스로 판정하게 했다:
+#     7-1  k3s 전용 벤치마크(k3s-cis-1.9) + 읽기 전용 SA. FAIL 을 발견과
+#          측정 불가로 **가른다** — 첫 실측의 fail 28 은 실재 발견 0 이었다.
+#     7-6  실측으로 고른 자극 넷. 예전 시험 셋 중 둘은 어떤 규칙도 건드릴 수
+#          없었고(tty 없는 쉘 · read 로 open_write 규칙), 하나는 SA 토큰을
+#          로그에 찍었다.
+#   ★ 다시 적을 때는 **왜 판정할 수 없는지**를 함께 적을 것. 비어 있는 것이
+#     기본값이다 — 참고는 측정의 면제가 아니다.
+INFO_ONLY=""
 
 PASS=0; FAIL=0; UNMEASURED=0; KNOWN=0; INFO=0
 
@@ -132,27 +141,11 @@ run_sh() {   # num name script
   classify "$num" "$name" "$rc"
 }
 
-run_yaml() { # num name manifest
-  local num=$1 name=$2 manifest=$3 rc
-  echo ""
-  printf "%s━━━ %s: %s ━━━%s\n" "$BOLD" "$num" "$name" "$NC"
-  echo ""
-  if [ ! -f "$SCRIPT_DIR/$manifest" ]; then
-    echo "매니페스트 없음: $manifest" | tee "$REPORT_DIR/${num}.txt"
-    classify "$num" "$name" 127
-    return
-  fi
-  echo "적용: kubectl apply -f $manifest"
-  kubectl apply -f "$SCRIPT_DIR/$manifest" 2>&1 | tee "$REPORT_DIR/${num}.txt"
-  rc=${PIPESTATUS[0]}
-  if [ "$rc" -ne 0 ]; then
-    printf "%s적용 실패 — 결과를 읽을 수 없다%s\n" "$YELLOW" "$NC" | tee -a "$REPORT_DIR/${num}.txt"
-    classify "$num" "$name" 2
-    return
-  fi
-  echo "  (결과는 Job 로그에 남는다 — kubectl logs 로 확인할 것)" | tee -a "$REPORT_DIR/${num}.txt"
-  classify "$num" "$name" 0
-}
+# ★ run_yaml() 은 2026-10-09 에 지웠다 — 호출자가 0 개가 됐다.
+#   그것은 매니페스트를 apply 하고 "결과는 Job 로그에 남는다 — kubectl logs 로
+#   확인할 것" 을 찍은 뒤 **무조건 통과(rc=0)로 분류**했다. 즉 "적용됐다" 를
+#   "검증됐다" 로 적는 함수였다. 되살리지 말 것: 결과를 읽지 않는 검증은
+#   검증이 아니다(Gotcha 191). 7-1·7-6 은 이제 스크립트로 스스로 판정한다.
 
 # ───────────────────────────────────────────────
 echo "═══════════════════════════════════════════"
@@ -169,10 +162,10 @@ echo "  Part B: 클러스터 검증 (kubectl 필요)"
 echo "═══════════════════════════════════════════"
 
 if kubectl cluster-info > /dev/null 2>&1; then
-  run_yaml "7-1" "kube-bench CIS Benchmark"  "01-kube-bench.yaml"
+  run_sh   "7-1" "kube-bench CIS Benchmark"  "01-kube-bench.sh"
   run_sh   "7-4" "로테이션 Dry-Run"          "04-rotation-dryrun.sh"
   run_sh   "7-5" "Kyverno Audit 리포트"      "05-kyverno-audit.sh"
-  run_yaml "7-6" "Falco 규칙 테스트"          "06-falco-test.yaml"
+  run_sh   "7-6" "Falco 규칙 검증"            "06-falco-test.sh"
   run_sh   "7-7" "NetworkPolicy 검증"        "07-netpol-test.sh"
   run_sh   "7-9" "RBAC 최소 권한 감사"        "09-rbac-audit.sh"
 else
@@ -180,7 +173,7 @@ else
   printf "%s[측정 불가]%s 클러스터에 닿지 못했다 — Part B 를 돌리지 못했다.\n" "$YELLOW" "$NC"
   echo "  ★ 이것은 통과가 아니다. 클러스터를 띄운 뒤 다시 돌릴 것."
   for pair in "7-1:kube-bench" "7-4:로테이션 Dry-Run" "7-5:Kyverno Audit" \
-              "7-6:Falco 규칙 테스트" "7-7:NetworkPolicy 검증" "7-9:RBAC 감사"; do
+              "7-6:Falco 규칙 검증" "7-7:NetworkPolicy 검증" "7-9:RBAC 감사"; do
     num=${pair%%:*}; nm=${pair#*:}
     if in_list "$num" "$INFO_ONLY"; then
       INFO=$((INFO + 1)); record "$num" "$nm" "-" "참고(미실행)"
@@ -208,7 +201,10 @@ printf "  통과 %s%d%s · 실패 %s%d%s · 측정 불가 %s%d%s · 기존 결�
   "$YELLOW" "$KNOWN" "$NC" "$BLUE" "$INFO" "$NC"
 echo ""
 printf "%s주의%s — 통과 건수는 '보안이 된다' 는 뜻이 아니다.\n" "$BOLD" "$NC"
-echo "  · 참고 항목(7-1·7-6)은 이 러너가 판정하지 않는다 — Job 로그를 읽을 것"
+echo "  · 7-1·7-6 은 2026-10-09 까지 '참고' 였다 — 매니페스트를 apply 하기만"
+echo "    했고 결과를 아무도 읽지 않았다. 이제 스스로 판정한다. 7-1 은 FAIL 을"
+echo "    발견과 측정 불가로 가르고(k3s 는 인자를 품어 23건이 잴 수 없다),"
+echo "    7-6 은 경보가 오지 않은 노드를 지목한다"
 echo "  · 03·04·05 에 2026-10-09 에 자체 판정이 들어왔다 — 이제 발견을 통과로"
 echo "    접지 않는다. 대신 각 스크립트가 **재지 못한 것**을 스스로 적는다:"
 echo "    05 는 local 이 전부 Audit 이라 '차단' 을 잴 수 없다고 말하고,"

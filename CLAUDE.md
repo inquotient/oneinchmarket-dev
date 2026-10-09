@@ -725,6 +725,48 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
      ★★★ **유실을 추정하지 말고 셀 것 — 답은 "없다" 였다.** 끊긴 것이 **Kafka 로 가는 연결**이라 과금(Gotcha 15·16)을 먼저 의심했는데, 그 파이프라인(`logs/usage`)의 수신기는 `/var/log/pods/local_ingress-istio-*/istio-proxy/*.log` 만 읽고 **그 게이트웨이 파드는 103 에만 있다** — 즉 104 의 과금 파이프라인은 설계상 입력이 0이다. 일반 로그 경로(`otlp` → otel-gateway)는 끊기지 않았다: Loki 에서 **104 에만 있는 파드**의 시간당 건수를 보니 구간 내내 평탄했다(`mongodb-0` 시간당 ~3,100 · `kafka-0` ~14). **"어느 파이프라인이 그 경로를 쓰는가" 를 설정에서 읽고, 유실 여부는 저장소에서 셀 것.**
      ★ 그래서 측정 수단을 남겼다 — **`local/check-ambient-enrollment.sh`**(판정 셋 0/1/2). 음성 대조군으로 검증했다: 합성 입력에서 `fails=1 · unmeasured=1` 을 선언하고, 클러스터 없음·`kubectl` 없음에 각각 **2** 를 돌려준다. 실측은 `111/111 · rc=0` 이다.
 
+196. **★★★ 스위트의 아홉 중 둘은 "참고" 가 아니라 **재지 않는 것**이었다 — 매니페스트를 apply 하고 그것을 통과로 적었다. 그리고 그것을 고치자 **FAIL 28건 중 실재 발견이 0건**이라는 두 번째 함정이 나왔다.** 2026-10-09 실측(`01-kube-bench`).
+     ★ `run-all.sh` 의 `run_yaml` 은 `kubectl apply` 를 하고 "결과는 Job 로그에 남는다 — kubectl logs 로 확인할 것" 을 찍은 뒤 **무조건 `classify 0`**(통과)으로 분류했다. 즉 **"적용됐다" 를 "검증됐다" 로 적는 함수**였다. 게다가 `INFO_ONLY="7-1 7-6"` 로 참고 처리되어 그 0 조차 집계에 들어가지 않았다. 러너 머리말은 그것을 "정하지 않는다고 적는 것이 정하는 척하는 것보다 낫다" 고 변호했는데, **실은 재지 않은 것**이다. 그 함수는 지웠다(호출자 0).
+     ★★ 그 매니페스트에는 결함이 다섯 더 있었고 **하나도 드러난 적이 없었다** — `namespace: dev` 하드코딩으로 apply 가 언제나 실패했기 때문이다(그래서 늘 "참고" 였다). ① `aquasec/kube-bench:latest`(Gotcha 46) ② `/etc/kubernetes`·`/var/lib/kubelet`·`/etc/systemd` 마운트 — **k3s 는 거기에 아무것도 두지 않는다**(실측으로 `/etc/kubernetes` 는 **빈 디렉터리**다. k3s 벤치마크가 실제로 보는 것은 `/var/lib/rancher/k3s` 50회 · `/etc/rancher` 49회다) ③ stock CIS 로 돌았다 — kube-bench 는 **k3s 전용 벤치마크**를 들고 있다(실측: `k3s-cis-1.7/1.8/1.9/1.23/1.24`) ④ etcd 타깃 — 이 클러스터는 kine 이다(Gotcha 55) ⑤ 결과를 아무도 읽지 않았다.
+     ★★★ **그리고 가장 비싼 것: FAIL 을 발견으로 읽지 말 것.** 첫 실측이 `pass 31 · fail 28` 이었는데 `actual_value` 를 읽어 보니 **실재 발견 0건**이고 전부 측정 실패였다. 세 모양으로 나온다:
+     ```
+     빈 값             19건  k3s 가 apiserver·controller-manager·scheduler 를 한 프로세스에
+                             품어 검사할 커맨드라인이 없다
+     Forbidden          4건  Job 이 default SA 로 돌아 API 가 403 을 줬다
+     ": not found"      3건  컨테이너에 journalctl 이 없어 유닛 인자를 못 읽었다
+     ```
+     ★ **제목만 읽으면 거짓 발견을 믿는다 — 내가 그렇게 한 번 틀렸다.** `1.2.8 --authorization-mode 에 RBAC 가 포함되어야 한다` FAIL 을 보고 "RBAC 가 꺼져 있다" 로 읽을 수 있지만 k3s 는 기본으로 켠다. 더 나빴던 것은 Section 5 의 넷을 "7-9 의 발견과 독립적으로 일치한다" 고 **적었다가 철회한 것**이다 — `actual_value` 가 전부 `Error from server (Forbidden)` 였다. 주제가 같아 우연히 겹쳐 보였을 뿐이다. ★ `4.2.4 --read-only-port=0` 도 거짓 FAIL 이었다(빈 값이고, 실측으로 10255 리스너가 없다).
+     ★★ **Forbidden 4건은 고칠 수 있는 측정 실패였다** — 읽기 전용 SA(pods·serviceaccounts·namespaces·nodes·rbac·networkpolicies get/list)를 주자 `5.1.1` 이 통과로 바뀌고 `5.1.3`·`5.1.5`·`5.1.6` 이 **실측값을 가진 진짜 발견**이 됐다. **권한이 없으면 Section 5 는 통째로 무의미하다.** 그러고 나서야 7-9 와의 일치가 참이 됐는데, **같은 발견은 아니다**: 7-9 는 default SA 를 *쓰는 파드* 2개를 세고 `5.1.5` 는 automount 를 *끄지 않은* default SA 를 센다.
+     ★ 기준선(2026-10-09, SA 부여 후): `pass 32 · fail 27 · warn 50 · info 14` = **실재 발견 4**(`1.1.20` PKI 파일 13개가 644 · `5.1.3` wildcard · `5.1.5` · `5.1.6`) **+ 측정 불가 23**. 판정은 실재 발견에만 건다 — 측정 불가를 실패로 세면 빨간불이 상수가 되고(Gotcha 73·90), 통과로 접으면 거짓 증명이다(Gotcha 191). `warn` 50건은 사람 몫이라 수치로만 남긴다.
+
+197. **★★★ Falco 경보는 `kubectl logs` 에 없다 — 그것을 모르고 "탐지 0" 이라는 거짓 결론을 **두 번** 냈다. 그리고 제대로 재자 **노드 하나의 런타임 탐지가 통째로 유실돼 있었다.**** 2026-10-09 실측(`06-falco-test`).
+     ★ **싱크가 셋이고 쓸 수 있는 것은 하나다.** `falco.yaml` 에 **`stdout_output` 이 없고** `http_output` 만 있다. 그래서 `kubectl logs ds/falco` 에는 기동 로그밖에 없고, 그것을 보고 "20시간 동안 한 줄도 없다 → Falco 가 깨졌나" 로 읽었다(**첫 오진**). 두 번째로는 falcosidekick 로그의 `Kafka - Publish OK` 가 내 자극 직후에 찍힌 것을 보고 상관으로 읽었는데, 재 보니 **분당 78건 상시**였다(**둘째 오진**). Kafka 토픽(`falco-alerts`)을 소비하는 길도 막혔다 — `kafka-console-consumer` 가 끝나지 않아 `kubectl exec` 가 매달렸다(rc=124). ★★ 쓸 수 있는 싱크는 **falcosidekick 의 `/metrics`** 다: `falcosecurity_falcosidekick_falco_events_total{rule=...,k8s_pod_name=...,hostname=...}` — 규칙별·**파드별·노드별** 카운터라 전후 차이로 판정할 수 있다.
+     ★★ **파드별이라는 점이 설계를 정했다.** 이 클러스터는 경보가 분당 78건 들어오고 `Read sensitive Kubernetes files` 하나가 15초에 +14 씩 오른다. 규칙별 합계로는 "내 자극이 발화했나" 에 **답할 수 없다.** 프로브 파드 이름으로 귀속하면 소음과 섞이지 않는다(실측으로 넷 전부 귀속됐다).
+     ★★★ **예전 시험 셋 중 둘은 어떤 규칙도 건드릴 수 없었다** — 즉 Falco 가 멀쩡해도 영원히 조용하다. 규칙과 대조해야 알 수 있다:
+     ```
+     sh -c echo            -> Terminal shell in container        발화 안 함. 규칙이 proc.tty != 0 을
+                                                                 요구한다(프로브 오탐 260건을 막으려고
+                                                                 §8-64 에서 **일부러** 넣은 조건이다)
+     cat /etc/passwd       -> Modify sensitive files in container 발화 안 함. 규칙은 open_write 다
+     SA 토큰 읽기           -> Read sensitive Kubernetes files      발화함 — 그런데 **토큰 50자를
+                                                                 stdout 에 찍었다**(Gotcha 186 금지)
+     ```
+     ★ 자극은 **실측으로 골랐다**: tty 는 호스트에서 `script -qec "kubectl exec -it ..."` 로 pty 를 할당해야 생긴다(ssh 비대화 세션에서 `-t` 만으로는 안 된다). `nsenter` exec 는 실패해도 발화한다(규칙이 `spawned_process` 다). ★★ **비-root 로는 넷 중 하나가 발화하지 않는다** — `/etc/passwd` 쓰기 open 이 권한 검사에서 막혀 이벤트가 생기지 않는다. 그 규칙은 애초에 `/etc` 를 쓸 수 있는 프로세스만 건드리니 **비-root 로 재는 것은 아무것도 재지 않는 것**이고, 그래서 프로브를 root 로 둔다(대가: `disallow-root-user` Audit 이벤트 하나). ★ 발화하지 않는 것으로 확인된 자극도 적어 둔다: 듣고 있지 않은 `ClusterIP:3333` 으로의 **실패한 connect** 는 `Crypto mining detection` 을 발화시키지 않는다.
+     ★★★ **그리고 제대로 재자 진짜가 나왔다 — `104` 의 Falco 는 경보를 한 건도 보내지 못하고 있었다.** 프로브가 104 에 떠서 "탐지 0" 이 나왔고, 그것을 자극의 결함으로 읽지 않고 **싱크를 노드별로 쪼개 보니**:
+     ```
+     falcosidekick 이 본 hostname: 시계열 69개 **전부** local-ubuntu3
+     104 falco 로그: libcurl failed to perform call: Timeout was reached ·
+                     "http" output timeout, all output channels are blocked   105줄
+     103 falco 로그: 같은 오류 0줄            <- 처리량이 아니라 **경로**다
+     103 호스트 -> falcosidekick ClusterIP:2801 = 200(1.2ms) · PodIP = 200
+     104 호스트 -> 같은 두 주소                 = 000(타임아웃) 둘 다
+     cilium monitor: xx drop (Policy denied) identity 6->40596: -> <fsk>:2801 tcp SYN
+     ```
+     `identity 6` 은 Cilium 의 **`remote-node`** 예약 신원이다. `allow-falcosidekick-access` 는 2801 을 **`app.kubernetes.io/name: falco` 파드 라벨**로만 여는데, Falco 는 `hostNetwork: true` 라 **파드 신원이 없다**(Gotcha 110 ②). 같은 노드는 Cilium 이 host→로컬 파드를 허용해서 통하고, **다른 노드는 `remote-node` 가 되어 조용히 버려진다.** ★ 그래서 이 결함은 **노드가 둘이 되어야 드러난다**(Gotcha 166 과 같은 자리) — `SEC-301`("모든 노드에서 syscall 런타임 탐지를 수행한다")이 ✅ 로 적혀 있었는데 실측은 **절반**이다.
+     ★★ **처방은 평범한 NetworkPolicy 로 표현할 수 없다 — 실측으로 확인했다.** `ipBlock: 192.168.0.0/24` 와 `10.0.0.0/8` 을 둘 다 넣은 추가 정책을 적용해도 여전히 000 이다. **CIDR 선택자는 node 신원과 매칭되지 않는다.** 남는 길 셋과 그 대가: ① `CiliumNetworkPolicy` 의 `fromEntities: [remote-node]` — **새 CRD 종류라 ArgoCD AppProject 화이트리스트를 먼저 고쳐야 한다**(빠뜨리면 동기화 전체가 멈춘다, Gotcha 57) ② Cilium 의 `policy-cidr-match-mode=nodes` — 그러면 `ipBlock` 이 node 신원도 매칭하지만 **클러스터 전역 의미 변경**이고 기존 `ipBlock` 규칙(예 `allow-logstash-access` 의 `10.77.0.0/24`)이 함께 넓어진다. 그리고 `cilium upgrade` 는 모든 오버라이드를 다시 줘야 한다(Gotcha 141·168) ③ falcosidekick 을 DaemonSet + `internalTrafficPolicy: Local` 로 — 노드를 넘지 않게 만든다. 새 CRD 도, Cilium 변경도 없지만 배치 모델이 바뀐다. **고르지 않고 남겨 두었다 — 어느 것이든 결정이 필요한 변경이다.**
+     ★ 그래서 스크립트가 **원인을 스스로 지목하게** 했다: 노드 커버리지 절이 Falco 가 도는 노드마다 경보가 싱크에 있는지 보고, 없으면 그 노드의 falco 로그에서 전송 오류를 세어 함께 출력한다. 그러면 다음에는 "탐지 0" 이 아니라 **"그 노드의 Falco 가 싱크에 닿지 못한다"** 가 나온다. 양방향으로 검증했다 — 103 에 고정하면 `detected=4 missing=0`, 고정하지 않으면 104 에 떠서 전달 경로를 지목한다.
+     ★★ **덤으로 드러난 소음 둘.** ① `Read sensitive Kubernetes files` 누적 **137,220건** — external-secrets 6,902 · keda-operator 8,010 · cert-manager 6,106 · kpack 3,713 … 전부 **플랫폼 컨트롤러가 자기 SA 토큰을 읽는 것**이다. 우리 규칙의 제외 목록이 `kube-system`·`istio-system` 둘뿐인데 지금 클러스터엔 시스템 네임스페이스가 **열다섯**이다(`custom-rules.yaml` 머리말이 "5분에 388건" 을 고쳤다고 적은 그 규모로 **되돌아왔다**). ② `falcosidekick -> Kafka` 가 **53% 실패**(`status="error" 99,334` 대 `ok 88,024`). 즉 도착한 경보의 절반이 토픽에 들어가지 않는다. 둘 다 "진짜 경보가 묻힌다" 는 그 머리말의 경고 그대로다.
+
 ### 매니페스트 작업 시
 
 - `v1/` 매니페스트는 **배포 금지**. 단 CI가 이 경로의 Dockerfile을 참조한다는 모순이 있다
@@ -740,7 +782,7 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 
 **★★★ 2026-10-07 에 스위트 전체를 손봤다 — 그때까지 이것은 "실패를 선언할 수 없는 게이트" 였다**(Gotcha 191). 판정이 이제 **셋**이다: 통과 / 실패 / **측정 불가**. `run-all.sh` 가 종료 코드를 집계하고 내보낸다(`0` 신규 실패 없음 · `1` 실패 · `2` 측정 불가). 표의 "통과" 를 "보안이 된다" 로 읽지 말 것 — 러너가 마지막에 그 한계를 스스로 출력한다.
 
-- `run-all.sh` — 모든 호출이 `|| true` 로 끝나 종료 코드를 버리고 있었다. 지금은 `PIPESTATUS` 로 받아 `summary.txt`(탭 4필드: 번호·항목·rc·판정)에 적고 합산한다. **2026-10-09 에 `03`·`04`·`05` 에도 자체 판정이 들어와** 이제 아홉 중 여덟이 스스로 판정한다(`01`·`06` 은 Job 매니페스트라 참고다)
+- `run-all.sh` — 모든 호출이 `|| true` 로 끝나 종료 코드를 버리고 있었다. 지금은 `PIPESTATUS` 로 받아 `summary.txt`(탭 4필드: 번호·항목·rc·판정)에 적고 합산한다. **2026-10-09 에 `03`·`04`·`05` 에도 자체 판정이 들어왔고, 같은 날 `01`·`06` 을 매니페스트에서 스크립트로 바꿔 이제 아홉이 전부 스스로 판정한다**(`INFO_ONLY` 가 비었다). ★ `run_yaml()` 은 지웠다 — 그것은 apply 성공을 **무조건 통과로 분류**해서 "적용됐다" 를 "검증됐다" 로 적는 함수였다(Gotcha 196). 실측 합계가 **통과 4 · 실패 3 · 측정 불가 2 · 참고 0**(`SUITE_RC=1`)으로 바뀌었다 — 실패가 1 에서 3 으로 늘어난 것은 보안이 나빠진 것이 아니라 **처음으로 재어진 것**이다
 - `03-trivy-scan.sh` — 발견을 **출력만 하고 종료 코드로 내보내지 않았다**. 지금은 **스캔에 실패한 이미지를 "깨끗" 과 다른 칸**(측정 불가)에 넣고, 차단은 **CRITICAL 로 좁히고** HIGH 는 수치로 남긴다(Gotcha 90). ★ Part 2 가 소스 트리를 스캔하던 것도 고쳤다 — **렌더**(`overlays/local`)를 스캔한다. 패치 조각에는 securityContext·probe 가 없어 전부 지적되던 자리다
 - `04-rotation-dryrun.sh` — 셋이 고장나 있었다. ① `exit` 없음 ② **네임스페이스를 넘기지 않아** CronJob·Secret 이 전부 MISS ③ §4 가 JSON 텍스트를 `grep -o '"name":"…"'` 로 긁어 워크로드 **112개 대신 고유 name 699개**를 보고 590개에 "annotation missing" 을 찍었다(클러스터가 없으면 그 grep 의 rc=1 이 `set -e` 로 **거짓 실패**까지 만들었다). 지금은 장치 대조군을 먼저 통과시키고, **CronJob 의 `suspend` 까지** 본다(suspend 는 **조용한 비-로테이션**이다 — 오브젝트는 있고 아무 일도 하지 않는다), Secret 은 **키 이름만** 읽고, §4 는 바른 질문을 jq 로 센다. 실측(2026-10-09): 참조 43 · 어노테이션 43
 - `05-kyverno-audit.sh` — 넷이 고장나 있었다. ① `exit` 없음 ② 정책 이름 둘이 실제와 다름(`require-labels`·`require-probes` → **`require-standard-labels`·`require-health-probes`**) ③ PolicyReport 를 **`for ns in dev prod`** 로 찾아 한 번도 읽지 못함 ④ §5 가 Audit 정책에 dry-run 을 걸고 거부가 없으면 `NOT ENFORCED (Audit mode?)` 를 찍었다. ★★★ ④가 설계를 바꿨다 — 실측으로 **Audit 모드의 Kyverno 는 어드미션 응답을 바꾸지 않는다**(root 파드를 서버 dry-run 해도 경고 한 줄 없다). 즉 **dry-run 으로 Audit 을 검증할 수 없다.** 측정 지점은 PolicyReport 이고(실측 `local` 리포트 542개 · pass 2485 · fail 204), **6개 정책이 리포트에 나타나는지**를 장치 대조군으로 둔다. dry-run 은 **Enforce 일 때만** 시험한다. ★ action 은 **두 자리**에서 읽는다 — Kyverno 1.14 가 `spec.validationFailureAction` 을 없애고 `rules[].validate.failureAction` 으로 옮겼다(지금 v1.13.2 로 핀)
@@ -748,7 +790,9 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 - `08-age-key-backup.sh` — ~~`.enc.yaml` 12건을 전부 FAIL~~ **둘 다 틀렸다**: `.enc.yaml` 은 **11개**이고 결과는 **실패 0 · 경고 13**(전부 자리표시자)이다. 그리고 `[FAIL]` 을 찍으면서 **`exit` 가 없어 0 을 돌려주고** 있었다. `[ENC]` 판정도 `sops:` 블록 유무뿐이어서 **가짜 암호문을 통과시켰다** — `keycloak-secret.enc.yaml` 은 `age: []`(수신자 0명)·`mac: ENC[...PLACEHOLDER...]` 인데 암호화됨으로 세어졌다
 - `09-rbac-audit.sh` — 결함 셋(`grep -l` 을 stdin 에 써서 **항상 매칭** · secret verb 를 `grep -A5` 로 읽어 필드 순서 가정 · `grep -c … || echo 0` 이 값을 **두 줄**로 만들어 `set -e` 로 죽음)을 고쳤고, **2026-10-09 에 네 번째가 나왔다**: jsonpath 가 이름을 **규칙 루프 밖에서** 찍어 규칙이 둘 이상인 롤에서 필드가 밀렸고, **falco 의 `nonResourceURLs` 규칙은 필드가 둘이라 `NF>=3` 에 조용히 걸러졌다.** 이름을 안쪽으로 옮기는 것으로는 고칠 수 없다 — **kubectl jsonpath 에 부모 연산자가 없다.** go-template 으로 바꾸되 배열의 따옴표를 직접 조립해 `["get","list"]` 모양을 유지했다(소비처를 손대지 않아도 된다)
 - `02` — 도구(`kubesec`)가 없으면 **측정 불가(rc=2)** 로 끝낸다. 전에는 전부 FAIL 로 세어 `exit 1` 이었다
-- `01`·`06` — **매니페스트가 `namespace: dev` 를 하드코딩한다.** 이 클러스터에 그 네임스페이스가 없어 `kubectl apply` 가 실패하고 둘은 **참고(rc=2)** 로만 남는다. ★ 고치면 **실제로 오브젝트가 생긴다**(`hostPID: true` 인 kube-bench Job 과 busybox Job 셋) — 그래서 **결정이 필요한 변경**이고 아직 하지 않았다
+- `01-kube-bench.sh` — ~~매니페스트가 `namespace: dev` 를 하드코딩해 참고로만 남는다~~ → **2026-10-09 에 스크립트로 바꿨다.** 그 매니페스트는 **한 번도 돌지 않았고**(apply 가 늘 실패) 러너는 apply 성공을 통과로 적었다. 지금은 k3s 전용 벤치마크(`k3s-cis-1.9`) · 핀한 이미지 · k3s 가 실제로 쓰는 경로(`/var/lib/rancher/k3s`·`/etc/rancher`) · **읽기 전용 SA**(없으면 Section 5 가 통째로 403)로 돌고, **FAIL 을 실재 발견과 측정 불가로 가른다**. 실측 `pass 32 · fail 27` = 발견 4 + 측정 불가 23. ★ **FAIL 을 발견으로 읽지 말 것**(Gotcha 196)
+- `06-falco-test.sh` — ~~같은 이유로 참고~~ → **2026-10-09 에 스크립트로 바꿨다.** 예전 시험 셋 중 **둘은 어떤 규칙도 건드릴 수 없었고**(tty 없는 쉘 · read 로 `open_write` 규칙) 하나는 **SA 토큰을 로그에 찍었다**. 싱크도 틀렸다 — Falco 는 stdout 으로 내보내지 않으므로 **falcosidekick `/metrics`** 의 파드별 카운터로 판정한다. 자극 넷은 실측으로 골랐고, **노드 커버리지**까지 본다. ★ 그 첫 실측이 **104 의 Falco 가 경보를 전달하지 못함**을 찾았다(Gotcha 197)
+- ★ 둘 다 **실제로 오브젝트를 만든다** — `hostPID: true` 인 kube-bench Job(읽기 전용 hostPath 넷) · 읽기 전용 ClusterRole · root 로 도는 busybox 프로브 하나. 전부 스크립트가 끝나며 지운다(`KEEP=1` 로 남길 수 있다). root 프로브는 의도다 — 비-root 로는 `Modify sensitive files in container` 가 발화하지 않아 **아무것도 재지 않는 것**이 된다
 
 ### 로컬 개발
 

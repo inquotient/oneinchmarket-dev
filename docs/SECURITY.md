@@ -213,15 +213,15 @@ v1 매니페스트를 v2로 복원할 때 **모든 ConfigMap 평문 자격증명
 
 | 스크립트 | 검증 대상 | 문제 |
 |---|---|---|
-| `01-kube-bench.yaml` | CIS Benchmark | — |
+| `01-kube-bench.sh` | CIS Benchmark (k3s-cis-1.9) | 2026-10-09 에 매니페스트에서 스크립트로 바꿨다 — 그때까지 `namespace: dev` 하드코딩으로 **한 번도 돌지 않았고**, 러너는 apply 성공을 통과로 적었다. 이제 FAIL 을 **실재 발견과 측정 불가로 가른다**(실측 발견 4 · 측정 불가 23, Gotcha 196) |
 | `02-kubesec-scan.sh` | 매니페스트 보안 점수 | 로컬 |
 | `03-trivy-scan.sh` | 이미지 CVE + 매니페스트 | 로컬 |
 | `04-rotation-dryrun.sh` | 로테이션 CronJob/Secret/RBAC | — |
-| `05-kyverno-audit.sh` | 6정책 존재 + dry-run | — |
-| `06-falco-test.yaml` | 탐지 규칙 트리거 | — |
+| `05-kyverno-audit.sh` | 6정책 존재 + PolicyReport | — |
+| `06-falco-test.sh` | 탐지 규칙 트리거 + **노드 커버리지** | 2026-10-09 에 매니페스트에서 스크립트로 바꿨다 — 예전 시험 셋 중 **둘은 어떤 규칙도 건드릴 수 없었고**(tty 없는 쉘 · read 로 open_write 규칙) 하나는 **SA 토큰을 로그에 찍었다**. 싱크도 틀렸다(Falco 는 stdout 으로 내보내지 않는다 — falcosidekick `/metrics` 가 유일한 싱크다). 첫 실측에서 **104 의 Falco 가 경보를 한 건도 보내지 못함**을 찾았다(Gotcha 197) |
 | `07-netpol-test.sh` | 허용/차단 트래픽 | 2026-10-07 수정 — `default-deny-ingress` 를 찾고, 응답 **바이트 수**로 차단을 판정하며, 장치 대조군이 실패하면 **측정 불가(rc=2)** 로 보고한다 (G33 해소) |
-| `08-age-key-backup.sh` | age 키 보관 상태 | **오늘 실행 시 `.sops.yaml` + `.enc.yaml` 12건 전부 FAIL (G33)** |
-| `09-rbac-audit.sh` | 와일드카드 RBAC, default SA | `nginx`·`falcosidekick`·`logstash` 탐지 예상 (G34) |
+| `08-age-key-backup.sh` | age 키 보관 상태 | ~~오늘 실행 시 `.enc.yaml` 12건 전부 FAIL~~ — **둘 다 틀렸다**(2026-10-07 실측): `.enc.yaml` 은 **11개**이고 결과는 **실패 0 · 경고 13**(전부 자리표시자)이다 |
+| `09-rbac-audit.sh` | 와일드카드 RBAC, default SA | ~~`nginx`·`falcosidekick`·`logstash` 탐지 예상~~ — **예상이 아니라 실측이 있다**(2026-10-09): `kubescape-reader` wildcard · `default` SA 파드 2개(`efs-cleaner-*`·`nginx-*`) · SA 토큰 automount 를 끈 파드 6/123 |
 
 ---
 
@@ -430,8 +430,8 @@ Vault 채택 시 **G19·G20·G21·G30·SEC-403이 전부 소멸**한다. CronJob
 
 | ID | 요구사항 | 상태 | 구현 위치 / 비고 |
 |---|---|:-:|---|
-| SEC-301 | 모든 노드에서 syscall 수준 런타임 탐지를 수행한다 | ✅ | Falco DaemonSet |
-| SEC-302 | 런타임 위협은 SIEM으로 전달된다 | 🔶 | Falcosidekick → ES/Kafka. Wazuh는 목표 |
+| SEC-301 | 모든 노드에서 syscall 수준 런타임 탐지를 수행한다 | 🔶 | Falco DaemonSet. ★★★ **2026-10-09 에 ✅ 가 뒤집혔다 — 실측은 절반이다.** `104` 의 Falco 는 경보를 **한 건도** 전달하지 못하고 있었다(`libcurl ... Timeout was reached` · `"http" output timeout, all output channels are blocked` 105줄, 103 은 0줄). falcosidekick 이 본 `hostname` 라벨이 **69개 시계열 전부 `local-ubuntu3`** 다. 원인은 `allow-falcosidekick-access` 가 2801 을 **falco 파드 라벨**로만 여는 것 — Falco 는 `hostNetwork` 라 파드 신원이 없고(Gotcha 110 ②) 다른 노드에서 오면 Cilium 의 `remote-node` 신원이 되어 `drop (Policy denied)` 된다. **탐지는 돌고 있고 전달만 끊겼다** — 그래서 파드 상태로는 보이지 않는다. 처방은 평범한 NetworkPolicy 로 표현할 수 없다(`ipBlock` 은 node 신원과 매칭되지 않음을 실측했다) — 선택지와 대가는 Gotcha 197 |
+| SEC-302 | 런타임 위협은 SIEM으로 전달된다 | 🔶 | Falcosidekick → ES/Kafka. Wazuh는 목표. ★ 2026-10-09 실측: falcosidekick → Kafka 가 **53% 실패**(`outputs_total{destination="kafka",status="error"} 99,334` 대 `ok 88,024`). 즉 도착한 경보의 절반이 토픽에 들어가지 않는다. ★★ 뿌리에 소음이 있다 — `Read sensitive Kubernetes files` 누적 **137,220건**이고 전부 플랫폼 컨트롤러가 자기 SA 토큰을 읽는 것이다(규칙의 제외 목록이 `kube-system`·`istio-system` 둘뿐인데 시스템 네임스페이스가 열다섯이다) |
 | SEC-303 | 특권 런타임 에이전트는 예외를 매니페스트에 명시한다 | ✅ | Falco·Filebeat |
 | SEC-304 | 탐지에서 차단으로 전환 가능한 런타임 통제를 갖춘다 | 🎯 | Tetragon (ADR-025) |
 | SEC-305 | 이미지에 없던 바이너리의 실행을 차단한다 | 🎯 | **부분 커버만 가능** |
@@ -487,13 +487,13 @@ Vault 채택 시 **G19·G20·G21·G30·SEC-403이 전부 소멸**한다. CronJob
 
 | ID | 요구사항 | 상태 | 구현 위치 / 비고 |
 |---|---|:-:|---|
-| SEC-701 | CIS Kubernetes Benchmark를 정기 실행한다 | ✅ | `01-kube-bench.yaml` |
+| SEC-701 | CIS Kubernetes Benchmark를 정기 실행한다 | 🔶 | `01-kube-bench.sh`. ★★★ **이 ✅ 는 두 겹으로 틀렸다**(2026-10-09): ① 그 매니페스트는 `namespace: dev` 하드코딩 때문에 **한 번도 돌지 않았다**(apply 가 늘 실패해 "참고" 로 남았다) ② "정기" 가 아니다 — 스케줄이 없고 사람이 돌린다(CronJob 0개). 지금은 k3s 전용 벤치마크(`k3s-cis-1.9`)로 **실제로 돌고 판정한다**: 실측 `pass 32 · fail 27` 중 **실재 발견 4 · 측정 불가 23**. ★ 🔶 인 이유: 돌지만 **정기 실행이 아니고**, k3s 가 컴포넌트를 한 프로세스에 품어 Section 1 의 19건은 원리적으로 잴 수 없다(Gotcha 196) |
 | SEC-702 | 매니페스트 정적 보안 점수를 검증한다 | ✅ | `02-kubesec-scan.sh` |
 | SEC-703 | 로테이션 dry-run과 연쇄 재시작을 검증한다 | ✅ | `04-rotation-dryrun.sh` |
 | SEC-704 | Kyverno 정책 위반 리포트를 확인한다 | ✅ | `05-kyverno-audit.sh` |
-| SEC-705 | 런타임 탐지 규칙을 실제 트리거로 검증한다 | ✅ | `06-falco-test.yaml` |
-| SEC-706 | NetworkPolicy 허용·차단을 실트래픽으로 검증한다 | 🔶 | **정책 이름 오류로 항상 MISS (G33)** |
-| SEC-707 | age 키 보관 상태를 검증한다 | 🔶 | **오늘 실행 시 전부 FAIL (G33)** |
+| SEC-705 | 런타임 탐지 규칙을 실제 트리거로 검증한다 | 🔶 | `06-falco-test.sh`. ★★★ **이 ✅ 가 가장 공허했다**(2026-10-09): 그 매니페스트는 돌지도 않았고(`namespace: dev`), 돌았어도 시험 셋 중 **둘은 어떤 규칙도 건드릴 수 없었다** — `sh -c echo` 는 규칙이 요구하는 tty 가 없고, `cat /etc/passwd` 는 `open_write` 규칙에 read 로 답한다. 즉 **"실제 트리거로 검증한다" 가 거짓이었다.** 세 번째 시험만 발화했는데 그것이 **SA 토큰 50자를 로그에 찍었다**(Gotcha 186 금지). 지금은 실측으로 고른 자극 **넷**이 발화를 확인한다(103 에 고정 시 `detected=4 missing=0`). ★ 🔶 인 이유: 우리 규칙 6개 중 **둘은 재지 못한다** — 외부 egress 가 필요한 것과, 실패한 connect 로는 발화하지 않음을 실측한 것(Gotcha 197). 그리고 **현재 판정은 실패**다(SEC-301) |
+| SEC-706 | NetworkPolicy 허용·차단을 실트래픽으로 검증한다 | 🔶 | ~~정책 이름 오류로 항상 MISS~~ — 고쳤고, 그 아래 한 겹이 더 있었다(측정이 구조적으로 0바이트였다, Gotcha 194). **2026-10-09 에 처음으로 실측에 성공했다**(대조군 172바이트 · 차단 3건 실측 · rc=0). 🔶 인 이유: **허용 경로는 신원이 필요해 재지 않았다** |
+| SEC-707 | age 키 보관 상태를 검증한다 | 🔶 | ~~오늘 실행 시 전부 FAIL~~ — **틀렸다**(2026-10-07 실측): **실패 0 · 경고 13**(전부 자리표시자)이고 종료 코드 0 이다. 🔶 인 이유: SOPS 를 쓰지 않기로 미룬 상태라 자리표시자가 정상이다 — SOPS 를 켜는 날 그 경고는 실패가 된다(ADR-024) |
 | SEC-708 | RBAC 최소권한을 감사한다 | 🎯 | `09-rbac-audit.sh` — ★ 2026-10-07 까지 이 ✅ 는 **완주하지 못하는 스크립트**에 근거하고 있었다(wildcard 검사가 항상 WARN, automount 계수가 `set -e` 로 스크립트를 죽였다). ★★ 2026-10-09 에 **네 번째 결함**이 나왔다 — jsonpath 가 롤 이름을 규칙 루프 밖에서 찍어 규칙이 둘 이상인 롤의 필드가 밀렸고, **필드가 둘인 규칙(falco 의 `nonResourceURLs`)은 `NF>=3` 에 조용히 걸러졌다.** 즉 완주한 뒤에도 **보지 않은 규칙이 있었다.** 지금은 go-template 으로 센다. 그래도 **감사가 돌았다는 뜻이고 최소권한이 달성됐다는 뜻은 아니다** — 실측 판정은 **실패**다(`kubescape-reader` wildcard · `default` SA 파드 2개) |
 | SEC-709 | 클러스터 포스처를 프레임워크 기준으로 점검한다 | 🎯 | Kubescape |
 | SEC-710 | 네트워크 플로우 드롭 원인을 추적할 수 있다 | 🎯 | Hubble + ztunnel 로그 |
@@ -508,12 +508,12 @@ Vault 채택 시 **G19·G20·G21·G30·SEC-403이 전부 소멸**한다. CronJob
 
 | 스크립트 | 검증하는 SEC ID |
 |---|---|
-| `01-kube-bench.yaml` | SEC-701 |
+| `01-kube-bench.sh` | SEC-701 — ★ 2026-10-09 에 **처음으로 실제로 돌았다**(그 전까지 `namespace: dev` 하드코딩으로 apply 가 늘 실패했다, Gotcha 196) |
 | `02-kubesec-scan.sh` | SEC-001~006, SEC-702 |
 | `03-trivy-scan.sh` | SEC-501, SEC-506 |
 | `04-rotation-dryrun.sh` | SEC-403, SEC-406, SEC-703 |
 | `05-kyverno-audit.sh` | SEC-001~003, SEC-008, SEC-704 |
-| `06-falco-test.yaml` | SEC-301, SEC-705 |
+| `06-falco-test.sh` | SEC-301, SEC-705 — ★ 2026-10-09 에 **처음으로 실제로 검증했다**, 그리고 그 첫 실측이 **104 의 Falco 가 경보를 전달하지 못함**을 찾았다(Gotcha 197) |
 | `07-netpol-test.sh` | SEC-101~103, SEC-706 — ★ 2026-10-09 에 **처음으로 실측에 성공했다**(그 전까지 측정이 구조적으로 0바이트였다, Gotcha 194) |
 | `08-age-key-backup.sh` | SEC-404, SEC-405, SEC-411, SEC-707 |
 | `09-rbac-audit.sh` | SEC-201~204, SEC-708 |
@@ -531,23 +531,27 @@ Vault 채택 시 **G19·G20·G21·G30·SEC-403이 전부 소멸**한다. CronJob
 
 | 번호 | 항목 | rc | 판정 | 비고 |
 |---|---|:--:|---|---|
-| 7-1 | kube-bench | 2 | 참고 | 매니페스트가 `namespace: dev` 를 하드코딩 — apply 실패 |
+| 7-1 | kube-bench | 1 | **실패** | 실재 발견 4(`1.1.20` PKI 파일 13개가 644 · `5.1.3` wildcard · `5.1.5` · `5.1.6`) · **측정 불가 23**(k3s 구조상 잴 수 없는 것) |
 | 7-2 | kubesec | 2 | 측정 불가 | 노드에 `kubesec` 없음 |
 | 7-3 | Trivy | 2 | 측정 불가 | 노드에 `trivy` 없음(클러스터 안 Trivy Operator 와 별개다) |
 | 7-4 | 로테이션 | 0 | **통과** | CronJob 7종 존재·`suspend=false` · Secret 7종 · 참조 43 중 어노테이션 43 |
 | 7-5 | Kyverno | 0 | **통과** | 6개 정책 전부 리포트에 나타남(리포트 542 · pass 2485 · fail 204) |
-| 7-6 | Falco | 2 | 참고 | 7-1 과 같은 이유 |
+| 7-6 | Falco | 1 | **실패** | **104 의 Falco 가 경보를 싱크에 한 건도 보내지 못한다**(규칙이 아니라 전달 경로다). 103 에 고정하면 자극 4개 전부 탐지 |
 | 7-7 | NetworkPolicy | 0 | **통과** | 대조군 172바이트 · PostgreSQL·OpenSearch·Kafka 차단 실측 |
 | 7-8 | age 키 백업 | 0 | 통과 | 실패 0 · 경고 13(전부 자리표시자) |
 | 7-9 | RBAC | 1 | **실패** | `kubescape-reader` wildcard · `default` SA 파드 2개 |
 
-**합계 통과 4 · 실패 1 · 측정 불가 2 · 참고 2 → `SUITE_RC=1`.**
+**합계 통과 4 · 실패 3 · 측정 불가 2 · 참고 0 → `SUITE_RC=1`.**
+
+★★★ **참고가 0 이 된 것이 이 표에서 가장 중요한 변화다**(2026-10-09). 그때까지 7-1·7-6 은 매니페스트를 `kubectl apply` 하기만 했고 러너가 그것을 **통과로 분류**했다 — 즉 아홉 중 둘은 "판정하지 않는 것" 이 아니라 **재지 않는 것**이었다. 스크립트로 바꿔 스스로 판정하게 하자 **둘 다 실재 발견이 있는 실패**로 드러났다. 실패가 1 에서 3 으로 늘어난 것은 보안이 나빠진 것이 아니라 **처음으로 재어진 것**이다.
 
 ★ **이 표의 "통과" 를 "그 통제가 작동한다" 로 읽지 말 것.** 각 항목이 재지 못한 것을 스크립트가 스스로 출력한다. 특히:
 - **7-5 통과는 "정책이 막는다" 가 아니다** — `local` 은 6개가 전부 `Audit` 이라 **아무것도 막지 않는다.** 측정한 것은 "정책이 존재하고 평가되고 있다" 까지다. 차단은 prod 의 Enforce 에서만 성립한다
 - **7-7 통과는 차단 3건에 대한 것이다** — 허용 경로는 **신원이 필요해 재지 않았다**(그 복귀 조건은 `07-netpol-test.sh` 머리말)
 - **7-4 통과는 "로테이션이 돈다" 가 아니다** — 존재·스케줄·`suspend`·어노테이션 커버리지를 본 dry-run 이고, 실제 교체를 돌려 본 것이 아니다
-- **측정 불가 2건과 참고 2건은 통과가 아니다.** `S-3`(docs/PRD.md)의 기준은 "신규 실패 0 **그리고** 측정 불가 0" 이므로 **지금 S-3 는 미달이다**
+- **7-1 의 "실재 발견 4" 와 "측정 불가 23" 을 합쳐 읽지 말 것** — FAIL 27건 중 23건은 k3s 가 컴포넌트를 한 프로세스에 품거나 컨테이너에 `journalctl` 이 없어 **잴 수 없었던 것**이다. `--authorization-mode` 에 RBAC 가 없다는 FAIL 을 발견으로 읽으면 멀쩡한 것을 고치게 된다(Gotcha 196)
+- **7-6 의 실패는 규칙의 실패가 아니다** — 자극을 103 에 고정하면 넷 다 탐지된다. 끊긴 것은 **104 의 전달 경로**다(SEC-301)
+- **측정 불가 2건은 통과가 아니다.** `S-3`(docs/PRD.md)의 기준은 "신규 실패 0 **그리고** 측정 불가 0" 이므로 **지금 S-3 는 미달이다**
 
 ---
 
