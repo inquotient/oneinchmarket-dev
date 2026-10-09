@@ -136,6 +136,26 @@ spec:
           securityContext:
             runAsUser: 0
             allowPrivilegeEscalation: false
+            # ★★ rootfs 를 읽기 전용으로 둔다 — 2026-10-09 에 켰다.
+            #   추측으로 켜지 않았다(Gotcha 92): 20시간 가동한 양 노드
+            #   파드에 `find / -xdev -newer /etc/hostname -type f` 를 물어
+            #   **쓰기 0건**이었고, 열린 쓰기 fd 도 `/dev/null` 뿐이다.
+            #   ★ 그 검사만으로는 보증이 아니다(기준 파일이 기동 순간에
+            #     써지므로 엔트리포인트가 동시에 고친 파일은 놓친다 —
+            #     dependency-track-frontend 가 그 반례다, Gotcha 48·96).
+            #     그래서 **켠 파드를 따로 띄워 로그로 판정했다**:
+            #     `read-only file system|EROFS|cannot create` **0건** ·
+            #     설정 3종 schema validation ok · 드라이버 로드 ·
+            #     자극 전부 발화 · `<NA>` 0 · 재시작 0.
+            #   ★★ Falco 는 경보를 **stderr 와 HTTP** 로만 내보내므로
+            #     쓸 곳이 없다. `grpc` 는 설정에서 빼 두었고(0.44 스키마에
+            #     없다) 드라이버는 modern_ebpf 라 적재 단계가 없다 —
+            #     커널 모듈·legacy eBPF 라면 `/root/.falco` 에 받아야 해서
+            #     이것을 켤 수 없었다.
+            #   ★ 되돌려야 할 때: 플러그인을 **런타임에 받게** 하거나
+            #     `grpc` 유닉스 소켓을 켜면 쓸 곳이 생긴다. 그때는 끄지 말고
+            #     그 경로만 emptyDir 로 뺄 것(Gotcha 96 의 grafana 처방).
+            readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
               add: ["BPF", "PERFMON", "SYS_RESOURCE"]
