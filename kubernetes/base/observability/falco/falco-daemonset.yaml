@@ -60,6 +60,14 @@ spec:
       #   아니라 Falco 로 받기로 하면, API 서버가 노드 IP 의 8765 로 POST
       #   해야 하므로 hostNetwork 또는 전용 Service 가 다시 필요해진다.
       dnsPolicy: ClusterFirst
+      # ★★ seccomp 을 켜 둔다 — 실측으로 modern_ebpf 와 함께 성립한다.
+      #   `privileged: true` 는 seccomp 도 함께 끈다(실측: 그 시절 파드가
+      #   `Seccomp: 0` 이었다). 걷으면 RuntimeDefault 가 걸리는데
+      #   (`Seccomp: 2`) 관문은 그 프로파일이 `bpf`·`perf_event_open` 을
+      #   허용하는지 하나뿐이고, 드라이버가 열리고 자극 전부가 발화했다.
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       tolerations:
         - effect: NoSchedule
           operator: Exists
@@ -93,8 +101,44 @@ spec:
                   fieldPath: spec.nodeName
             - name: FALCO_BPF_PROBE
               value: ""
+          # ★★★ `privileged: true` 를 2026-10-09 에 걷었다 — 전수 41개
+          #   capability 에서 **셋**으로 줄였다. 셋은 추측이 아니라 실측으로
+          #   정했다(각 조합을 띄워 보고 갈랐다):
+          #     [BPF, PERFMON]                  -> **기동 실패**
+          #        `Error: unable to configure the libpman state`
+          #        (링 버퍼의 RLIMIT_MEMLOCK 을 올리지 못한다)
+          #     [BPF, PERFMON, SYS_RESOURCE]    -> 동작. **이것이 최소다**
+          #     + SYS_PTRACE                    -> **차이 없음**. 한때
+          #        `container.name` 이 ID 로 나와 필요해 보였으나 그것은
+          #        컨테이너 메타데이터 **콜드 캐시 경합**이었다 —
+          #        1분 뒤 재니 양쪽 다 이름을 정확히 해석했다(운영
+          #        privileged 파드도 같은 자리에서 ID 를 냈다).
+          #
+          #   ★ **uid 0 을 유지해야 한다** — 비-root 컨테이너에서
+          #   `capabilities.add` 는 bounding set 만 넓히고 실효 권한을 주지
+          #   않는다(Gotcha 182). 실측: 여기서는 `CapEff = 0xc001080000`
+          #   으로 **더해 준 것이 그대로 실효**다. 그래서 Kyverno
+          #   `disallow-root` 의 falco 예외는 **그대로 필요하다.**
+          #
+          #   ★★ **capability 로 메워지지 않는 간격이 하나 남는다** —
+          #   `[libs]: Cannot read host init process proc root: 13`
+          #   (`/host/proc/1/root` 를 통한 호스트 루트 접근). 막는 것은
+          #   capability 가 아니라 **AppArmor** 다: `SYS_ADMIN` 까지 줘도
+          #   DENIED 이고 `appArmorProfile: Unconfined` 로만 OK 다
+          #   (실측 행렬, Gotcha 199). **그 비용은 재어 보니 없었다** —
+          #   컨테이너 규칙 4종 + 노드 자격 절 · 호스트 규칙(조상 사슬
+          #   `proc.aname[2..4]`·`user.loginuid`·exepath 실경로까지) ·
+          #   `user.name`/`container.name` 해석이 privileged 와 동일하고
+          #   `<NA>` 가 0건이다. 그러니 **Unconfined 로 되돌리지 말 것** —
+          #   호스트 루트를 실제로 읽어야 하는 상류 규칙을 쓰게 되면
+          #   그때 `appArmorProfile: {type: Unconfined}` 하나만 더하면
+          #   되고, 그래도 privileged 보다는 훨씬 좁다.
           securityContext:
-            privileged: true
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["BPF", "PERFMON", "SYS_RESOURCE"]
           resources:
             requests:
               cpu: 100m
@@ -141,12 +185,15 @@ spec:
             - name: proc
               mountPath: /host/proc
               readOnly: true
-            - name: dev
-              mountPath: /host/dev
-              readOnly: true
-            - name: boot
-              mountPath: /host/boot
-              readOnly: true
+            # ★★ `/host/dev` 와 `/host/boot` 는 2026-10-09 에 걷었다 —
+            #   hostPath 가 넷에서 둘로 줄었다. 그 둘은 **커널 모듈·legacy
+            #   eBPF 드라이버를 빌드/적재하던 시절의 유산**이고
+            #   modern_ebpf 는 BTF 를 컨테이너의 `/sys` 에서 읽는다(실측:
+            #   열린 fd 에 `anon_inode:btf` 가 있고 `/host/dev`·
+            #   `/host/boot` 하위를 여는 fd 는 **0개**. `/host/boot` 는
+            #   파드가 뜬 뒤 atime 이 갱신된 적조차 없었다).
+            #   ★ atime 은 약한 증거라 **떼어 보고** 확정했다 — 둘 없이
+            #     드라이버가 열리고 자극 전부가 발화했다.
       volumes:
         - name: config
           configMap:
@@ -157,9 +204,3 @@ spec:
         - name: proc
           hostPath:
             path: /proc
-        - name: dev
-          hostPath:
-            path: /dev
-        - name: boot
-          hostPath:
-            path: /boot
