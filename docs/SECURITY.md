@@ -398,9 +398,9 @@ Vault 채택 시 **G19·G20·G21·G30·SEC-403이 전부 소멸**한다. CronJob
 | SEC-103 | 인바운드 경로가 있는 모든 워크로드에 allow 정책을 정의한다 | ❌ | 6건 누락 (G13) |
 | SEC-104 | Kafka 컨트롤러 포트(9093) 브로커 간 통신을 허용한다 | ❌ | G23 — prod quorum 형성 불가 |
 | SEC-105 | 죽은 NetworkPolicy 셀렉터를 제거한다 | ❌ | `schema-reg` |
-| SEC-106 | 메시 트래픽은 mTLS `STRICT`를 강제한다 | ❌ | PERMISSIVE (G6) |
+| SEC-106 | 메시 트래픽은 mTLS `STRICT`를 강제한다 | ❌ | PERMISSIVE (G6). ★ 2026-10-09 에 **그 대가를 실측했다** — `local/default` PeerAuthentication 이 네임스페이스 전역 `PERMISSIVE` 라, 메시에서 빠진 파드(SEC-108)의 **평문·무인증** 트래픽이 10시간 동안 그대로 받아들여졌다. `STRICT` 였다면 그 즉시 실패해 몇 분 안에 드러났을 것이다. **PERMISSIVE 는 메시 이탈을 조용하게 만든다** — 소리를 낸 것은 ALLOW 정책이 있는 Kafka 하나뿐이고, ALLOW 정책이 없는 목적지(otel-gateway, 선택하는 정책 0건)는 전부 통과시켰다 |
 | SEC-107 | 모든 워크로드 네임스페이스에 Istio ambient를 활성화한다 | ❌ | dev 비활성 |
-| SEC-108 | ambient 우회(M1 설정 오류)가 발생하지 않음을 검증한다 | 🎯 | ADR-043 — 신규 검증 항목 |
+| SEC-108 | ambient 우회(M1 설정 오류)가 발생하지 않음을 검증한다 | 🔶 | ADR-043. ★ 2026-10-09 에 **검증 수단이 생기고 첫 실측에서 실제 우회 1건이 나왔다** — `otel-agent` 파드 하나가 104 에서 ambient 리다이렉트가 풀린 채 평문으로 돌고 있었고(ztunnel inbound 로그에 `src.identity` 없음), kafka 의 ALLOW 정책이 그 연결을 **1,815번** 거부했다. **정책은 옳았고 편입이 풀린 것이다.** ★★ **기존 판정법 넷이 전부 "편입됨" 으로 거짓 보고했다** — `istioctl ztunnel-config workload`(xDS 뷰) · 파드의 `ambient.istio.io/redirection=enabled` · ztunnel 의 `certificates` · 파드 상태(1/1 Running·앱 로그 오류 0·ArgoCD Synced). 수단은 `local/check-ambient-enrollment.sh` 이고 권위 있는 출처는 ztunnel 의 `workloadState` 다(Gotcha 195). 고친 뒤 실측 **111/111 · rc=0**. ★ **🔶 인 이유**: 이 수단은 **편입 여부**만 재고 `hostNetwork`·명시적 opt-out·15008 차단 같은 다른 우회 형태는 재지 않는다. ADR-043 이 이것을 배포 게이트로 삼으므로(DEPLOYMENT §121 · PRD S-6) 그 전에 나머지 형태의 측정이 필요하다 |
 | SEC-109 | 외부 egress는 FQDN 화이트리스트로 제한한다 | 🎯 | CiliumNetworkPolicy |
 | SEC-110 | 클러스터 노드의 공인 IP는 인바운드를 전면 차단한다 | ✅ | `network/vultr/main.tf:44-46` |
 | SEC-111 | bastion은 SSH(22)와 WireGuard(51820)만 노출한다 | ✅ | `network/vultr/main.tf:18-42` |
