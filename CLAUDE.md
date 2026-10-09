@@ -281,7 +281,7 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 
 49. **`.wslconfig` 의 `networkingMode=mirrored` 를 쓰지 말 것 — 이 호스트에서는 클러스터가 통째로 무너진다.** mirrored 는 **Windows 의 Up 어댑터를 전부 WSL 로 미러링**한다. 실측으로 6개였다(Wi-Fi · 네트워크 브리지 · `vEthernet (L0-WAN)` · `(L0-LAN)` · `(Default Switch)` · `(WSL)`). k3s 는 `--node-ip` 가 미설정이라 그중 하나를 자동으로 고르는데, **Hyper-V L0 랩 주소(`10.77.0.190`)를 골랐다.** 그러면 apiserver 가 kubelet 에 닿지 못하고(`502 Bad Gateway ... dialing 10.77.0.190:10250`) **Cilium → CoreDNS → Kyverno webhook 순으로 연쇄 붕괴**한다(webhook 이 죽으면 파드 생성 자체가 거부된다). ★ 증상이 원인과 멀다 — ingress 게이트웨이가 인증서를 정상으로 받고 37초 뒤 `exitCode 0` 으로 깨끗하게 끝나서 **게이트웨이 문제로 읽힌다.** 진짜 원인은 두 계층 아래다. ★★ 되돌리기는 `.wslconfig` 에서 그 줄을 지우고 `wsl --shutdown` 이면 되고 약 10분 뒤 완전 복구된다 — 다만 파드 120여 개가 두 번 재시작한다. ★ 그리고 **이 호스트에서는 mirrored 의 이점이 뒤집힌다**: NAT 의 단점이 "WSL IP 가 재시작마다 바뀐다" 였는데, mirrored 면 노드 IP 가 Wi-Fi DHCP 나 Hyper-V 랩 주소에 묶여 **네트워크를 옮길 때마다 바뀐다.** 굳이 쓰려면 `--node-ip`·`--tls-san` 을 먼저 고정해야 하는데 **바꿔 봐야 그 주소를 알 수 있어 닭과 달걀이다** — §8-77
 
-50. **ztunnel 을 재시작하면 이미 떠 있던 파드가 메시 밖으로 나가고, 아무도 다시 넣어 주지 않는다.** 앰비언트에서 파드를 메시에 넣는 것은 ztunnel 이 아니라 **istio-cni** 이고, istio-cni 는 **CNI 이벤트가 있을 때만** 그 일을 한다 — 즉 새로 뜨는 파드만 등록한다. 실측: 파드 138개 중 **49개만** 프록시가 서 있었고 `mariadb-0`·`proxysql`·`postgresql-0` 이 전부 빠져 있었다. ★ **증상이 정책 문제처럼 보이지 않는다** — 오류는 `error="io error: Connection refused (os error 111)"` 이고 `dst.addr` 이 목적지 파드의 **15008** 이다(정책 거부라면 `policy rejection: allow policies exist, but none allowed` 다, Gotcha 19). 신원도 정상이고 AuthorizationPolicy 도 정상이라 그쪽을 아무리 봐도 나오지 않는다. 클라이언트 쪽 증상은 **TCP 는 열리는데 프로토콜 핸드셰이크에서 끊기는 것**(`ERROR 2013 ... reading initial communication packet`)이라 DB·자격을 의심하게 된다 — **대조군(프록시를 거치지 않는 직접 접속)을 반드시 함께 돌릴 것.** 대조군이 같이 실패하면 그 컴포넌트의 문제가 아니다. ★★ **`istioctl ztunnel-config workload` 를 판정에 쓰지 말 것** — 그것은 xDS 로 받은 목록이라 116 을 정상 보고했다(프록시가 선 파드는 49였다). 판정은 `kubectl logs -n istio-system ds/ztunnel | grep -c "pod received, starting proxy"` 를 실제 파드 수와 대조하는 것이다. 처방은 `kubectl rollout restart -n istio-system ds/istio-cni-node`(기동 시 앰비언트 파드를 전부 재열거한다). **ztunnel 을 재시작할 일이 있으면 istio-cni 도 함께 재시작할 것** — §8-78. ★★★ **WSL2 에서는 "재시작할 일" 이 곧 부팅이다** — 콜드 부팅마다 재현된다(실측: 파드 75개 중 48개만 프록시가 섰고, CrashLoopBackOff 17개가 25분을 기다려도 풀리지 않았다). 그래서 조건부가 아니라 **기동 절차**다 — LOCAL-DEPLOYMENT §3-1 · §23-5
+50. **ztunnel 을 재시작하면 이미 떠 있던 파드가 메시 밖으로 나가고, 아무도 다시 넣어 주지 않는다.** 앰비언트에서 파드를 메시에 넣는 것은 ztunnel 이 아니라 **istio-cni** 이고, istio-cni 는 **CNI 이벤트가 있을 때만** 그 일을 한다 — 즉 새로 뜨는 파드만 등록한다. 실측: 파드 138개 중 **49개만** 프록시가 서 있었고 `mariadb-0`·`proxysql`·`postgresql-0` 이 전부 빠져 있었다. ★ **증상이 정책 문제처럼 보이지 않는다** — 오류는 `error="io error: Connection refused (os error 111)"` 이고 `dst.addr` 이 목적지 파드의 **15008** 이다(정책 거부라면 `policy rejection: allow policies exist, but none allowed` 다, Gotcha 19). 신원도 정상이고 AuthorizationPolicy 도 정상이라 그쪽을 아무리 봐도 나오지 않는다. 클라이언트 쪽 증상은 **TCP 는 열리는데 프로토콜 핸드셰이크에서 끊기는 것**(`ERROR 2013 ... reading initial communication packet`)이라 DB·자격을 의심하게 된다 — **대조군(프록시를 거치지 않는 직접 접속)을 반드시 함께 돌릴 것.** 대조군이 같이 실패하면 그 컴포넌트의 문제가 아니다. ★★ **`istioctl ztunnel-config workload` 를 판정에 쓰지 말 것** — 그것은 xDS 로 받은 목록이라 116 을 정상 보고했다(프록시가 선 파드는 49였다). 판정은 `kubectl logs -n istio-system ds/ztunnel | grep -c "pod received, starting proxy"` 를 실제 파드 수와 대조하는 것이다. ★★★ **그 판정법은 재시작 직후에만 쓸 수 있다**(Gotcha 125) — 평상시의 판정은 ztunnel 의 `/config_dump` 안 **`workloadState`** 이고, 그것을 노드별로 세는 것이 `local/check-ambient-enrollment.sh` 다(Gotcha 195). 처방은 `kubectl rollout restart -n istio-system ds/istio-cni-node`(기동 시 앰비언트 파드를 전부 재열거한다). **ztunnel 을 재시작할 일이 있으면 istio-cni 도 함께 재시작할 것** — §8-78. ★★★ **WSL2 에서는 "재시작할 일" 이 곧 부팅이다** — 콜드 부팅마다 재현된다(실측: 파드 75개 중 48개만 프록시가 섰고, CrashLoopBackOff 17개가 25분을 기다려도 풀리지 않았다). 그래서 조건부가 아니라 **기동 절차**다 — LOCAL-DEPLOYMENT §3-1 · §23-5
 
 51. **GitLab 의 `/etc/gitlab` 을 보존하지 않으면 재시작마다 모든 토큰이 무효가 된다.** 거기 있는 `gitlab-secrets.json` 의 `db_key_base` 가 DB 에 저장된 암호값(배포 토큰·CI 변수·2FA)의 복호화 키다. 이 레포는 `/var/opt/gitlab` 만 PVC 에 두고 있어 **파드가 뜰 때마다 새 키가 생성**됐고, 재시작 28회 동안 그래 왔다. ★ **증상이 토큰을 가리키지 않는다** — 레지스트리 로그인이 `invalid username/password` 로 실패하는데 DB 의 배포 토큰은 `revoked=false`·미만료 그대로라 토큰 테이블만 보면 멀쩡하다. 자격을 재발급하면 잠시 되고 다음 재시작에 또 깨지므로 "토큰이 이상하다" 로 오래 헤맨다. 판정은 `stat /etc/gitlab/gitlab-secrets.json` 의 생성 시각이 **파드 기동 시각과 같은지**다. 해소는 `gitlab-etc` PVC 를 `/etc/gitlab` 에 붙이는 것이고, `volumeClaimTemplates` 가 불변이라 `kubectl delete sts --cascade=orphan` 후 재적용해야 한다(§8-72 ④ 와 같은 절차). 검증은 **재시작 전후로 같은 토큰이 통하는지**로 한다 — §8-79
 
@@ -395,7 +395,7 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
 
 124. **Backstage 는 플러그인마다 데이터베이스를 하나씩 만든다 — 앱 롤에 `CREATEDB` 를 주지 말고 스키마로 나눌 것.** 기본값에서 `backstage_plugin_app` · `_catalog` · `_auth` · `_scaffolder` … 를 각각 `CREATE DATABASE` 하려 하고, 권한이 없으면 `permission denied to create database` 로 CrashLoop 한다. ★ 그 오류는 **연결·인증이 성공한 뒤에** 나므로 자격 문제로 읽기 쉽다(§8-36 의 Ranger `Unauthenticated access not allowed` 와 같은 부류 — 자격으로 뚫는 문제가 아니다). 처방은 `backend.database.pluginDivisionMode: schema` 다 — 한 DB 안의 스키마로 나누므로 롤은 그 DB 의 소유자면 충분하다. **권한을 넓히는 대신 범위를 옆으로 옮기는 것**이다. ★★ 그리고 이 오류로 죽으면 **catalog 의 knex 마이그레이션 잠금이 남아** 그 다음부터는 `Migration table is already locked` 만 보인다 — 진짜 원인이 가려지므로, 잠금을 풀어도 낫지 않으면 **첫 실행의 로그(`kubectl logs --previous`)** 를 볼 것
 
-125. **Gotcha 50 의 판정법은 장수 ztunnel 에서 무력하다.** `kubectl logs ds/ztunnel | grep -c "pod received, starting proxy"` 는 **tail 창 안의 건수**를 셀 뿐이라, ztunnel 이 오래 돌면 그 줄들이 창 밖으로 밀려나 실제 파드 수보다 훨씬 작게 나온다(실측: 프록시 2 / 파드 164 인데 메시는 정상이었다). ★ 그 숫자만 보고 "편입이 풀렸다" 고 판단하면 필요 없는 `rollout restart` 를 하게 된다. **재시작 직후에만 유효한 판정법**이고, 평상시에는 **실제 통신으로 확인할 것** — 정책이 적용된 경로(예: 앱→DB)가 통하면 편입은 살아 있다
+125. **Gotcha 50 의 판정법은 장수 ztunnel 에서 무력하다.** `kubectl logs ds/ztunnel | grep -c "pod received, starting proxy"` 는 **tail 창 안의 건수**를 셀 뿐이라, ztunnel 이 오래 돌면 그 줄들이 창 밖으로 밀려나 실제 파드 수보다 훨씬 작게 나온다(실측: 프록시 2 / 파드 164 인데 메시는 정상이었다). ★ 그 숫자만 보고 "편입이 풀렸다" 고 판단하면 필요 없는 `rollout restart` 를 하게 된다. **재시작 직후에만 유효한 판정법**이고, 평상시에는 **실제 통신으로 확인할 것** — 정책이 적용된 경로(예: 앱→DB)가 통하면 편입은 살아 있다. ★★★ **그러나 "실제 통신" 은 무엇을 쳐 볼지 알 때만 성립한다 — 2026-10-09 에 그 한계로 결함 하나를 10시간 놓쳤다.** 편입이 **파드 단위로** 풀릴 수 있고(노드 부팅 때 istio-cni 와 경쟁한 그 파드만), 그러면 다른 경로는 전부 통하므로 통신 시험이 통째로 통과한다. 전수 판정은 ztunnel 의 `workloadState` 로 한다 — Gotcha 195 · `local/check-ambient-enrollment.sh`
 
 126. **★★★ 클러스터 안 GitLab 레지스트리는 지금까지 "쓰기 전용" 이었다 — 거기서 pull 한 적이 한 번도 없다.** 2026-09-11 에 Camel K 통합을 처음 만들면서 드러났다: 빌드한 kit 이미지를 자기가 다시 받지 못하고 `ImagePullBackOff` 였고, 사유는 `http: server gave HTTP response to HTTPS client` 였다. 레지스트리는 **평문 HTTP** 인데 containerd 는 HTTPS 로 붙고, 그것을 평문으로 알려 주는 **`/etc/rancher/k3s/registries.yaml` 이 아예 없었다.** ★ 그런데도 로컬 빌드 이미지 10종이 멀쩡히 돌던 이유는 `build-images.sh` 가 `k3s ctr images import` 로 **옆문으로 밀어 넣고** 매니페스트가 `imagePullPolicy: IfNotPresent` 이기 때문이다 — 레지스트리는 Trivy 스캔 용도로만 쓰이고 있었다. ★★ **그래서 이 결함은 두 자리에서만 드러난다**: ① 옆문이 없는 워크로드(Camel K 처럼 런타임에 빌드해 pull 하는 것) ② **클러스터 재구축** — 반입 전에는 어떤 파드도 그 이미지를 받지 못한다. 처방은 노드에 `registries.yaml` 을 두고(`mirrors` 의 endpoint 를 `http://` 로, 짧은 이름과 FQDN 둘 다) k3s 를 재시작하는 것이다. **이것은 노드 상태라 이 레포 밖이다**(§24-8 의 DNS 고정과 같은 부류) — 클러스터를 새로 세우면 다시 해야 한다. 판정은 `imagePullPolicy: Always` 인 파드를 하나 띄워 보거나, 반입하지 않은 태그를 참조해 보는 것이다
 
@@ -707,6 +707,24 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
      ★ 고친 뒤 실측: 대조군 172바이트 · PostgreSQL·OpenSearch·Kafka 차단 · rc=0. **7-7 이 처음으로 실측에 성공했다.**
      ★ 덤으로: 프로브 이미지가 `busybox:latest` 였다 — 이 레포가 금지한 모양이다(Gotcha 46). 완전지정 핀으로 고쳤다.
 
+195. **★★★ 파드 **하나**가 ambient 메시 밖에 있었고, 그 때문에 정책이 10시간 동안 1,825번 거부했다 — 그런데 Gotcha 50·125 가 적어 둔 판정법 둘이 **모두 그것을 놓친다.** 권위 있는 출처는 ztunnel 의 `workloadState` 다.** 2026-10-09 실측.
+     ★ **찾은 경로가 교훈이다 — 들어간 가설이 틀렸고 나온 답이 달랐다.** 앞 세션이 "ztunnel 에 `maybe a NetworkPolicy is blocking HBONE port 15008` 가 3분에 18건, 전부 목적지 `10.0.1.x`(104 서브넷)" 을 미해결로 남겼다. 다시 재니 그 문구는 **60초·5분·1시간·6시간 전부 0건**이었다 — 104 복귀 직후의 잔재였다. 그러나 **같은 로그에 다른 오류가 1,911건** 있었다(103 쪽은 5건). 분류하니 `policy rejection: allow policies exist, but none allowed` **1,815건** + `io error: Connection refused` 101건이고, 경로는 **하나**였다: `otel-agent-2q4pm` → `kafka-headless:9092`.
+     ★★ **갈림길은 로그 한 필드였다** — 그 줄에 **`src.identity` 가 없다.** 같은 로그의 `prometheus-0`(같은 노드·같은 서브넷)에는 있다. ambient 에 편입된 파드는 **언제나** SPIFFE 신원을 제시하므로, 신원이 없다는 것은 그 파드가 리다이렉트되지 않았다는 **측정**이다(추론이 아니다).
+     ★ **정책은 처음부터 옳았다** — `allow-messaging-access` 에 `*/sa/otel-agent` 가 9092·9093 으로 들어 있었다. **정책을 고치려 들기 전에 신원이 붙는지부터 볼 것**: 같은 증상에 처방이 둘이고(정책에 신원 추가 vs 파드 편입) 서로 아무 관계가 없다. Gotcha 144 는 전자였고 이번은 후자다.
+     ★★★ **"편입됨" 이라고 거짓 보고하는 신호가 넷이다** — 넷이 전부 그 파드를 정상으로 말했다:
+     ```
+     istioctl ztunnel-config workload   TCP 52 / HBONE 111 중 otel-agent 는 HBONE 쪽   <- xDS 뷰(Gotcha 50)
+     파드 annotation                     ambient.istio.io/redirection=enabled           <- istio-cni 가 전에 붙인 것이 남는다
+     ztunnel 의 certificates             spiffe://.../sa/otel-agent  state=Available     <- 신원 인증서가 남는다
+     파드 상태                            1/1 Running · 앱 로그 오류 0 · ArgoCD Synced·Healthy
+     ```
+     그리고 Gotcha 50 이 처방한 `grep -c "pod received, starting proxy"` 는 **쓸 수 없었다** — 이 노드의 ztunnel 로그 보존이 **40분쯤**이라 사고 10시간 뒤에는 그 줄이 하나도 없다(Gotcha 125 가 "재시작 직후에만 유효" 라고 적은 그대로인데, 그 대안으로 적은 "실제 통신으로 확인" 은 **무엇을 쳐 볼지 모르면 성립하지 않는다**).
+     ★★ **권위 있는 출처는 ztunnel 의 `/config_dump` 안 `workloadState` 다** — 그것이 **지금 프록시를 세워 둔 파드의 목록**이고 로그 회전과 무관하다. 실측이 즉시 갈렸다: ztunnel(104)이 **14개**를 들고 있는데 그 노드의 ambient 대상은 **15개**였고, 차집합이 정확히 `otel-agent-2q4pm` 하나였다. 103 은 96/96 이었다(빠져 보인 둘은 `ingress-istio`·`waypoint` 인데 파드 라벨 `istio.io/dataplane-mode=none` 으로 **일부러 빠진 것**이다 — 그 규칙을 안 넣으면 멀쩡한 것이 실패로 나온다). ★ 받는 길: ztunnel 이미지에 `curl` 이 없으므로 `port-forward` 로 호스트에서 받는다(Gotcha 56). **`kubectl exec ... curl` 로 시도하면 0바이트가 돌아오고 그것을 "응답 없음" 으로 읽게 된다.**
+     ★ **처방은 샌드박스를 새로 주는 것**이다 — `kubectl delete pod <이름>` 하나로 CNI ADD 가 다시 일어나 편입된다. **컨테이너 재시작으로는 풀리지 않는다**: 빠진 파드는 `restartCount=6`(노드 부팅 시각에 재시작)인데 파드 `startTime` 은 나흘 전이었다 — 샌드박스가 살아 있으면 CNI 이벤트가 없다. 그래서 노드 부팅 때 istio-cni 와 경쟁하면 **그 파드만** 영구히 빠진다. 빠진 것이 여럿이면 Gotcha 50 의 광범위 처방(`rollout restart ds/istio-cni-node`)을 쓰고, 하나면 그 파드만 지우는 쪽이 훨씬 좁다.
+     ★★ **고친 뒤 실측**: 프록시 14 → 15 · 거부가 분당 22건 → **0**(120초 창) · ztunnel `error=` 줄 **0** · 새 파드의 출력이 HBONE 으로 흐른다(`4317 → 10.0.0.8:15008`).
+     ★★★ **유실을 추정하지 말고 셀 것 — 답은 "없다" 였다.** 끊긴 것이 **Kafka 로 가는 연결**이라 과금(Gotcha 15·16)을 먼저 의심했는데, 그 파이프라인(`logs/usage`)의 수신기는 `/var/log/pods/local_ingress-istio-*/istio-proxy/*.log` 만 읽고 **그 게이트웨이 파드는 103 에만 있다** — 즉 104 의 과금 파이프라인은 설계상 입력이 0이다. 일반 로그 경로(`otlp` → otel-gateway)는 끊기지 않았다: Loki 에서 **104 에만 있는 파드**의 시간당 건수를 보니 구간 내내 평탄했다(`mongodb-0` 시간당 ~3,100 · `kafka-0` ~14). **"어느 파이프라인이 그 경로를 쓰는가" 를 설정에서 읽고, 유실 여부는 저장소에서 셀 것.**
+     ★ 그래서 측정 수단을 남겼다 — **`local/check-ambient-enrollment.sh`**(판정 셋 0/1/2). 음성 대조군으로 검증했다: 합성 입력에서 `fails=1 · unmeasured=1` 을 선언하고, 클러스터 없음·`kubectl` 없음에 각각 **2** 를 돌려준다. 실측은 `111/111 · rc=0` 이다.
+
 ### 매니페스트 작업 시
 
 - `v1/` 매니페스트는 **배포 금지**. 단 CI가 이 경로의 Dockerfile을 참조한다는 모순이 있다
@@ -785,6 +803,33 @@ bash local/node-rejoin-check.sh           # 고칠 수 있는 것은 고치고 �
 (104 가 꺼져 있었다)로 **2** 를 돌려줬다.
 ★★★ 이것이 **재지 못하는 것**은 실제 부팅 경로(펌웨어·디스크·NIC)다 — 노드가
 네트워크에 오지 못하는 원인은 여기서 보이지 않는다. 스크립트가 끝에 그 한계를
+스스로 출력한다.
+
+**★★★ 노드가 재부팅한 뒤에는 ambient 편입도 따로 세야 한다** —
+`local/check-ambient-enrollment.sh` 다. `node-rejoin-check.sh` 는 "노드가
+돌아왔는가" 에 답하고 이것은 **"돌아온 파드가 메시 안에 있는가"** 에 답한다.
+둘은 다른 질문이고, 후자는 **파드 단위로** 깨진다.
+
+```bash
+bash local/check-ambient-enrollment.sh           # 보고
+bash local/check-ambient-enrollment.sh --check    # 같다(게이트용 별칭)
+```
+
+노드마다 ztunnel 의 `/config_dump` 에서 **`workloadState`**(지금 프록시를 세워
+둔 파드의 목록)를 받아, 그 노드의 ambient 대상 파드와 차집합을 낸다. 대상의
+정의는 ① ns 라벨 `istio.io/dataplane-mode=ambient` ② `hostNetwork` 아님
+③ 파드 라벨 `istio.io/dataplane-mode=none` 아님 이고, ③ 이 없으면
+`ingress-istio`·`waypoint` 가 거짓 실패로 나온다.
+★ **Gotcha 50·125 의 판정법으로는 잡히지 않는다** — `istioctl ztunnel-config
+workload`(xDS 뷰)·파드 어노테이션·ztunnel 의 `certificates`·파드 상태가 **넷
+다 "편입됨" 으로 거짓 보고**하고, 로그 grep 은 보존이 40분이라 다음 날에는
+아무것도 없다. 자세한 것은 Gotcha 195.
+★★ 판정은 **셋**(0/1/2)이고 ztunnel 에서 응답을 받지 못한 노드를 통과로 접지
+않는다. 실측 2026-10-09: 고치기 전 104 에서 **빠짐 1**, 고친 뒤
+`111/111 · rc=0`.
+★★★ 이것이 **재지 못하는 것**: 정책이 옳은지(편입돼도 신원이 허용 목록에
+없으면 거부된다 — 처방이 다르다), 노드를 넘는 15008 경로(막히면 증상이 거부가
+아니라 타임아웃이다, Gotcha 13), 방금 뜬 파드. 스크립트가 끝에 그 한계를
 스스로 출력한다.
 
 **★★ 동기화가 wave 4 에서 서면 OpenBao 를 초기화해야 한다** — ArgoCD 가
