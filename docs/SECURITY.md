@@ -167,7 +167,7 @@ v1 매니페스트를 v2로 복원할 때 **모든 ConfigMap 평문 자격증명
 
 | 통제 | 동작 | 파일 | 비고 |
 |---|---|---|---|
-| Falco DaemonSet | eBPF syscall 탐지 (`engine.kind=modern_ebpf`) | `falco-daemonset.yaml` | `privileged: true`, `hostNetwork: true` |
+| Falco DaemonSet | eBPF syscall 탐지 (`engine.kind=modern_ebpf`) | `falco-daemonset.yaml` | `privileged: true`. **`hostNetwork` 는 2026-10-09 에 걷었다** — 파드 신원이 없어 경보 전달이 같은 노드로만 되고 있었다(SEC-301). 지금은 파드 네트워크 + `istio.io/dataplane-mode: none` + `FALCO_HOSTNAME` ← `spec.nodeName` |
 | Falcosidekick | 알림 라우팅 → ES · Kafka · Slack | `falcosidekick-deployment.yaml` | `readOnlyRootFilesystem: true`, 비루트, drop ALL — 양호 |
 | Falco 커스텀 룰 | ConfigMap 마운트 | `falco-configmap.yaml` | |
 | Trivy 주간 CronJob | 실행 중 이미지 스캔 → ES | `trivy-cronjob.yaml` | **이미지에 kubectl 없음, cert 볼륨 미마운트 → 동작 불가** |
@@ -250,7 +250,7 @@ v1 매니페스트를 v2로 복원할 때 **모든 ConfigMap 평문 자격증명
 | akhq | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
 | apicurio | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
 | kafka | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (9092만, **9093 없음**) | ✅ |
-| **falco** | ⚠️ 미설정 | ⚠️ 미설정 | ⚠️ 미설정 | ⚠️ 미설정 | ✅ | ✅ | N/A(hostNetwork) | N/A |
+| **falco** | ⚠️ 미설정 | ⚠️ 미설정 | ⚠️ 미설정 | ⚠️ 미설정 | ✅ | ✅ | ✅ (`allow-falcosidekick-access` — **2026-10-09 부터 실제로 적용된다.** 전에는 `N/A(hostNetwork)` 였다: 파드 신원이 없어 정책이 고를 수 없었고 그래서 **같은 노드만 통했다**) | N/A |
 | falcosidekick | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ · **default SA** |
 | **filebeat** | ⚠️ `runAsUser: 0` | ⚠️ drop ALL + `DAC_READ_SEARCH` | ✅ | ✅ | ✅ | ✅ | **❌** | ✅(소스) |
 | logstash | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅(소스) · **default SA** |
@@ -273,7 +273,7 @@ v1 매니페스트를 v2로 복원할 때 **모든 ConfigMap 평문 자격증명
 
 | 워크로드 | 예외 | 명시 여부 | 정당성 | prod 충돌 |
 |---|---|---|---|---|
-| **Falco** | `privileged: true`, `hostNetwork: true` | 매니페스트 명시(`falco-daemonset.yaml:28,50`) | eBPF syscall 추적 | **PSS `restricted`에서 admit 불가** |
+| **Falco** | `privileged: true` (+ hostPath 4종). ★ **`hostNetwork` 는 2026-10-09 에 걷었다** — 예외가 하나 줄었다 | 매니페스트 명시(`falco-daemonset.yaml:97`, 걷은 사유와 복귀 조건은 `:36-61` 주석) | eBPF syscall 추적 | **PSS `restricted`에서 admit 불가** |
 | **Filebeat** | `runAsUser: 0`, capability `DAC_READ_SEARCH` | 명시(`filebeat-daemonset.yaml:23-24,49-51`) | 호스트 로그 읽기. **blanket privileged보다 좁은 범위 — 모범 사례** | 동일 |
 | **GitLab EE** | `runAsUser: 0`, `allowPrivilegeEscalation: true`, capability 8종 | 주석 명시(`gitlab-statefulset.yaml:28`) | Omnibus chef/reconfigure가 root 요구 | 동일. **세 예외 중 가장 넓다 — `drop: ALL`조차 없다** |
 
@@ -430,7 +430,7 @@ Vault 채택 시 **G19·G20·G21·G30·SEC-403이 전부 소멸**한다. CronJob
 
 | ID | 요구사항 | 상태 | 구현 위치 / 비고 |
 |---|---|:-:|---|
-| SEC-301 | 모든 노드에서 syscall 수준 런타임 탐지를 수행한다 | 🔶 | Falco DaemonSet. ★★★ **2026-10-09 에 ✅ 가 뒤집혔다 — 실측은 절반이다.** `104` 의 Falco 는 경보를 **한 건도** 전달하지 못하고 있었다(`libcurl ... Timeout was reached` · `"http" output timeout, all output channels are blocked` 105줄, 103 은 0줄). falcosidekick 이 본 `hostname` 라벨이 **69개 시계열 전부 `local-ubuntu3`** 다. 원인은 `allow-falcosidekick-access` 가 2801 을 **falco 파드 라벨**로만 여는 것 — Falco 는 `hostNetwork` 라 파드 신원이 없고(Gotcha 110 ②) 다른 노드에서 오면 Cilium 의 `remote-node` 신원이 되어 `drop (Policy denied)` 된다. **탐지는 돌고 있고 전달만 끊겼다** — 그래서 파드 상태로는 보이지 않는다. 처방은 평범한 NetworkPolicy 로 표현할 수 없다(`ipBlock` 은 node 신원과 매칭되지 않음을 실측했다) — 선택지와 대가는 Gotcha 197 |
+| SEC-301 | 모든 노드에서 syscall 수준 런타임 탐지를 수행한다 | ✅ | Falco DaemonSet. ★★★ **2026-10-09 에 ✅ → 🔶 → ✅ 로 두 번 움직였다 — 그 사이가 이 항목의 내용이다.** ① **처음의 ✅ 는 근거가 없었다**(파드가 양 노드에 떠 있다는 것만 봤다). ② 실측하니 **절반**이었다: 한 노드의 Falco 가 경보를 **한 건도** 전달하지 못했다(`"http" output timeout, all output channels are blocked` 105줄, 반대 노드는 0줄) 그리고 falcosidekick 이 본 `hostname` 라벨이 **69개 시계열 전부 한 노드**였다. 원인은 `allow-falcosidekick-access` 가 2801 을 **falco 파드 라벨**로만 여는 것 — Falco 가 `hostNetwork` 라 파드 신원이 없어(Gotcha 110 ②) 다른 노드에서 오면 Cilium 의 `remote-node`(identity 6) 가 되어 `drop (Policy denied)` 된다. **탐지는 돌고 있고 전달만 끊겼다** — 그래서 파드 상태로는 보이지 않는다. ★ 막히는 쪽은 특정 노드가 아니라 **falcosidekick 이 뜬 노드의 반대편**이고, 그것이 재배치되면 **함께 옮겨 다닌다**. ③ 처방은 `hostNetwork` 를 **걷는 것**이었다(Gotcha 197 ★★★ — CiliumNetworkPolicy·Cilium 전역 설정·싱크 DaemonSet 화 셋을 재어 보고 고르지 않았다. 그 셋은 전달 경로를 넓히려는 것이고 실제 결함은 **신원이 없는 것**이었다). **실측 재검증**: 양 노드 전송 오류 **0줄** · 싱크의 `hostname` 에 **두 노드 다** 등장 · `06-falco-test.sh` 를 노드마다 고정해 **둘 다 `detected=4 missing=0`** · OpenSearch `siem-2026.10.09` 에 **두 노드 이름으로** 적재. ★★ **판정 수단**: `scripts/security-verification/06-falco-test.sh`(노드 커버리지 절). 그것이 **재지 못하는 것**은 싱크가 비어 있을 때의 커버리지다 — 소음을 없앤 뒤로는 상시 경보가 없어 falcosidekick 을 재기동하면 그 절이 `측정 불가` 가 된다(통과로 접지는 않는다). 노드마다 자극을 주도록 고칠 것 |
 | SEC-302 | 런타임 위협은 SIEM으로 전달된다 | 🔶 | Falcosidekick → Kafka `falco-alerts` → Data Prepper → OpenSearch `siem-*`. Wazuh는 목표. ★★★ **"Kafka 53% 실패" 는 같은 날 반증됐다 — 그 숫자는 유실률이 아니다.** 150초 창에서 `Δerror = 0 · Δok = 82`(카운터가 멈춰 있다) · 전체 로그 42,311줄에 **OK 가 아닌 줄 0건** · `Δok` 이 **토픽 증분의 정확히 2배**였다(이벤트당 OK 를 두 번 센다 — `Kafka - Publish OK` 와 `Kafka - (1) - Publish OK`). 즉 `error/(error+ok)` 는 이벤트 단위로 아무 뜻이 없다. ★★ **진짜 유실은 비율이 아니라 구간이다** — `siem-2026.10.06` 이 **0건**이고 `siem-2026.10.07` 인덱스는 **아예 없다**. `kafka-0` 이 104 에 있어 그 노드가 꺼져 있던 동안 SIEM 적재가 통째로 멈췄다(Gotcha 193). **노드 하나가 SIEM 경로의 단일 장애점이다.** ★ 그리고 **Kafka 가 PVC 를 쓰지 않으므로** 파드 재생성 때 토픽이 0 으로 돌아간다(실측 `earliest=0`). 영구 보관은 OpenSearch 쪽이고, 그래서 "토픽 건수" 로 전달을 판정하면 안 된다 |
 | SEC-303 | 특권 런타임 에이전트는 예외를 매니페스트에 명시한다 | ✅ | Falco·Filebeat |
 | SEC-304 | 탐지에서 차단으로 전환 가능한 런타임 통제를 갖춘다 | 🎯 | Tetragon (ADR-025) |

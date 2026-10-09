@@ -265,7 +265,8 @@ v1 복원으로 Knox·Ranger가 돌아오면 **원래 목적이 복구된다.**
 | **wazuh-manager** `[목표]` | — | 2 (로컬 1) | 1514, 1515, 55000 | 1.5 | ✅ |
 | **wazuh-indexer** `[목표]` | — | 3 (로컬 1) | 9200 | 2.5 | ✅ |
 
-**Falco 예외** — `privileged: true`, `hostNetwork: true`, `engine.kind=modern_ebpf`, containerd 소켓·`/proc`·`/dev`·`/boot` 마운트. 커밋 `5ca8068`에서 커널 모듈이 불필요한 modern-bpf 드라이버로 전환.
+**Falco 예외** — `privileged: true`, `engine.kind=modern_ebpf`, containerd 소켓·`/proc`·`/dev`·`/boot` 마운트. 커밋 `5ca8068`에서 커널 모듈이 불필요한 modern-bpf 드라이버로 전환.
+★ **`hostNetwork` 는 2026-10-09 에 걷었다**(Gotcha 197) — 예외가 하나 줄었다. 그것이 파드 신원을 없애(Gotcha 110 ②) `allow-falcosidekick-access` 가 Falco 를 고를 수 없게 만들었고, 그래서 경보가 **falcosidekick 과 같은 노드에서만** 전달되고 있었다. syscall 수집은 modern_ebpf 가 커널에서 하므로 netns 와 무관하다 — 실측으로 파드 네트워크에서 드라이버·규칙이 정상 로드되고 전송 오류가 양 노드 0줄이다. 함께 가는 것 둘: `FALCO_HOSTNAME` ← `spec.nodeName`(노드 귀속을 유지한다) · 파드 라벨 `istio.io/dataplane-mode: none`(센서를 ztunnel 밖에 둔다).
 
 **Falcosidekick 출력** — ES `falco-alerts` 인덱스 **및** Kafka `falco-alerts` 토픽(`falcosidekick-configmap.yaml:20-44`). Kafka 경로가 Logstash → Wazuh 배선의 기반이 된다.
 

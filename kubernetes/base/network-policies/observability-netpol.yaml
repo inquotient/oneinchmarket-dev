@@ -108,6 +108,25 @@ spec:
           port: 4900
 ---
 # Falcosidekick 접근 허용 - Falco DaemonSet → Falcosidekick
+#
+# ★★★ 이 정책은 2026-10-09 까지 **반쪽만 허용하고 있었다** — 그리고 그것이
+#   노드 하나의 런타임 탐지를 통째로 유실시켰다(Gotcha 197, SEC-301).
+#   아래 `from` 은 출발지를 **파드 라벨**로 고르는데, Falco DaemonSet 이
+#   `hostNetwork: true` 라 **파드 신원이 없었다**(Gotcha 110 ②). 그러면
+#   같은 노드에서는 Cilium 이 host->로컬 파드를 허용해 통하고, 다른 노드에서
+#   오면 `remote-node`(identity 6) 가 되어 **조용히 버려진다**
+#   (`cilium monitor`: `xx drop (Policy denied) identity 6->... :2801 tcp SYN`).
+#   ★ 그래서 결함이 **falcosidekick 이 뜬 노드의 반대편**에 생기고, 그것이
+#     재배치되면 함께 옮겨 다닌다 — "그 노드가 고장" 이 아니다.
+#
+#   ★★ 처방은 이 정책이 아니라 **Falco 쪽**이었다: hostNetwork 를 걷어 파드
+#   신원을 주면 이 규칙이 **한 글자도 고치지 않고** 성립한다(사유와 복귀
+#   조건은 falco-daemonset.yaml 의 주석). ipBlock 으로 노드 대역을 여는
+#   우회는 **실측으로 듣지 않는다** — CIDR 선택자는 node 신원과 매칭되지
+#   않는다(`192.168.0.0/24`·`10.0.0.0/8` 을 둘 다 넣어도 여전히 000).
+#
+#   ★ `from` 을 비워 전면 허용하지 말 것 — 그러면 메시 안 아무 파드나 가짜
+#   Falco 경보를 SIEM 에 주입할 수 있고, 진짜 경보가 그것에 묻힌다.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
