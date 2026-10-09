@@ -187,17 +187,109 @@ data:
       priority: CRITICAL
       tags: [crypto, mining, mitre_resource_hijacking]
 
-    # 6. K8s Secret 접근 탐지
+    # ★★★ 6. 마운트된 K8s 자격 읽기 탐지 — 2026-10-09 에 전면 수정했다.
+    #
+    #   그때까지 이 규칙은 **누적 158,065건**을 내면서 실재 탐지가 0건이었다.
+    #   세 가지가 동시에 틀려 있었다(전부 실측으로 갈랐다):
+    #
+    #   ① 경보에 **프로세스가 없었다.** output 이 file·container·pod 만 찍어
+    #      "누가 읽었는가" 에 답하지 않으니 조치할 수 없는 경보였다.
+    #      proc.name·proc.pname·proc.exepath·proc.cmdline 을 더했다.
+    #
+    #   ② 자격이 아닌 파일을 세고 있었다. `/var/run/secrets/kubernetes.io`
+    #      접두는 **ca.crt(10,020건)와 namespace(521건)** 까지 잡는데,
+    #      전자는 공개 인증서이고 후자는 평문 문자열이다 — 25% 가
+    #      "읽혀도 아무 일 없는 것" 이었다. 이제 `token` 만 본다.
+    #
+    #   ③ 정상 동작을 탐지로 세고 있었다. 프로세스 필드를 켜고 90초를 재니
+    #      66건 **전부**가 앱 자신의 컴파일된 바이너리가 자기 SA 토큰을 읽는
+    #      것이었다(kyverno·crossplane·keda·cert-manager·argocd·kpack …).
+    #      kubelet 이 projected 토큰을 주기적으로 갱신하므로 이것은 **모든
+    #      파드에서 끝없이 일어난다.** 쉘·파일 유틸리티·인터프리터는 0건이었다.
+    #      고친 뒤 실측: 분당 약 102건 -> **0건**.
+    #
+    #   ★ 그래서 제외 목록을 **네임스페이스에서 프로세스로 옮겼다.**
+    #     전에는 `kube-system`·`istio-system` 둘만 빼고 있었는데, 그 둘을
+    #     빼도 소음이 남고(실측 `local` 자체가 25,767건) 무엇보다 **공격자가
+    #     숨을 곳을 정확히 면제해 주는 꼴**이었다. 지금은 네임스페이스를
+    #     하나도 빼지 않고(=kube-system 도 본다) 대신 **읽는 도구**로 가른다.
+    #
+    #   ★★ 의도한 사각지대를 적어 둔다 — 첫째 절은 **컴파일된 바이너리가
+    #     토큰을 읽는 것을 탐지하지 않는다.** 그것을 탐지하려 하면 위의
+    #     158,065건으로 돌아가고 진짜 경보가 묻힌다(§8-37 의 ES 93 GB).
+    #     그 벡터는 다른 규칙이 맡는다: 새 바이너리를 떨어뜨려 실행하는 것은
+    #     `Drop and execute new binary in container`, 쉘을 얻는 것은
+    #     `Terminal shell in container` 다.
+    #
+    #   ★★★ 둘째·셋째 절은 **노드 자격**이고, 둘인 이유가 실측이다.
+    #     k3s 는 `/etc/kubernetes` 에 아무것도 두지 않으므로(실측: 빈
+    #     디렉터리) 옛 규칙의 그 절은 한 번도 발화할 수 없었다 — Gotcha 196
+    #     이 kube-bench 에서 겪은 것과 같은 자리다. 실제 자리는
+    #     `/etc/rancher/k3s/k3s.yaml`(admin kubeconfig)과
+    #     `/var/lib/rancher/k3s/server/{tls,cred}`(PKI·kubeconfig 35+개)다.
+    #     ★ 그런데 **경로 접두만으로는 반쪽이다** — `fd.name` 은 컨테이너가
+    #       본 경로라서 hostPath 를 다른 이름으로 마운트하면 접두가 어긋난다.
+    #       한 프로브에서 같은 경로와 `/host/...` 를 나란히 읽어 갈랐다:
+    #         같은 경로  /etc/rancher/k3s/k3s.yaml        -> **발화**
+    #         바뀐 경로  /host/etc/rancher/k3s/k3s.yaml   -> **발화하지 않음**
+    #       그래서 셋째 절로 **파일명**(`fd.filename`)을 본다 — 마운트 지점을
+    #       무엇으로 바꿔도 basename 은 남는다. 그 이름들이 다른 용도로
+    #       쓰이지 않는지 렌더 전수로 확인했다(충돌 0건. `passwd` 는 흔한
+    #       이름이라 **일부러 뺐다**).
+    #     ★ 둘째·셋째 절에는 프로세스 제한을 걸지 않는다 — 이 경로를
+    #       hostPath 로 마운트하는 매니페스트가 **0건**이므로(실측) 정상
+    #       독자가 없고, 울리면 그것이 곧 이상이다.
+    #     ★ 단 `scripts/security-verification/01-kube-bench.sh` 는 그 경로를
+    #       **일부러** 읽는다(CIS 1.1.x 가 PKI 권한을 본다). 그 Job 이 도는
+    #       동안의 경보는 오탐이 아니라 **그 Job 이다** — 파드 이름이
+    #       `oim-kube-bench-*` 다. 이름으로 제외하지 않았다: 제외하면 그
+    #       이름을 쓰는 아무 파드나 노드 PKI 를 읽을 수 있게 된다.
+    - list: oim_credential_read_tools
+      items: [
+        cat, head, tail, less, more, grep, egrep, fgrep, awk, sed, cut, tr,
+        od, xxd, hexdump, strings, base64, dd, cp, mv, tar, gzip, scp,
+        env, printenv, find, xargs,
+        curl, wget, nc, ncat, socat, openssl, ssh, ftp, tftp,
+        bash, sh, zsh, ash, dash, busybox, ksh, fish
+      ]
+    - list: oim_node_credential_files
+      items: [
+        k3s.yaml,
+        admin.kubeconfig, api-server.kubeconfig, controller.kubeconfig,
+        scheduler.kubeconfig, supervisor.kubeconfig, cloud-controller.kubeconfig,
+        ipsec.psk, node-passwd, agent-token, server-token,
+        client-ca.key, server-ca.key, request-header-ca.key,
+        client-admin.key, client-auth-proxy.key, client-controller.key,
+        client-kube-apiserver.key, client-scheduler.key, client-supervisor.key,
+        client-kubelet.key, client-kube-proxy.key, client-k3s-controller.key,
+        client-k3s-cloud-controller.key,
+        service.key, service.current.key,
+        serving-kube-apiserver.key, serving-kubelet.key,
+        admin.conf, controller-manager.conf, scheduler.conf
+      ]
     - rule: Read sensitive Kubernetes files
-      desc: 컨테이너 내에서 마운트된 K8s Secret 파일 읽기 시도
+      desc: >
+        컨테이너가 SA 토큰을 셸·파일 유틸리티·전송 도구로 읽거나,
+        노드의 kubeconfig·PKI 를 읽는다
       condition: >
         open_read and container and
-        (fd.name startswith /var/run/secrets/kubernetes.io or
-         fd.name startswith /etc/kubernetes) and
-        not k8s.ns.name in (kube-system, istio-system)
+        (
+          (fd.name startswith /var/run/secrets/kubernetes.io/serviceaccount/token and
+           proc.name in (oim_credential_read_tools))
+          or
+          fd.name startswith /etc/rancher/k3s or
+          fd.name startswith /var/lib/rancher/k3s/server/tls or
+          fd.name startswith /var/lib/rancher/k3s/server/cred or
+          fd.name startswith /etc/kubernetes/pki or
+          fd.name startswith /etc/kubernetes/admin.conf
+          or
+          fd.filename in (oim_node_credential_files)
+        )
       output: >
-        K8s Secret 파일 접근
+        K8s 자격 파일 접근
         (file=%fd.name
+        proc=%proc.name ppid=%proc.pname exe=%proc.exepath user=%user.name
+        command=%proc.cmdline
         container=%container.name
         pod=%k8s.pod.name ns=%k8s.ns.name)
       priority: WARNING
