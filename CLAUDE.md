@@ -156,7 +156,7 @@ containers:
         drop: ["ALL"]
 ```
 
-**의도된 예외 8건** — GitLab(root + capability 8종), Falco(**privileged** — `hostNetwork` 는 **2026-10-09 에 걷었다**, Gotcha 197. 그것이 파드 신원을 없애 노드 하나의 경보 전달을 통째로 막고 있었다), Filebeat(root + `DAC_READ_SEARCH`), otel-agent(root + `DAC_READ_SEARCH`), DS389(root + `CHOWN·DAC_OVERRIDE·FOWNER·SETGID·SETUID·NET_BIND_SERVICE`), LAM(root + 앞의 5종), wazuh-manager(root + 5종 + `KILL·SYS_CHROOT`). SafeLine(root + `CHOWN·SETUID·SETGID·DAC_OVERRIDE`, tengine 은 `NET_BIND_SERVICE` 추가 — detector·tengine 엔트리포인트가 작업 디렉터리를 chown 한다). 각각 매니페스트에 사유가 기록되어 있다. **Kyverno `disallow-root` 예외 목록이 정책에 있다**(`kyverno-disallow-root.yaml` 의 `exclude` — 이름 8종 + 시스템 네임스페이스 8개). 없으면 prod Enforce 에서 8건이 거부되고, **cilium·coredns 같은 플랫폼 파드의 재생성까지 막힌다.** **OpenReplay 는 예외가 필요 없다** — 17개 Deployment 는 이미 비-root(uid 1001·65532)였고 `runAsNonRoot` 선언만 없었다. 선언을 채워 정책 위반 0건이 됐다. 실제로 root 였던 마이그레이션 Job 하나는 `CAP_CHOWN` 으로 낮췄다(§8-49)
+**의도된 예외 8건** — GitLab(root + capability 8종), Falco(**root + `BPF`·`PERFMON`·`SYS_RESOURCE` + hostPath 2종** — 2026-10-09 에 두 번 좁혔다: `hostNetwork` 를 걷었고(Gotcha 197 — 그것이 파드 신원을 없애 노드 하나의 경보 전달을 막고 있었다) **`privileged: true` 도 걷었다**(Gotcha 199 — capability 41 → 셋 · seccomp `RuntimeDefault` 복원 · hostPath 4 → 2 · `allowPrivilegeEscalation: false`). ★ **uid 0 은 남는다**(Gotcha 182: 비-root 에서는 `add` 가 실효가 되지 않는다) — 그래서 `disallow-root` 예외는 그대로 필요하지만 **`disallow-privilege-escalation` 위반은 없어졌다.** 그 정책은 exclude 가 없고 prod 에서 Enforce 라 **배포 블로커였다**), Filebeat(root + `DAC_READ_SEARCH`), otel-agent(root + `DAC_READ_SEARCH`), DS389(root + `CHOWN·DAC_OVERRIDE·FOWNER·SETGID·SETUID·NET_BIND_SERVICE`), LAM(root + 앞의 5종), wazuh-manager(root + 5종 + `KILL·SYS_CHROOT`). SafeLine(root + `CHOWN·SETUID·SETGID·DAC_OVERRIDE`, tengine 은 `NET_BIND_SERVICE` 추가 — detector·tengine 엔트리포인트가 작업 디렉터리를 chown 한다). 각각 매니페스트에 사유가 기록되어 있다. **Kyverno `disallow-root` 예외 목록이 정책에 있다**(`kyverno-disallow-root.yaml` 의 `exclude` — 이름 8종 + 시스템 네임스페이스 8개). 없으면 prod Enforce 에서 8건이 거부되고, **cilium·coredns 같은 플랫폼 파드의 재생성까지 막힌다.** **OpenReplay 는 예외가 필요 없다** — 17개 Deployment 는 이미 비-root(uid 1001·65532)였고 `runAsNonRoot` 선언만 없었다. 선언을 채워 정책 위반 0건이 됐다. 실제로 root 였던 마이그레이션 Job 하나는 `CAP_CHOWN` 으로 낮췄다(§8-49)
 
 ### Annotations
 
@@ -793,6 +793,26 @@ Registry: `registry.oneinchmarket.co.kr` — **어떤 매니페스트도 이 레
      ③ **`-o jsonpath="{.items[0]...}"` 로 파드를 고르면 어느 노드인지 모른다** — 104 쪽을 집어 "로드되지 않았다" 를 얻었다.
      처방은 하나다 — **상태 명령을 믿지 말고 "그 내용이 그 파드 안에 있는지" 를 조건으로 기다릴 것**: `kubectl exec <pod> -- grep -c <표지> <경로>` 가 1 이상이 될 때까지 폴링하고, 파드는 `--field-selector spec.nodeName=` 로 고르고, **시험 전후로 그 표지를 다시 확인할 것**(중간에 동기화가 끼어들 수 있다). 이 레포가 거듭 적은 "측정값이 이상하면 측정 방법부터"(Gotcha 25·56·147·187)의 **"측정 대상이 그 자리에 있는지부터"** 판이다.
      ★ **마지막으로, 이 변경은 push 하지 않으면 유지되지 않는다** — 다음 동기화가 git 으로 되돌린다. kubectl 적용은 **순서를 앞당기는 용도**일 뿐이다(Gotcha 119).
+
+199. **★★★ `privileged: true` 를 좁힐 때 capability 목록을 추측하지 말 것 — 그리고 `capabilities.add` 로 **메워지지 않는 칸**이 있다. 그것은 AppArmor 다.** 2026-10-09 에 Falco 의 의도된 예외를 좁히며 실측했다. `privileged` 는 **묶음**이다 — capability 41개 전부 + seccomp 해제 + AppArmor unconfined + 장치 전부 + `/proc`·`/sys` 비마스킹. 그래서 "capability 로 바꾸면 된다" 가 **반만 맞다.**
+     ★ **최소 집합은 띄워 보고 갈랐다** — 상류 문서나 기억으로 적으면 반드시 하나 더 넣거나 하나 모자란다:
+     ```
+     [BPF, PERFMON]                 기동 실패: unable to configure the libpman state
+                                    (링 버퍼의 RLIMIT_MEMLOCK 을 못 올린다)
+     [BPF, PERFMON, SYS_RESOURCE]   동작 <- 최소
+     + SYS_PTRACE                   차이 없음
+     ```
+     `SYS_PTRACE` 는 **한때 필요해 보였다** — 그것 없이 `container.name` 이 컨테이너 ID 로 나왔다. 그런데 **운영 privileged 파드도 같은 자리에서 ID 를 냈고**, 1분 뒤 재니 양쪽 다 이름을 정확히 해석했다. **컨테이너 메타데이터 콜드 캐시 경합**이었다. ★★ 교훈: **방금 뜬 센서로 메타데이터 해석을 판정하지 말 것**(Gotcha 195 의 "방금 뜬 파드" 와 같은 자리). 그리고 **대조군을 같은 이벤트로 둘 것** — 두 센서가 같은 syscall 을 보므로 자극 한 번으로 필드를 직접 대조할 수 있다.
+     ★★★ **`add` 로 안 열리는 것이 있으면 capability 를 더 주지 말고 LSM 을 의심할 것.** `/host/proc/1/root` 를 통한 호스트 루트 접근이 EACCES 였는데, 행렬로 재니 **`SYS_PTRACE`·`DAC_READ_SEARCH`·`DAC_OVERRIDE`·`SYS_ADMIN` 전부 DENIED** 였고 `appArmorProfile: {type: Unconfined}` 에서만 OK 였다(같은 capability 그대로).
+     ```
+     drop ALL + add SYS_PTRACE, apparmor=cri-containerd.apparmor.d (enforce) -> DENIED
+     drop ALL + add SYS_PTRACE, apparmor=unconfined                          -> OK
+     ```
+     **SYS_ADMIN 까지 줘도 안 되면 그것은 capability 문제가 아니다** — 거기서 멈추고 `/proc/self/attr/current` 와 `Seccomp:` 를 읽을 것. 둘 중 무엇이 막는지는 그 한 줄이 말해 준다.
+     ★ **그 간격의 비용은 재서 판단할 것 — 여기서는 0이었다.** `Cannot read host init process proc root: 13` 이 두 줄 남지만, privileged 와 대조해 **컨테이너 규칙 4종 + 노드 자격 절 · 호스트 규칙(조상 사슬 `proc.aname[2..4]`·`user.loginuid`·exepath 실경로) · `user.name`/`container.name` 해석이 전부 동일**하고 `<NA>` 가 0건이었다. 그래서 Unconfined 로 되돌리지 않았다 — **복귀 조건은 매니페스트에 적었다.**
+     ★★ **seccomp 이 조용히 꺼져 있던 것도 그때 드러났다** — `privileged` 가 끄기 때문이다(실측 `Seccomp: 0`). 걷으면 `RuntimeDefault` 가 걸리고(`Seccomp: 2`) 관문은 그 프로파일이 `bpf`·`perf_event_open` 을 허용하는지 하나인데, 드라이버가 열리고 자극 전부가 발화했다. **`privileged` 를 걷는 것은 capability 를 좁히는 일만이 아니라 seccomp 을 되살리는 일이다.**
+     ★ **hostPath 는 "열린 fd" 와 "떼어 보기" 로 가를 것.** `/host/dev`·`/host/boot` 는 커널 모듈·legacy eBPF 시절의 유산이었다 — 열린 fd 0개이고 `/host/boot` 는 파드가 뜬 뒤 **atime 조차 갱신되지 않았다.** 다만 atime 은 relatime 때문에 약한 증거이므로 **떼어 놓고 자극을 걸어** 확정했다.
+     ★★★ 그리고 **좁힌 결과를 PodSecurity 경고와 Kyverno 로 되읽을 것** — 경고가 `privileged (...)` + `hostPath 4종` 에서 `non-default capabilities (BPF, PERFMON, SYS_RESOURCE)` + `hostPath 2종` 으로 바뀌었고, **`disallow-privilege-escalation` 위반이 사라졌다**(그 정책은 `exclude` 가 없고 prod 에서 Enforce 다 — 즉 **몰랐던 prod 배포 블로커가 하나 없어진 것**이다). ★ 반면 `disallow-root` 예외는 **남는다** — uid 0 을 유지해야 `add` 가 실효가 되기 때문이다(Gotcha 182). **"예외를 없앴다" 와 "예외를 좁혔다" 를 구분해서 적을 것**: PSS `baseline`·`restricted` 는 hostPath 와 비기본 capability 를 금지하므로 Falco 는 **여전히 admit 되지 않는다.**
 
 ### 매니페스트 작업 시
 

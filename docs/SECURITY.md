@@ -167,7 +167,7 @@ v1 매니페스트를 v2로 복원할 때 **모든 ConfigMap 평문 자격증명
 
 | 통제 | 동작 | 파일 | 비고 |
 |---|---|---|---|
-| Falco DaemonSet | eBPF syscall 탐지 (`engine.kind=modern_ebpf`) | `falco-daemonset.yaml` | `privileged: true`. **`hostNetwork` 는 2026-10-09 에 걷었다** — 파드 신원이 없어 경보 전달이 같은 노드로만 되고 있었다(SEC-301). 지금은 파드 네트워크 + `istio.io/dataplane-mode: none` + `FALCO_HOSTNAME` ← `spec.nodeName` |
+| Falco DaemonSet | eBPF syscall 탐지 (`engine.kind=modern_ebpf`) | `falco-daemonset.yaml` | **2026-10-09 에 두 번 좁혔다.** ① `hostNetwork` 를 걷었다 — 파드 신원이 없어 경보 전달이 같은 노드로만 되고 있었다(SEC-301). 지금은 파드 네트워크 + `istio.io/dataplane-mode: none` + `FALCO_HOSTNAME` ← `spec.nodeName`. ② `privileged: true` 를 걷었다 — **root + `BPF`·`PERFMON`·`SYS_RESOURCE` · `drop: ALL` · `allowPrivilegeEscalation: false` · seccomp `RuntimeDefault` · hostPath 2종**(`containerd.sock`·`/proc`). 최소 집합은 조합을 띄워 보고 정했다(Gotcha 199) |
 | Falcosidekick | 알림 라우팅 → ES · Kafka · Slack | `falcosidekick-deployment.yaml` | `readOnlyRootFilesystem: true`, 비루트, drop ALL — 양호 |
 | Falco 커스텀 룰 | ConfigMap 마운트 | `falco-configmap.yaml` | |
 | Trivy 주간 CronJob | 실행 중 이미지 스캔 → ES | `trivy-cronjob.yaml` | **이미지에 kubectl 없음, cert 볼륨 미마운트 → 동작 불가** |
@@ -250,7 +250,7 @@ v1 매니페스트를 v2로 복원할 때 **모든 ConfigMap 평문 자격증명
 | akhq | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
 | apicurio | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
 | kafka | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (9092만, **9093 없음**) | ✅ |
-| **falco** | ⚠️ 미설정 | ⚠️ 미설정 | ⚠️ 미설정 | ⚠️ 미설정 | ✅ | ✅ | ✅ (`allow-falcosidekick-access` — **2026-10-09 부터 실제로 적용된다.** 전에는 `N/A(hostNetwork)` 였다: 파드 신원이 없어 정책이 고를 수 없었고 그래서 **같은 노드만 통했다**) | N/A |
+| **falco** | ❌ root (의도 — Gotcha 182: 비-root 는 `add` 가 실효가 되지 않는다) | ✅ `drop: ALL` + `BPF`·`PERFMON`·`SYS_RESOURCE` (**2026-10-09: `privileged` 를 걷고 41 → 셋**) | ⚠️ 미설정 | ✅ `RuntimeDefault` (**privileged 가 끄고 있었다** — 실측 `Seccomp: 0` → `2`) | ✅ | ✅ | ✅ (`allow-falcosidekick-access` — **2026-10-09 부터 실제로 적용된다.** 전에는 `N/A(hostNetwork)` 였다: 파드 신원이 없어 정책이 고를 수 없었고 그래서 **같은 노드만 통했다**) | N/A |
 | falcosidekick | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ · **default SA** |
 | **filebeat** | ⚠️ `runAsUser: 0` | ⚠️ drop ALL + `DAC_READ_SEARCH` | ✅ | ✅ | ✅ | ✅ | **❌** | ✅(소스) |
 | logstash | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅(소스) · **default SA** |
@@ -273,7 +273,7 @@ v1 매니페스트를 v2로 복원할 때 **모든 ConfigMap 평문 자격증명
 
 | 워크로드 | 예외 | 명시 여부 | 정당성 | prod 충돌 |
 |---|---|---|---|---|
-| **Falco** | `privileged: true` (+ hostPath 4종). ★ **`hostNetwork` 는 2026-10-09 에 걷었다** — 예외가 하나 줄었다 | 매니페스트 명시(`falco-daemonset.yaml:97`, 걷은 사유와 복귀 조건은 `:36-61` 주석) | eBPF syscall 추적 | **PSS `restricted`에서 admit 불가** |
+| **Falco** | **root + capability 셋**(`BPF`·`PERFMON`·`SYS_RESOURCE`) + hostPath 2종. ★★ 2026-10-09 에 **두 번 좁혔다** — `hostNetwork` 와 `privileged: true` 를 걷었고 seccomp `RuntimeDefault` 가 복원됐으며 hostPath 가 4 → 2 가 됐다 | 매니페스트 명시(`falco-daemonset.yaml` 의 `securityContext` — 최소 집합을 어떻게 갈랐는지와 복귀 조건이 그 주석에 있다) | eBPF syscall 추적. `SYS_RESOURCE` 는 링 버퍼의 `RLIMIT_MEMLOCK` 때문에 **필수**(없으면 `unable to configure the libpman state` 로 기동 실패) | **PSS `baseline`·`restricted` 에서 admit 불가** — hostPath 와 비기본 capability 를 금지한다. ★ 다만 Kyverno **`disallow-privilege-escalation` 위반은 없어졌다**(그 정책은 `exclude` 가 없고 prod 에서 Enforce 라 배포 블로커였다). `disallow-root` 예외는 **남는다** |
 | **Filebeat** | `runAsUser: 0`, capability `DAC_READ_SEARCH` | 명시(`filebeat-daemonset.yaml:23-24,49-51`) | 호스트 로그 읽기. **blanket privileged보다 좁은 범위 — 모범 사례** | 동일 |
 | **GitLab EE** | `runAsUser: 0`, `allowPrivilegeEscalation: true`, capability 8종 | 주석 명시(`gitlab-statefulset.yaml:28`) | Omnibus chef/reconfigure가 root 요구 | 동일. **세 예외 중 가장 넓다 — `drop: ALL`조차 없다** |
 
