@@ -654,27 +654,48 @@ dev에서 ambient는 꺼져 있다(`overlays/dev/namespace.yaml:10`, 커밋 `33e
 쓰이고 있었고 옛것 둘을 `077`(OpenReplay 공용 PostgreSQL)·`078`(compose→k8s 이식
 규약)로 옮겼다.
 
-★★ **아래 표는 전수가 아니다 — 2026-10-10 실측으로 79개 중 60개만 덮는다.**
-빠진 19건: `006`(prod 배포 승인) · `012`(진입점·TLS) · `016`(공급망 강제) ·
-`018`(백업·복원) · `020`(Jenkins→GitLab CI) · `021`(Apicurio Studio 제외) ·
-`067`(계약 우선) · `068`(오버레이 환경 분리) · `069`(OpenReplay) ·
-`070`(ClickHouse 범위) · `071`(Istio Gateway 진입점) · `072`(API 과금 계량) ·
-`073`(ADR-070 개정) · `074`(Rate Limit 보류) · `075`(OPA 재검토 안 함) ·
-`076`(OpenMeter 기각 철회) · `077`(공용 PostgreSQL 일탈) ·
-`078`(compose→k8s 이식 규약) · `079`(WSO2 OSS 대체).
-★ **그중 067·071·072·079 는 다른 문서가 활발히 인용하는 것들이다** — 색인에서 빠진
-것이 "덜 중요하다" 는 뜻이 아니라 **2026-09 이후 추가분이 반영되지 않았다**는 뜻이다.
-그러니 이 표로 **"그런 결정이 없다" 를 판단하지 말 것.**
+★★ **아래 표는 전수다 — 2026-10-10 에 채웠다(79개 전부).** 그 전에는 **60개만
+덮고 있었고**, 빠진 19건에 `067`(계약 우선)·`071`·`072`·`079`(WSO2 OSS 대체)처럼
+**다른 문서가 활발히 인용하는 것들**이 들어 있었다. 즉 이 표로 "그런 결정이 없다" 를
+판단하면 틀렸다 — 빠진 것이 덜 중요해서가 아니라 **2026-09 이후 추가분이 반영되지
+않았기 때문**이다.
+
+★ **표를 고칠 때마다 커버리지를 다시 잴 것.** 이 표는 `ADR-CANDIDATES.md` 의
+사본이고, 사본은 원천보다 먼저 낡는다.
+
+```bash
+# 이 표가 덮는 번호 수 vs 실제 번호 수 (범위 표기를 펼쳐서 센다)
+sed -n '/^## 11\. ADR 색인/,/^## 관련 문서/p' docs/ARCHITECTURE.md | grep -A999 '^| 범주' \
+  | grep -oE '[0-9]{3}' | sort -u > /tmp/i
+sed -n '/^## 11\. ADR 색인/,/^## 관련 문서/p' docs/ARCHITECTURE.md | grep -A999 '^| 범주' \
+  | grep -oE '[0-9]{3}~[0-9]{3}' \
+  | while IFS='~' read -r a b; do seq -f '%03g' "$((10#$a))" "$((10#$b))"; done >> /tmp/i
+sort -u /tmp/i | sed 's/^/ADR-/' > /tmp/idx
+grep -oE '^### ADR-[0-9]+' docs/ADR-CANDIDATES.md | grep -oE 'ADR-[0-9]+' | sort -u > /tmp/real
+printf '색인 %s / 실제 %s\n' "$(wc -l < /tmp/idx)" "$(wc -l < /tmp/real)"
+comm -13 /tmp/idx /tmp/real | tr '\n' ' ' | sed 's/^/빠진 것: /'; echo
+```
+
+★★ **그래서 아래 괄호 주석에 세 자리 숫자를 쓰지 말 것** — 위 명령이 그것을 ADR
+번호로 오인한다. 다른 결정을 가리켜야 하면 번호 대신 이름으로 적을 것.
+
+★★★ **범주는 주제로 정했고 `ADR-CANDIDATES.md` 의 물리적 절과 다를 수 있다.**
+실측으로 **넷이 어긋난다** — `073`(ClickHouse 범위 개정)·`075`(OPA 재검토 안 함)·
+`076`(OpenMeter 기각 철회)·`079`(WSO2 OSS 대체)가 그 문서에서 `네트워크 · 서비스메시`
+절 아래에 있다. 2026-09-05 이후 추가분이 그때의 마지막 `##` 절에 그대로 붙은 것이고
+(`071`·`072`·`074` 는 거기가 맞다), **그 절 이동은 하지 않았다** — 색인은 주제별
+지도이므로 물리 배치에 기대지 않으며, 1,400줄 문서에서 블록을 옮기는 것은 위험만
+크고 여기에 필요하지 않다. 그 정리는 별건으로 남긴다.
 
 | 범주 | ADR |
 |---|---|
-| 데이터 플랫폼 | 001(Hadoop→MinIO, **부분 철회**) · 002(KRaft) · 017(Iceberg 카탈로그) · 022(v1 복원 범위) · 032/033(Kafka Bridge) · 034(Kafka Strimzi) · 035(외부 노출) · **064(Spark 도입)** · **065(Livy+Connect)** · **066(FreeIPA 제거, `Accepted`)** |
-| 매니페스트 · GitOps | 003(Helm 미사용) · 004(Kustomize) · 005(ArgoCD sync wave) · 054(프로파일 컴포넌트) · 062 · 063 |
+| 데이터 플랫폼 | 001(Hadoop→MinIO, **부분 철회**) · 002(KRaft) · 017(Iceberg 카탈로그) · **021(Apicurio Studio 제외, Registry 단독)** · 022(v1 복원 범위) · 032/033(Kafka Bridge) · 034(Kafka Strimzi) · 035(외부 노출) · **064(Spark 도입)** · **065(Livy+Connect)** · **066(FreeIPA 제거, `Accepted`)** · **067(계약 우선)** |
+| 매니페스트 · GitOps | 003(Helm 미사용) · 004(Kustomize) · 005(ArgoCD sync wave) · **006(prod 배포 승인 모델)** · 054(프로파일 컴포넌트) · 062 · 063 · **068(환경 분리는 오버레이로)** |
 | IaC | 011(멀티 프로바이더, **Superseded**) · 019(Vultr 단독) · 051~053(Hyper-V) |
-| 네트워크 · 메시 | 009(Istio Ambient) · 010(WireGuard bastion) · 023(Cilium) · 043(공존 규약) · 044(암호화) · 045(정책 계층) · 028(OPNsense) · 029(WAF) |
-| 보안 | 007(Kyverno) · 008/025(Falco↔Tetragon) · 024(Vault) · 030(Caldera) · 046(Aqua OSS) · 047~050 |
-| 관측성 | 026(도메인 분리) · 027(Loki) · 031(Logstash) · 036~038(Sentry) · 039~042(OTel) |
-| 운영 · 비용 | 013(DB HA) · 014(로테이션) · 015(StorageClass) · 055~061(사이징·배치) |
+| 네트워크 · 메시 | 009(Istio Ambient) · 010(WireGuard bastion) · **012(외부 진입점·TLS 전략)** · 023(Cilium) · 043(공존 규약) · 044(암호화) · 045(정책 계층) · 028(OPNsense) · 029(WAF) · **071(외부 진입점은 Istio Gateway, 계량 지점을 겸한다)** · **072(API 과금 계량 — 계약 우선, 백엔드는 `Open`)** · **074(Envoy Rate Limit 보류)** · **079(WSO2 Enterprise 를 OSS 조합으로, 게이트웨이는 "둘 다")** |
+| 보안 | 007(Kyverno) · **016(공급망 강제 — 사설 레지스트리+서명 검증)** · **020(Jenkins→GitLab CI 통합)** · 008/025(Falco↔Tetragon) · 024(Vault) · 030(Caldera) · 046(Aqua OSS) · 047~050 · **075(OPA 는 어드미션 용도로 재검토하지 않는다)** |
+| 관측성 | 026(도메인 분리) · 027(Loki) · 031(Logstash) · 036~038(Sentry) · 039~042(OTel) · **069(세션 리플레이는 OpenReplay)** · **070(ClickHouse 는 OpenReplay 전용)** · **073(그 범위 개정 — 기존 인스턴스 공유)** |
+| 운영 · 비용 | 013(DB HA) · 014(로테이션) · 015(StorageClass) · **018(백업·복원·재해복구)** · 055~061(사이징·배치) · **076(OpenMeter — 기각 철회)** · **077(OpenReplay 를 공용 PostgreSQL 에서, 근거 기반 일탈)** · **078(compose 전용 제품을 k8s 로 옮길 때의 규약)** |
 
 ---
 
