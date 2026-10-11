@@ -83,6 +83,17 @@ data:
   #   (`httpx.ConnectError: [Errno 111] Connection refused`).
   #   ★ 증상이 원인과 멀다 — 태스크 로그는 `Pre Execute` 한 줄에서 끊기고,
   #     DAG 은 그냥 failed 로 보인다. UI 설정이 실행을 깬 것이다 — Gotcha 154.
+  #   ★★★ 2026-10-11 — **local 은 이 값을 덮는다.** 외부 진입점이 서면서
+  #     브라우저가 보는 주소가 port-forward 포트가 아니게 됐다
+  #     (`overlays/local/patches/external-urls-local.yaml` ->
+  #      `https://airflow.oneinchmarket.local`). 그래서 위 "port-forward
+  #     포트여야 UI 링크가 맞는다" 는 **local 에서는 더 이상 사실이 아니다.**
+  #     그대로 두었더니 게이트웨이로 들어온 브라우저가 로그인 단계에서
+  #     `http://localhost:18080/auth/login/` 으로 떠나 **들어갈 수 없었다.**
+  #   ★★ 그러면서 **아래 한 줄이 그 패치의 안전장치가 됐다** — 지우지 말 것.
+  #     `execution_api_server_url` 의 기본값이 `{api.base_url}/execution/` 이라
+  #     이 값에서 파생되므로, 그 줄이 없으면 오버레이가 base_url 을 바꾸는
+  #     순간 실행 API 주소가 **외부 호스트**가 되어 모든 태스크가 실패한다.
   AIRFLOW__API__BASE_URL: "http://localhost:18080"
   AIRFLOW__CORE__EXECUTION_API_SERVER_URL: "http://airflow-apiserver:8080/execution/"
   AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "False"

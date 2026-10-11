@@ -22,6 +22,7 @@ NodePort 로 붙는다. **새 경로는 [EXTERNAL-ACCESS.md](./EXTERNAL-ACCESS.m
 | **NodePort 번호** `443→30727 · 80→31938 · 15021→32130` | 재구축에서 갈렸다 — `443→32573 · 80→32421 · 15021→31710`. ★ 그리고 이제 **443 을 그대로 쓴다**(`externalIPs`), 번호를 외울 필요가 없다 |
 | **WSL2 서술** (`localhostForwarding` · `sudo k3s kubectl` · WSL 터미널) | 2026-10-04 에 **베어메탈 2노드**로 옮겼다. port-forward 는 `ssh root@192.168.0.103` 안에서 하거나 Windows 의 kubeconfig 로 한다 |
 | **SPA 네 개의 port-forward 경로** | ★★ `apicurio-ui`·`dependency-track-frontend`·`gravitee-console`·`gravitee-portal` 의 브라우저측 API 주소가 **외부 호스트명으로 바뀌었다**(`patches/external-urls-local.yaml`). 그래서 port-forward 만 띄우면 **화면은 뜨고 목록이 비어 보인다** — hosts/DNS 를 함께 해야 한다. `temporal-ui` 는 CORS origin 이 바뀌었다 |
+| **Airflow 의 로그인** | ★★★ `AIRFLOW__API__BASE_URL` 이 외부 호스트로 바뀌었다. 그래서 **port-forward 로는 로그인할 수 없다** — `/api/v2/auth/login` 이 `https://airflow.oneinchmarket.local/auth/login/` 로 307 을 주고, base_url 이 https 라 쿠키가 secure 다. 브라우저는 `https://airflow.oneinchmarket.local` 로 갈 것. 대조군으로 쓸 때는 UI 가 아니라 `airflow` CLI(`$K exec deploy/airflow-apiserver -c apiserver -- airflow dags list`)를 쓸 것 |
 
 > ★ 둘 다 되게 하려면 앱마다 CORS·다중 origin 설정이 필요하고 그것은 앱마다
 > 다르다. 하나를 고른 것이고, 고른 쪽은 **외부 호스트명**이다.
@@ -93,6 +94,17 @@ pw() { $K get secret "$1" -o jsonpath="{.data.$2}" | base64 -d; echo; }
 > ★ Airflow 의 **태스크 로그는 MinIO** 에 있다(`s3://airflow-logs/`). UI 가 거기서 읽으므로 평소엔 신경 쓸 일이 없고,
 > 직접 보려면 `$K exec minio-0 -- mc ls --recursive oim/airflow-logs` 다(alias 설정은 minio-bootstrap 참조).
 > 파드의 `/opt/airflow/logs` 는 업로드 뒤 비므로 거기서 찾지 말 것.
+> ★★★ **2026-10-11 — 여기로는 로그인이 되지 않는다.** UI 는 뜨지만
+> `/api/v2/auth/login` 이 `https://airflow.oneinchmarket.local/auth/login/` 로
+> 307 을 주므로 브라우저가 거기로 떠난다(`base_url` 이 외부 호스트로 바뀌었다 —
+> `patches/external-urls-local.yaml`). 게다가 base_url 이 https 이므로 세션
+> 쿠키가 secure 가 되어 평문 `localhost:18080` 에서는 로그인이 성립하지 않는다.
+> **브라우저는 `https://airflow.oneinchmarket.local` 로 갈 것**(계정은 같다).
+> ★ 그 전에는 반대로 **게이트웨이로 들어가도 `localhost:18080` 으로 떠나** 들어갈
+>   수 없었다. 그때 단서는 파드 로그의 `path=/api/v2/auth/login ... status_code=307`
+>   과 그 `Location` 헤더 하나다 — "로그인이 안 된다" 를 자격 문제로 읽지 말 것.
+> ★ 이 port-forward 는 여전히 **대조군**으로 값이 있다. 단 UI 가 아니라 CLI 로:
+>   `$K exec deploy/airflow-apiserver -c apiserver -- airflow dags list`
 
 
 > ★ **Pyrra 에서 오차 예산이 비어 보이면 그것이 정상이다** — Pyrra 는 filesystem 모드라
