@@ -1,0 +1,351 @@
+# db-gateway — 데이터 계층의 외부 진입점 (local 전용)
+#
+# ★★★ 왜 이것이 필요한가 — NodePort 를 그냥 열면 되지 않는다.
+#   `AuthorizationPolicy` 가 선택하는 워크로드는 실측 **12개**이고 거기에
+#   DB 6종·kafka·opensearch·minio·spark-connect 가 전부 들어 있다. Istio 의
+#   ALLOW 정책이 워크로드를 선택하면 **매칭되지 않은 전부가 거부**되므로
+#   (Gotcha 9·19) 신원 없는 외부 TCP 는 들어갈 수 없다. 증상이 고약하다 —
+#   ztunnel 은 TCP 연결을 받아들인 뒤 HBONE 계층에서 끊으므로 **포트는
+#   열리고 프로토콜 핸드셰이크에서 죽는다**(Gotcha 147·194).
+#
+#   그래서 **메시 안에 신원을 가진 TCP 프록시**를 둔다. 이 파드는 평범한
+#   ambient 워크로드라 아웃바운드가 ztunnel 을 거치며 `sa/db-gateway` 신원을
+#   얻고, 그 신원을 허용하는 추가 정책이 authz-external-access.yaml 에 있다.
+#
+# ★★ 왜 Gateway API 의 TCPRoute 가 아닌가
+#   이 클러스터의 Gateway API 는 **standard 채널**이라 CRD 가 `httproutes`·
+#   `grpcroutes` 뿐이다(실측 2026-10-11). `TCPRoute` 를 쓰려면 experimental
+#   채널 CRD 를 넣어야 하고, 그러면 ① ArgoCD 컨트롤러가 클러스터 전체를
+#   캐시하므로 CRD 수에 비례해 메모리가 는다(Gotcha 119 — 한 번 OOMKilled 로
+#   17시간을 잃었다) ② AppProject 화이트리스트를 함께 고쳐야 하고 빠뜨리면
+#   **동기화 전체가 멈춘다**(Gotcha 57). 그 비용을 내지 않고 파드 하나로 끝낸다.
+#
+# ★ local 전용인 이유: DB 를 클러스터 밖에 노출하는 것은 **개발 랩의 결정**이다.
+#   base 에 두면 prod 오버레이가 그대로 상속해, 금지가 문서에만 남는다 —
+#   Caldera(ADR-030)·BuildKit(Gotcha 149)과 같은 자리다.
+#
+# ★ 승격 조건: prod 에서 외부 DB 접근이 필요해지면 그것은 이 프록시가 아니라
+#   **VPN + 베스션(bastion)** 이거나 전용 읽기 복제본이어야 한다. 이 파드는
+#   인증을 하지 않는다 — 각 DB 의 자격이 유일한 관문이다.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: db-gateway
+  labels:
+    app.kubernetes.io/name: db-gateway
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: db-gateway-config
+  labels:
+    app.kubernetes.io/name: db-gateway
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+data:
+  # ★ 이 파일이 /etc/nginx/nginx.conf 를 통째로 대체한다. 상류 이미지의
+  #   기본 설정에는 `http` 블록만 있고 `stream` 이 없다.
+  nginx.conf: |
+    # worker_processes 를 auto 로 두지 말 것 — 컨테이너 안의 프로세스는 limit 이
+    # 아니라 **호스트 코어 수**(16)를 읽어 워커가 16개가 된다(Gotcha 79.163).
+    worker_processes 2;
+    pid /tmp/nginx.pid;
+    error_log /dev/stderr warn;
+
+    events {
+      worker_connections 1024;
+    }
+
+    # ★★ 전용 헬스 리스너. liveness 를 `tcpSocket: 5432` 로 두면 프로브가
+    #   20초마다 **PostgreSQL 까지 실제 연결**을 만들고, 그 쪽에는
+    #   `incomplete startup packet` 이 영구히 쌓인다(실측: 짧은 창에 39건).
+    #   조용한 소음을 남기지 않는다 — 이 레포가 거듭 경계하는 부류다.
+    # ★ 이 포트는 Service 에 없고 NetworkPolicy 에도 없다. 프로브는 ambient 가
+    #   169.254.7.127 로 다시 써서 보내고 `allow-istio-health-probes` 가 그
+    #   주소를 모든 포트에 허용하므로 닿는다.
+    http {
+      access_log off;
+      server {
+        listen 8080;
+        location = /healthz { return 200 "ok\n"; }
+        location / { return 404; }
+      }
+    }
+
+    stream {
+      # resolver 가 있어야 proxy_pass 에 **변수**를 쓸 수 있고, 변수를 써야
+      # nginx 가 기동 시점에 IP 를 굳히지 않는다. 굳히면 백엔드 파드가
+      # 재생성될 때 낡은 IP 를 계속 때려 "DB 가 죽었다" 로 보인다 —
+      # 이 레포의 StatefulSet 은 대부분 1 레플리카라 재생성이 흔하다.
+      # 10.43.0.10 은 CoreDNS 의 ClusterIP 다(k3s 기본 Service CIDR
+      # 10.43.0.0/16). 바뀌면 이 값도 바꿀 것:
+      #   kubectl -n kube-system get svc kube-dns
+      resolver 10.43.0.10 valid=10s ipv6=off;
+      resolver_timeout 5s;
+
+      log_format basic '$remote_addr -> $server_port $upstream_addr '
+                       '$status $bytes_sent/$bytes_received $session_time';
+      access_log /dev/stdout basic;
+
+      # proxy_timeout 기본값은 10분이다. DBeaver 처럼 연결을 길게 쥐는
+      # 클라이언트가 유휴 상태에서 끊기면 "접속이 불안정하다" 로 읽힌다.
+      proxy_timeout 1h;
+      proxy_connect_timeout 5s;
+
+      # ---- 관계형 ----------------------------------------------------------
+      server {
+        listen 5432;
+        set $up_postgresql postgresql-headless.local.svc.cluster.local:5432;
+        proxy_pass $up_postgresql;
+      }
+      server {
+        listen 3306;
+        set $up_mariadb mariadb-headless.local.svc.cluster.local:3306;
+        proxy_pass $up_mariadb;
+      }
+      # ShardingSphere — PostgreSQL 와이어. 논리 DB 이름은 oim 이다
+      server {
+        listen 3307;
+        set $up_shardingsphere shardingsphere.local.svc.cluster.local:3307;
+        proxy_pass $up_shardingsphere;
+      }
+      # ProxySQL — MySQL 와이어. 관리 인터페이스(6032)는 노출하지 않는다
+      server {
+        listen 6033;
+        set $up_proxysql proxysql.local.svc.cluster.local:6033;
+        proxy_pass $up_proxysql;
+      }
+      # ---- 문서·키값 --------------------------------------------------------
+      server {
+        listen 27017;
+        set $up_mongodb mongodb-headless.local.svc.cluster.local:27017;
+        proxy_pass $up_mongodb;
+      }
+      # ★★ Redis 에는 과금 중복제거 키가 있다 — FLUSHALL 은 과다 청구가 된다
+      # (Gotcha 16). 이 포트를 여는 것은 그 위험을 외부로 넓히는 것이다.
+      server {
+        listen 6379;
+        set $up_redis redis-headless.local.svc.cluster.local:6379;
+        proxy_pass $up_redis;
+      }
+      # ---- 분석 ------------------------------------------------------------
+      server {
+        listen 8123;
+        set $up_clickhouse_http clickhouse-headless.local.svc.cluster.local:8123;
+        proxy_pass $up_clickhouse_http;
+      }
+      server {
+        listen 9000;
+        set $up_clickhouse_native clickhouse-headless.local.svc.cluster.local:9000;
+        proxy_pass $up_clickhouse_native;
+      }
+      # ---- 레이크하우스 메타 ------------------------------------------------
+      # HiveServer2 Thrift. ★ 이 레포는 transport.mode=http 라 **10001** 이
+      # 실사용 포트이고 10000 은 바이너리다(Gotcha: 10000 이 안 열린 것을
+      # 결함으로 읽은 적이 있다). DBeaver 의 Hive 드라이버는 바이너리도
+      # 받으므로 둘 다 두되, 권하는 길은 Knox 경유다 — 인증이 붙는다.
+      server {
+        listen 10000;
+        set $up_hive hive-server-headless.local.svc.cluster.local:10000;
+        proxy_pass $up_hive;
+      }
+      server {
+        listen 9083;
+        set $up_metastore hive-metastore-headless.local.svc.cluster.local:9083;
+        proxy_pass $up_metastore;
+      }
+      # ---- 디렉터리 --------------------------------------------------------
+      server {
+        listen 3389;
+        set $up_ldap ds389-headless.local.svc.cluster.local:3389;
+        proxy_pass $up_ldap;
+      }
+      server {
+        listen 3636;
+        set $up_ldaps ds389-headless.local.svc.cluster.local:3636;
+        proxy_pass $up_ldaps;
+      }
+      # ---- 메시징 ----------------------------------------------------------
+      # ★★ 이것만으로는 네이티브 Kafka 클라이언트가 동작하지 않는다.
+      # 브로커가 메타데이터로 **자기 광고 주소**(kafka-headless:9092)를
+      # 돌려주므로 bootstrap 뒤의 재접속이 밖에서 풀리지 않는다. 고치려면
+      # advertised.listeners 에 외부 리스너를 더해야 하고 그것은 base 변경이다.
+      # 평소에는 AKHQ UI 를 쓸 것. 그래도 포트를 두는 이유: bootstrap 자체는
+      # 성립해서 **문제가 어디인지 눈으로 보는** 데 쓰이고, 외부 리스너를
+      # 붙이는 날 그대로 쓰인다.
+      server {
+        listen 9092;
+        set $up_kafka kafka-headless.local.svc.cluster.local:9092;
+        proxy_pass $up_kafka;
+      }
+      # ---- 연산 ------------------------------------------------------------
+      server {
+        listen 15002;
+        set $up_sparkconnect spark-connect-headless.local.svc.cluster.local:15002;
+        proxy_pass $up_sparkconnect;
+      }
+      server {
+        listen 2181;
+        set $up_zookeeper zookeeper-headless.local.svc.cluster.local:2181;
+        proxy_pass $up_zookeeper;
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db-gateway
+  labels:
+    app.kubernetes.io/name: db-gateway
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    # ConfigMap 을 고치면 자동 재시작한다. Reloader 는 scoped 모드로 local 만
+    # 보므로 이 네임스페이스에서만 유효하다(Gotcha 84).
+    reloader.stakater.com/auto: "true"
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # ★ 이 노드에서 maxSurge 기본값은 무중단이 아니라 교착이다(Gotcha 87).
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: db-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: db-gateway
+        app.kubernetes.io/component: external-access
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/managed-by: kustomize
+    spec:
+      # ★★ ambient 에서 ServiceAccount 가 곧 신원이다(Gotcha 10).
+      #   `default` 로 두면 이 프록시에 준 DB 접근 권한이 그 SA 를 공유하는
+      #   모든 워크로드에게 간다. 전용 SA 가 이 설계의 핵심이다.
+      serviceAccountName: db-gateway
+      securityContext:
+        runAsNonRoot: true
+        # 101 = 상류 nginx 이미지의 nginx 사용자. ★ 이미지 config 의 User
+        #   필드는 이름이지 uid 가 아니므로 /etc/passwd 로 확인할 값이다
+        #   (Gotcha 122 에서 Gravitee 로 겪은 자리). 기동이 깨지면 그것부터 볼 것.
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nginx
+          image: docker.io/library/nginx:1.31.5
+          # ★ 상류 엔트리포인트(/docker-entrypoint.sh)를 쓰지 않는다 — 그것은
+          #   /docker-entrypoint.d 의 스크립트가 템플릿을 치환하며 **파일을
+          #   쓴다.** readOnlyRootFilesystem 과 부딪히고, 실패하면 설정을
+          #   통째로 버리면서 파드는 Ready 로 남는다(Gotcha 48 과 같은 부류).
+          command: ["nginx", "-c", "/etc/nginx/nginx.conf", "-g", "daemon off;"]
+          ports:
+            - {name: postgresql, containerPort: 5432,  protocol: TCP}
+            - {name: mariadb,    containerPort: 3306,  protocol: TCP}
+            - {name: pgwire,     containerPort: 3307,  protocol: TCP}
+            - {name: mysqlwire,  containerPort: 6033,  protocol: TCP}
+            - {name: mongodb,    containerPort: 27017, protocol: TCP}
+            - {name: redis,      containerPort: 6379,  protocol: TCP}
+            - {name: ch-http,    containerPort: 8123,  protocol: TCP}
+            - {name: ch-native,  containerPort: 9000,  protocol: TCP}
+            - {name: hive,       containerPort: 10000, protocol: TCP}
+            - {name: metastore,  containerPort: 9083,  protocol: TCP}
+            - {name: ldap,       containerPort: 3389,  protocol: TCP}
+            - {name: ldaps,      containerPort: 3636,  protocol: TCP}
+            - {name: kafka,      containerPort: 9092,  protocol: TCP}
+            - {name: sparkconn,  containerPort: 15002, protocol: TCP}
+            - {name: zookeeper,  containerPort: 2181,  protocol: TCP}
+            # 프로브 전용 — Service 에 노출하지 않는다
+            - {name: health,     containerPort: 8080,  protocol: TCP}
+          # ★ 프로브를 "포트가 열렸는가" 로만 두지 않는다 — stream 리스너는
+          #   설정이 반쪽만 읽혀도 열린다. nginx 가 **설정을 유효하다고
+          #   판단했는지**를 묻는 것이 `nginx -t` 다(Gotcha 48·164: 떠 있는가가
+          #   아니라 설정이 반영됐는가를 보게 할 것).
+          #   ★ exec 프로브의 timeoutSeconds 기본값은 1초다(Gotcha 152).
+          startupProbe:
+            exec:
+              command: ["nginx", "-t", "-c", "/etc/nginx/nginx.conf"]
+            timeoutSeconds: 10
+            periodSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            timeoutSeconds: 5
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - {name: config, mountPath: /etc/nginx/nginx.conf, subPath: nginx.conf, readOnly: true}
+            - {name: tmp,    mountPath: /tmp}
+            - {name: cache,  mountPath: /var/cache/nginx}
+          resources:
+            # 중계만 하므로 메모리가 거의 들지 않는다. ★ 처음 실측한 뒤 이
+            #   주석을 실제 숫자로 바꿀 것 — 추정을 그대로 두지 않는다.
+            requests: {cpu: 20m, memory: 32Mi}
+            limits: {cpu: 500m, memory: 128Mi}
+      volumes:
+        - name: config
+          configMap:
+            name: db-gateway-config
+        - name: tmp
+          emptyDir: {}
+        - name: cache
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db-gateway
+  labels:
+    app.kubernetes.io/name: db-gateway
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  # ★★ NodePort 를 **고정**한다. 자동 할당이면 Service 를 다시 만들 때마다
+  #   번호가 바뀌어 DBeaver 설정이 조용히 깨진다 — 실측으로 게이트웨이
+  #   NodePort 가 재구축에서 30727 -> 32573 으로 갈렸고 ACCESS.md 가 그대로
+  #   뒤처져 있었다. 번호는 local/render-external-access.py 의 TCP_CATALOG 와
+  #   **짝**이다. 한쪽만 고치면 문서가 틀린 포트를 안내한다.
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: db-gateway
+  ports:
+    - {name: postgresql, port: 5432,  targetPort: 5432,  nodePort: 30432, protocol: TCP}
+    - {name: mariadb,    port: 3306,  targetPort: 3306,  nodePort: 30306, protocol: TCP}
+    - {name: pgwire,     port: 3307,  targetPort: 3307,  nodePort: 30307, protocol: TCP}
+    - {name: mysqlwire,  port: 6033,  targetPort: 6033,  nodePort: 30633, protocol: TCP}
+    - {name: mongodb,    port: 27017, targetPort: 27017, nodePort: 30017, protocol: TCP}
+    - {name: redis,      port: 6379,  targetPort: 6379,  nodePort: 30379, protocol: TCP}
+    - {name: ch-http,    port: 8123,  targetPort: 8123,  nodePort: 30123, protocol: TCP}
+    - {name: ch-native,  port: 9000,  targetPort: 9000,  nodePort: 30900, protocol: TCP}
+    - {name: hive,       port: 10000, targetPort: 10000, nodePort: 30000, protocol: TCP}
+    - {name: metastore,  port: 9083,  targetPort: 9083,  nodePort: 30083, protocol: TCP}
+    - {name: ldap,       port: 3389,  targetPort: 3389,  nodePort: 30389, protocol: TCP}
+    - {name: ldaps,      port: 3636,  targetPort: 3636,  nodePort: 30636, protocol: TCP}
+    - {name: kafka,      port: 9092,  targetPort: 9092,  nodePort: 30092, protocol: TCP}
+    - {name: sparkconn,  port: 15002, targetPort: 15002, nodePort: 30002, protocol: TCP}
+    - {name: zookeeper,  port: 2181,  targetPort: 2181,  nodePort: 30181, protocol: TCP}

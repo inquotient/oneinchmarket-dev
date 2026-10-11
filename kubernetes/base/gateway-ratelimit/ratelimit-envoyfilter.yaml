@@ -69,8 +69,36 @@ spec:
                   cluster_name: outbound|8081||ratelimit.local.svc.cluster.local
     # ── (2) descriptor 액션 ──────────────────────────────────
     - applyTo: VIRTUAL_HOST
+      # ★★★ 2026-10-11: vhost 를 **명시**한다. 전에는 `context: GATEWAY` 만이라
+      #   게이트웨이의 **모든** 가상 호스트에 병합됐다 — 실측으로 58/58 이
+      #   `[scope=api]` 버킷 하나(분당 10건)를 공유하고 있었다.
+      #   그 상태에서는 외부 노출이 성립하지 않는다: 브라우저가 UI 한 페이지를
+      #   열면 요청이 수십 건이라 **즉시 429** 다(실제로 전수 측정이 10건에서
+      #   막혔다). 쿼터는 ADR-072 의 **과금 대상 API** 의 것이고 운영 UI 의
+      #   것이 아니다.
+      #
+      #   ★ 호스트명을 base 에 적는 것은 이 레포의 기존 관행과 같다 —
+      #     `base/service-mesh/api-jwt.yaml` 의 AuthorizationPolicy 가 이미
+      #     `api.oneinchmarket.local` 을 박아 두고 있다. **그 둘은 함께
+      #     움직여야 한다**: 한쪽만 바꾸면 인증은 걸리고 쿼터가 사라지거나
+      #     그 반대가 된다.
+      #
+      #   ★★ vhost 이름 형식은 `<호스트>:<포트>` 다(실측:
+      #     `api.oneinchmarket.local:443`). Istio 의 vhost name 매칭은
+      #     **완전 일치**라 와일드카드를 쓸 수 없다.
+      #
+      #   ★★★ **이름이 틀리면 쿼터가 조용히 사라진다** — 오류가 나지 않고
+      #     모든 요청이 무제한이 된다(Gotcha 68 ③ 과 같은 모양: 설정을
+      #     버리면서 "Successfully loaded" 를 찍는다). 판정은 설정이 아니라
+      #     **양방향 측정**으로 한다:
+      #       · `api.oneinchmarket.local` 에 11건  -> 11번째가 429 여야 한다
+      #       · `grafana.oneinchmarket.local` 에 20건 -> 429 가 0건이어야 한다
+      #     그 둘을 함께 보지 않으면 "고쳤다" 를 확인할 수 없다.
       match:
         context: GATEWAY
+        routeConfiguration:
+          vhost:
+            name: "api.oneinchmarket.local:443"
       patch:
         operation: MERGE
         value:

@@ -1,0 +1,1901 @@
+# ★ 생성 파일이다 — 손으로 고치지 말 것.
+#   원천: local/render-external-access.py 의 CATALOG
+#   생성: python3 local/render-external-access.py
+#   검사: python3 local/render-external-access.py --check   (뒤처지면 1)
+#
+# 컴포넌트별 외부 진입 경로. 호스트명 기반이고 경로는 전부 `/` 다.
+#
+# ★★ 왜 경로(path) 기반이 아니라 호스트 기반인가
+#   `https://oim.local/grafana/` 류로 묶으면 앱마다 base-path 설정을 고쳐야
+#   하고(Grafana 의 root_url · Prometheus 의 --web.external-url 등), SPA 는
+#   절대경로 자산을 잃어 흰 화면이 된다. 호스트 기반이면 **대다수가 설정
+#   변경 없이 그대로 동작한다** — 그래서 고친 앱이 다섯뿐이다(SPA 넷 + CORS 하나).
+#
+# ★ 이 라우트들이 닿는 기전(2026-10-11 실측): 게이트웨이는 ztunnel 에 포획되지
+#   않지만(`istio.io/dataplane-mode: none`) **그 자체가 신원을 가진 Istio
+#   프록시라** 백엔드로 HBONE(15008)을 쓴다. 그 포트는 `allow-istio-hbone` 이
+#   모든 파드에 열어 두므로 **NetworkPolicy 를 백엔드마다 더할 필요가 없다.**
+#   근거: Envoy 통계의 destination_principal 이
+#   `spiffe://cluster.local/ns/local/sa/grafana` 이고 응답이 200 이었다.
+#   ★★ 메시 밖의 **평범한** 파드로 이것을 흉내내면 전부 타임아웃이다 — 평문으로
+#     대상 포트를 직접 치므로 Cilium 이 떨군다(`Policy denied ... :3000 tcp SYN`).
+#     게이트웨이의 대리로 쓸 수 없다. 그렇게 재서 한 번 틀렸고, 실제 경로를
+#     치니 200 이었다. **대리 실험의 조건이 대상과 같은지 먼저 볼 것.**
+#
+# ★ AuthorizationPolicy 가 선택하는 백엔드는 예외다(minio·opensearch·
+#   spark-connect). 게이트웨이 신원을 허용하는 **추가** 정책이 필요하고 그것은
+#   authz-external-access.yaml 에 있다. 기존 정책은 손대지 않는다 — Istio 의
+#   ALLOW 는 합집합이라 추가 정책으로 더하는 것이 안전하다.
+#
+# sync-wave 8 — 백엔드가 전부 떠 있어야 의미가 있다. ★ 라우트는 백엔드가 없어도
+#   Accepted 가 되므로 순서가 틀려도 조용히 넘어간다. 판정은 실제 응답으로 한다.
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-grafana
+  labels:
+    app.kubernetes.io/name: ext-grafana
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "auth"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - grafana.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: grafana-headless
+          port: 3000
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-prometheus
+  labels:
+    app.kubernetes.io/name: ext-prometheus
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "open"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - prometheus.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: prometheus-headless
+          port: 9090
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-alertmanager
+  labels:
+    app.kubernetes.io/name: ext-alertmanager
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "open"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - alertmanager.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: alertmanager
+          port: 9093
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-osd
+  labels:
+    app.kubernetes.io/name: ext-osd
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "auth"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - osd.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: opensearch-dashboards
+          port: 5601
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-loki
+  labels:
+    app.kubernetes.io/name: ext-loki
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "tool"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - loki.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: loki-headless
+          port: 3100
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-tempo
+  labels:
+    app.kubernetes.io/name: ext-tempo
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "tool"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - tempo.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: tempo-headless
+          port: 3200
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-pyroscope
+  labels:
+    app.kubernetes.io/name: ext-pyroscope
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "open"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - pyroscope.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: pyroscope
+          port: 4040
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-pyrra
+  labels:
+    app.kubernetes.io/name: ext-pyrra
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "open"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - pyrra.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: pyrra
+          port: 9099
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-airflow
+  labels:
+    app.kubernetes.io/name: ext-airflow
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "auth"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - airflow.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: airflow-apiserver
+          port: 8080
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-temporal
+  labels:
+    app.kubernetes.io/name: ext-temporal
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "open"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - temporal.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: temporal-ui-headless
+          port: 8080
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-flink
+  labels:
+    app.kubernetes.io/name: ext-flink
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "open"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - flink.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: flink-jobmanager
+          port: 8081
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-akhq
+  labels:
+    app.kubernetes.io/name: ext-akhq
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "open"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - akhq.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: akhq-headless
+          port: 8080
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-apicurio
+  labels:
+    app.kubernetes.io/name: ext-apicurio
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "open"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - apicurio.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: apicurio-ui
+          port: 8080
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-apicurio-registry
+  labels:
+    app.kubernetes.io/name: ext-apicurio-registry
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "tool"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - apicurio-registry.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: apicurio-registry-headless
+          port: 8080
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-kafka-bridge
+  labels:
+    app.kubernetes.io/name: ext-kafka-bridge
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "open"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - kafka-bridge.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: kafka-bridge
+          port: 8080
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-kafka-connect
+  labels:
+    app.kubernetes.io/name: ext-kafka-connect
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "tool"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - kafka-connect.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: kafka-connect-headless
+          port: 8083
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-backstage
+  labels:
+    app.kubernetes.io/name: ext-backstage
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "auth"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - backstage.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: backstage-headless
+          port: 7007
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-gravitee-console
+  labels:
+    app.kubernetes.io/name: ext-gravitee-console
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "auth"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - gravitee-console.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: gravitee-console-headless
+          port: 8080
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-gravitee-portal
+  labels:
+    app.kubernetes.io/name: ext-gravitee-portal
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "auth"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - gravitee-portal.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: gravitee-portal-headless
+          port: 8080
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-gravitee-api
+  labels:
+    app.kubernetes.io/name: ext-gravitee-api
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "tool"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - gravitee-api.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: gravitee-management-api-headless
+          port: 8083
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-openmeter
+  labels:
+    app.kubernetes.io/name: ext-openmeter
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "tool"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - openmeter.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: openmeter-api
+          port: 80
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-keycloak
+  labels:
+    app.kubernetes.io/name: ext-keycloak
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "auth"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - keycloak.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: keycloak-headless
+          port: 8080
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-openbao
+  labels:
+    app.kubernetes.io/name: ext-openbao
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "auth"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - openbao.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: openbao
+          port: 8200
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-ranger
+  labels:
+    app.kubernetes.io/name: ext-ranger
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "auth"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - ranger.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: ranger-admin
+          port: 6080
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-ranger-solr
+  labels:
+    app.kubernetes.io/name: ext-ranger-solr
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "open"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - ranger-solr.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: ranger-solr
+          port: 8983
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-solr
+  labels:
+    app.kubernetes.io/name: ext-solr
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "open"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - solr.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: solr-headless
+          port: 8983
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-lam
+  labels:
+    app.kubernetes.io/name: ext-lam
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "auth"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - lam.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: lam-headless
+          port: 80
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-knox
+  labels:
+    app.kubernetes.io/name: ext-knox
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "auth"
+  # ★ 백엔드가 HTTPS 다 — destinationrules.yaml 의 TLS
+  #   오리지네이션과 짝이다. 한쪽만 있으면 502 다.
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - knox.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: knox-headless
+          port: 8443
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-wazuh
+  labels:
+    app.kubernetes.io/name: ext-wazuh
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "auth"
+  # ★ 백엔드가 HTTPS 다 — destinationrules.yaml 의 TLS
+  #   오리지네이션과 짝이다. 한쪽만 있으면 502 다.
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - wazuh.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: wazuh-manager
+          port: 55000
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-wazuh-indexer
+  labels:
+    app.kubernetes.io/name: ext-wazuh-indexer
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "auth"
+  # ★ 백엔드가 HTTPS 다 — destinationrules.yaml 의 TLS
+  #   오리지네이션과 짝이다. 한쪽만 있으면 502 다.
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - wazuh-indexer.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: wazuh-indexer
+          port: 9200
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-defectdojo
+  labels:
+    app.kubernetes.io/name: ext-defectdojo
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "auth"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - defectdojo.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: defectdojo
+          port: 8080
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-dtrack
+  labels:
+    app.kubernetes.io/name: ext-dtrack
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "auth"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - dtrack.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: dependency-track
+          port: 8080
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-dtrack-api
+  labels:
+    app.kubernetes.io/name: ext-dtrack-api
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "tool"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - dtrack-api.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: dependency-track-api
+          port: 8080
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-safeline
+  labels:
+    app.kubernetes.io/name: ext-safeline
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "auth"
+  # ★ 백엔드가 HTTPS 다 — destinationrules.yaml 의 TLS
+  #   오리지네이션과 짝이다. 한쪽만 있으면 502 다.
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - safeline.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: safeline-mgt
+          port: 1443
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-caldera
+  labels:
+    app.kubernetes.io/name: ext-caldera
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "auth"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - caldera.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: caldera
+          port: 8888
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-midpoint
+  labels:
+    app.kubernetes.io/name: ext-midpoint
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "auth"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - midpoint.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: midpoint-headless
+          port: 8080
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-openfga
+  labels:
+    app.kubernetes.io/name: ext-openfga
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "tool"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - openfga.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: openfga-headless
+          port: 8080
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-opensearch
+  labels:
+    app.kubernetes.io/name: ext-opensearch
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "auth"
+  # ★ 이 백엔드는 AuthorizationPolicy 가 선택한다 — 게이트웨이
+  #   신원 허용이 authz-external-access.yaml 에 함께 있어야
+  #   한다. 없으면 이 호스트만 502·리셋이다.
+  # ★ 백엔드가 HTTPS 다 — destinationrules.yaml 의 TLS
+  #   오리지네이션과 짝이다. 한쪽만 있으면 502 다.
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - opensearch.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: opensearch-headless
+          port: 9200
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-gitlab
+  labels:
+    app.kubernetes.io/name: ext-gitlab
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "auth"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - gitlab.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: gitlab-headless
+          port: 80
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-jenkins
+  labels:
+    app.kubernetes.io/name: ext-jenkins
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "auth"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - jenkins.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: jenkins-headless
+          port: 8080
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-glitchtip
+  labels:
+    app.kubernetes.io/name: ext-glitchtip
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "auth"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - glitchtip.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: glitchtip
+          port: 8000
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-minio
+  labels:
+    app.kubernetes.io/name: ext-minio
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "auth"
+  # ★ 이 백엔드는 AuthorizationPolicy 가 선택한다 — 게이트웨이
+  #   신원 허용이 authz-external-access.yaml 에 함께 있어야
+  #   한다. 없으면 이 호스트만 502·리셋이다.
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - minio.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: minio-headless
+          port: 9001
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-s3
+  labels:
+    app.kubernetes.io/name: ext-s3
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "auth"
+  # ★ 이 백엔드는 AuthorizationPolicy 가 선택한다 — 게이트웨이
+  #   신원 허용이 authz-external-access.yaml 에 함께 있어야
+  #   한다. 없으면 이 호스트만 502·리셋이다.
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - s3.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: minio-headless
+          port: 9000
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-trino
+  labels:
+    app.kubernetes.io/name: ext-trino
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "open"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - trino.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: trino-headless
+          port: 8080
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-spark-history
+  labels:
+    app.kubernetes.io/name: ext-spark-history
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "open"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - spark-history.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: spark-history-headless
+          port: 18080
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-spark-ui
+  labels:
+    app.kubernetes.io/name: ext-spark-ui
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "open"
+  # ★ 이 백엔드는 AuthorizationPolicy 가 선택한다 — 게이트웨이
+  #   신원 허용이 authz-external-access.yaml 에 함께 있어야
+  #   한다. 없으면 이 호스트만 502·리셋이다.
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - spark-ui.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: spark-connect-headless
+          port: 4040
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-livy
+  labels:
+    app.kubernetes.io/name: ext-livy
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "open"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - livy.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: livy-headless
+          port: 8998
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-hdfs
+  labels:
+    app.kubernetes.io/name: ext-hdfs
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "open"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - hdfs.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: hadoop-namenode
+          port: 9870
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-hbase
+  labels:
+    app.kubernetes.io/name: ext-hbase
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "open"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - hbase.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: hbase-master
+          port: 16010
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-hbase-rs
+  labels:
+    app.kubernetes.io/name: ext-hbase-rs
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "open"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - hbase-rs.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: hbase-regionserver
+          port: 16030
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-hive
+  labels:
+    app.kubernetes.io/name: ext-hive
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "open"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - hive.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: hive-server-headless
+          port: 10002
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-app-admin
+  labels:
+    app.kubernetes.io/name: ext-app-admin
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "tool"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - app-admin.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: admin-headless
+          port: 3000
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-app-api
+  labels:
+    app.kubernetes.io/name: ext-app-api
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "tool"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - app-api.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: cmmn-api-headless
+          port: 8080
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-www
+  labels:
+    app.kubernetes.io/name: ext-www
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "tool"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - www.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: nginx
+          port: 80
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-openreplay
+  labels:
+    app.kubernetes.io/name: ext-openreplay
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "auth"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - openreplay.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: frontend-openreplay
+          port: 8080
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-openreplay-api
+  labels:
+    app.kubernetes.io/name: ext-openreplay-api
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "tool"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - openreplay-api.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: api-openreplay
+          port: 8080
+          weight: 1

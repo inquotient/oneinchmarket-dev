@@ -1061,8 +1061,10 @@ DRAFT 내용 수정                http 204
 #### ★ `REGISTRY_API_URL` 은 브라우저가 부르는 주소다
 
 Registry UI 는 SPA 라 백엔드 호출을 **브라우저가 직접** 한다. 클러스터 내부 DNS 를
-넣으면 화면은 뜨지만 목록이 비어 보인다. 외부 진입점(Ingress/Gateway)이 0개이므로
-로컬은 `overlays/local/patches/apicurio-ui-local.yaml` 이 port-forward 주소로 덮는다.
+넣으면 화면은 뜨지만 목록이 비어 보인다. ★ **2026-10-11 에 외부 진입점이 섰다** —
+이제 `overlays/local/patches/external-urls-local.yaml` 이 **외부 호스트명**으로 덮는다
+(`https://apicurio-registry.oneinchmarket.local/apis/registry/v3`). 같은 성질의 값 다섯이
+그 한 파일에 모여 있다 — 접속 경로 전체는 `local/EXTERNAL-ACCESS.md` 다.
 
 ```bash
 kubectl -n local port-forward apicurio-registry-0 8080:8080   # API

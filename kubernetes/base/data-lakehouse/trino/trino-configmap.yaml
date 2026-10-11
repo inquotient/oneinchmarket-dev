@@ -7,11 +7,25 @@ metadata:
     app.kubernetes.io/component: data-lakehouse
     app.kubernetes.io/part-of: oneinchmarket
 data:
+  # ★★★ `http-server.process-forwarded=true` 가 없으면 **게이트웨이 뒤에서
+  #   Trino 를 쓸 수 없다.** Istio 게이트웨이는 `X-Forwarded-For`·
+  #   `X-Forwarded-Proto` 를 붙이는데, Trino 는 기본적으로 그 헤더를 **거부**하고
+  #   모든 요청에 406 을 돌려준다:
+  #     {"message":"Server configuration does not allow processing of the
+  #      X-Forwarded-For header","status":"406"}
+  #   ★ 증상이 원인을 가리키지 않는다 — 406 Not Acceptable 은 보통
+  #     Accept 헤더 문제로 읽히고, 실제로 `Accept: application/json` 을
+  #     붙여 봐도 그대로 406 이다. 진짜 단서는 **본문**이다.
+  #   ★★ 이것을 켜면 Trino 가 그 헤더를 신뢰해 클라이언트 주소·스킴을 그것으로
+  #     읽는다. 즉 **게이트웨이만이 Trino 에 닿을 수 있어야** 의미가 있다 —
+  #     이 클러스터는 `default-deny-ingress` + HBONE 이라 그 전제가 성립한다.
+  #     메시 밖에서 직접 닿을 수 있는 배치에서는 켜지 말 것(주소 위조가 된다).
   config.properties: |
     coordinator=true
     node-scheduler.include-coordinator=true
     http-server.http.port=8080
     discovery.uri=http://localhost:8080
+    http-server.process-forwarded=true
   # ★★ -Xmx 를 limit 과 같게 두지 말 것 — 2G == limit 2Gi 였다.
   #   Trino 는 off-heap(네이티브 S3·버퍼)을 크게 쓰므로 힙이 다 차기 전에
   #   커널이 먼저 OOMKill 한다. 실사용은 859Mi 다(§8-94).

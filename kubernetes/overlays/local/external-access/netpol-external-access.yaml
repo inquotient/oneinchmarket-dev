@@ -1,0 +1,69 @@
+# db-gateway 의 외부 수신을 허용한다 (local 전용)
+#
+# ★ `default-deny-ingress` 가 `podSelector: {}` 로 네임스페이스 전체를 덮으므로
+#   db-gateway 도 함께 막힌다. 게이트웨이가 80·443 에서 겪은 것과 같은 자리고,
+#   그때는 **외부 진입점이 한 번도 닿은 적이 없었다**(Gotcha 185).
+#
+# ★★★ `from` 을 비워 **모든 출발지**를 허용하는 것은 의도된 선택이다.
+#   이 워크로드는 정의상 외부 진입점이고 출발지를 좁히면 외부 접근이 깨진다.
+#   그리고 좁힐 수도 없다 — NodePort 로 들어온 트래픽은 Cilium 이 노드 주소로
+#   SNAT 하거나 `remote-node` 신원을 주는데, **`ipBlock` CIDR 로는 node 신원이
+#   매칭되지 않는다**(Gotcha 187·197 에서 실측했다. `allow-falcosidekick-access`
+#   가 정확히 그 이유로 노드 하나의 경보를 10시간 잃었다).
+#
+#   **실제 통제는 두 층에서 한다**:
+#     ① 각 DB 의 자격 — 이 프록시는 인증을 하지 않고 중계만 한다
+#     ② 노드의 nftables — `local/external-access-node.sh` 가 이 NodePort 대역을
+#        **LAN(192.168.0.0/24)과 VPN(172.30.0.0/24)에서만** 받게 제한한다
+#   15008 을 넓게 열고 인가를 ztunnel 에 맡기는 것과 같은 논리다(Gotcha 13).
+#
+# ★ 그래서 **`podSelector` 는 비우지 않는다** — 비우면 네임스페이스 전체가 이
+#   포트들에 열려 default-deny 가 무의미해진다.
+#
+# ★★ `matchLabels` 가 아니라 `matchExpressions` 를 쓴다. 오버레이의 라벨
+#   변환기가 `spec/podSelector/matchLabels` 에 `environment:` 를 **주입**하는데,
+#   그 주입이 끼면 정책이 무엇을 고르는지 매니페스트만 읽어서는 알 수 없게
+#   된다(Gotcha 185 — 그때는 주입 때문에 **아무것도 선택하지 않았다**).
+#   변환기는 `matchExpressions` 를 건드리지 않는다.
+#   ★ 판정: `kubectl kustomize` 결과의 podSelector 에 `environment` 가 끼지
+#     않았는지 **눈으로 확인할 것**(Gotcha 67).
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-db-gateway-external
+  labels:
+    app.kubernetes.io/name: allow-db-gateway-external
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: ["db-gateway"]
+  policyTypes:
+    - Ingress
+  ingress:
+    # 포트 목록은 db-gateway.yaml 의 Service·nginx.conf 와 **셋이 짝**이다.
+    # 하나를 더하면 세 곳을 함께 고쳐야 하고, 빠뜨리면 그 포트만 타임아웃이다
+    # (거부가 아니라 타임아웃이라 정책을 의심하기 어렵다 — Gotcha 13).
+    - ports:
+        - {protocol: TCP, port: 5432}    # PostgreSQL
+        - {protocol: TCP, port: 3306}    # MariaDB
+        - {protocol: TCP, port: 3307}    # ShardingSphere (PG 와이어)
+        - {protocol: TCP, port: 6033}    # ProxySQL (MySQL 와이어)
+        - {protocol: TCP, port: 27017}   # MongoDB
+        - {protocol: TCP, port: 6379}    # Redis
+        - {protocol: TCP, port: 8123}    # ClickHouse HTTP
+        - {protocol: TCP, port: 9000}    # ClickHouse native
+        - {protocol: TCP, port: 10000}   # HiveServer2 Thrift
+        - {protocol: TCP, port: 9083}    # Hive Metastore
+        - {protocol: TCP, port: 3389}    # DS389 LDAP
+        - {protocol: TCP, port: 3636}    # DS389 LDAPS
+        - {protocol: TCP, port: 9092}    # Kafka
+        - {protocol: TCP, port: 15002}   # Spark Connect
+        - {protocol: TCP, port: 2181}    # ZooKeeper

@@ -1,0 +1,151 @@
+# TLS 오리지네이션 — 백엔드가 HTTPS 전용인 다섯 (local 전용)
+#
+# ★★ 무엇을 고치는가
+#   게이트웨이는 백엔드에 **평문 HTTP** 를 보낸다(HBONE 터널 안이지만 안쪽
+#   페이로드는 평문이다). 백엔드가 TLS 를 요구하면 그 연결은 핸드셰이크에서
+#   깨지고, 브라우저가 보는 것은 **502** 하나다. 원인이 멀다 — 라우트도
+#   파드도 정상이고 Envoy 로그에만 upstream 리셋이 남는다.
+#
+#   그래서 이 다섯 호스트에 대해 게이트웨이가 **TLS 를 열어 주게** 한다.
+#   httproutes.yaml 의 해당 라우트에 그 짝을 가리키는 주석이 있다 —
+#   **한쪽만 고치면 502 다.**
+#
+# ★ 이 레포의 첫 DestinationRule 이다(이전까지 0건). AppProject 가
+#   `networking.istio.io *` 를 화이트리스트하는 것을 실측으로 확인했다 —
+#   화이트리스트에 없는 종류를 넣으면 **동기화 전체가 멈춘다**(Gotcha 57).
+#
+# ★★★ `insecureSkipVerify: true` 를 쓰는 이유와 그 대가
+#   이 다섯은 **서로 다른 자체 서명 CA** 가 발급한다(knox 는 gateway-ca,
+#   opensearch 는 opensearch-ca, wazuh 는 wazuh-ca, safeline 은 자기 것).
+#   검증을 켜려면 게이트웨이 파드에 CA 넷을 마운트해야 하는데, 그 파드는
+#   Istio 컨트롤러가 만들어서 **우리 매니페스트로 볼륨을 더할 수 없다.**
+#   대가를 알고 고른 것이다: 이 홉은 **클러스터 안**이고 그 위에 HBONE mTLS
+#   가 한 겹 더 있어 중간자가 성립하지 않는다. 즉 여기서 검증이 막는 위협이
+#   실질적으로 없다. ★ 메시 밖으로 나가는 홉에는 절대 쓰지 말 것.
+#
+# ★ 복귀 조건: Istio 가 `BackendTLSPolicy`(Gateway API experimental)를 쓸 수
+#   있게 되거나 CA 를 하나로 합치면 그때 검증을 켠다. 그때까지 이 주석이
+#   사유다 — 사유가 없는 회피책을 남기지 않는다(Gotcha 131).
+---
+# Knox — Hadoop 계층의 정식 진입점. gateway.ssl 이 기본 켜져 있어 8443 은
+#   HTTPS 전용이다. ★ Knox 쪽 TLS 를 끄는 선택지도 있었으나 택하지 않았다 —
+#   클러스터 안에서 `ssl=true` 로 붙는 JDBC 안내가 ACCESS.md 에 이미 있고,
+#   끄면 그 경로가 조용히 깨진다.
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: ext-tls-knox
+  labels:
+    app.kubernetes.io/name: ext-tls-knox
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  host: knox-headless.local.svc.cluster.local
+  trafficPolicy:
+    portLevelSettings:
+      - port:
+          number: 8443
+        tls:
+          mode: SIMPLE
+          insecureSkipVerify: true
+          # SNI 를 인증서의 SAN 과 맞춘다 — knox-tls 의 SAN 에
+          # `knox-headless` 가 들어 있다(§8-38 에서 SAN 하나뿐이라 겪은 자리).
+          sni: knox-headless
+---
+# OpenSearch — REST 9200. ★ 자격의 원천은 `opensearch-secret` 이고 평문은
+#   어디에도 저장되지 않는다(initContainer 가 bcrypt 로 바꿔 넣는다).
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: ext-tls-opensearch
+  labels:
+    app.kubernetes.io/name: ext-tls-opensearch
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  host: opensearch-headless.local.svc.cluster.local
+  trafficPolicy:
+    portLevelSettings:
+      - port:
+          number: 9200
+        tls:
+          mode: SIMPLE
+          insecureSkipVerify: true
+          sni: opensearch-headless
+---
+# Wazuh Manager API — 55000
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: ext-tls-wazuh-manager
+  labels:
+    app.kubernetes.io/name: ext-tls-wazuh-manager
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  host: wazuh-manager.local.svc.cluster.local
+  trafficPolicy:
+    portLevelSettings:
+      - port:
+          number: 55000
+        tls:
+          mode: SIMPLE
+          insecureSkipVerify: true
+          sni: wazuh-manager
+---
+# Wazuh Indexer — 9200
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: ext-tls-wazuh-indexer
+  labels:
+    app.kubernetes.io/name: ext-tls-wazuh-indexer
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  host: wazuh-indexer.local.svc.cluster.local
+  trafficPolicy:
+    portLevelSettings:
+      - port:
+          number: 9200
+        tls:
+          mode: SIMPLE
+          insecureSkipVerify: true
+          sni: wazuh-indexer
+---
+# SafeLine 콘솔 — mgt 1443. ★ 이것은 WAF 의 **관리 콘솔**이고, 보호 대상
+#   트래픽 경로(`api` 호스트 -> safeline:8181)와는 다른 포트다. 둘을 헷갈리면
+#   "WAF 가 죽었다" 로 읽는다.
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: ext-tls-safeline-mgt
+  labels:
+    app.kubernetes.io/name: ext-tls-safeline-mgt
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  host: safeline-mgt.local.svc.cluster.local
+  trafficPolicy:
+    portLevelSettings:
+      - port:
+          number: 1443
+        tls:
+          mode: SIMPLE
+          insecureSkipVerify: true
+          sni: safeline-mgt

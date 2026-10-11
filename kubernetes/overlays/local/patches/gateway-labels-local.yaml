@@ -1,0 +1,55 @@
+# 게이트웨이 파드에 `environment: local` 을 붙인다 (local 전용)
+#
+# ★★★ 왜 필요한가 — Gotcha 185 의 **반대 방향 처방**이다.
+#   오버레이의 라벨 변환기(`commonLabels: {environment: local}`)는 **Service 의
+#   `spec.selector` 에도 그 라벨을 주입한다.** 그런데 Gateway API 의 게이트웨이
+#   파드는 kustomize 가 아니라 **Istio 의 게이트웨이 컨트롤러**가 만들어서 그
+#   라벨이 없다(실측 라벨 7개에 없다). 그래서 그 파드를 고르려는 Service 는
+#   렌더 결과가
+#       selector:
+#         environment: local                               <- 주입됨. 파드엔 없다
+#         gateway.networking.k8s.io/gateway-name: ingress
+#   가 되어 **아무것도 선택하지 않는다.**
+#
+#   `allow-ingress-gateway` NetworkPolicy 는 이 문제를 `matchExpressions` 로
+#   피했다(변환기가 그 형태는 건드리지 않는다). 그런데 **Service 의
+#   `spec.selector` 에는 `matchExpressions` 가 없다** — 평범한 맵뿐이다.
+#   그래서 셀렉터를 피하는 대신 **파드에 그 라벨을 주는** 쪽으로 간다.
+#
+# ★★ 실측으로 겪은 증상(2026-10-11): `ingress-external` Service 의 엔드포인트가
+#   0개가 되어 Cilium 의 ExternalIPs 프런트엔드가 사라지고 **443 이 전부 000**
+#   이었다. NodePort(32573)는 멀쩡했다 — 그 대비가 "게이트웨이가 아니라
+#   Service 가 문제" 라고 말해 준 값이다.
+#   ★ 더 나쁜 것: `external-ips-service.yaml` 주석에 "Service 의 selector 는
+#     변환기가 건드리지 않는다" 고 **적어 두고** 다른 오브젝트(NetworkPolicy·
+#     AuthorizationPolicy)만 렌더로 확인했다. 임시 시험 Service 는 kustomize 를
+#     거치지 않아 통했고 그것이 거짓 확증을 만들었다. **파일에 쓴 값이 렌더
+#     결과라고 가정하지 말 것**(Gotcha 67) — 그리고 **확인할 오브젝트를 고르지
+#     말고 그 오브젝트를 확인할 것.**
+#
+# ★ 왜 `commonLabels` 쪽을 고치지 않는가
+#   `labels:` + `includeSelectors: false` 로 바꾸면 **모든** 셀렉터에서 그
+#   라벨이 빠진다. Deployment·StatefulSet 의 `spec.selector` 는 **불변 필드**라
+#   그 순간 전면 재생성이 필요해진다(Gotcha 46 ④ 가 같은 부류로 물렸다).
+#   파드에 라벨 하나를 더하는 쪽이 비교할 수 없이 좁다.
+#
+# ★★ 대가: Istio 가 게이트웨이 Deployment 를 갱신하므로 **그 파드가 한 번
+#   재시작한다.** 외부 진입점이 몇 초 끊기고, 장기 TCP 연결은 재연결한다
+#   (Gotcha 47 이 적은 ztunnel 재시작과 같은 성질이다).
+#
+# ★ local 전용인 이유: `environment: local` 자체가 이 오버레이의 값이다.
+#   dev·prod 는 각자 자기 값을 같은 방식으로 주어야 하고, 그 환경에
+#   externalIPs 가 필요하지 않다면 이 패치도 필요하지 않다.
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: ingress
+spec:
+  infrastructure:
+    labels:
+      # ★ base 의 `istio.io/dataplane-mode: none` 을 **유지**해야 한다 —
+      #   맵 병합이라 유지되지만 **렌더 결과로 확인할 것**. 그것이 빠지면
+      #   게이트웨이가 ztunnel 에 포획되어 이중 프록시가 되고, 라우팅은
+      #   그대로 되면서 **액세스 로그(과금 계량)만 조용히 끊긴다**(§8-55).
+      environment: local

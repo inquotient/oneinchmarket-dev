@@ -1,0 +1,188 @@
+# 외부 진입 신원에 대한 **추가** 인가 (local 전용)
+#
+# ★★★ 기존 정책을 고치지 않는다 — 이유가 둘이다.
+#   ① Istio 의 ALLOW 는 **합집합**이다. 같은 워크로드를 선택하는 ALLOW 정책이
+#      여럿이면 어느 하나가 매칭하면 통과한다. 그래서 더하는 것으로 충분하다.
+#   ② 기존 `allow-database-access` 의 `rules` 배열을 전략 병합 패치로 고치면
+#      **배열이 통째로 교체**되어 principals 21개를 잃는다(Gotcha 146 과 같은
+#      뿌리 — 리스트 병합의 함정이다). 더하는 쪽이 되돌리기도 쉽다.
+#
+# ★★ 왜 이것이 없으면 안 되는가
+#   실측(2026-10-11) AuthorizationPolicy 가 선택하는 워크로드는 **12개**다:
+#     allow-database-access      -> clickhouse-0 mariadb-0 mongodb-0
+#                                   postgresql-0 proxysql redis-0 shardingsphere
+#     allow-messaging-access     -> kafka-0
+#     allow-observability-access -> opensearch-0
+#     allow-datalakehouse-access -> minio-0
+#     spark-connect-authz        -> spark-connect-0
+#     allow-data-prepper-access  -> data-prepper
+#     api-require-jwt            -> 게이트웨이 자신
+#   **나머지 UI 전부에는 L7 정책이 없다** — 그래서 HTTPRoute 만으로 닿는다.
+#   여기 적힌 것만 신원을 따로 허용해야 한다.
+#
+# ★ 신원 표기는 접미 매칭 `*/sa/<이름>` 이다. 중간 `*` 는 리터럴이라
+#   아무것도 매칭하지 않는다(Gotcha 9). base 는 네임스페이스를 모르므로
+#   이 레포는 어디서나 이 형태를 쓴다.
+#
+# ★ 게이트웨이의 신원은 `sa/ingress-istio` 다 — Istio 의 게이트웨이
+#   컨트롤러가 Gateway API 의 Gateway 로부터 만든 Deployment 의 SA 이름이고,
+#   실측으로 Envoy 가 백엔드에 제시하는 principal 이 그것이다.
+#
+# ★ 권한을 미리 넓혀 두지 않는다 — 쓰지 않는 신원은 넣지 않는다. 예컨대
+#   DB 포트에 게이트웨이를 넣지 않는다(DB 와이어는 HTTP 가 아니라 거기로
+#   보낼 수가 없다). 사유가 사라진 허용을 남기면 다음 사람이 전제를 틀리게
+#   읽는다(Gotcha 131).
+---
+# minio — 콘솔(9001)과 S3 API(9000). 브라우저와 mc/boto3 둘 다 게이트웨이를
+#   지난다(S3 는 HTTP 프로토콜이고 서명이 자격이다).
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-ext-minio
+  labels:
+    app.kubernetes.io/name: allow-ext-minio
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: minio
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals: ["*/sa/ingress-istio"]
+      to:
+        - operation:
+            ports: ["9000", "9001"]
+---
+# opensearch — REST 9200. ★ HTTPS 다. 게이트웨이가 TLS 를 오리지네이션하고
+#   (destinationrules.yaml) 그 위에 HBONE 이 한 겹 더 씌워진다.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-ext-opensearch
+  labels:
+    app.kubernetes.io/name: allow-ext-opensearch
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: opensearch
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals: ["*/sa/ingress-istio"]
+      to:
+        - operation:
+            ports: ["9200"]
+---
+# spark-connect — ★ 여기가 가장 틀리기 쉬운 자리다.
+#   `spark-connect-authz` 는 15002·7078·7079 만 `to.ports` 에 적는다. 즉
+#   **4040(세션 UI)은 어느 규칙에도 매칭되지 않아 거부된다.** 포트를 빠뜨린
+#   ALLOW 정책이 그 포트를 닫는 것이고, 이 레포는 ShardingSphere 3307 에서
+#   같은 것을 이미 겪었다(Gotcha 9 — 파드는 1/1 Running 이고 클라이언트가
+#   보는 것은 끊김뿐이었다).
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-ext-spark-connect
+  labels:
+    app.kubernetes.io/name: allow-ext-spark-connect
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: spark-connect
+  action: ALLOW
+  rules:
+    # 세션 UI — 게이트웨이(브라우저)
+    - from:
+        - source:
+            principals: ["*/sa/ingress-istio"]
+      to:
+        - operation:
+            ports: ["4040"]
+    # gRPC — db-gateway(PySpark 클라이언트)
+    - from:
+        - source:
+            principals: ["*/sa/db-gateway"]
+      to:
+        - operation:
+            ports: ["15002"]
+---
+# 데이터베이스 — db-gateway 만 허용한다.
+# ★ 셀렉터는 기존 `allow-database-access` 와 **같은 축**(component=database)을
+#   쓴다 — 실측으로 그것이 clickhouse·mariadb·mongodb·postgresql·proxysql·
+#   redis·shardingsphere 를 고른다. 다른 축을 쓰면 하나가 조용히 빠진다.
+# ★ 라벨 변환기가 Istio CRD 의 `spec.selector.matchLabels` 에는 `environment`
+#   를 주입하지 않는다 — 실측으로 기존 정책의 셀렉터에 그것이 없다(Gotcha 185
+#   가 경고한 주입은 NetworkPolicy 의 `podSelector` 쪽이다).
+#   ★ 그래도 렌더 결과를 눈으로 확인할 것 — 파일에 쓴 값이 렌더 결과라고
+#     가정하지 말 것(Gotcha 67).
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-ext-databases
+  labels:
+    app.kubernetes.io/name: allow-ext-databases
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: database
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals: ["*/sa/db-gateway"]
+      to:
+        - operation:
+            # 5432 PostgreSQL · 3306 MariaDB · 3307 ShardingSphere(PG 와이어)
+            # 6033 ProxySQL(MySQL 와이어) · 27017 MongoDB · 6379 Redis
+            # 8123 ClickHouse HTTP · 9000 ClickHouse native
+            ports: ["5432", "3306", "3307", "6033", "27017", "6379",
+                    "8123", "9000"]
+---
+# kafka — db-gateway 의 9092. ★ 이것이 있어도 **네이티브 클라이언트는 끝까지
+#   가지 못한다**(브로커가 클러스터 안 광고 주소를 돌려준다). 정책은 열어
+#   두되 그 제약은 문서에 적어 두었다 — 정책을 의심하며 시간을 쓰지 않도록.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-ext-kafka
+  labels:
+    app.kubernetes.io/name: allow-ext-kafka
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafka
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals: ["*/sa/db-gateway"]
+      to:
+        - operation:
+            ports: ["9092"]

@@ -1,0 +1,105 @@
+# 브라우저가 부르는 주소 — 외부 진입점 기준으로 덮는다 (local 전용)
+#
+# ★★★ 왜 이 다섯만인가
+#   호스트명 기반 노출(`<app>.oneinchmarket.local`)로 가면 **대다수 앱은 설정
+#   변경 없이 그대로 동작한다** — 경로가 `/` 그대로라 base-path 를 고칠 일이
+#   없다. 고쳐야 하는 것은 **SPA** 뿐이다: 브라우저가 백엔드를 직접 부르므로
+#   그 주소가 서버 설정에 박혀 있고, 그것이 `localhost` 면 외부에서 흰 화면이
+#   된다(Apicurio UI 에서 이미 겪었다 — 화면은 뜨고 목록만 비어 보인다).
+#
+#   실측으로 환경변수에 `localhost` 를 들고 있는 워크로드를 전수 조사했고,
+#   사람이 브라우저로 보는 것은 아래 다섯이었다. 나머지 `localhost` 는
+#   파드 안쪽 자기 호출이다(safeline 의 `127.0.0.1:8000`, openbao 의
+#   `BAO_ADDR`, pyrra 의 `--api-url` 등) — **건드리면 깨진다.**
+#
+# ★★ 이 파일은 `apicurio-ui-local.yaml` 을 대체한다. 그 파일의 주석이
+#   "진입점이 생기면 이 패치를 지우고 실제 외부 URL 로 바꾼다" 고 적어 두었고,
+#   그 조건이 2026-10-11 에 충족됐다. 같은 성질의 값을 한 곳에 모아 둔다 —
+#   여러 파일에 흩어 두면 호스트 체계를 바꿀 때 하나가 조용히 남는다
+#   (Gotcha 117 과 같은 자리).
+#
+# ★ 대가: 이 값들은 **port-forward 용 주소였다.** 바꾸면 ACCESS.md 가 안내하는
+#   port-forward 경로가 그만큼 깨진다 — 브라우저가 `localhost:8081` 대신
+#   `apicurio-registry.oneinchmarket.local` 을 부르게 되므로, port-forward 만
+#   띄우고 hosts/DNS 를 안 하면 목록이 비어 보인다. 그 사실을 ACCESS.md 에
+#   적어 두었다. 둘 다 되게 하려면 앱마다 CORS·다중 origin 설정이 필요하고
+#   그것은 앱마다 다르다 — 하나를 고르는 쪽이 정직하다.
+#
+# ★ env 는 전략 병합에서 **name 을 키로 병합**되므로 값만 덮인다. 다른 env 를
+#   잃지 않는다(배열이 통째로 교체되는 Gotcha 146 의 반대 성질이다).
+---
+# Apicurio Registry UI — 브라우저가 레지스트리 API 를 직접 부른다
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apicurio-ui
+spec:
+  template:
+    spec:
+      containers:
+        - name: apicurio-ui
+          env:
+            - name: REGISTRY_API_URL
+              value: "https://apicurio-registry.oneinchmarket.local/apis/registry/v3"
+---
+# Dependency-Track 프런트 — ★ 이 값은 엔트리포인트가
+#   `/static/config.json` 을 **제자리에서 고쳐** 넣는다. 그래서
+#   `readOnlyRootFilesystem: true` 면 **환경변수를 통째로 버리고** 파드는
+#   Ready 로 남는다(Gotcha 48). base 가 그 때문에 conf/cache/run/tmp 를
+#   emptyDir 로 두고 있다 — 그 구성을 건드리지 말 것.
+#   ★ 판정은 `/` 가 아니라 `/static/config.json` 의 내용으로 한다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dependency-track-frontend
+spec:
+  template:
+    spec:
+      containers:
+        - name: frontend
+          env:
+            - name: API_BASE_URL
+              value: "https://dtrack-api.oneinchmarket.local"
+---
+# Gravitee Console — management API 를 브라우저가 부른다
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gravitee-console
+spec:
+  template:
+    spec:
+      containers:
+        - name: console
+          env:
+            - name: MGMT_API_URL
+              value: "https://gravitee-api.oneinchmarket.local/management"
+---
+# Gravitee Portal — portal API 를 브라우저가 부른다
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gravitee-portal
+spec:
+  template:
+    spec:
+      containers:
+        - name: portal
+          env:
+            - name: PORTAL_API_URL
+              value: "https://gravitee-api.oneinchmarket.local/portal"
+---
+# Temporal UI — CORS 허용 origin. ★ 이것은 백엔드 주소가 아니라 **브라우저가
+#   어디서 왔는지**를 받는 값이다. 틀리면 화면은 뜨고 API 호출만 막힌다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: temporal-ui
+spec:
+  template:
+    spec:
+      containers:
+        - name: temporal-ui
+          env:
+            - name: TEMPORAL_CORS_ORIGINS
+              value: "https://temporal.oneinchmarket.local"

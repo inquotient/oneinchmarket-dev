@@ -43,7 +43,9 @@ spec:
           env:
             # ★ 브라우저가 부르는 주소다. 클러스터 내부 DNS 가 아니라 사용자
             #   기준 주소여야 한다. Apicurio UI 에서 같은 함정을 겪었다
-            #   (patches/apicurio-ui-local.yaml). 로컬은 port-forward 주소다.
+            #   (patches/external-urls-local.yaml 이 그 둘을 함께 덮는다).
+            #   ★ 2026-10-11 부터 로컬은 port-forward 주소가 아니라 **외부
+            #     호스트명**이다 — local/EXTERNAL-ACCESS.md 참조.
             # ★ 값은 local/access-gen.py 가 정하는 API port-forward 포트와
             #   **반드시 같아야 한다**(현재 8087). 오래 8081 로 적혀 있었으나
             #   위 readOnlyRootFilesystem 결함 때문에 그 값이 애초에 반영되지

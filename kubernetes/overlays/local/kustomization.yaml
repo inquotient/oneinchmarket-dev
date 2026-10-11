@@ -32,6 +32,12 @@ resources:
   # OpenBao 로 원천이 옮겨진 시크릿의 ExternalSecret (§8-82).
   #   이관이 끝난 것만 들어 있다 — 나머지는 create-secrets.sh 가 원천이다.
   - external-secrets
+  # 외부 접속 계층 — HTTPRoute 56종 · db-gateway(TCP) · 추가 인가 ·
+  #   TLS 오리지네이션 · NetworkPolicy. **local 전용**이다: 호스트명 체계와
+  #   DB 의 외부 TCP 노출은 개발 랩의 결정이고 prod 는 공인 DNS·베스션이어야
+  #   한다. 노드 쪽 전제(443 DNAT·와일드카드 DNS·VPN)는 매니페스트로 담을 수
+  #   없어 `local/external-access-node.sh` 가 넣는다.
+  - external-access
 
 patches:
   # 로컬 레플리카 1
@@ -47,8 +53,17 @@ patches:
   - path: patches/requests-local.yaml
   # 경합이 늘면서 기동이 느려진 워크로드의 startup 예산 확대
   - path: patches/probes-local.yaml
-  # Apicurio 콘솔의 API 주소는 브라우저 기준이다 — port-forward 주소로 덮는다
-  - path: patches/apicurio-ui-local.yaml
+  # ★ 브라우저가 부르는 주소를 **외부 진입점** 기준으로 덮는다(SPA 넷 + CORS 하나).
+  #   2026-10-11 에 apicurio-ui-local.yaml 을 이것으로 합쳤다 — 그 파일의
+  #   주석이 "진입점이 생기면 실제 외부 URL 로 바꾼다" 고 적어 둔 조건이
+  #   충족됐고, 같은 성질의 값을 한 곳에 모아 둔다.
+  - path: patches/external-urls-local.yaml
+
+  # ★★★ 게이트웨이 파드에 `environment: local` 을 붙인다 — 라벨 변환기가
+  #   Service 의 selector 에도 그 라벨을 주입하는데 그 파드는 Istio 컨트롤러가
+  #   만들어서 라벨이 없다. 그대로 두면 externalIPs Service 가 **아무것도
+  #   선택하지 않아 443 이 전부 000** 이다(실측). 자세한 것은 그 패치 머리말.
+  - path: patches/gateway-labels-local.yaml
 
   # cmmn-api 의 테이블을 Hibernate 가 만들게 한다 — local 전용 스톱갓(§8-99)
   - path: patches/cmmn-api-schema-local.yaml

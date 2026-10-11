@@ -1,0 +1,96 @@
+# 브라우저가 쓰는 443·80 을 노드 IP 에 띄운다 (local 전용)
+#
+# ★★★ 왜 이것이 필요한가
+#   NodePort 범위는 `30000-32767` 이라 **443 을 직접 열 수 없다.** 그런데
+#   Gateway API 의 Gateway 로부터 Service 를 만드는 것은 Istio 컨트롤러이므로
+#   우리가 그 Service 에 포트를 더할 수도, nodePort 를 고정할 수도 없다.
+#   브라우저에 `https://grafana.oneinchmarket.local:32573` 을 치게 하는 것은
+#   답이 아니다 — 포트가 재구축마다 바뀌고(실측으로 30727 -> 32573), 일부 앱이
+#   **Host 헤더의 포트로 동작을 바꾼다**(HiveServer2 가 그렇다).
+#
+# ★★ 처음에 노드의 iptables DNAT(443 -> nodePort)를 쓰려 했고 **측정해서
+#   버렸다.** 규칙은 맞는데(실측 2패킷 120바이트) 연결이 `000` 이다 —
+#   Cilium 은 NodePort 를 **tc ingress 의 eBPF** 에서 처리하고 그것은
+#   netfilter 보다 **앞에서** 이미 끝나므로, REDIRECT 로 포트를 바꿔 봐야
+#   호스트에는 그 포트를 듣는 프로세스가 없다. 추측하면 "규칙이 있는데 안
+#   된다" 로 한참 헤맨다 — Gotcha 63 의 자리다.
+#
+#   `externalIPs` 는 **Cilium 이 직접 프런트엔드로 등록**하므로 그 문제가 없다.
+#   실측(2026-10-11):
+#     cilium-dbg service list
+#       192.168.0.103:443/TCP  ExternalIPs  1 => 10.0.0.177:443/TCP (active)
+#     노드 103 에서 443        -> 302
+#     노드 104 에서 103 의 443 -> 302   (노드 간 경로도 성립한다)
+#     104 의 IP 로 443         -> 302   (양쪽 노드 IP 가 다 산다)
+#     80                       -> 301   (게이트웨이의 HTTPS 리다이렉트)
+#     api 호스트               -> 403   (JWT 필수 — 정상이다, Gotcha 18)
+#
+# ★ 노드 데몬(socat/nginx)을 두지 않는 쪽을 골랐다. 데몬은 노드 상태가 되어
+#   재구축 때 빠뜨리기 쉽고(Gotcha 126 부류), 홉이 하나 늘어 출발지 주소도
+#   잃는다. 이 Service 는 **git 에 담기고 ArgoCD 가 유지한다.**
+#
+# ★★ NetworkPolicy 를 더하지 않는다 — `allow-ingress-gateway` 가 이미 그
+#   파드의 80·443 을 모든 출발지에 열어 두고, 이 Service 는 같은 파드의 같은
+#   포트로 간다. 실측으로 정책 변경 없이 통했다.
+#
+# ★★★ 알아야 할 것 셋
+#   ① `spec.externalIPs` 는 **deprecated 경고**가 난다
+#      ("may no longer be implemented in some clusters"). Cilium 1.20 은
+#      구현하고 있고 실측으로 동작한다. 사라지면 대안은 MetalLB(L2) 이거나
+#      노드에 포워더를 두는 것이다 — 그때 이 주석이 판단 근거다.
+#   ② **노드 IP 가 이 파일에 박혀 있다.** 주소가 바뀌면 여기도 바꿔야 한다.
+#      그래서 local 전용이다 — prod 는 LoadBalancer 나 공인 진입점이어야 한다.
+#      노드 IP 를 고정으로 두는 전제는 `local/node-rejoin-check.sh` 가 본다.
+#   ③ **출발지를 L3 로 좁힐 수 없다.** eBPF 가 처리하므로 호스트의 iptables
+#      INPUT 이 이 트래픽을 보지 못한다(②와 같은 이유). 좁히려면 Cilium 의
+#      `bpf-lb-source-range-all-types=true` + `loadBalancerSourceRanges` 가
+#      필요하고 그것은 Cilium 전역 설정 변경이다(모든 오버라이드를 다시 줘야
+#      한다 — Gotcha 141·168). **그래서 신뢰 경계는 LAN 이다**: 공유기에서
+#      443 을 포트포워딩하지 말 것, 밖에서 봐야 하면 VPN 을 쓸 것.
+#      인증 없는 호스트 19종이 LAN 에 열린다는 사실을 문서에 적어 두었다.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingress-external
+  labels:
+    app.kubernetes.io/name: ingress-external
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  type: ClusterIP
+  # 양 노드의 LAN 주소. 어느 쪽으로 들어와도 같은 게이트웨이 파드로 간다.
+  externalIPs:
+    - 192.168.0.103
+    - 192.168.0.104
+  # ★ Istio 게이트웨이 컨트롤러가 만든 파드의 라벨이다. `allow-ingress-gateway`
+  #   NetworkPolicy·Telemetry `api-usage` 가 쓰는 것과 **같은 라벨**을 쓴다 —
+  #   셋이 어긋나면 접근 허용·계량·노출이 서로 다른 워크로드를 가리킨다.
+  #   ★★★ **2026-10-11 정정 — 라벨 변환기가 이 selector 에도 주입한다.**
+  #     처음에 "Service 의 spec.selector 는 변환기가 건드리지 않는다" 고
+  #     적었고 **틀렸다.** 렌더 결과가
+  #         selector:
+  #           environment: local                               <- 주입됨
+  #           gateway.networking.k8s.io/gateway-name: ingress
+  #     이 되고 그 파드에는 `environment` 가 없어 **아무것도 선택하지 않는다**
+  #     — 엔드포인트 0개 · Cilium 프런트엔드 소멸 · **443 이 전부 000** 이다.
+  #     NodePort(32573)는 멀쩡했고 그 대비가 "게이트웨이가 아니라 Service"
+  #     라고 말해 줬다.
+  #     ★ 처방은 셀렉터를 피하는 것이 아니라 **파드에 그 라벨을 주는 것**이다
+  #       (`overlays/local/patches/gateway-labels-local.yaml`) — Service 의
+  #       selector 에는 `matchExpressions` 가 없어 Gotcha 185 의 수법을 쓸 수
+  #       없다.
+  #     ★★ 교훈: 주석에 "확인할 것" 을 적어 두고 **다른 오브젝트만** 확인했다.
+  #       임시 시험 Service 는 kustomize 를 거치지 않아 통했고 그것이 거짓
+  #       확증이 됐다. **확인할 오브젝트를 고르지 말고 그 오브젝트를 볼 것**
+  #       (Gotcha 67·185).
+  selector:
+    gateway.networking.k8s.io/gateway-name: ingress
+  ports:
+    - {name: https, port: 443, targetPort: 443, protocol: TCP}
+    # 평문은 리다이렉트 전용이다 — 게이트웨이의 `https-redirect` 라우트가
+    # 301 을 돌려준다. 과금 대상 API 가 평문으로 흐르면 자격이 그대로 샌다.
+    - {name: http, port: 80, targetPort: 80, protocol: TCP}

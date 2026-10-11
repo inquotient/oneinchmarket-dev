@@ -82,12 +82,18 @@ spec:
   # ★ SAN 을 넉넉히 잡는다. DS389 인증서가 SAN 하나뿐이라 겪은 문제(§8-38)를
   #   되풀이하지 않는다 — 나중에 호스트를 늘릴 때 인증서를 다시 발급하고
   #   게이트웨이를 재시작해야 하는 상황을 피한다.
+  #   ★ 2026-10-11: 이름을 하나씩 적던 것을 **와일드카드로 바꿨다.** 외부 노출을
+  #     컴포넌트 전체로 넓히면서 호스트가 40여 개가 되었고, 그때마다 인증서를
+  #     다시 발급하고 게이트웨이를 재시작하는 것은 성립하지 않는다.
+  #   ★ 와일드카드는 **한 단계만** 덮는다 — `*.oneinchmarket.local` 은
+  #     `oneinchmarket.local`(apex) 을 포함하지 않으므로 둘 다 적는다.
+  #   ★★ 옛 다섯 이름(api·kibana·grafana·ranger·akhq)은 전부 이 와일드카드에
+  #     들어간다. `kibana` 는 2026-09-11 철거로 가리킬 대상이 없어졌다.
+  #   ★ 리스너의 hostname 도 `*.oneinchmarket.local` 이다 — 둘이 짝이어야 한다.
+  #     한쪽만 넓히면 TLS 는 되고 라우팅이 안 되거나 그 반대가 된다.
   dnsNames:
-    - api.oneinchmarket.local
-    - kibana.oneinchmarket.local
-    - grafana.oneinchmarket.local
-    - ranger.oneinchmarket.local
-    - akhq.oneinchmarket.local
+    - oneinchmarket.local
+    - "*.oneinchmarket.local"
   issuerRef:
     name: gateway-ca
     kind: Issuer

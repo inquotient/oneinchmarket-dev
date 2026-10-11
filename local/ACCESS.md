@@ -7,6 +7,27 @@
 
 ---
 
+## ★★★ 0-0. 2026-10-11 — 이 문서의 전제가 바뀌었다
+
+**외부 진입점이 섰다.** 아래 §0 의 "접근 경로는 port-forward 하나뿐이다" 는
+**더 이상 사실이 아니다.** 지금은 브라우저에서
+`https://<앱>.oneinchmarket.local` 로 바로 들어가고, DBeaver 는 노드의 고정
+NodePort 로 붙는다. **새 경로는 [EXTERNAL-ACCESS.md](./EXTERNAL-ACCESS.md) 다.**
+
+이 문서는 **대조군**으로 남긴다 — 외부 경로가 깨졌을 때 port-forward 가
+"그 컴포넌트가 멀쩡한가" 를 가려 준다. 다만 아래 셋이 낡았으니 주의할 것:
+
+| 낡은 것 | 지금 |
+|---|---|
+| **NodePort 번호** `443→30727 · 80→31938 · 15021→32130` | 재구축에서 갈렸다 — `443→32573 · 80→32421 · 15021→31710`. ★ 그리고 이제 **443 을 그대로 쓴다**(`externalIPs`), 번호를 외울 필요가 없다 |
+| **WSL2 서술** (`localhostForwarding` · `sudo k3s kubectl` · WSL 터미널) | 2026-10-04 에 **베어메탈 2노드**로 옮겼다. port-forward 는 `ssh root@192.168.0.103` 안에서 하거나 Windows 의 kubeconfig 로 한다 |
+| **SPA 네 개의 port-forward 경로** | ★★ `apicurio-ui`·`dependency-track-frontend`·`gravitee-console`·`gravitee-portal` 의 브라우저측 API 주소가 **외부 호스트명으로 바뀌었다**(`patches/external-urls-local.yaml`). 그래서 port-forward 만 띄우면 **화면은 뜨고 목록이 비어 보인다** — hosts/DNS 를 함께 해야 한다. `temporal-ui` 는 CORS origin 이 바뀌었다 |
+
+> ★ 둘 다 되게 하려면 앱마다 CORS·다중 origin 설정이 필요하고 그것은 앱마다
+> 다르다. 하나를 고른 것이고, 고른 쪽은 **외부 호스트명**이다.
+
+---
+
 ## 0. 접근 경로는 `port-forward` 하나뿐이다
 
 실측 결과 외부로 열린 것은 **Istio Gateway 하나**다.
@@ -736,6 +757,7 @@ OpenSearch Dashboards(http://localhost:5601) 의 **Dev Tools** 가 가장 편하
 
 ## 관련 문서
 
+- [EXTERNAL-ACCESS.md](./EXTERNAL-ACCESS.md) — ★ **클러스터 밖에서 접속하는 법**(브라우저·DBeaver·Knox·VPN). 이 문서의 상위 경로다
 - [NEXT-SESSION.md](./NEXT-SESSION.md) — 인수인계. 짧은 확인 명령 모음
 - [../docs/LOCAL-DEPLOYMENT.md](../docs/LOCAL-DEPLOYMENT.md) — §8 실배포 기록, Gotcha 의 출처
 - [../CLAUDE.md](../CLAUDE.md) — Gotchas 전체

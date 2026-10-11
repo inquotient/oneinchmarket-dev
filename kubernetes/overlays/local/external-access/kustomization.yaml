@@ -1,0 +1,45 @@
+# 외부 접속 계층 — local 전용
+#
+# 무엇이 들어 있나
+#   httproutes.yaml             웹 UI 56종의 HTTPRoute (**생성 파일**)
+#   external-ips-service.yaml   노드 IP 의 443·80 (NodePort 범위를 우회한다)
+#   db-gateway.yaml             데이터 계층의 TCP 진입점(nginx stream + NodePort)
+#   authz-external-access.yaml  AuthorizationPolicy 가 선택하는 백엔드에 대한 추가 허용
+#   destinationrules.yaml       백엔드가 HTTPS 인 다섯에 대한 TLS 오리지네이션
+#   netpol-external-access.yaml db-gateway 의 외부 수신 허용
+#
+# ★★ `httproutes.yaml` 은 **생성 파일**이다. 손으로 고치지 말 것 —
+#   원천은 `local/render-external-access.py` 의 CATALOG 이고, 그것이 같은
+#   데이터로 `local/EXTERNAL-ACCESS.md` 의 표도 만든다. 둘을 각자 적으면
+#   어긋나도 아무도 알려주지 않는다(Gotcha 71·117).
+#     python3 local/render-external-access.py          # 생성
+#     python3 local/render-external-access.py --check  # 뒤처지면 1
+#
+# ★★★ `commonAnnotations` 를 두지 않는다.
+#   kustomize 의 `commonAnnotations` 는 리소스에 **이미 있는 같은 키를
+#   덮어쓴다** — 여기 모든 리소스가 `argocd.argoproj.io/sync-wave: "8"` 을
+#   직접 들고 있으므로, 여기서 다시 박으면 그 값이 조용히 바뀐다(Gotcha 67).
+#   `base/gateway-routes/kustomization.yaml` 이 같은 이유로 비워 두고 있다.
+#
+# ★ 왜 base 가 아니라 local 인가
+#   호스트명 체계(`*.oneinchmarket.local`)·인증 없는 UI 의 노출·DB 의 외부
+#   TCP 는 전부 **개발 랩의 결정**이다. prod 는 공인 DNS·ACME·베스션이어야
+#   한다. base 에 두면 prod 오버레이가 그대로 상속해 금지가 문서에만 남는다 —
+#   Caldera(ADR-030)·BuildKit(Gotcha 149)·lakehouse-local 과 같은 자리다.
+#
+# ★ 노드 쪽에 남는 것: **와일드카드 DNS** 와 **WireGuard** 뿐이다. 443·80 은
+#   `external-ips-service.yaml` 이 처리하므로 노드 DNAT 가 필요하지 않다
+#   (DNAT 는 Cilium 의 eBPF 보다 뒤에 있어 **동작하지 않는다** — 그 파일의
+#   측정 기록 참조). 남은 둘은 노드 상태라
+#   이 레포의 매니페스트로 담을 수 없다. `local/external-access-node.sh` 가
+#   넣고 되읽어 확인한다(Gotcha 126·183 과 같은 부류).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - httproutes.yaml
+  - external-ips-service.yaml
+  - db-gateway.yaml
+  - authz-external-access.yaml
+  - destinationrules.yaml
+  - netpol-external-access.yaml
