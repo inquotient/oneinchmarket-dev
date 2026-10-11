@@ -52,9 +52,14 @@ ADR-072     API 과금 계량        19곳      compose 이식 규약      1곳
 ```
 
 새 쪽을 옮기면 **31곳**을 건드리고, 그중에는 `CLAUDE.md` 의 Gotcha 7·15·185 가 있다
-— 매 세션 읽히는 문서다. 옛 쪽은 **7곳**이고, 게다가 그 둘은 **파일에서 이미
-`ADR-076` 뒤에 있어서**(`078` 이 `077` 보다 앞이라는 것만 빼면) 물리 순서와도 맞는다.
+— 매 세션 읽히는 문서다. 옛 쪽은 **7곳**이다.
 ★ **방향이 적혀 있어도 그 근거가 측정 전이면 다시 재야 한다.**
+★★ **당시 근거 하나는 같은 날 스스로 낡았다** — "그 둘은 파일에서 이미 `ADR-076` 뒤에
+있어 물리 순서와도 맞는다"(`078` 이 `077` 보다 앞인 것만 빼면) 고 적었는데, 몇 시간 뒤
+아래 §절 배치의 재배치가 `077` 을 **관측성**으로 `078` 을 **매니페스트 · GitOps** 로
+옮겨 **그 둘은 더 이상 붙어 있지 않다.** 판별에 쓴 근거(참조 **31곳 대 7곳**)는 그대로
+유효하다. **물리 순서를 판단 근거로 쓰지 말 것 — 그것은 옮기면 바뀌고, 옮기는 것은
+위험이 0 이라 실제로 옮긴다.**
 
 ★ 이 충돌은 옮기기 전에 이미 **오인용 2건을 낳았고 그것은 따로 고쳤다**(커밋
 `75d5246`): `contracts/asyncapi/api-usage.yaml` 과 `docs/LOCAL-DEPLOYMENT.md` 의
@@ -95,12 +100,75 @@ awk '/^### ADR-[0-9]+/{p=1;next}
 
 ---
 
+## 절 배치 — 어느 절에 넣는가
+
+**규칙은 둘뿐이다.**
+
+1. **절은 주제로 정한다 — 번호가 아니다.** 번호는 추가된 순서일 뿐이라 주제와 아무
+   관계가 없다. 그래서 번호만 보고 "뒤쪽에 붙인다" 를 하면 반드시 어긋난다.
+2. **절 안은 번호 순.** 예외는 **하나**다 — `ADR-075`(OPA 재검토)는 `ADR-007`
+   (Kyverno 채택) **바로 뒤**에 둔다. 그 결정을 직접 되짚는 항목이라 떨어뜨려 놓으면
+   읽는 사람이 둘을 잇지 못한다. **그 밖에 번호가 어긋난 자리를 보면 그것은 의도가
+   아니라 실수다.**
+
+★ **ADR 사이에는 `---` 를 두지 않는다** — `---` 는 `##` 절 머리말 앞에만 둔다.
+2026-10-10 까지 79건 중 **12건만** `---` 로 끝나 있었고, 그 불균일이 항목을 옮길 때마다
+가로줄을 엉뚱한 자리에 남겼다. 균일하게 두면 옮기는 것이 안전해진다.
+
+★★★ **2026-10-10 재배치 — 전수로 보니 14건이 주제와 다른 절에 있었다.**
+번호 충돌을 해소하면서(위 §건수) 같은 날 함께 확인했다. 원인은 하나다 — **쓰기 쉬운
+자리에 붙인 것이고 판단의 결과가 아니다.** 옮긴 것:
+
+| ADR | 제목 | 있던 절 | 옮긴 절 | 왜 |
+|---|---|---|---|---|
+| 066 | FreeIPA 제거 | 데이터 플랫폼 | 보안 | 신원 기반 결정이다 |
+| 067 | API 계약 우선 | 데이터 플랫폼 | API 관리 · 과금 | 계약 표면이 곧 API 표면이다 |
+| 020 | Jenkins → GitLab CI | **보안** | 매니페스트 · GitOps | CI 플랫폼 통합이다. 보안과 무관하다 |
+| 021 | Apicurio Registry 단독 | **보안** | API 관리 · 과금 | 스키마 레지스트리는 계약 표면이다 |
+| 072 | API 과금 계량 | 네트워크 | API 관리 · 과금 | 계량 지점이 게이트웨이인 것과 주제가 과금인 것은 다르다 |
+| 073 | ClickHouse 범위 개정 | 네트워크 | 관측성 | 개정 대상 `070` 과 같은 절이어야 한다 |
+| 074 | Envoy RLS 미룸 | 네트워크 | API 관리 · 과금 | 플랜 한도 강제다 |
+| 075 | OPA 재검토 안 함 | 네트워크 | 보안 | 어드미션 정책 엔진 결정이다 |
+| 076 | OpenMeter 기각 철회 | 네트워크 | API 관리 · 과금 | `072` 로 판단이 옮겨간 항목이다 |
+| 079 | WSO2 → OSS 조합 | 네트워크 | API 관리 · 과금 | API 관리 제품 매핑이다 |
+| 069 | 세션 리플레이 OpenReplay | 운영 · 사이징 | 관측성 | RUM 이다 |
+| 070 | ClickHouse 범위 한정 | 운영 · 사이징 | 관측성 | `037`(Snuba용 ClickHouse)이 이미 거기 있다 |
+| 077 | OpenReplay 공용 PostgreSQL | 운영 · 사이징 | 관측성 | `069` 의 전제다 |
+| 078 | compose → k8s 이식 규약 | 운영 · 사이징 | 매니페스트 · GitOps | 매니페스트 작성 규약이다 |
+
+그리고 **절 안 순서 3건**을 번호 순으로 돌렸다 — `064`·`065`(Spark)가 `066`·`067` 뒤에
+있었고, `068` 이 `매니페스트 · GitOps` 절 **맨 앞**에 있었다.
+
+★ **절 이름 하나를 새로 만들었다 — 「API 관리 · 과금」.** 네트워크 절이 과금·API 결정
+다섯 건을 품고 있어서 **절 이름이 내용과 어긋나 있었다.** 그 여섯은 하나의 사슬이다 —
+레지스트리(`021`) · 계약(`067`) → 계량(`072`) → 백엔드(`076`) → 한도(`074`) →
+제품 매핑(`079`). ★★ **`ADR-071`(외부 진입점 Istio Gateway)은 네트워크에 남겼다** —
+계량 지점을 겸하지만 그것은 **진입점·메시 결정**이고, 제목이 겸임을 이미 말한다.
+사슬의 머리를 네트워크에 두는 것이 두 절의 경계를 가장 적게 흐린다.
+
+★★ **절 이동은 참조를 깨지 않는다 — 옮기기 전에 세어서 확인했다.** 이 레포에서 ADR 을
+가리키는 것은 전부 **번호**(`ADR-NNN`)이고, 절 앵커(`ADR-CANDIDATES.md#<절>`)를 가리키는
+곳은 **0건**이다. 그래서 이 재배치는 **diff 가 크고 위험은 0** 이다. 번호 충돌 해소
+(§건수)와 대비할 것 — 그쪽은 참조 31곳 대 7곳을 세어 방향을 정해야 했고, 이쪽은
+**셀 것이 없다.** **번호를 바꾸는 것과 자리를 바꾸는 것은 비용이 다르다.**
+
+★ **남은 것 하나 — `ADR-012` 는 자리가 아니라 상태가 낡았다.** 그 항목은 `Open` 이고
+선택지가 ⓐ VPN 전용 ⓑ ingress-nginx ⓒ **Istio ingress gateway** 인데, `ADR-071` 이
+2026-09-05 에 ⓒ 를 채택해 **이미 닫힌 질문이다.** 자리는 운영 · 사이징이 맞아 그대로
+두었고, 상태는 **고치지 않았다** — 그것은 배치가 아니라 결정의 기록이고, 닫으면
+§상태 집계의 `Open` 12 와 `docs/PRD.md` 의 `S-10` 이 함께 움직인다.
+**낡은 `Open` 은 쉬는 항목이 아니라 틀린 정보를 퍼뜨린다**(`ADR-072` 가 그랬다) —
+다음에 볼 자리다.
+
+---
+
 ## 목차
 
 - [데이터 플랫폼](#데이터-플랫폼)
 - [매니페스트 · GitOps](#매니페스트--gitops)
 - [IaC](#iac)
 - [네트워크 · 서비스메시](#네트워크--서비스메시)
+- [API 관리 · 과금](#api-관리--과금)
 - [보안](#보안)
 - [관측성](#관측성)
 - [운영 · 사이징](#운영--사이징)
@@ -174,93 +242,6 @@ awk '/^### ADR-[0-9]+/{p=1;next}
 - **적합**: 파트너사 연동, 서버리스·브라우저 클라이언트, 간헐적 이벤트 수집. **고처리량 스트리밍 소비에는 네이티브 리스너가 맞다.**
 - **보안 전제**: Bridge의 HTTP API에는 자체 인증이 없으므로 반드시 인증 계층(oauth2-proxy + Keycloak) 뒤에 둔다(SEC-206).
 
----
-
-
-
-### ADR-066 — FreeIPA를 아키텍처에서 완전 제거
-**상태: `Accepted`**
-
-- **배경**: FreeIPA는 ADR-022의 v1 복원 대상에 포함되어 있었다. 원래 의도는 **Keycloak에서 생성된 계정을 Knox·Ranger까지 연동**하는 것이었다.
-- **결정**: **FreeIPA를 복원 대상에서 제외한다.** ADR-022의 복원 범위가 37 → **36 파드**로 줄어든다.
-- **근거 ① 기능이 전부 중복이다.**
-
-  | FreeIPA 구성요소 | 이 스택의 대체재 |
-  |---|---|
-  | 389-DS (LDAP) | **ds389** 독립 배포 — Knox `JndiLdapRealm`·Ranger `SYNC_LDAP_URL`이 실제로 참조하는 곳 |
-  | MIT Kerberos KDC | **kerberos** 독립 컨테이너 |
-  | Dogtag PKI (CA) | **cert-manager** (TODO-02) |
-  | BIND (DNS) | **CoreDNS** |
-  | 디렉터리 관리 UI | **LAM** · Keycloak 관리 콘솔 |
-  | SSSD / HBAC | 이 스택에서 미사용 |
-
-- **근거 ② 원래 목적은 다른 수단으로 달성된다.** 계정 연동의 빠진 조각은 "Keycloak에서 만든 계정이 DS389 `ou=users`에 나타나게 하는 것" 하나였고, 답은 **Keycloak LDAP User Federation (`Edit Mode: WRITABLE`, `Sync Registrations: ON`)** 이다. 이벤트 파이프라인(Kafka `keycloak-events` → Argo Events → Job)도, FreeIPA도 필요 없다. Knox는 로그인 시점 LDAP bind라 즉시, Ranger는 usersync 주기 내에 반영된다.
-- **근거 ③ v1에서도 완성된 적이 없다.** `v1/argocd/argocd-kafka-sensor.yaml:43`의 동기화 Job 이미지가 `your-registry/sync-tools:latest` 플레이스홀더다.
-- **근거 ④ Kubernetes와 전제가 충돌한다.** FreeIPA는 고정 FQDN·고정 IP·정/역방향 DNS·정확한 시각을 설치 시점에 요구하고 LDAP에 영구 기록한다. 파드에는 그 넷 중 무엇도 보장되지 않는다. WSL 로컬에서는 클럭 드리프트가 Kerberos 티켓(±5분)을 깨뜨린다.
-- **효과**
-  - governance 로컬 소요 **7.9 → 5.9 GB**, `local-governance` 프로파일 31.8 → **29.8 GB** (여유 8.9 → 10.9)
-  - PSS `restricted` 예외 1건 감소 (TODO-13 목록 축소)
-  - 로컬 빌드 이미지 **3종 → 2종** (`freeipa-systemd` 제거) — Oracle Ampere 부적합 근거도 그만큼 약화
-  - `v1/freeipa/freeipa-configmap.yaml:5-6`의 평문 비밀번호 2건이 복원 경로에서 사라진다 (SEC-402 동류)
-- **남기는 것**: `kerberos`는 제거하지 않는다. Hadoop 네이티브 CLI/RPC 접근 요구가 생기면 필요하다 — 별도 판단 사항이다.
-
-### ADR-067 — API 계약 관리를 계약 우선(contract-first)으로
-**상태: `Accepted`** (2026-09-01)
-
-**결정** — `contracts/` 의 파일이 원천이고 구현이 거기에 맞춘다. 그 반대가 아니다.
-
-**계약 표면** — 확인된 것은 둘뿐이다.
-
-| 주체 | 성격 | 계약 |
-|---|---|---|
-| `cmmn-api` | **Spring Boot** REST (`SPRING_*`, `/actuator/health`) | OpenAPI. OpenAPI 엔드포인트를 노출하지 않는다(springdoc 미적용) |
-| `cmmn-api` ↔ Kafka | 토픽 `dev.api.cmmn.menu` · `dev.api.cmmn.multilanguage` | AsyncAPI + Avro/JSON 스키마 |
-| `admin` | **프론트엔드**(포트 3000, env 없음, `/` 프로브) | 없음. REST 계약 주체가 아니다 |
-
-> **정정** — 이전 검토에서 두 앱을 Quarkus 라고 적었으나 틀렸다. 그때 본 `QUARKUS_*` 는
-> Apicurio 자신의 환경변수였다. `cmmn-api` 는 Spring Boot 이고 `admin` 은 프론트엔드다.
-> 결정 자체는 바뀌지 않는다 — 오히려 두 앱 모두 OpenAPI 문서를 내놓지 않으므로
-> 코드 우선을 택했어도 추출할 것이 없었다.
-
-**필수 귀결 — `auto.register.schemas` 를 껐다**
-
-`cmmn-api` 는 이미 Apicurio 의 ccompat 엔드포인트를 가리키고 있었다.
-
-```
-SPRING_KAFKA_PROPERTIES_SCHEMA_REGISTRY_URL = http://apicurio-registry-headless:8080/apis/ccompat/v7
-```
-
-Confluent serdes 의 기본값은 `auto.register.schemas=true` 다. 그대로 두면 **앱이 처음
-메시지를 보낼 때 스키마를 스스로 등록한다.** 그것은 코드 우선이며 이 결정과 정면으로
-충돌한다. 매니페스트에서 껐다.
-
-```
-SPRING_KAFKA_PROPERTIES_AUTO_REGISTER_SCHEMAS = false
-SPRING_KAFKA_PROPERTIES_USE_LATEST_VERSION    = true
-```
-
-이제 앱은 등록된 최신 스키마를 찾아 쓰고 **없으면 실패한다.** 계약이 먼저 있어야 한다는
-뜻이고 그것이 의도다.
-
-**기구**
-
-| 층 | 무엇 | 어디 |
-|---|---|---|
-| 원천 | `contracts/{openapi,asyncapi,schemas}` | 이 레포 |
-| 스타일 게이트 | Spectral 6.16.3 | CI `validate` (`spectral-lint`) |
-| 구문·호환 게이트 | Apicurio 전역 규칙 `VALIDITY=FULL`·`COMPATIBILITY=BACKWARD` | 레지스트리 (ADR-021, §8-13) |
-| 게시 | `contracts/` → Apicurio | CI `deploy` (`publish-contracts`) |
-
-스키마는 ccompat(파일명 = subject), OpenAPI/AsyncAPI 는 Registry v3(파일명 = artifactId)로 올린다.
-
-**아직 없는 것** — 실제 계약 파일이 0개다. 앱 소스가 이 레포에 없고(G9) 두 앱 모두 OpenAPI
-문서를 내놓지 않으므로 **초기 계약은 손으로 작성해야 한다.** 그때까지 두 CI 잡은 대상이
-없으면 통과하되 그 사실을 로그에 남긴다(아무것도 안 한 잡이 초록색으로만 남지 않도록).
-
-**하지 않기로 한 것** — Swagger Editor(레지스트리와 연동 없음, 저장이 브라우저 로컬),
-Swagger Parser(라이브러리이지 배포물이 아님). OpenAPI Generator 는 앱 레포 CI 소관이다.
-Microcks 는 6단계로 미룬다(§8-13).
-
 ### ADR-064 — Spark 계층 도입 및 배포 방식
 **상태: `Proposed`**
 
@@ -287,7 +268,57 @@ Microcks 는 6단계로 미룬다(§8-13).
 - **Livy 상태 확인**: Attic 아님. **0.9.0-incubating**(2026-01) 최신, 0.10.0 준비 중. LIVY-702(K8s), LIVY-1010(Spark 3.5.6). 2017년부터 **ASF Incubator** 소속이라 산출물에 `-incubating` 접미사가 붙는다.
 - **한계**: 두 경로 모두 **Ranger 인가를 우회한다**(G39). Ranger에 Spark 플러그인이 없다. 세밀한 테이블·컬럼 통제가 필요한 사용자는 Trino로 강제하고, Spark 경로는 MinIO 버킷 정책 수준까지만 보장한다.
 - **통제**: Livy는 세션당 driver를 띄우므로 `livy.server.session.max-creation = 3`, `timeout = 1h`로 상한을 건다(G40).
+
+---
+
 ## 매니페스트 · GitOps
+
+### ADR-003 — Helm 미사용, 수기 YAML + Kustomize
+**상태: `Accepted`**
+
+- **결과**: 완전한 투명성, 차트 드리프트 없음. 대가로 업스트림 운영 지식(bitnami·Strimzi·ECK 차트 로직)을 직접 재구현해야 하며, **DB 부트스트랩 부재·ServiceAccount 누락·Kafka PVC 미사용이 그 대가로 드러났다.**
+- **예외**: Sentry 채택 시 커뮤니티 Helm 차트를 허용한다(ADR-036 ⓑ). 예외 기준 — 수기 작성 시 유지보수 부담이 얻는 것을 명백히 초과하는 경우.
+
+### ADR-004 — Kustomize base + overlay 구조
+**상태: `Accepted`** — `kubectl kustomize`로 dev/prod 빌드 성공 확인 (dev 5,427줄 / prod 5,569줄).
+
+### ADR-005 — ArgoCD GitOps + sync wave 의존 순서
+**상태: `Accepted`**
+
+- **결정**: 카테고리 `commonAnnotations`로 wave 0~8, `automated{prune,selfHeal}`, `PruneLast`, `RespectIgnoreDifferences`, retry backoff.
+- **결과**: 환경당 Application 1개라 폭발 반경이 하나이고, **클러스터 범위 ClusterPolicy를 dev/prod가 공동 소유해 충돌한다**(G25). AppProject 화이트리스트 누락으로 `service-mesh/` 전체가 sync 거부된다(G17).
+
+### ADR-006 — prod 배포 승인 모델
+**상태: `Open`**
+
+- **배경**: CI `deploy-prod`는 `when: manual`이나 **ArgoCD prod Application이 `automated{prune,selfHeal}`** 이라 `v2` 머지 시 CI와 무관하게 자동 적용된다. `rotation-git-sync`가 리뷰 없이 `v2`에 push 한다(G26).
+- **선택지**: ⓐ prod Application의 auto-sync 제거 ⓑ prod 브랜치 분리 ⓒ 문서를 현실에 맞게 수정.
+
+### ADR-020 — Jenkins → GitLab CI 통합
+**상태: `Proposed`** — 계획서 전환표에 Jenkins 언급이 아예 없어 암묵적으로 제거되었던 결정을 명문화한다. ADR-022로 Jenkins가 복원되면 **역할 분담 정의가 필요하다**(TODO-40).
+
+### ADR-054 — Kustomize Component 기반 프로파일 구조
+**상태: `Proposed`**
+
+- **배경**: `base/kustomization.yaml`이 10개 카테고리를 무조건 포함해 부분 배포가 불가능하다. 64 GB 로컬 호스트에서 전체 스택(93 GB)을 올릴 수 없다.
+- **결정**: `kubernetes/components/` 8종(core·observability·security-min·security-full·lakehouse-v1·governance·devops·apm) + `overlays/local-*` 5종. dev/prod는 전 컴포넌트를 포함해 구조를 통일한다.
+- **하드웨어 사다리** (전 구성요소 동시 배포 기준):
+
+  | 조치 | 소요 | 필요 호스트 |
+  |---|--:|---|
+  | 설계 그대로 (HA) | ~170 GB | 256 GB |
+  | 레플리카 전부 1 | ~120 GB | 192 GB |
+  | + JVM 힙 설정 + GlitchTip | **~93 GB** | **128 GB (권장)** |
+  | + 프로파일 분할 | ~40 GB | 64 GB |
+
+- **부수 효과**: 컴포넌트 경계를 그으려면 의존 관계를 확정해야 하므로 **G22·G18·G13이 강제로 해소된다.**
+- **한계**: Kustomize에 의존성 자동 해석이 없어 문서 + CI로 강제해야 한다.
+
+### ADR-062 — sync-wave를 카테고리 → 서비스 단위로 이동
+**상태: `Proposed`** — 컴포넌트 경계가 카테고리와 다르다. `governance` 내부의 DS389(3) → Solr(5) → Ranger(6) → Knox(7) 순서를 표현할 수 있게 되어 오히려 정밀해진다.
+
+### ADR-063 — `commonLabels` → `labels:` 전환
+**상태: `Proposed`** — kustomize v5.8에서 deprecated. 빌드 시 경고 8건 발생 중.
 
 ### ADR-068 — 환경 분리는 브랜치가 아니라 Kustomize 오버레이로 한다
 **상태: `Accepted`** (2026-09-03)
@@ -322,49 +353,63 @@ Microcks 는 6단계로 미룬다(§8-13).
 
 **dev/prod 가 같은 클러스터를 쓴다**(`destination.server: https://kubernetes.default.svc`). 물리적으로 분리하게 되면 `destination.server` 가 갈라지는 것이지, 그때도 브랜치가 갈라질 이유는 아니다.
 
-### ADR-003 — Helm 미사용, 수기 YAML + Kustomize
-**상태: `Accepted`**
+### ADR-078 — compose 전용 제품을 k8s 로 옮길 때의 규약 (SafeLine 사례)
+**상태: `Accepted`** (2026-09-03)
 
-- **결과**: 완전한 투명성, 차트 드리프트 없음. 대가로 업스트림 운영 지식(bitnami·Strimzi·ECK 차트 로직)을 직접 재구현해야 하며, **DB 부트스트랩 부재·ServiceAccount 누락·Kafka PVC 미사용이 그 대가로 드러났다.**
-- **예외**: Sentry 채택 시 커뮤니티 Helm 차트를 허용한다(ADR-036 ⓑ). 예외 기준 — 수기 작성 시 유지보수 부담이 얻는 것을 명백히 초과하는 경우.
+> ★ **구 번호 `ADR-072`.** 2026-10-10 에 여기로 옮겼다 — 2026-09-05 에 추가된
+> "API 과금 계량"(현 `ADR-072`)이 같은 번호를 썼기 때문이다. 옛것을 옮긴 이유는
+> 참조 수다(이쪽 1곳 대 계량 쪽 19곳). 경위는 머리말 §건수.
 
-### ADR-004 — Kustomize base + overlay 구조
-**상태: `Accepted`** — `kubectl kustomize`로 dev/prod 빌드 성공 확인 (dev 5,427줄 / prod 5,569줄).
+**결정** — docker-compose 만 지원하는 제품은 **볼륨을 공유하는 것끼리만 한 파드**에
+묶고 나머지는 분리한다. 그리고 아래 6가지를 배포 전에 확인한다. SafeLine 배포에서
+전부 실제로 만난 것들이다(§8-26).
 
-### ADR-005 — ArgoCD GitOps + sync wave 의존 순서
-**상태: `Accepted`**
+| 확인 | compose 에서 안 보이는 이유 | 실측 증상 |
+|---|---|---|
+| **포트 충돌** | 서비스마다 네트워크 네임스페이스가 따로다 | `bind: address already in use` |
+| **준비성 순환 의존** | compose 에 준비 개념이 없다 | 영원히 Ready 가 안 됨 |
+| **container_name = 호스트명** | 컴포즈가 이름 DNS 를 준다 | `lookup X: no such host` |
+| **포트 목록 미문서화** | 한 네트워크라 전부 열려 있다 | panic 을 하나씩 만남 |
+| **root·capability** | 도커 기본이 root 다 | `chown: Operation not permitted` |
+| **워커 수 = 호스트 코어** | 메모리 상한이 없다 | `exit 137` OOMKilled |
 
-- **결정**: 카테고리 `commonAnnotations`로 wave 0~8, `automated{prune,selfHeal}`, `PruneLast`, `RespectIgnoreDifferences`, retry backoff.
-- **결과**: 환경당 Application 1개라 폭발 반경이 하나이고, **클러스터 범위 ClusterPolicy를 dev/prod가 공동 소유해 충돌한다**(G25). AppProject 화이트리스트 누락으로 `service-mesh/` 전체가 sync 거부된다(G17).
+#### 파드를 나누는 기준
 
-### ADR-006 — prod 배포 승인 모델
-**상태: `Open`**
+**볼륨 공유가 기준이다.** unix 소켓과 규칙 디렉터리를 주고받는 것끼리만 묶는다.
+고정 IP 참조는 같은 파드에서 `127.0.0.1` 로 자연히 해소되지만, **포트가 충돌하면
+그 이점이 무너진다.** SafeLine 은 mgt·detector·tengine·chaos 를 묶고 fvm·luigi 를
+뺐다 — fvm 과 tengine 이 둘 다 `:80` 을 잡기 때문이다.
 
-- **배경**: CI `deploy-prod`는 `when: manual`이나 **ArgoCD prod Application이 `automated{prune,selfHeal}`** 이라 `v2` 머지 시 CI와 무관하게 자동 적용된다. `rotation-git-sync`가 리뷰 없이 `v2`에 push 한다(G26).
-- **선택지**: ⓐ prod Application의 auto-sync 제거 ⓑ prod 브랜치 분리 ⓒ 문서를 현실에 맞게 수정.
+#### 나눈 뒤에 반드시 따라오는 것
 
-### ADR-054 — Kustomize Component 기반 프로파일 구조
-**상태: `Proposed`**
+1. **Service 이름을 `container_name` 과 같게** 짓는다. 같은 파드 안이어도 제품이
+   DNS 이름으로 부르는 경우가 있다(SafeLine mgt → chaos).
+2. **`publishNotReadyAddresses: true`** — 기동 중 서로를 부르는 관계가 있으면
+   필수다. 없으면 준비되지 않은 파드가 엔드포인트에서 빠져 순환 교착이 된다.
+3. **NetworkPolicy** — 한 네트워크였던 것이 나뉘면 정책이 필요해진다.
+   `default-deny-ingress` 아래에서 이 실패는 **타임아웃**으로 나타나 상류
+   애플리케이션 고장으로 오인된다.
 
-- **배경**: `base/kustomization.yaml`이 10개 카테고리를 무조건 포함해 부분 배포가 불가능하다. 64 GB 로컬 호스트에서 전체 스택(93 GB)을 올릴 수 없다.
-- **결정**: `kubernetes/components/` 8종(core·observability·security-min·security-full·lakehouse-v1·governance·devops·apm) + `overlays/local-*` 5종. dev/prod는 전 컴포넌트를 포함해 구조를 통일한다.
-- **하드웨어 사다리** (전 구성요소 동시 배포 기준):
+#### 포트는 실측으로 확보한다
 
-  | 조치 | 소요 | 필요 호스트 |
-  |---|--:|---|
-  | 설계 그대로 (HA) | ~170 GB | 256 GB |
-  | 레플리카 전부 1 | ~120 GB | 192 GB |
-  | + JVM 힙 설정 + GlitchTip | **~93 GB** | **128 GB (권장)** |
-  | + 프로파일 분할 | ~40 GB | 64 GB |
+문서를 믿지 말고 파드 안에서 읽는다. **`/proc/net/tcp` 만 보면 안 된다** —
+IPv6 와일드카드(`[::]:8080`)에 붙는 프로세스를 놓친다.
 
-- **부수 효과**: 컴포넌트 경계를 그으려면 의존 관계를 확정해야 하므로 **G22·G18·G13이 강제로 해소된다.**
-- **한계**: Kustomize에 의존성 자동 해석이 없어 문서 + CI로 강제해야 한다.
+```sh
+cat /proc/net/tcp /proc/net/tcp6 | awk '$4=="0A"{split($2,a,":"); print a[2]}' | sort -u
+```
 
-### ADR-062 — sync-wave를 카테고리 → 서비스 단위로 이동
-**상태: `Proposed`** — 컴포넌트 경계가 카테고리와 다르다. `governance` 내부의 DS389(3) → Solr(5) → Ranger(6) → Knox(7) 순서를 표현할 수 있게 되어 오히려 정밀해진다.
+#### 메모리 상한은 실사용으로 정한다
 
-### ADR-063 — `commonLabels` → `labels:` 전환
-**상태: `Proposed`** — kustomize v5.8에서 deprecated. 빌드 시 경고 8건 발생 중.
+`worker_processes auto` 류는 **cgroup CPU 한도가 아니라 호스트 온라인 코어 수**를
+읽는다. `cpu: "2"` 를 걸어도 24코어 노드에서는 24 워커가 뜬다. compose 에는 메모리
+상한이 없어 이 문제가 존재하지 않는다.
+
+#### 대가
+
+이식은 **상류 문서에 없는 지식에 의존한다.** 포트 목록·기동 순서·소유권 요구가
+전부 실측 산물이라, 상류가 토폴로지를 바꾸면 조용히 깨진다. 이미지 태그를
+핀닝하고, 업그레이드 시 §8-26 의 체크리스트를 다시 돌려야 한다.
 
 ---
 
@@ -474,9 +519,6 @@ IngressClass 가 0개라 SafeLine 앞단에 트래픽이 없다. 실증된 것�
 - **결정**: 기본 격리·FQDN egress·메시 미가입 워크로드는 **CiliumNetworkPolicy**, 워크로드 ID 기반 인가·L7 HTTP는 **Istio AuthorizationPolicy**. 기존 K8s NetworkPolicy 14개는 유지(Cilium이 해석)하고 점진 이관.
 - **드롭 원인 추적 절차**: ① `hubble observe --verdict DROPPED` → ② ztunnel/waypoint 로그 → ③ `istioctl analyze`.
 
----
-
-
 ### ADR-071 — 외부 진입점으로 Istio Gateway 채택 (API 과금의 계량 지점을 겸한다)
 **상태: `Accepted`** (2026-09-05)
 
@@ -523,6 +565,92 @@ local/configure-istio-usage-logging.sh              meshConfig 제공자
   dev/prod 승격 시 sync 가 거부된다.
 
 ---
+
+## API 관리 · 과금
+
+### ADR-021 — Apicurio Studio 제외 및 Registry 단독 운영
+**상태: `Accepted`** (2026-09-01) — **upstream 이 대신 결론냈다.**
+
+- **Apicurio Studio 는 완전 폐기(deprecated)되었다.** `apicur.io/studio` 공지:
+  *"Apicurio Studio is now fully deprecated. Studio functionality has been integrated
+  into Apicurio Registry 3.1.0 as an opt-in feature."*
+  저장소도 `ApicurioArchive/apicurio-studio` 로 옮겨졌다.
+- 즉 v1 의 5종(registry + registry-ui + studio-api/ui/ws) 중 studio 3종은 **더 이상 존재하지 않는다.**
+- **TODO-39(이미지 pull 가능 여부 `[UNVERIFIED]`)는 이것으로 해소된다.**
+  Docker Hub `apicurio/apicurio-studio` 에는 `1.0.0.Beta1`·`latest-snapshot` 만 있고
+  GA 태그가 없다. 채택 가능한 상태가 아니다.
+
+**결정 — registry + registry-ui 2종 운영.**
+
+- `registry-ui` 는 **제외 대상이 아니었다.** v2 로 오면서 누락된 것이며(3.x 는 UI 가 별도 이미지),
+  그 결과 레지스트리를 REST 로만 볼 수 있었다. 2026-09-01 에 `apicurio-registry-ui:3.3.2` 를 배포했다.
+- 편집 기능은 Registry 의 opt-in 스위치로 켠다:
+  `apicurio.rest.mutability.artifact-version-content.enabled=true`
+  (env `APICURIO_REST_MUTABILITY_ARTIFACT_VERSION_CONTENT_ENABLED`)
+  → 콘솔에 Drafts 섹션과 버전 콘텐츠 편집이 나타난다. **실증 완료**(DRAFT 등록 → 내용 수정 204 → 반영 확인).
+- **따라서 별도 편집기(Swagger Editor 등)를 두지 않는다.** 레지스트리와 연동되지 않는 편집기는
+  저장 위치가 브라우저 로컬이라 계약 관리의 원천이 되지 못한다.
+
+**Apitomy 와의 관계** — Apicurio 의 후계자가 아니다. 라이브러리·코드생성 조각
+(Data Models · Codegen · Apicurito)이 옮겨간 곳이며, Registry 는 Apicurio 에 남아
+CNCF Sandbox 로 계속 유지된다(3.3.2, 2026-08-27). **Registry 는 대체 대상이 아니다.**
+
+### ADR-067 — API 계약 관리를 계약 우선(contract-first)으로
+**상태: `Accepted`** (2026-09-01)
+
+**결정** — `contracts/` 의 파일이 원천이고 구현이 거기에 맞춘다. 그 반대가 아니다.
+
+**계약 표면** — 확인된 것은 둘뿐이다.
+
+| 주체 | 성격 | 계약 |
+|---|---|---|
+| `cmmn-api` | **Spring Boot** REST (`SPRING_*`, `/actuator/health`) | OpenAPI. OpenAPI 엔드포인트를 노출하지 않는다(springdoc 미적용) |
+| `cmmn-api` ↔ Kafka | 토픽 `dev.api.cmmn.menu` · `dev.api.cmmn.multilanguage` | AsyncAPI + Avro/JSON 스키마 |
+| `admin` | **프론트엔드**(포트 3000, env 없음, `/` 프로브) | 없음. REST 계약 주체가 아니다 |
+
+> **정정** — 이전 검토에서 두 앱을 Quarkus 라고 적었으나 틀렸다. 그때 본 `QUARKUS_*` 는
+> Apicurio 자신의 환경변수였다. `cmmn-api` 는 Spring Boot 이고 `admin` 은 프론트엔드다.
+> 결정 자체는 바뀌지 않는다 — 오히려 두 앱 모두 OpenAPI 문서를 내놓지 않으므로
+> 코드 우선을 택했어도 추출할 것이 없었다.
+
+**필수 귀결 — `auto.register.schemas` 를 껐다**
+
+`cmmn-api` 는 이미 Apicurio 의 ccompat 엔드포인트를 가리키고 있었다.
+
+```
+SPRING_KAFKA_PROPERTIES_SCHEMA_REGISTRY_URL = http://apicurio-registry-headless:8080/apis/ccompat/v7
+```
+
+Confluent serdes 의 기본값은 `auto.register.schemas=true` 다. 그대로 두면 **앱이 처음
+메시지를 보낼 때 스키마를 스스로 등록한다.** 그것은 코드 우선이며 이 결정과 정면으로
+충돌한다. 매니페스트에서 껐다.
+
+```
+SPRING_KAFKA_PROPERTIES_AUTO_REGISTER_SCHEMAS = false
+SPRING_KAFKA_PROPERTIES_USE_LATEST_VERSION    = true
+```
+
+이제 앱은 등록된 최신 스키마를 찾아 쓰고 **없으면 실패한다.** 계약이 먼저 있어야 한다는
+뜻이고 그것이 의도다.
+
+**기구**
+
+| 층 | 무엇 | 어디 |
+|---|---|---|
+| 원천 | `contracts/{openapi,asyncapi,schemas}` | 이 레포 |
+| 스타일 게이트 | Spectral 6.16.3 | CI `validate` (`spectral-lint`) |
+| 구문·호환 게이트 | Apicurio 전역 규칙 `VALIDITY=FULL`·`COMPATIBILITY=BACKWARD` | 레지스트리 (ADR-021, §8-13) |
+| 게시 | `contracts/` → Apicurio | CI `deploy` (`publish-contracts`) |
+
+스키마는 ccompat(파일명 = subject), OpenAPI/AsyncAPI 는 Registry v3(파일명 = artifactId)로 올린다.
+
+**아직 없는 것** — 실제 계약 파일이 0개다. 앱 소스가 이 레포에 없고(G9) 두 앱 모두 OpenAPI
+문서를 내놓지 않으므로 **초기 계약은 손으로 작성해야 한다.** 그때까지 두 CI 잡은 대상이
+없으면 통과하되 그 사실을 로그에 남긴다(아무것도 안 한 잡이 초록색으로만 남지 않도록).
+
+**하지 않기로 한 것** — Swagger Editor(레지스트리와 연동 없음, 저장이 브라우저 로컬),
+Swagger Parser(라이브러리이지 배포물이 아님). OpenAPI Generator 는 앱 레포 CI 소관이다.
+Microcks 는 6단계로 미룬다(§8-13).
 
 ### ADR-072 — API 과금 계량: 계약을 먼저 고정하고 백엔드는 OpenMeter 로 간다
 **상태: `Accepted (계약)` · `Accepted (백엔드 — OpenMeter, ⓐ 채택)`** (2026-09-05 · 백엔드는 2026-10-10 에 닫았다)
@@ -639,74 +767,6 @@ DLQ 재처리처럼 늦게 도착하는 경로가 있으면 실제로 생긴다.
 정상인데 청구만 사라지므로 **Istio 를 재설치·업그레이드한 뒤에는
 `local/configure-istio-usage-logging.sh` 를 반드시 다시 돌릴 것.**
 
----
-
-### ADR-073 — ADR-070(ClickHouse 범위) 개정 — **ⓑ 채택**
-**상태: `Accepted` — ⓑ(기존 인스턴스 공유). ADR-070 개정 완료** (2026-09-05)
-
-ADR-070 은 ClickHouse 용도를 **OpenReplay 하나로** 못박았다. 근거는
-"ClickHouse 가 Trino/Iceberg·Elasticsearch·Loki 를 **대체**하는 것을 막자"였다.
-
-API 과금 계량이 OpenMeter 로 가면 ClickHouse 의 두 번째 용도가 생긴다.
-**대체가 아니라 추가이므로 ADR-070 의 취지를 깨지는 않는다** — 다만 슬쩍
-넘어가지 말고 개정으로 남겨야 한다. ADR-072 의 백엔드 결정과 함께 처리한다.
-
-
-**실측으로 구체화됨 (2026-09-05)** — OpenMeter 차트를 렌더하니 ClickHouse 가
-**Altinity 오퍼레이터 + ClickHouseInstallation CR** 로 들어온다. 즉 기존
-`clickhouse-0`(OpenReplay 용)과 **별개 인스턴스**가 생긴다.
-
-그래서 선택은 셋이다.
-
-| 안 | 내용 |
-|---|---|
-| ⓐ 인스턴스 2개 | 격리는 확실하나 단일 노드에서 ClickHouse 를 둘 돌린다. 메모리 requests 가 이미 88% 다 |
-| ⓑ 기존 인스턴스 공유 | ADR-070 을 "용도 2개" 로 개정. 차트의 ClickHouse 를 끄고 접속 설정을 밖에서 덮어야 하는데 **그 배선은 아직 확인하지 않았다** |
-| ⓒ OpenMeter 를 쓰지 않는다 | Kafka+ES 자체 집계. 중복 제거·지각 이벤트를 직접 만들어야 한다 |
-
-ADR-070 의 취지는 "ClickHouse 가 Trino/Iceberg·ES·Loki 를 **대체**하는 것을
-막자" 였다. ⓐ·ⓑ 어느 쪽도 대체가 아니므로 취지를 깨지 않는다 — 다만
-**개정 없이 슬쩍 넘어가지 않는다.**
-
-**배선 확인 완료 (2026-09-05) — ⓑ 가 가능하다**
-
-§8-56 에서 "그 배선은 아직 확인하지 않았다" 고 남긴 부분을 실측했다.
-
-차트의 `config:` 는 **자유 형식**이고 렌더된 ConfigMap 이 그대로 OpenMeter
-설정이 된다. ClickHouse 주소는 그냥 값이다:
-
-```yaml
-aggregation:
-  clickhouse:
-    address: clickhouse-headless:9000    # 기존 인스턴스를 가리킬 수 있다
-ingest:
-  kafka:
-    broker: kafka-headless:9092
-```
-
-번들된 Kafka·PostgreSQL·Redis·ClickHouse 는 차트 문서가 **"Not recommended
-for production environments"** 라고 스스로 명시한다. 개발 편의용이다.
-
-전부 끄고 기존 인프라를 가리킨 렌더:
-
-| | 기본값 | 기존 인프라 재사용 | + svix 끔 |
-|---|---|---|---|
-| Deployment | 7 | 6 | **5** |
-| StatefulSet | 4 | 0 | **0** |
-| CronJob | 3 | 3 | 3 |
-| 렌더 | 3,666줄 | 825줄 | **583줄** |
-
-★ `svix`(웹훅 서버)도 번들이며 역시 "운영 비권장" 이다. 알림이 필요 없으면
-끈다 — Deployment 가 하나 더 줄어든다.
-
-**결론** — ⓐ(인스턴스 2개)를 택할 이유가 없다. **ⓑ 로 간다면 ADR-070 을
-"ClickHouse 용도 2개(OpenReplay · API 과금 계량)" 로 개정**하면 되고,
-새로 세우는 것은 OpenMeter 자체 워크로드 8개(Deployment 5 + CronJob 3)뿐이다.
-
-**남은 결정** — ⓑ vs ⓒ(OpenMeter 미사용). 이것은 "청구 등급 계량을 직접
-만들 것인가" 의 문제이고 사용자 판단이 필요하다.
----
-
 ### ADR-074 — Envoy Rate Limit Service 는 계량 이후로 미룬다
 **상태: `Deferred`** (2026-09-05)
 
@@ -717,23 +777,6 @@ for production environments"** 라고 스스로 명시한다. 개발 편의용�
 기술적으로도 지금이 아니다 — 레이트 리밋은 L7 이라 waypoint 나 게이트웨이가
 경로에 있어야 한다. ADR-071 로 게이트웨이가 섰으므로 **waypoint 없이
 게이트웨이에 직접** 붙일 수 있고, 그 편이 훨씬 싸다.
-
----
-
-### ADR-075 — OPA 는 어드미션 용도로 재검토하지 않는다
-**상태: `Rejected (어드미션)` · `Open (API 인가)`** (2026-09-05)
-
-**ADR-007 이 이미 Kyverno 를 채택하며 Gatekeeper 를 물리쳤다**(Accepted).
-Kyverno 6정책이 실제로 가동 중이다. 지금 OPA 를 넣으면 정책 엔진이 둘이 되어
-같은 리소스를 서로 다른 규칙으로 판정하게 된다 — 이 레포엔 **이미 그 부류의
-충돌이 있다**(dev/prod 가 동일 ClusterPolicy 를 다른 `validationFailureAction`
-으로 소유).
-
-**다만 한 갈래가 열려 있다** — 플랜별 엔드포인트 접근 제어처럼 **admission 이
-아닌 API 인가**가 요건이 되면 Envoy `ext_authz` 가 후보가 되고, 그것이 Kyverno 가
-못 하는 영역이다. OpenMeter entitlement 로 먼저 해 보고 부족할 때 꺼낸다.
-
----
 
 ### ADR-076 — OpenMeter: 요건이 생겼다 (기각 철회)
 **상태: `Superseded by ADR-072`** (2026-09-05)
@@ -817,10 +860,25 @@ Data Services(SQL→REST 무코드) · 동의 관리/FAPI · ID 운영 승인 �
    Lago 는 후보로 남기되, 되돌아갈 조건은 "OpenMeter 로 표현하지 못하는 상품이
    생겼을 때" 하나다.
 
+---
+
 ## 보안
 
 ### ADR-007 — 어드미션 제어로 Kyverno 채택 (OPA Gatekeeper 대비)
 **상태: `Accepted`** — YAML 네이티브, 학습 곡선 낮음, Cosign 검증 내장. 다만 **`verifyImages` 정책이 작성되지 않았고**(G10) 시스템 네임스페이스 예외가 없다(G24).
+
+### ADR-075 — OPA 는 어드미션 용도로 재검토하지 않는다
+**상태: `Rejected (어드미션)` · `Open (API 인가)`** (2026-09-05)
+
+**ADR-007 이 이미 Kyverno 를 채택하며 Gatekeeper 를 물리쳤다**(Accepted).
+Kyverno 6정책이 실제로 가동 중이다. 지금 OPA 를 넣으면 정책 엔진이 둘이 되어
+같은 리소스를 서로 다른 규칙으로 판정하게 된다 — 이 레포엔 **이미 그 부류의
+충돌이 있다**(dev/prod 가 동일 ClusterPolicy 를 다른 `validationFailureAction`
+으로 소유).
+
+**다만 한 갈래가 열려 있다** — 플랜별 엔드포인트 접근 제어처럼 **admission 이
+아닌 API 인가**가 요건이 되면 Envoy `ext_authz` 가 후보가 되고, 그것이 Kyverno 가
+못 하는 영역이다. OpenMeter entitlement 로 먼저 해 보고 부족할 때 꺼낸다.
 
 ### ADR-008 — 런타임 탐지로 Falco 채택
 **상태: `Accepted`** — CNCF Graduated, Falcosidekick의 ES 연동 기본 지원. ADR-025 결과에 따라 Superseded 가능.
@@ -831,37 +889,6 @@ Data Services(SQL→REST 무코드) · 동의 관리/FAPI · ID 운영 승인 �
 - **배경**: CI가 이미지를 미러링·서명하지만 **어떤 매니페스트도 `registry.oneinchmarket.co.kr`을 참조하지 않고 `imagePullSecrets`도 없으며 `verifyImages` 정책도 없다.**
 - **선택지**: ⓐ 오버레이 `images[].newName`으로 레지스트리 재작성 + `restrict-image-registries` + `verify-image-signature` ⓑ 업스트림 pull 유지하고 Cosign 폐기 ⓒ ArgoCD Image Updater + 다이제스트 핀닝.
 - **트레이드오프**: ⓐ는 GitLab(wave 8)이 모든 이미지 pull의 하드 의존이 되어 ADR-005와 부트스트랩 순환을 만든다.
-
-### ADR-020 — Jenkins → GitLab CI 통합
-**상태: `Proposed`** — 계획서 전환표에 Jenkins 언급이 아예 없어 암묵적으로 제거되었던 결정을 명문화한다. ADR-022로 Jenkins가 복원되면 **역할 분담 정의가 필요하다**(TODO-40).
-
-### ADR-021 — Apicurio Studio 제외 및 Registry 단독 운영
-**상태: `Accepted`** (2026-09-01) — **upstream 이 대신 결론냈다.**
-
-- **Apicurio Studio 는 완전 폐기(deprecated)되었다.** `apicur.io/studio` 공지:
-  *"Apicurio Studio is now fully deprecated. Studio functionality has been integrated
-  into Apicurio Registry 3.1.0 as an opt-in feature."*
-  저장소도 `ApicurioArchive/apicurio-studio` 로 옮겨졌다.
-- 즉 v1 의 5종(registry + registry-ui + studio-api/ui/ws) 중 studio 3종은 **더 이상 존재하지 않는다.**
-- **TODO-39(이미지 pull 가능 여부 `[UNVERIFIED]`)는 이것으로 해소된다.**
-  Docker Hub `apicurio/apicurio-studio` 에는 `1.0.0.Beta1`·`latest-snapshot` 만 있고
-  GA 태그가 없다. 채택 가능한 상태가 아니다.
-
-**결정 — registry + registry-ui 2종 운영.**
-
-- `registry-ui` 는 **제외 대상이 아니었다.** v2 로 오면서 누락된 것이며(3.x 는 UI 가 별도 이미지),
-  그 결과 레지스트리를 REST 로만 볼 수 있었다. 2026-09-01 에 `apicurio-registry-ui:3.3.2` 를 배포했다.
-- 편집 기능은 Registry 의 opt-in 스위치로 켠다:
-  `apicurio.rest.mutability.artifact-version-content.enabled=true`
-  (env `APICURIO_REST_MUTABILITY_ARTIFACT_VERSION_CONTENT_ENABLED`)
-  → 콘솔에 Drafts 섹션과 버전 콘텐츠 편집이 나타난다. **실증 완료**(DRAFT 등록 → 내용 수정 204 → 반영 확인).
-- **따라서 별도 편집기(Swagger Editor 등)를 두지 않는다.** 레지스트리와 연동되지 않는 편집기는
-  저장 위치가 브라우저 로컬이라 계약 관리의 원천이 되지 못한다.
-
-**Apitomy 와의 관계** — Apicurio 의 후계자가 아니다. 라이브러리·코드생성 조각
-(Data Models · Codegen · Apicurito)이 옮겨간 곳이며, Registry 는 Apicurio 에 남아
-CNCF Sandbox 로 계속 유지된다(3.3.2, 2026-08-27). **Registry 는 대체 대상이 아니다.**
-
 
 ### ADR-024 — 시크릿 관리를 SOPS+age → Vault 전환
 **상태: `Open`**
@@ -910,6 +937,32 @@ CNCF Sandbox 로 계속 유지된다(3.3.2, 2026-08-27). **Registry 는 대체 �
 
 ### ADR-050 — SBOM 생성·보관 정책
 **상태: `Proposed`** — Syft(CycloneDX) → Dependency-Track. 신규 CVE 공개 시 **이미 배포된 이미지에 소급 알림**(SEC-505)이 핵심 가치다.
+
+### ADR-066 — FreeIPA를 아키텍처에서 완전 제거
+**상태: `Accepted`**
+
+- **배경**: FreeIPA는 ADR-022의 v1 복원 대상에 포함되어 있었다. 원래 의도는 **Keycloak에서 생성된 계정을 Knox·Ranger까지 연동**하는 것이었다.
+- **결정**: **FreeIPA를 복원 대상에서 제외한다.** ADR-022의 복원 범위가 37 → **36 파드**로 줄어든다.
+- **근거 ① 기능이 전부 중복이다.**
+
+  | FreeIPA 구성요소 | 이 스택의 대체재 |
+  |---|---|
+  | 389-DS (LDAP) | **ds389** 독립 배포 — Knox `JndiLdapRealm`·Ranger `SYNC_LDAP_URL`이 실제로 참조하는 곳 |
+  | MIT Kerberos KDC | **kerberos** 독립 컨테이너 |
+  | Dogtag PKI (CA) | **cert-manager** (TODO-02) |
+  | BIND (DNS) | **CoreDNS** |
+  | 디렉터리 관리 UI | **LAM** · Keycloak 관리 콘솔 |
+  | SSSD / HBAC | 이 스택에서 미사용 |
+
+- **근거 ② 원래 목적은 다른 수단으로 달성된다.** 계정 연동의 빠진 조각은 "Keycloak에서 만든 계정이 DS389 `ou=users`에 나타나게 하는 것" 하나였고, 답은 **Keycloak LDAP User Federation (`Edit Mode: WRITABLE`, `Sync Registrations: ON`)** 이다. 이벤트 파이프라인(Kafka `keycloak-events` → Argo Events → Job)도, FreeIPA도 필요 없다. Knox는 로그인 시점 LDAP bind라 즉시, Ranger는 usersync 주기 내에 반영된다.
+- **근거 ③ v1에서도 완성된 적이 없다.** `v1/argocd/argocd-kafka-sensor.yaml:43`의 동기화 Job 이미지가 `your-registry/sync-tools:latest` 플레이스홀더다.
+- **근거 ④ Kubernetes와 전제가 충돌한다.** FreeIPA는 고정 FQDN·고정 IP·정/역방향 DNS·정확한 시각을 설치 시점에 요구하고 LDAP에 영구 기록한다. 파드에는 그 넷 중 무엇도 보장되지 않는다. WSL 로컬에서는 클럭 드리프트가 Kerberos 티켓(±5분)을 깨뜨린다.
+- **효과**
+  - governance 로컬 소요 **7.9 → 5.9 GB**, `local-governance` 프로파일 31.8 → **29.8 GB** (여유 8.9 → 10.9)
+  - PSS `restricted` 예외 1건 감소 (TODO-13 목록 축소)
+  - 로컬 빌드 이미지 **3종 → 2종** (`freeipa-systemd` 제거) — Oracle Ampere 부적합 근거도 그만큼 약화
+  - `v1/freeipa/freeipa-configmap.yaml:5-6`의 평문 비밀번호 2건이 복원 경로에서 사라진다 (SEC-402 동류)
+- **남기는 것**: `kerberos`는 제거하지 않는다. Hadoop 네이티브 CLI/RPC 접근 요구가 생기면 필요하다 — 별도 판단 사항이다.
 
 ---
 
@@ -984,6 +1037,7 @@ trace ID 로 손수 잇는다. 다만 Grafana 안에서는 Tempo·Loki·Pyroscop
 
 되살아나는 것: ADR-037(ClickHouse — Snuba 와 분리 불가) · ADR-038 Kafka 절반 ·
 ADR-003 Helm 예외.
+
 ### ADR-037 — Sentry Snuba용 ClickHouse 도입
 **상태: `Rejected — 전제 소멸`** (2026-09-03) — ~~Snuba가 ClickHouse 스키마에 강결합되어 Trino/Iceberg로 대체 불가하다.~~
 
@@ -1012,6 +1066,7 @@ ClickHouse 도 함께 돌아온다. 둘은 분리해서 결정할 수 없다.
 > 좁혀 읽어야 정확하다. ClickHouse 자체는 세션 리플레이를 채택하면 어차피 들어온다.
 > 그 결정은 **ADR-070** 에서 내렸다 — ClickHouse 를 넣되 **용도를 OpenReplay 하나로
 > 한정한다.** 이 ADR(Sentry Snuba 용)의 기각은 그대로 유지된다.
+
 ### ADR-038 — Sentry 전용 Kafka · Redis 인스턴스 분리
 **상태: `Kafka 부분 Rejected — 전제 소멸` · `Redis 부분 Accepted(공유)`** (2026-09-03)
 
@@ -1066,71 +1121,6 @@ GlitchTip 은 Redis 를 쓴다(`VALKEY_URL`). 다만 **이벤트 버퍼가 아�
 
 - **핵심 근거**: `instrumentation.opentelemetry.io/inject-{java,nodejs}` 어노테이션으로 **코드 변경 없이 계측**된다. `.gitlab-ci.yml`이 참조하는 Dockerfile이 존재하지 않아 이미지 빌드가 불가능한 상태(G9)에서도 트레이스 수집을 시작할 수 있다.
 - **ADR-033과의 차이**: Strimzi에서는 "파드 1개에 CRD 10종은 과하다"고 판단했으나, 여기서는 **자동 계측이라는 대체 불가능한 기능**을 제공하므로 도입 근거가 명확하다.
-
----
-
-## 운영 · 사이징
-
-### ADR-012 — 외부 진입점 및 TLS 전략
-**상태: `Open`**
-
-- **배경**: Ingress/Gateway/LB/NodePort 객체가 하나도 없고 traefik·servicelb가 비활성이며 DNS는 사설 IP를 가리킨다. **v1에는 ingress-nginx + Ingress 5종 + cert-manager가 있었다** — 이관 누락에 가깝다.
-- **선택지**: ⓐ VPN 전용 유지 ⓑ ingress-nginx + cert-manager + 공용 LB(v1 설정 재활용) ⓒ Istio ingress gateway(waypoint용으로 이미 도입한 Gateway API 재사용).
-- **트레이드오프**: ⓐ는 ADR-010의 제로트러스트 엣지를 보존하나 Trino·Kibana·GitLab의 외부 소비자를 차단한다.
-
-### ADR-013 — 상태 저장 데이터 서비스 HA 모델
-**상태: `Open`** — prod가 replicas만 올리고 복제 토폴로지가 없으며 PDB는 실제 HA를 전제한다. 선택지: 오퍼레이터(CloudNativePG·Percona·Redis Sentinel/Cluster) / 단일 인스턴스 + 엄격한 백업 / 관리형 DB(프로바이더 이식성 상실).
-
-### ADR-014 — 비밀번호 로테이션: CronJob + Reloader + git write-back
-**상태: `Superseded` (ADR-024 채택 시)** — 설계 순서 자체는 타당하나(서비스 먼저 → Secret → 재시작), 키 이름 4건 불일치·잘못된 대상·출력 경로 부재로 동작하지 않는다. git write-back은 시크릿을 VCS에 재도입하며 `selfHeal`과 경합한다.
-
-### ADR-015 — StorageClass 및 볼륨 프로비저닝
-**상태: `Open`**
-
-- **배경**: 전 PVC가 존재하지 않는 `standard`를 참조한다. k3s 기본은 `local-path`. 블록 스토리지 모듈은 빈 ID 리스트로 호출된다.
-- **선택지**: ⓐ k3s `local-path`(무료·빠름, **StatefulSet이 노드 고정되어 ADR-013의 HA가 무의미해짐**) ⓑ 프로바이더 CSI 블록 볼륨(약 $225/월, 이동성 확보) ⓒ Longhorn/OpenEBS(복제 계층 추가, 상당한 오버헤드).
-- **2026-10-05 실측(베어메탈 2노드)** — 선택지 ⓐ 의 대가가 이제 **값으로** 보인다. PVC 11건이 전부 `Bound`·SC `standard`(local-path 별칭)인데 **`local-ubuntu3` 8건 · `local-ubuntu4` 3건으로 갈렸다**(`volume.kubernetes.io/selected-node` 로 셌다). 결론 둘:
-  - **노드를 둘로 늘려도 상태 있는 워크로드는 HA 가 아니다.** 볼륨이 있는 노드가 내려가면 그 파드는 재스케줄되지 못하고 영원히 Pending 이다 — "노드가 둘이니 괜찮다" 로 읽으면 틀린다. ADR-013 의 HA 는 여전히 무의미하다.
-  - **데이터가 두 기계에 나뉘었다** — 단일 노드 때는 백업 한 번이 전부를 덮었는데 이제 아니다. ADR-018(백업, `Open`)이 **노드별로** 설계되어야 한다. 어느 PVC 가 어느 노드에 있는지는 고정이 아니다(재생성 시 다른 노드로 갈 수 있다) — 그래서 "노드 A 를 백업한다" 가 아니라 **PVC 목록에서 노드를 읽어** 도는 방식이어야 한다.
-- **비용 결정이기도 하다.**
-
-### ADR-018 — 백업 · 복원 · 재해복구
-**상태: `Open`** — 현재 전무하다. 선택지: Velero + CSI 스냅샷 / 서비스별 논리 덤프 CronJob → MinIO / MinIO 사이트 복제 / 원격 S3 tfstate 백엔드. **MinIO를 백업 대상으로 쓰는 것은 순환**이다(레이크하우스 주 저장소이기도 하다).
-
-### ADR-055 — 로컬 DaemonSet 제외 정책 및 Suricata/Zeek 배치 정정
-**상태: `Proposed`**
-
-- **정정**: 초기 산정에서 Suricata·Zeek를 L0(OPNsense)에 배치해놓고 DaemonSet으로도 계산해 **이중 계상**했다. 클라우드에서도 **OPNsense 전용**이며 DaemonSet이 아니다.
-- **효과**: 노드당 DaemonSet 6.3 GB → 2.6 GB, 총 소요 329 → 303 Gi, **7노드 → 6노드**.
-- **로컬 추가 제외**: Kubescape node-agent·Wazuh agent·Filebeat → 노드당 1.6 GB.
-
-### ADR-056 — 레플리카 축소 정책 및 검증 손실 명시
-**상태: `Proposed`**
-
-- **절감**: HA → 전부 1로 축소 시 약 65 GB (184 → 120 GB).
-- **잃는 검증**: HA 페일오버 / Kafka KRaft quorum(**G23의 9093 NetPol 누락을 로컬에서 재현할 수 없다**) / ZooKeeper quorum / Hadoop NameNode HA / ES 샤드 복제.
-- **⚠️ PDB 정합성**: `redis-pdb minAvailable: 4`인데 replicas가 1이면 **모든 축출이 차단되어 노드 드레인이 불가능해진다.** 축소 오버레이에서는 PDB를 제거하거나 `minAvailable`을 함께 낮춘다.
-
-### ADR-057 — JVM 힙 명시 설정 규약
-**상태: `Proposed`** — 현재 모든 Java 워크로드가 기본값(컨테이너 limit의 50%)에 의존해 예측이 불가능하다. ES `-Xms1500m -Xmx1500m`, Kafka `-Xmx768m`, Trino `-Xmx1500m` 등 서비스별 힙을 고정한다. 약 12 GB 절감 → **노드 1대 절감(−$384/월)**.
-
-### ADR-058 — 실측 기반 리소스 산정 (KRR/VPA)
-**상태: `Proposed`**
-
-- **배경**: 현재 모든 수치가 추정이다. v1 매니페스트에는 리소스 정의가 없고(계획서 §2 이슈 #5), 신규 스택은 프로젝트 기본값을 사용했다. 계획서 자체 수치로도 requests 46.3 GB vs limits 102.7 GB로 **2.2배 격차**다.
-- **도구**: **KRR**(Prometheus 기반, 컨트롤러 불필요 — Prometheus가 이미 설계에 있어 추가 비용 0) 또는 VPA recommendation 모드 + Goldilocks.
-- **절차**: 배포 후 **최소 2주 관측 → 재산정.** 이 단계 없이 여유율 90%를 적용하면 위험하다 — 메모리는 throttle이 아니라 OOMKill이다.
-
-### ADR-059 — 빈 패킹 스케줄러 및 Descheduler 도입
-**상태: `Proposed`** — k3s 기본은 `LeastAllocated`(분산). `NodeResourcesFit.scoringStrategy: MostAllocated`로 조밀 배치하고 Descheduler `HighNodeUtilization`으로 저사용 노드를 비운다. **`--kube-scheduler-arg=config=<path>`는 부트스트랩 시점에만 적용 가능**하므로 Cilium 재설치와 함께 반영한다. 위험: 장애 반경 확대, PDB와의 충돌.
-
-### ADR-060 — PriorityClass 체계
-**상태: `Proposed`** — `platform-critical` / `stateful` / `stateless` / `batch-low` 4단계. 로테이션 CronJob·Trivy·Kubescape·Caldera·부트스트랩 Job을 `batch-low`로 두어 **상시 용량 산정에서 제외**한다. 부수 효과로 야간 Job이 자원을 못 잡고 조용히 실패하는 문제도 방지된다.
-
-### ADR-061 — anti-affinity 적용 범위
-**상태: `Proposed`** — 상태 저장 HA 서비스에만 적용한다. 무상태 워크로드에 걸면 빈 패킹 효율이 떨어진다. **현재 anti-affinity 규칙이 아예 없으므로 정의 작업이 선행되어야 한다.** 노드 수 하한을 만든다 — ES×3·Kafka×3·Wazuh Indexer×3·MongoDB×3 + N+1 = **최소 4노드**.
-
----
 
 ### ADR-069 — 세션 리플레이는 OpenReplay 로 하되 전제 2건이 선행한다
 **상태: `Proposed (조건부)`** (2026-09-03)
@@ -1248,63 +1238,70 @@ ADR-069 의 전제가 그대로 이 결정의 전제다.
 - ClickHouse 의 실제 소요를 이 워크로드에서 측정한 적이 없다. OpenReplay 공식
   최소 사양 **2 vCPU / 8 GB / 50 GB** 는 스택 전체 기준이며 그중 ClickHouse 몫은 미상
 
-### ADR-078 — compose 전용 제품을 k8s 로 옮길 때의 규약 (SafeLine 사례)
-**상태: `Accepted`** (2026-09-03)
+### ADR-073 — ADR-070(ClickHouse 범위) 개정 — **ⓑ 채택**
+**상태: `Accepted` — ⓑ(기존 인스턴스 공유). ADR-070 개정 완료** (2026-09-05)
 
-> ★ **구 번호 `ADR-072`.** 2026-10-10 에 여기로 옮겼다 — 2026-09-05 에 추가된
-> "API 과금 계량"(현 `ADR-072`)이 같은 번호를 썼기 때문이다. 옛것을 옮긴 이유는
-> 참조 수다(이쪽 1곳 대 계량 쪽 19곳). 경위는 머리말 §건수.
+ADR-070 은 ClickHouse 용도를 **OpenReplay 하나로** 못박았다. 근거는
+"ClickHouse 가 Trino/Iceberg·Elasticsearch·Loki 를 **대체**하는 것을 막자"였다.
 
-**결정** — docker-compose 만 지원하는 제품은 **볼륨을 공유하는 것끼리만 한 파드**에
-묶고 나머지는 분리한다. 그리고 아래 6가지를 배포 전에 확인한다. SafeLine 배포에서
-전부 실제로 만난 것들이다(§8-26).
+API 과금 계량이 OpenMeter 로 가면 ClickHouse 의 두 번째 용도가 생긴다.
+**대체가 아니라 추가이므로 ADR-070 의 취지를 깨지는 않는다** — 다만 슬쩍
+넘어가지 말고 개정으로 남겨야 한다. ADR-072 의 백엔드 결정과 함께 처리한다.
 
-| 확인 | compose 에서 안 보이는 이유 | 실측 증상 |
-|---|---|---|
-| **포트 충돌** | 서비스마다 네트워크 네임스페이스가 따로다 | `bind: address already in use` |
-| **준비성 순환 의존** | compose 에 준비 개념이 없다 | 영원히 Ready 가 안 됨 |
-| **container_name = 호스트명** | 컴포즈가 이름 DNS 를 준다 | `lookup X: no such host` |
-| **포트 목록 미문서화** | 한 네트워크라 전부 열려 있다 | panic 을 하나씩 만남 |
-| **root·capability** | 도커 기본이 root 다 | `chown: Operation not permitted` |
-| **워커 수 = 호스트 코어** | 메모리 상한이 없다 | `exit 137` OOMKilled |
 
-#### 파드를 나누는 기준
+**실측으로 구체화됨 (2026-09-05)** — OpenMeter 차트를 렌더하니 ClickHouse 가
+**Altinity 오퍼레이터 + ClickHouseInstallation CR** 로 들어온다. 즉 기존
+`clickhouse-0`(OpenReplay 용)과 **별개 인스턴스**가 생긴다.
 
-**볼륨 공유가 기준이다.** unix 소켓과 규칙 디렉터리를 주고받는 것끼리만 묶는다.
-고정 IP 참조는 같은 파드에서 `127.0.0.1` 로 자연히 해소되지만, **포트가 충돌하면
-그 이점이 무너진다.** SafeLine 은 mgt·detector·tengine·chaos 를 묶고 fvm·luigi 를
-뺐다 — fvm 과 tengine 이 둘 다 `:80` 을 잡기 때문이다.
+그래서 선택은 셋이다.
 
-#### 나눈 뒤에 반드시 따라오는 것
+| 안 | 내용 |
+|---|---|
+| ⓐ 인스턴스 2개 | 격리는 확실하나 단일 노드에서 ClickHouse 를 둘 돌린다. 메모리 requests 가 이미 88% 다 |
+| ⓑ 기존 인스턴스 공유 | ADR-070 을 "용도 2개" 로 개정. 차트의 ClickHouse 를 끄고 접속 설정을 밖에서 덮어야 하는데 **그 배선은 아직 확인하지 않았다** |
+| ⓒ OpenMeter 를 쓰지 않는다 | Kafka+ES 자체 집계. 중복 제거·지각 이벤트를 직접 만들어야 한다 |
 
-1. **Service 이름을 `container_name` 과 같게** 짓는다. 같은 파드 안이어도 제품이
-   DNS 이름으로 부르는 경우가 있다(SafeLine mgt → chaos).
-2. **`publishNotReadyAddresses: true`** — 기동 중 서로를 부르는 관계가 있으면
-   필수다. 없으면 준비되지 않은 파드가 엔드포인트에서 빠져 순환 교착이 된다.
-3. **NetworkPolicy** — 한 네트워크였던 것이 나뉘면 정책이 필요해진다.
-   `default-deny-ingress` 아래에서 이 실패는 **타임아웃**으로 나타나 상류
-   애플리케이션 고장으로 오인된다.
+ADR-070 의 취지는 "ClickHouse 가 Trino/Iceberg·ES·Loki 를 **대체**하는 것을
+막자" 였다. ⓐ·ⓑ 어느 쪽도 대체가 아니므로 취지를 깨지 않는다 — 다만
+**개정 없이 슬쩍 넘어가지 않는다.**
 
-#### 포트는 실측으로 확보한다
+**배선 확인 완료 (2026-09-05) — ⓑ 가 가능하다**
 
-문서를 믿지 말고 파드 안에서 읽는다. **`/proc/net/tcp` 만 보면 안 된다** —
-IPv6 와일드카드(`[::]:8080`)에 붙는 프로세스를 놓친다.
+§8-56 에서 "그 배선은 아직 확인하지 않았다" 고 남긴 부분을 실측했다.
 
-```sh
-cat /proc/net/tcp /proc/net/tcp6 | awk '$4=="0A"{split($2,a,":"); print a[2]}' | sort -u
+차트의 `config:` 는 **자유 형식**이고 렌더된 ConfigMap 이 그대로 OpenMeter
+설정이 된다. ClickHouse 주소는 그냥 값이다:
+
+```yaml
+aggregation:
+  clickhouse:
+    address: clickhouse-headless:9000    # 기존 인스턴스를 가리킬 수 있다
+ingest:
+  kafka:
+    broker: kafka-headless:9092
 ```
 
-#### 메모리 상한은 실사용으로 정한다
+번들된 Kafka·PostgreSQL·Redis·ClickHouse 는 차트 문서가 **"Not recommended
+for production environments"** 라고 스스로 명시한다. 개발 편의용이다.
 
-`worker_processes auto` 류는 **cgroup CPU 한도가 아니라 호스트 온라인 코어 수**를
-읽는다. `cpu: "2"` 를 걸어도 24코어 노드에서는 24 워커가 뜬다. compose 에는 메모리
-상한이 없어 이 문제가 존재하지 않는다.
+전부 끄고 기존 인프라를 가리킨 렌더:
 
-#### 대가
+| | 기본값 | 기존 인프라 재사용 | + svix 끔 |
+|---|---|---|---|
+| Deployment | 7 | 6 | **5** |
+| StatefulSet | 4 | 0 | **0** |
+| CronJob | 3 | 3 | 3 |
+| 렌더 | 3,666줄 | 825줄 | **583줄** |
 
-이식은 **상류 문서에 없는 지식에 의존한다.** 포트 목록·기동 순서·소유권 요구가
-전부 실측 산물이라, 상류가 토폴로지를 바꾸면 조용히 깨진다. 이미지 태그를
-핀닝하고, 업그레이드 시 §8-26 의 체크리스트를 다시 돌려야 한다.
+★ `svix`(웹훅 서버)도 번들이며 역시 "운영 비권장" 이다. 알림이 필요 없으면
+끈다 — Deployment 가 하나 더 줄어든다.
+
+**결론** — ⓐ(인스턴스 2개)를 택할 이유가 없다. **ⓑ 로 간다면 ADR-070 을
+"ClickHouse 용도 2개(OpenReplay · API 과금 계량)" 로 개정**하면 되고,
+새로 세우는 것은 OpenMeter 자체 워크로드 8개(Deployment 5 + CronJob 3)뿐이다.
+
+**남은 결정** — ⓑ vs ⓒ(OpenMeter 미사용). 이것은 "청구 등급 계량을 직접
+만들 것인가" 의 문제이고 사용자 판단이 필요하다.
 
 ### ADR-077 — OpenReplay 를 공용 PostgreSQL 18.6 에서 돌린다 (지원 범위 밖)
 **상태: `Accepted (근거 기반 일탈)`** (2026-09-03)
@@ -1414,6 +1411,71 @@ Current version:            ← 빈 값
 
 우리 첫 실패와 GitHub 이슈 #3706 이 같은 증상이다. **연결 실패와 버전 불일치를
 구분하지 못한다** — 그 이슈의 사용자도 실제로는 인증 문제였을 가능성이 있다.
+
+---
+
+## 운영 · 사이징
+
+### ADR-012 — 외부 진입점 및 TLS 전략
+**상태: `Open`**
+
+- **배경**: Ingress/Gateway/LB/NodePort 객체가 하나도 없고 traefik·servicelb가 비활성이며 DNS는 사설 IP를 가리킨다. **v1에는 ingress-nginx + Ingress 5종 + cert-manager가 있었다** — 이관 누락에 가깝다.
+- **선택지**: ⓐ VPN 전용 유지 ⓑ ingress-nginx + cert-manager + 공용 LB(v1 설정 재활용) ⓒ Istio ingress gateway(waypoint용으로 이미 도입한 Gateway API 재사용).
+- **트레이드오프**: ⓐ는 ADR-010의 제로트러스트 엣지를 보존하나 Trino·Kibana·GitLab의 외부 소비자를 차단한다.
+
+### ADR-013 — 상태 저장 데이터 서비스 HA 모델
+**상태: `Open`** — prod가 replicas만 올리고 복제 토폴로지가 없으며 PDB는 실제 HA를 전제한다. 선택지: 오퍼레이터(CloudNativePG·Percona·Redis Sentinel/Cluster) / 단일 인스턴스 + 엄격한 백업 / 관리형 DB(프로바이더 이식성 상실).
+
+### ADR-014 — 비밀번호 로테이션: CronJob + Reloader + git write-back
+**상태: `Superseded` (ADR-024 채택 시)** — 설계 순서 자체는 타당하나(서비스 먼저 → Secret → 재시작), 키 이름 4건 불일치·잘못된 대상·출력 경로 부재로 동작하지 않는다. git write-back은 시크릿을 VCS에 재도입하며 `selfHeal`과 경합한다.
+
+### ADR-015 — StorageClass 및 볼륨 프로비저닝
+**상태: `Open`**
+
+- **배경**: 전 PVC가 존재하지 않는 `standard`를 참조한다. k3s 기본은 `local-path`. 블록 스토리지 모듈은 빈 ID 리스트로 호출된다.
+- **선택지**: ⓐ k3s `local-path`(무료·빠름, **StatefulSet이 노드 고정되어 ADR-013의 HA가 무의미해짐**) ⓑ 프로바이더 CSI 블록 볼륨(약 $225/월, 이동성 확보) ⓒ Longhorn/OpenEBS(복제 계층 추가, 상당한 오버헤드).
+- **2026-10-05 실측(베어메탈 2노드)** — 선택지 ⓐ 의 대가가 이제 **값으로** 보인다. PVC 11건이 전부 `Bound`·SC `standard`(local-path 별칭)인데 **`local-ubuntu3` 8건 · `local-ubuntu4` 3건으로 갈렸다**(`volume.kubernetes.io/selected-node` 로 셌다). 결론 둘:
+  - **노드를 둘로 늘려도 상태 있는 워크로드는 HA 가 아니다.** 볼륨이 있는 노드가 내려가면 그 파드는 재스케줄되지 못하고 영원히 Pending 이다 — "노드가 둘이니 괜찮다" 로 읽으면 틀린다. ADR-013 의 HA 는 여전히 무의미하다.
+  - **데이터가 두 기계에 나뉘었다** — 단일 노드 때는 백업 한 번이 전부를 덮었는데 이제 아니다. ADR-018(백업, `Open`)이 **노드별로** 설계되어야 한다. 어느 PVC 가 어느 노드에 있는지는 고정이 아니다(재생성 시 다른 노드로 갈 수 있다) — 그래서 "노드 A 를 백업한다" 가 아니라 **PVC 목록에서 노드를 읽어** 도는 방식이어야 한다.
+- **비용 결정이기도 하다.**
+
+### ADR-018 — 백업 · 복원 · 재해복구
+**상태: `Open`** — 현재 전무하다. 선택지: Velero + CSI 스냅샷 / 서비스별 논리 덤프 CronJob → MinIO / MinIO 사이트 복제 / 원격 S3 tfstate 백엔드. **MinIO를 백업 대상으로 쓰는 것은 순환**이다(레이크하우스 주 저장소이기도 하다).
+
+### ADR-055 — 로컬 DaemonSet 제외 정책 및 Suricata/Zeek 배치 정정
+**상태: `Proposed`**
+
+- **정정**: 초기 산정에서 Suricata·Zeek를 L0(OPNsense)에 배치해놓고 DaemonSet으로도 계산해 **이중 계상**했다. 클라우드에서도 **OPNsense 전용**이며 DaemonSet이 아니다.
+- **효과**: 노드당 DaemonSet 6.3 GB → 2.6 GB, 총 소요 329 → 303 Gi, **7노드 → 6노드**.
+- **로컬 추가 제외**: Kubescape node-agent·Wazuh agent·Filebeat → 노드당 1.6 GB.
+
+### ADR-056 — 레플리카 축소 정책 및 검증 손실 명시
+**상태: `Proposed`**
+
+- **절감**: HA → 전부 1로 축소 시 약 65 GB (184 → 120 GB).
+- **잃는 검증**: HA 페일오버 / Kafka KRaft quorum(**G23의 9093 NetPol 누락을 로컬에서 재현할 수 없다**) / ZooKeeper quorum / Hadoop NameNode HA / ES 샤드 복제.
+- **⚠️ PDB 정합성**: `redis-pdb minAvailable: 4`인데 replicas가 1이면 **모든 축출이 차단되어 노드 드레인이 불가능해진다.** 축소 오버레이에서는 PDB를 제거하거나 `minAvailable`을 함께 낮춘다.
+
+### ADR-057 — JVM 힙 명시 설정 규약
+**상태: `Proposed`** — 현재 모든 Java 워크로드가 기본값(컨테이너 limit의 50%)에 의존해 예측이 불가능하다. ES `-Xms1500m -Xmx1500m`, Kafka `-Xmx768m`, Trino `-Xmx1500m` 등 서비스별 힙을 고정한다. 약 12 GB 절감 → **노드 1대 절감(−$384/월)**.
+
+### ADR-058 — 실측 기반 리소스 산정 (KRR/VPA)
+**상태: `Proposed`**
+
+- **배경**: 현재 모든 수치가 추정이다. v1 매니페스트에는 리소스 정의가 없고(계획서 §2 이슈 #5), 신규 스택은 프로젝트 기본값을 사용했다. 계획서 자체 수치로도 requests 46.3 GB vs limits 102.7 GB로 **2.2배 격차**다.
+- **도구**: **KRR**(Prometheus 기반, 컨트롤러 불필요 — Prometheus가 이미 설계에 있어 추가 비용 0) 또는 VPA recommendation 모드 + Goldilocks.
+- **절차**: 배포 후 **최소 2주 관측 → 재산정.** 이 단계 없이 여유율 90%를 적용하면 위험하다 — 메모리는 throttle이 아니라 OOMKill이다.
+
+### ADR-059 — 빈 패킹 스케줄러 및 Descheduler 도입
+**상태: `Proposed`** — k3s 기본은 `LeastAllocated`(분산). `NodeResourcesFit.scoringStrategy: MostAllocated`로 조밀 배치하고 Descheduler `HighNodeUtilization`으로 저사용 노드를 비운다. **`--kube-scheduler-arg=config=<path>`는 부트스트랩 시점에만 적용 가능**하므로 Cilium 재설치와 함께 반영한다. 위험: 장애 반경 확대, PDB와의 충돌.
+
+### ADR-060 — PriorityClass 체계
+**상태: `Proposed`** — `platform-critical` / `stateful` / `stateless` / `batch-low` 4단계. 로테이션 CronJob·Trivy·Kubescape·Caldera·부트스트랩 Job을 `batch-low`로 두어 **상시 용량 산정에서 제외**한다. 부수 효과로 야간 Job이 자원을 못 잡고 조용히 실패하는 문제도 방지된다.
+
+### ADR-061 — anti-affinity 적용 범위
+**상태: `Proposed`** — 상태 저장 HA 서비스에만 적용한다. 무상태 워크로드에 걸면 빈 패킹 효율이 떨어진다. **현재 anti-affinity 규칙이 아예 없으므로 정의 작업이 선행되어야 한다.** 노드 수 하한을 만든다 — ES×3·Kafka×3·Wazuh Indexer×3·MongoDB×3 + N+1 = **최소 4노드**.
+
+---
 
 ## 결정 요약
 
