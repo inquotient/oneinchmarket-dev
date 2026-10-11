@@ -331,6 +331,26 @@ pw grafana-secret admin-password
 `rate_limits` 가 붙은 vhost 가 **1개**(`api.oneinchmarket.local:443`)이고,
 grafana 에 30건을 연속으로 쳐도 **200 이 30 · 429 가 0** 이다.
 
+**범위를 잴 때 `kubectl exec … curl` 을 쓰지 말 것.** 게이트웨이의 `istio-proxy`
+는 distroless 라 `curl` 도 `sh` 도 없어 exec 가 죽고, 그 빈 출력에 `grep -c` 가
+**0** 을 돌려줘 **"쿼터가 사라졌다" 는 거짓 경보**가 된다. 받는 길은 이것이다:
+
+```bash
+GW=$(kubectl -n local get pod -l gateway.networking.k8s.io/gateway-name=ingress \
+       -o jsonpath='{.items[0].metadata.name}')
+istioctl -n local proxy-config route "$GW" -o json > /tmp/routes.json
+python3 - /tmp/routes.json <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+v = [h for c in d for h in (c.get('virtualHosts') or c.get('virtual_hosts') or [])]
+hit = [h['name'] for h in v if h.get('rateLimits') or h.get('rate_limits')]
+print('vhost %d 중 %d 개에 쿼터' % (len(v), len(hit)), hit)
+PY
+```
+
+실측(2026-10-11 · 동기화 뒤): `vhost 60 중 1 개에 쿼터
+['api.oneinchmarket.local:443']`.
+
 > ★ 테넌트별 상향 쿼터를 **헤더로 위조할 수 없다**(실측). `x-oim-tenant` 는
 > `RequestAuthentication` 의 `outputClaimToHeaders` 가 토큰의 `tenant`
 > 클레임으로 덮으므로, 클라이언트가 그 헤더를 보내도 쿼터가 오르지 않는다.
