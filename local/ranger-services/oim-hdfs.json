@@ -1,0 +1,13 @@
+{
+  "name": "oim-hdfs",
+  "type": "hdfs",
+  "description": "HDFS (hadoop-namenode) - ranger-hdfs-configmap.yaml 의 service.name 과 같아야 한다",
+  "isEnabled": true,
+  "configs": {
+    "username": "hdfs",
+    "password": "__LOOKUP_NOT_USED__",
+    "fs.default.name": "hdfs://hadoop-namenode:8020",
+    "hadoop.security.authorization": "true",
+    "hadoop.security.authentication": "simple"
+  }
+}

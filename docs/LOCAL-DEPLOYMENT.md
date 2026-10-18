@@ -14176,6 +14176,7 @@ istio-cni 도 함께" 는 유효하다**(Gotcha 50) — 그것은 WSL 특성이 
 | `local/opensearch-apply-security.sh` | OpenSearch 보안 인덱스 | 수집이 401 로 조용히 끊긴다 (§9-17) |
 | `local/gitlab-registry-bootstrap.sh --secret` | GitLab 배포 토큰 | push·pull 거부 (Gotcha 118 — 그냥 다시 돌리면 **토큰이 회전한다**) |
 | `local/openmeter-pricing.sh` | OpenMeter **PostgreSQL** (요금제·구독) | 인보이스가 0원 (§8-87) |
+| `local/ranger-bootstrap.sh` | Ranger Admin **DB** (서비스 `oim-hdfs`·`oim-hive`·`oim-hbase`) | 플러그인이 `service not found` 로 정책 0건. HDFS 는 POSIX 폴백으로 멀쩡해 보이고 **Hive 는 전 질의 거부 · HBase 는 마스터가 `hbase:meta` 쓰기를 거부당해 초기화를 영영 끝내지 못한다**(파드는 `1/1 Running`). 2026-10-04 베어메탈 재구축에서 실제로 빠졌고 **2026-10-18 에야 드러났다**. ★ Gotcha 11 — 로그인을 한 번만 시험하고 401 이면 멈춘다. 반복 실행하지 말 것 |
 | `local/safeline-bootstrap.sh` | SafeLine **PostgreSQL** (`mgt_website`) | WAF 가 보호 대상 0건이 되어 그 경로가 죽는다. ★ 그 전에 `mgt-cli reset-admin` 으로 관리자 자격을 만들어 `safeline-secret` 에 넣어야 한다 — mgt 가 발급하는 값이라 `create-secrets.sh` 가 만들지 못한다(Gotcha 118 부류) |
 | (없음 — git 이 담당) | 과금 배치는 **Airflow DAG** 이 돌린다 | 2026-09-12 전환. CronJob 넷은 git 이 `suspend: true` 로 박았고 DAG 은 켜진 채 태어난다. **재구축 때 따로 할 일이 없다** — 다만 둘이 함께 움직이는지만 확인할 것(한쪽만 되돌리면 이중 청구 또는 전면 정지) |
 

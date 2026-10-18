@@ -88,9 +88,11 @@ data:
 
             <!-- ★ 인가는 여기서 하지 않는다.
                  Knox 의 AclsAuthz 는 게이트웨이 수준의 거친 통제이고,
-                 요구된 것은 **Ranger 를 통한 제어**다. Ranger 는 각 서비스
-                 (HDFS NameNode·HiveServer2·HBase)에 플러그인으로 들어가야
-                 하며 현재 어디에도 설치돼 있지 않다 — §8-66. -->
+                 요구된 것은 **Ranger 를 통한 제어**다. 플러그인은 HDFS
+                 NameNode·HiveServer2·HBase 셋 다에 들어 있다(§8-67~70).
+                 ★ 단 HBase REST 는 프록시 사용자 설정이 없어 Knox 사용자가
+                 아니라 `hbase` 로 실행된다 — 그 경로의 인가는 사실상 없다.
+                 ★ Ranger 서비스 정의는 local/ranger-bootstrap.sh 가 넣는다. -->
         </gateway>
 
         <service>

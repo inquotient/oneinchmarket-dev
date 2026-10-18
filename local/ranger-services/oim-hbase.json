@@ -1,0 +1,15 @@
+{
+  "name": "oim-hbase",
+  "type": "hbase",
+  "description": "HBase (hbase-master/regionserver) - ranger-hbase-configmap.yaml 의 service.name 과 같아야 한다",
+  "isEnabled": true,
+  "configs": {
+    "username": "hbase",
+    "password": "__LOOKUP_NOT_USED__",
+    "hadoop.security.authentication": "simple",
+    "hbase.security.authentication": "simple",
+    "hbase.zookeeper.property.clientPort": "2181",
+    "hbase.zookeeper.quorum": "zookeeper-headless",
+    "zookeeper.znode.parent": "/hbase"
+  }
+}

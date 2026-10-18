@@ -469,7 +469,7 @@ curl -u "ranger-sync:$PW" \
 | 서비스 | 경로 | 확인 |
 |---|---|---|
 | **WebHDFS** | `/gateway/oim/webhdfs/v1/?op=LISTSTATUS` | 200 + 디렉터리 목록 |
-| **HBase REST** | `/gateway/oim/hbase/version/cluster` | 200 + 버전 |
+| **HBase REST** | `/gateway/oim/hbase/version/cluster` | 200 + 버전 — ★ **읽기만 증명한다.** 쓰기(테이블 생성 `PUT /<t>/schema` → 201)까지 볼 것 |
 | **Hive JDBC** | 아래 | `show databases` 동작 |
 
 **DBeaver 에서 Hive 를 Knox 경유로:**
@@ -486,9 +486,26 @@ Password  <그 비밀번호>
 > 것이다(실패였다면 502 였다). DS389 에 없는 사용자·틀린 비밀번호도 401 이라
 > 세 경우가 구분되지 않으니 자격을 먼저 확인할 것.
 >
-> ★★ **Knox 는 인증만 하고 인가는 하지 않는다.** Ranger 플러그인이 HDFS 에만
-> 있고 Hive·HBase 쪽은 비호환으로 빠져 있다(Gotcha 38·41·42). 즉 인증을 통과한
-> 사용자는 HDFS POSIX 퍼미션 외에는 제한이 없다. **알려진 공백이다.**
+> ★★ **Knox 는 인증만 하고 인가는 각 서비스의 Ranger 플러그인이 한다** — HDFS·
+> Hive·HBase 셋 다에 들어 있다(§8-67~70 · Gotcha 40~42). ★ 이 문단은 한때 "Hive·
+> HBase 는 플러그인이 빠져 있다" 로 적혀 있었다 — 그것은 백포트·이식 이전의 기록이다.
+>
+> ★★★ **Ranger 에 서비스 정의가 없으면 Hive·HBase 가 통째로 막힌다**(2026-10-18 실측).
+> 정의는 Ranger 의 DB 에만 살아 재구축 때 사라지고, 그러면 플러그인이 정책을 0건
+> 받는다: HDFS 는 POSIX 로 폴백해 멀쩡해 보이고, **Hive 는 모든 질의가
+> `does not have [USE] privilege`**, **HBase 는 마스터 자신이 `hbase:meta` 쓰기를
+> 거부당해 초기화를 끝내지 못한다**(파드는 `1/1 Running`, 쓰기만 500). 처방은
+> `bash local/ranger-bootstrap.sh` 다. 판정은 각 서비스 로그의
+> `Switched policy engine to [N]` 이 `service not found` 대신 나오는지로 한다.
+>
+> ★ 등록 직후의 권한은 **Ranger 기본 정책 그대로**다 — Hive 는 `public` 에게
+> `default` DB 의 create 와 `information_schema` select, 소유자(`{OWNER}`)에게 전권을
+> 준다. 그 이상은 정책을 따로 만들 것.
+>
+> ★★ **HBase REST 경로에는 사용자별 인가가 없다.** `hbase-rest` 에 프록시 사용자
+> (`hbase.rest.support.proxyuser`) 설정이 없어 Knox 가 넘긴 이름과 무관하게
+> `hbase` 로 실행되고, 기본 정책이 `hbase` 에게 전권을 준다. 실측: `ranger-sync`
+> 로 테이블 생성 · put · drop 이 전부 통과했다. **알려진 공백이다.**
 >
 > ★ 게이트웨이 → Knox 구간의 TLS 는 `destinationrules.yaml` 이 연다.
 > 한쪽만 고치면 이 호스트만 502 가 된다.

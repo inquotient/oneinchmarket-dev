@@ -1,0 +1,12 @@
+{
+  "name": "oim-hive",
+  "type": "hive",
+  "description": "HiveServer2 (hive-server) - ranger-hive-configmap.yaml 의 service.name 과 같아야 한다",
+  "isEnabled": true,
+  "configs": {
+    "username": "hive",
+    "password": "__LOOKUP_NOT_USED__",
+    "jdbc.driverClassName": "org.apache.hive.jdbc.HiveDriver",
+    "jdbc.url": "jdbc:hive2://hive-server-headless:10001/default;transportMode=http;httpPath=cliservice"
+  }
+}
