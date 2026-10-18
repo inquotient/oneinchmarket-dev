@@ -15,6 +15,8 @@
 #
 # ★ 원천은 `local/ranger-services/*.json` 하나다(Gotcha 117). 파일 이름이 아니라
 #   본문의 `name` 이 플러그인 설정의 service.name 과 같아야 한다.
+#   `local/ranger-services/policies/*.json` 은 **기본 정책에 보탤 항목**이다 —
+#   지금은 hbase-rest(읽기·쓰기만). 정책을 새로 만들지 않는 이유는 아래 해당 절.
 #
 # ★ `username` 은 조회(lookup)용 사용자이면서, Ranger 가 서비스를 만들 때 생성하는
 #   **기본 정책에 전권으로 들어가는 사용자**다. 그래서 각 서비스가 실제로 도는
@@ -100,6 +102,41 @@ PY
          -H 'Content-Type: application/json' --data @"$f" "$B/service")
   [ "$code" = "200" ] || { echo "[ranger] $name 생성이 $code 다: $(head -c 300 "$tmp/new.json")" >&2; exit 1; }
   log "$name: 생성됨"
+done
+
+# ── 정책 항목 — 기본 정책에 git 이 보태는 것 (`policies/*.json`)
+#   ★ 정책을 새로 만들지 않고 **기본 정책에 항목을 보탠다.** Ranger 는 같은
+#     리소스(* * *)에 정책을 둘 두지 못한다(error 3010 "Another policy already
+#     exists for matching resource") — 실측. 같은 사용자의 항목이 이미 있으면
+#     권한이 git 과 같은지만 보고 바꾸지 않는다(손으로 넓힌 것을 덮지 않는다).
+#   ★ `createPrincipalsIfAbsent=true` — 항목의 사용자(예: hbase-rest)는 LDAP 에
+#     없는 서비스 계정이라 usersync 가 만들어 주지 않는다. 없으면 갱신이 거부된다.
+for f in "$SRC"/policies/*.json; do
+  read -r svc pname < <(python3 -c 'import json,sys,urllib.parse as u; d=json.load(open(sys.argv[1])); print(d["service"], u.quote(d["policy"], safe=""))' "$f")
+  code=$("${C[@]}" -o "$tmp/pol.json" -w '%{http_code}' "$B/service/$svc/policy/$pname")
+  [ "$code" = "200" ] || { echo "[ranger] $svc 의 정책 $pname 조회가 $code 다 — 서비스를 먼저 만들 것" >&2; exit 1; }
+  state=$(python3 - "$f" "$tmp/pol.json" "$tmp/put.json" <<'PY2'
+import json,sys
+want=json.load(open(sys.argv[1]))["item"]; pol=json.load(open(sys.argv[2]))
+wu=sorted(want["users"]); wa=sorted(a["type"] for a in want["accesses"])
+for i in pol.get("policyItems",[]):
+    if sorted(i.get("users") or [])==wu:
+        have=sorted(a["type"] for a in i.get("accesses",[]) if a.get("isAllowed"))
+        print("same" if have==wa else "differs:"+",".join(have)); sys.exit()
+pol["policyItems"].append({"users":want["users"],"groups":[],"roles":[],"accesses":want["accesses"],"delegateAdmin":False})
+json.dump(pol,open(sys.argv[3],"w")); print("missing:%d" % pol["id"])
+PY2
+)
+  label="$svc / $(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["policy"], "+", ",".join(d["item"]["users"]))' "$f")"
+  case "$state" in
+    same)      log "$label: 있다" ;;
+    differs:*) log "$label: 있다 — 단 권한이 git 과 다르다(${state#differs:}) (바꾸지 않는다)" ;;
+    missing:*)
+      if [ "$CHECK" = 1 ]; then log "$label: **없다**"; missing=$((missing+1)); continue; fi
+      code=$("${C[@]}" -o "$tmp/new.json" -w '%{http_code}' -X PUT -H 'Content-Type: application/json'              --data @"$tmp/put.json" "$B/policy/${state#missing:}?createPrincipalsIfAbsent=true")
+      [ "$code" = "200" ] || { echo "[ranger] $label 갱신이 $code 다: $(head -c 300 "$tmp/new.json")" >&2; exit 1; }
+      log "$label: 보탰다" ;;
+  esac
 done
 
 [ "$CHECK" = 1 ] && { [ "$missing" = 0 ] && exit 0 || exit 1; }

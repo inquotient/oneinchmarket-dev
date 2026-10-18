@@ -82,6 +82,20 @@ spec:
             - {name: HBASE_CONF_DIR, value: /opt/hbase/conf}
             - {name: HBASE_HEAPSIZE, value: "384m"}
             - {name: HBASE_REST_OPTS, value: "-XX:+UseContainerSupport"}
+            # ★★ REST 는 Knox 사용자 이름을 쓰지 못한다 — 자기 계정으로만 돈다.
+            #   Knox 는 `?user.name=<사용자>` 를 붙여 보내지만(gateway-audit.log 실측),
+            #   HBase 3.0.0 의 RESTServer 는 사용자 식별 필터(AuthFilter)와
+            #   RESTServletContainer 를 **Kerberos 가 켜졌을 때만** 붙인다
+            #   (loginServerPrincipal). simple 인증에서는 그 값이 버려진다.
+            #   그래서 이 프로세스를 `hbase`(마스터와 같은 전권 계정) 대신 **전용
+            #   계정**으로 돌리고, 그 계정의 권한을 Ranger 가 정한다 —
+            #   local/ranger-services/policies/oim-hbase-rest.json(읽기·쓰기만, DDL·admin 없음).
+            #   누가 이 경로를 쓰는지는 Knox 의 AclsAuthz(webhbase.acl)가 거른다.
+            #   ★ simple 인증의 UGI 는 이 변수로 로그인 사용자를 정한다. 지우면 다시
+            #     `hbase` 가 되어 Knox 를 통과한 누구나 HBase 전권을 갖는다(2026-10-18 실측).
+            #   ★ 이 계정에 항목이 없으면 Ranger 가 전부 거부해 readinessProbe
+            #     (/version/cluster)도 실패한다 — ranger-bootstrap.sh 를 먼저 돌릴 것.
+            - {name: HADOOP_USER_NAME, value: hbase-rest}
           ports:
             - {containerPort: 8085, name: rest, protocol: TCP}
             - {containerPort: 8086, name: rest-info, protocol: TCP}

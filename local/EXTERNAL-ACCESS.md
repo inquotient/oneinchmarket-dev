@@ -502,10 +502,21 @@ Password  <그 비밀번호>
 > `default` DB 의 create 와 `information_schema` select, 소유자(`{OWNER}`)에게 전권을
 > 준다. 그 이상은 정책을 따로 만들 것.
 >
-> ★★ **HBase REST 경로에는 사용자별 인가가 없다.** `hbase-rest` 에 프록시 사용자
-> (`hbase.rest.support.proxyuser`) 설정이 없어 Knox 가 넘긴 이름과 무관하게
-> `hbase` 로 실행되고, 기본 정책이 `hbase` 에게 전권을 준다. 실측: `ranger-sync`
-> 로 테이블 생성 · put · drop 이 전부 통과했다. **알려진 공백이다.**
+> ★★ **HBase REST 는 사용자별로 인가할 수 없다 — 그래서 두 겹으로 막는다**(2026-10-19).
+> Knox 는 `?user.name=<사용자>` 를 붙여 보내지만, HBase 3.0.0 의 REST 서버는 사용자
+> 식별 필터를 **Kerberos 일 때만** 붙여 simple 인증에서는 그 값을 버리고 자기 계정으로
+> 돈다. 그 계정이 `hbase`(전권)였을 때는 `ranger-sync` 로 테이블 생성·삭제까지 됐다.
+>
+> | 겹 | 무엇을 정하나 | 어디서 |
+> |---|---|---|
+> | Knox `AclsAuthz` | **누가** WEBHBASE 를 쓰나 | 토폴로지의 `webhbase.acl` — 지금 `oim-svc` 만(비밀번호가 없는 픽스처라 **사실상 닫혀 있다**) |
+> | Ranger | REST 경로 **전체**가 무엇을 하나 | REST 가 `hbase-rest` 로 돈다 → 기본 정책에 **읽기·쓰기만**(DDL·admin 없음) |
+>
+> 실측: `ranger-sync` → WEBHBASE **403** · WebHDFS(대조군) 200 · 자격 없음 401.
+> REST 직접 호출은 put·get 200, 테이블 생성 **403** `Insufficient permissions for user
+> 'hbase-rest' (action=create)`. ★ 쓸 사람이 생기면 DS389 계정을 만들어 `webhbase.acl`
+> 에 더할 것 — **`ranger-sync` 는 넣지 말 것**(읽기 전용으로 만든 동기화 계정이다).
+> 사용자별 인가가 정말 필요하면 답은 Kerberos 다.
 >
 > ★ 게이트웨이 → Knox 구간의 TLS 는 `destinationrules.yaml` 이 연다.
 > 한쪽만 고치면 이 호스트만 502 가 된다.

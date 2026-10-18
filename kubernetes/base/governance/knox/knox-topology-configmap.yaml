@@ -86,13 +86,35 @@ data:
                 <enabled>true</enabled>
             </provider>
 
-            <!-- ★ 인가는 여기서 하지 않는다.
-                 Knox 의 AclsAuthz 는 게이트웨이 수준의 거친 통제이고,
-                 요구된 것은 **Ranger 를 통한 제어**다. 플러그인은 HDFS
+            <!-- ★ 데이터 인가는 각 서비스의 Ranger 플러그인이 한다 — HDFS
                  NameNode·HiveServer2·HBase 셋 다에 들어 있다(§8-67~70).
-                 ★ 단 HBase REST 는 프록시 사용자 설정이 없어 Knox 사용자가
-                 아니라 `hbase` 로 실행된다 — 그 경로의 인가는 사실상 없다.
-                 ★ Ranger 서비스 정의는 local/ranger-bootstrap.sh 가 넣는다. -->
+                 Ranger 서비스 정의는 local/ranger-bootstrap.sh 가 넣는다.
+
+                 ★★ WEBHBASE 만은 예외라 여기서 사람을 거른다.
+                 HBase REST 는 simple 인증에서 Knox 가 넘긴 user.name 을 버리고
+                 자기 계정(hbase-rest)으로만 돈다 — 사용자 식별 필터가
+                 Kerberos 에서만 붙기 때문이다(hbase-rest-deployment.yaml).
+                 그래서 Ranger 는 "REST 경로 전체" 의 권한(읽기·쓰기)만 정할 수
+                 있고 **누가** 그 경로를 쓰는지는 여기서 정한다.
+                 값의 형식은 `사용자들;그룹들;IP들`(쉼표 구분, * 는 전부)이다.
+                 ★ 그룹으로 쓰지 않은 이유: KnoxLdapRealm 의 그룹 조회는 시스템
+                   바인드 계정이 필요하고(DS389 는 익명 검색에 그룹을 보여주지
+                   않는다 — 실측 0건), 이 토폴로지는 비밀번호를 담지 않는다.
+                 ★ ranger-sync 를 넣지 말 것 — DS389 에서 **읽기 전용**으로 만든
+                   동기화 계정이다. 여기 넣으면 HBase 쓰기 권한을 얻는다.
+                 ★ 지금 목록의 oim-svc 는 비밀번호가 없는 스모크 픽스처라
+                   **사실상 아무도 통과하지 못한다**(닫힌 것이 기본값이다).
+                   쓸 사람이 생기면 DS389 계정을 만들고 여기에 더할 것.
+                 다른 서비스(WEBHDFS·HIVE)는 acl 이 없어 이 필터를 그냥 통과한다. -->
+            <provider>
+                <role>authorization</role>
+                <name>AclsAuthz</name>
+                <enabled>true</enabled>
+                <param>
+                    <name>webhbase.acl</name>
+                    <value>oim-svc;*;*</value>
+                </param>
+            </provider>
         </gateway>
 
         <service>
