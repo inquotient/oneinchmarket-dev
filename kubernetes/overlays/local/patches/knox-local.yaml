@@ -140,6 +140,13 @@ spec:
             - {name: knox-ext, mountPath: /ext}
       containers:
         - name: knox
+          # ★ 기동 예산을 늘린다(base 40×5=200s -> 120×5=600s). 엔트리포인트가 knoxcli
+          #   JVM 을 여러 번 띄우는데(별칭 생성·키스토어 import) ext/ 의 플러그인 jar 도
+          #   그 클래스패스에 실려, cpu limit 500m 에서 게이트웨이 JVM 이 뜨기 전에만
+          #   2분 반이 걸렸다. 그 뒤 8443 까지 1분 — 합계가 200s 를 넘어 startupProbe 가
+          #   "Started gateway on port 8443" 직후에 죽이기를 되풀이했다(2026-11-03 실측).
+          startupProbe:
+            failureThreshold: 120
           volumeMounts:
             # ext/ 는 클래스패스(../ext/*.jar)다. 원래 README 둘뿐이라 가려도 잃는 것이 없다.
             - {name: knox-ext, mountPath: /home/knox/knox/ext}
