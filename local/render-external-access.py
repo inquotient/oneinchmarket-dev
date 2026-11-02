@@ -95,8 +95,11 @@ CATALOG = [
      "구독·API 키 발급 · SPA(§6)"),
     ("gravitee-api", "gravitee-management-api-headless", 8083, "http", TOOL,
      "위 둘의 전제. `/management` · `/portal`"),
-    ("openmeter", "openmeter-api", 80, "http", TOOL,
-     "과금 수집·조회 API"),
+    # ★ openmeter 는 **외부에 열지 않는다**(2026-11-03 에 뺐다). OSS 판은 자체 인증이
+    #   없어 LAN 의 누구나 `POST /api/v1/events` 로 어떤 테넌트 명의로든 사용량을
+    #   위조할 수 있었고, 고객·구독·인보이스 변경 API 도 열려 있었다 — kafka-bridge 와
+    #   같은 부류다(청구 오염). UI 가 없어(루트가 404) 브라우저로 얻는 것도 없다.
+    #   조회는 Grafana(ClickHouse `openmeter` DB)나 port-forward 로 한다(ACCESS.md).
     # -- 보안 · 거버넌스 ---------------------------------------------------
     ("keycloak", "keycloak-headless", 8080, "http", AUTH,
      "admin / `pw keycloak-secret admin-password` · ★ iss 가 이 호스트로 발급된다"),

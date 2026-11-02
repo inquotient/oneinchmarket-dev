@@ -11,7 +11,7 @@
 > 때 port-forward 가 대조군이 된다.
 
 <!-- GENERATED:counts START -->
-웹 호스트 **56**(자체 인증 27 · 인증 없음 16 · 도구용 13, 그중 백엔드가 HTTPS 인 것 5) · TCP 대상 **14**
+웹 호스트 **55**(자체 인증 27 · 인증 없음 16 · 도구용 12, 그중 백엔드가 HTTPS 인 것 5) · TCP 대상 **14**
 <!-- GENERATED:counts END -->
 
 ---
@@ -152,7 +152,6 @@ nslookup grafana.oneinchmarket.local 192.168.0.103
 192.168.0.103 gravitee-console.oneinchmarket.local
 192.168.0.103 gravitee-portal.oneinchmarket.local
 192.168.0.103 gravitee-api.oneinchmarket.local
-192.168.0.103 openmeter.oneinchmarket.local
 192.168.0.103 keycloak.oneinchmarket.local
 192.168.0.103 openbao.oneinchmarket.local
 192.168.0.103 ranger.oneinchmarket.local
@@ -238,7 +237,6 @@ Import-Certificate -FilePath .\oim-ca.crt -CertStoreLocation Cert:\LocalMachine\
 | https://gravitee-console.oneinchmarket.local | 자체 인증 | `gravitee-console-headless:8080` | admin / `pw gravitee-secret admin-password` · SPA(§6) |
 | https://gravitee-portal.oneinchmarket.local | 자체 인증 | `gravitee-portal-headless:8080` | 구독·API 키 발급 · SPA(§6) |
 | https://gravitee-api.oneinchmarket.local | 도구용 | `gravitee-management-api-headless:8083` | 위 둘의 전제. `/management` · `/portal` |
-| https://openmeter.oneinchmarket.local | 도구용 | `openmeter-api:80` | 과금 수집·조회 API |
 | https://keycloak.oneinchmarket.local | 자체 인증 | `keycloak-headless:8080` | admin / `pw keycloak-secret admin-password` · ★ iss 가 이 호스트로 발급된다 |
 | https://openbao.oneinchmarket.local | 자체 인증 | `openbao:8200` | 토큰 `pw openbao-keys root-token` |
 | https://ranger.oneinchmarket.local | 자체 인증 | `ranger-admin:6080` | admin / `pw ranger-secret admin-password` · ★★ 로그인 반복 실패 금지(Gotcha 11) |
