@@ -13,9 +13,11 @@
 #
 # ★★ 왜 가두는가: 이 클러스터의 Kafka 는 **인증 없는 PLAINTEXT** 다. 그대로
 #   밖에 열면 LAN 의 누구나 과금 토픽(`api-usage`)을 읽고 쓴다(Gotcha 16·23).
-#   ★ 그 위험은 이미 있다 — `kafka-bridge`·`akhq` 가 인증 없이 모든 토픽에
-#     닿고(SEC-206), db-gateway 가 9092 를 연다. 새로 들이는 것이 그것을
-#     **늘리지 않게** 했다.
+#   ★ 그 위험은 이미 있다 — `kafka-bridge` 가 인증 없이 모든 토픽에 닿고
+#     (SEC-206), db-gateway 가 9092 를 연다. 새로 들이는 것이 그것을
+#     **늘리지 않게** 했다. (AKHQ 는 같은 날 Keycloak 로그인으로 막았다 —
+#     patches/akhq-local.yaml. AKHQ 의 `edge-via-kroxylicious` 연결이 이
+#     디렉터리가 외부에 보여 주는 것을 그대로 보여 준다.)
 #
 # ★ 한계(알고 고른 것):
 #   - `MultiTenant` 는 상류가 **프리뷰**라 적은 필터다. 그래서 문서를 믿지 않고

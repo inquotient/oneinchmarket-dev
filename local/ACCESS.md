@@ -120,7 +120,7 @@ pw() { $K get secret "$1" -o jsonpath="{.data.$2}" | base64 -d; echo; }
 
 | 컴포넌트 | port-forward | URL | 비고 |
 |---|---|---|---|
-| **AKHQ**(Kafka UI) | `$K port-forward akhq-0 8080:8080` | http://localhost:8080 | 인증 없음 |
+| **AKHQ**(Kafka UI) | ★ local 은 `https://akhq.oneinchmarket.local` 을 쓸 것 — 콜백이 외부 주소라 port-forward 로는 로그인되지 않는다 | https://akhq.oneinchmarket.local | **Keycloak 로그인**(2026-11-02). `portal` / `pw keycloak-secret portal-user-password` — `platform` 그룹이라 admin. 그 밖의 realm 사용자는 `edge.*` 읽기만, 익명은 아무것도 안 보인다 |
 | **Apicurio Registry** | `$K port-forward apicurio-registry-0 8081:8080` | http://localhost:8081 | API |
 | **Apicurio UI** | `$K port-forward deploy/apicurio-ui 8888:8080` | http://localhost:8888 | **Registry 도 함께 forward 해야 한다**(SPA 가 API 를 부른다) |
 | Kafka Bridge | `$K port-forward deploy/kafka-bridge 8082:8080` | http://localhost:8082 | ★ 자체 인증 없음(SEC-206) |
@@ -609,7 +609,7 @@ OpenSearch Dashboards(http://localhost:5601) 의 **Dev Tools** 가 가장 편하
 | 종류 | 서비스 | 포트 | 로컬 | 접속 / 비고 |
 |:-:|---|--:|--:|---|
 | UI | `admin-headless` | 3000 | 3001 |  |
-| UI | `akhq-headless` | 8080 | 8080 | Kafka UI · 인증 없음 |
+| UI | `akhq-headless` | 8080 | 8080 | Kafka UI · Keycloak 로그인(local) |
 | UI | `alertmanager` | 9093 | 9093 | 인증 없음 |
 | UI | `apicurio-ui` | 8080 | 8888 | ★ Registry(8081)도 함께 forward |
 | UI | `caldera` | 8888 | 8887 | red/blue — `caldera-secret` 키를 먼저 확인 |

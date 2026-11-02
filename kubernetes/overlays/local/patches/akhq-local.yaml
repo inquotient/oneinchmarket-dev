@@ -1,0 +1,135 @@
+# AKHQ — Keycloak OIDC 로그인 + Kroxylicious 연결 (local 전용, 2026-11-02)
+#
+# ★★★ 왜: AKHQ 는 인증 없이 **모든 토픽을 읽고 쓰고 지울 수 있는** 호스트였다
+#   (EXTERNAL-ACCESS 의 인증 없는 19종 중 하나). 이미지 기본값이
+#   `akhq.security.default-group: admin` 이라 **닿는 누구나 관리자**였고,
+#   과금 토픽(`api-usage`)도 그 안에 있다(Gotcha 16·23).
+#
+# ★ 권한(실측으로 고른 이름은 아래 설정에 있다):
+#     Keycloak 그룹 platform  -> admin       전체
+#     그 밖의 realm 사용자     -> edge-reader  `edge.*` 읽기만(과금 토픽은 안 보인다)
+#     로그인하지 않은 사용자   -> no-access    **아무것도 매치하지 않는다**
+#   ★★ `akhq.security.default-group` 은 **로그인하지 않은 사용자**의 그룹이다.
+#     보안을 켜도 이것을 admin 그대로 두면 익명이 여전히 관리자다. 빈 그룹 이름이
+#     이미지에 정의돼 있지 않아(jar 의 기본값은 admin 하나뿐) 절대 매치하지 않는
+#     정규식 `(?!)` 로 막았다.
+#   ★ platform 그룹·groups 클레임 매퍼·akhq 클라이언트는 keycloak-realm 부트스트랩이
+#     만든다(base/bootstrap/keycloak-realm.yaml 의 [5a]·[5b]).
+#
+# ★★ ConfigMap 의 application.yml 을 **통째로** 갈아끼운다 — 리터럴 블록이라
+#   오버레이가 일부만 덮을 수 없다. 그래서 base 의 연결 설정이 여기 **한 번 더**
+#   적혀 있다. base 의 연결을 바꾸면 여기도 함께 고칠 것(Gotcha 117).
+#   base 는 그대로 둔다 — dev·prod 에는 외부 Keycloak 이름이 없다.
+#
+# ★★ OIDC 는 브라우저와 백엔드가 Keycloak 을 **같은 이름**으로 봐야 한다
+#   (Gotcha 69·136) — Backstage 와 같은 처방이다(external-urls-local.yaml):
+#     ① hostAliases 로 keycloak.oneinchmarket.local 을 externalIP(노드 103)에 푼다
+#     ② 게이트웨이 CA 를 JVM 이 신뢰하게 한다. 이미지의 엔트리포인트가 eclipse-temurin
+#        의 `__cacert_entrypoint.sh` 를 거치는데, `USE_SYSTEM_CA_CERTS=1` 이면
+#        `/certificates/*.crt` 를 **비-root 에서도** /tmp 의 임시 신뢰 저장소에 넣고
+#        JAVA_TOOL_OPTIONS 로 지정해 준다(이미지에서 그 스크립트를 읽어 확인했다).
+#        ★ Secret 에 CA **개인키(tls.key)**도 있다 — `items` 로 ca.crt 만 투영할 것.
+#   ③ 게이트웨이 뒤라 Micronaut 가 콜백 URL 을 `http://` 로 만들지 않게
+#      X-Forwarded-Proto 를 읽힌다(host-resolution).
+#   ★ 백엔드가 외부 issuer 토큰을 게이트웨이로 들고 가는 경로는 api-jwt-external 이
+#     이미 인정한다(external-access/requestauthentication-external.yaml).
+#
+# ★ 세션 서명 키 — 이미지 기본값이 하드코딩된 `pleasechangeme!...` 다. 바꾸지 않으면
+#   누구나 관리자 쿠키를 위조할 수 있다. akhq-secret 의 jwt-secret 으로 덮는다.
+#
+# ★ Kroxylicious 연결 `edge-via-kroxylicious` — 외부 Kafka 클라이언트가 보는 그대로를
+#   보여 준다(`edge.events` 가 `events` 로). 프록시 경로가 살아 있는지의 화면이기도 하다.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: akhq-config
+data:
+  application.yml: |
+    micronaut:
+      server:
+        host-resolution:
+          host-header: Host
+          protocol-header: X-Forwarded-Proto
+      security:
+        enabled: true
+        token:
+          jwt:
+            signatures:
+              secret:
+                generator:
+                  secret: "${AKHQ_JWT_SECRET}"
+        oauth2:
+          enabled: true
+          clients:
+            keycloak:
+              client-id: akhq
+              client-secret: "${AKHQ_OIDC_CLIENT_SECRET}"
+              openid:
+                issuer: "https://keycloak.oneinchmarket.local/realms/oneinchmarket"
+    akhq:
+      connections:
+        oneinchmarket:
+          properties:
+            bootstrap.servers: "kafka-headless:9092"
+          schema-registry:
+            url: "http://apicurio-registry-headless:8080/apis/ccompat/v7"
+        edge-via-kroxylicious:
+          properties:
+            bootstrap.servers: "192.168.0.103:30992"
+      security:
+        default-group: no-access
+        groups:
+          edge-reader:
+            - role: reader
+              patterns: ["edge\\..*"]
+              clusters: ["oneinchmarket"]
+            - role: reader
+              patterns: [".*"]
+              clusters: ["edge-via-kroxylicious"]
+          no-access:
+            - role: reader
+              patterns: ["(?!)"]
+              clusters: ["(?!)"]
+        oidc:
+          enabled: true
+          providers:
+            keycloak:
+              label: "Keycloak 으로 로그인"
+              username-field: preferred_username
+              groups-field: groups
+              default-group: edge-reader
+              groups:
+                - name: platform
+                  groups:
+                    - admin
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: akhq
+spec:
+  template:
+    spec:
+      hostAliases:
+        - ip: "192.168.0.103"
+          hostnames: ["keycloak.oneinchmarket.local"]
+      containers:
+        - name: akhq
+          env:
+            - name: AKHQ_OIDC_CLIENT_SECRET
+              valueFrom: { secretKeyRef: { name: akhq-secret, key: oidc-client-secret } }
+            - name: AKHQ_JWT_SECRET
+              valueFrom: { secretKeyRef: { name: akhq-secret, key: jwt-secret } }
+            - name: USE_SYSTEM_CA_CERTS
+              value: "1"
+          volumeMounts:
+            - name: gateway-ca
+              mountPath: /certificates
+              readOnly: true
+      volumes:
+        - name: gateway-ca
+          secret:
+            secretName: gateway-ca-cert
+            items:
+              - key: ca.crt
+                path: oim-gateway-ca.crt

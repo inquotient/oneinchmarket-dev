@@ -67,8 +67,10 @@ CATALOG = [
     ("flink", "flink-jobmanager", 8081, "http", OPEN,
      "잡 0건. 판정은 `/overview` 의 slots-total 이다(Gotcha 164)"),
     # -- 메시징 · 계약 -----------------------------------------------------
-    ("akhq", "akhq-headless", 8080, "http", OPEN,
-     "Kafka 브라우저. **Kafka 를 보는 가장 좋은 길이다**"),
+    ("akhq", "akhq-headless", 8080, "http", AUTH,
+     "Kafka 브라우저. ★ Keycloak 로그인 — `platform` 그룹은 admin, 그 밖은 "
+     "`edge.*` 읽기만, 익명은 아무것도 안 보인다. 연결 `edge-via-kroxylicious` 는 "
+     "외부 클라이언트가 보는 그대로(§3-e)"),
     ("apicurio", "apicurio-ui", 8080, "http", OPEN,
      "SPA — 브라우저가 레지스트리를 직접 부른다(§6 의 SPA 항)"),
     ("apicurio-registry", "apicurio-registry-headless", 8080, "http", TOOL,

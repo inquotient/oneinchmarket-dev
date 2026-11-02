@@ -49,6 +49,8 @@ patches:
   # ★ zram 제어 — 스왑 불가 8종을 Guaranteed 로 고정
   - path: patches/qos-guaranteed.yaml
   - path: patches/kafka-local.yaml
+  # AKHQ — Keycloak OIDC 로그인 + Kroxylicious 연결. 기본값은 "닿는 누구나 admin" 이었다.
+  - path: patches/akhq-local.yaml
   - path: patches/nginx-local.yaml
   # ★ 메모리 limits 정리 — 3단계 종료 시 limits 합이 98% 였다
   - path: patches/limits-local.yaml

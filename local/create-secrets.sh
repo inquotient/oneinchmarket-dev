@@ -92,6 +92,11 @@ mk redis-secret       "redis-password=$REDIS"
 #   keycloak-realm 부트스트랩이 이 값을 읽어 클라이언트에 심는다. 반대로 두면
 #   Backstage 가 남의 Secret 을 읽어야 한다.
 mk backstage-secret "db-password=$(gen)" "backend-secret=$(gen 32)" "oidc-client-secret=$(gen 32)" "session-secret=$(gen 32)"
+# AKHQ — Keycloak OIDC 로그인(2026-11-02). oidc-client-secret 은 Keycloak 의
+#   akhq 클라이언트에 realm 부트스트랩이 심는다(Backstage 와 같은 방향).
+#   jwt-secret 은 AKHQ 세션 쿠키 서명 키 — 이미지 기본값이 하드코딩된
+#   `pleasechangeme!...` 라 반드시 바꿔야 한다. HMAC 이라 32바이트 이상.
+mk akhq-secret "oidc-client-secret=$(gen 32)" "jwt-secret=$(gen 64)"
 # Temporal — 이력·가시성 DB 를 같은 롤로 쓴다(postgres-bootstrap 이 둘을 만든다).
 mk temporal-secret "db-password=$(gen)"
 # ★★ midPoint — 이 Secret 은 **아예 없었다**(2026-10-05에 더했다). 참조는

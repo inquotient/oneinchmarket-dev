@@ -99,6 +99,13 @@ spec:
             # app-config 의 backend.baseUrl 과 **같아야 한다**.
             - name: BACKSTAGE_BASE_URL
               value: "http://localhost:17007"
+            # AKHQ OIDC — 시크릿은 Backstage 와 같이 소비자 쪽(akhq-secret)에 둔다.
+            # 콜백은 AKHQ_BASE_URL + /oauth/callback/keycloak (Micronaut 규약).
+            - name: AKHQ_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: {name: akhq-secret, key: oidc-client-secret}
+            - name: AKHQ_BASE_URL
+              value: "http://localhost:8080"
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -214,6 +221,53 @@ spec:
                 curl --connect-timeout 5 --max-time 30 -sf -X PUT "${KC}/admin/realms/${REALM}/users/${PUID}/reset-password" -H "$A" -H 'Content-Type: application/json' -d "$PW_JSON"
                 echo "  비밀번호 갱신"
               fi
+
+              echo "[5a/6] AKHQ OIDC 클라이언트 + groups 클레임"
+              # ★ AKHQ 는 토큰의 groups 클레임(JSON 배열)으로 권한 그룹을 고른다.
+              #   매퍼가 없으면 로그인은 되고 **기본 그룹으로만** 떨어져, 관리자가
+              #   관리자 화면을 못 보는데 오류는 없다.
+              AK_JSON=$(cat <<JSON
+              {"clientId":"akhq","enabled":true,"publicClient":false,
+               "standardFlowEnabled":true,"serviceAccountsEnabled":false,
+               "directAccessGrantsEnabled":false,
+               "secret":"${AKHQ_CLIENT_SECRET}",
+               "redirectUris":["${AKHQ_BASE_URL}/oauth/callback/keycloak"],
+               "webOrigins":["${AKHQ_BASE_URL}"]}
+              JSON
+              )
+              AKQ="${KC}/admin/realms/${REALM}/clients?clientId=akhq"
+              if [ "$(curl --connect-timeout 5 --max-time 30 -sf -H "$A" "$AKQ" | head -c 3)" = "[]" ]; then
+                curl --connect-timeout 5 --max-time 30 -sf -X POST "${KC}/admin/realms/${REALM}/clients" -H "$A" -H 'Content-Type: application/json' -d "$AK_JSON"
+                echo "  생성"
+              fi
+              AKID=$(curl --connect-timeout 5 --max-time 30 -sf -H "$A" "$AKQ" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+              [ -n "$AKID" ] || { echo "akhq 클라이언트 id 를 못 얻었다" >&2; exit 1; }
+              # 있으면 갱신 — 콜백이나 시크릿이 바뀌었을 수 있다(Backstage 와 같은 이유).
+              curl --connect-timeout 5 --max-time 30 -sf -X PUT "${KC}/admin/realms/${REALM}/clients/${AKID}" -H "$A" -H 'Content-Type: application/json' -d "$AK_JSON"
+              # ★ 클라이언트 PUT 은 protocolMappers 를 고치지 않는다 — 매퍼는 따로 확인해 넣는다.
+              if curl --connect-timeout 5 --max-time 30 -sf -H "$A" "${KC}/admin/realms/${REALM}/clients/${AKID}/protocol-mappers/models" | grep -q '"name":"groups"'; then
+                echo "  groups 매퍼 이미 있음"
+              else
+                curl --connect-timeout 5 --max-time 30 -sf -X POST "${KC}/admin/realms/${REALM}/clients/${AKID}/protocol-mappers/models" -H "$A" -H 'Content-Type: application/json' \
+                  -d '{"name":"groups","protocol":"openid-connect","protocolMapper":"oidc-group-membership-mapper","config":{"full.path":"false","id.token.claim":"true","access.token.claim":"true","userinfo.token.claim":"true","claim.name":"groups"}}'
+                echo "  groups 매퍼 생성"
+              fi
+
+              echo "[5b/6] 그룹 platform + ${PORTAL_USER} 소속"
+              # AKHQ 에서 platform 그룹 = admin 이다(overlays/local/patches/akhq-local.yaml).
+              # ★ 이 realm 의 사람 사용자는 portal 하나라, 그를 넣지 않으면 AKHQ 를
+              #   관리할 사람이 없다. Backstage 카탈로그도 portal 을 platform 소속으로 둔다.
+              GQ="${KC}/admin/realms/${REALM}/groups?search=platform&exact=true"
+              if [ "$(curl --connect-timeout 5 --max-time 30 -sf -H "$A" "$GQ" | head -c 3)" = "[]" ]; then
+                curl --connect-timeout 5 --max-time 30 -sf -X POST "${KC}/admin/realms/${REALM}/groups" -H "$A" -H 'Content-Type: application/json' -d '{"name":"platform"}'
+                echo "  그룹 생성"
+              fi
+              GID=$(curl --connect-timeout 5 --max-time 30 -sf -H "$A" "$GQ" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+              PUID2=$(curl --connect-timeout 5 --max-time 30 -sf -H "$A" "${KC}/admin/realms/${REALM}/users?username=${PORTAL_USER}&exact=true" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+              { [ -n "$GID" ] && [ -n "$PUID2" ]; } || { echo "그룹 또는 사용자 id 를 못 얻었다" >&2; exit 1; }
+              # 멱등이다 — 이미 소속이면 204 를 그대로 준다.
+              curl --connect-timeout 5 --max-time 30 -sf -X PUT "${KC}/admin/realms/${REALM}/users/${PUID2}/groups/${GID}" -H "$A"
+              echo "  ${PORTAL_USER} -> platform"
 
               echo "[6/6] 검증 — 발급된 토큰에 tenant 클레임이 있는가"
               AT=$(curl --connect-timeout 5 --max-time 30 -sf -X POST "${KC}/realms/${REALM}/protocol/openid-connect/token" \
