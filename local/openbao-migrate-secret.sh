@@ -47,23 +47,26 @@ for NAME in "$@"; do
   log "── ${NAME}"
   kubectl -n "$NS" get secret "$NAME" -o json > /tmp/mig-src.json
 
-  # ★ 값을 셸 변수로 꺼내지 않는다. python 이 kv put 인자열을 파일로 만들고
-  #   그 파일을 컨테이너 stdin 으로 넘긴다.
+  # ★ 값을 셸 변수로 꺼내지 않는다. python 이 값을 JSON 한 줄로 만들고
+  #   `bao kv put <경로> -` 가 그것을 stdin 에서 읽는다.
+  # ★★ 예전에는 `k=<shlex 인용값>` 명령 한 줄을 `read -r C; eval` 로 넘겼다 —
+  #   **여러 줄 값(PEM 키)이 들어오면 첫 줄바꿈에서 명령이 잘려**
+  #   `unterminated quoted string` 으로 죽었다(2026-11-03, backstage-secret 의
+  #   토큰 서명 키쌍). JSON 은 줄바꿈을 `\n` 으로 이스케이프하므로 한 줄이다.
   python3 - "$NAME" <<'PY' > /tmp/mig-cmd.txt
-import base64, json, shlex, sys
+import base64, json, sys
 name = sys.argv[1]
 d = json.load(open("/tmp/mig-src.json")).get("data", {})
 if not d:
     sys.exit("빈 Secret 이다: " + name)
-args = " ".join(f"{k}={shlex.quote(base64.b64decode(v).decode())}" for k, v in sorted(d.items()))
-print(f"bao kv put oim/{name} {args}")
+print(json.dumps({k: base64.b64decode(v).decode() for k, v in sorted(d.items())}))
 PY
 
-  # root 토큰과 명령을 함께 넘긴다(첫 줄 토큰, 나머지 명령).
+  # root 토큰과 데이터를 함께 넘긴다(첫 줄 토큰, 나머지는 kv put 의 stdin).
   { cat /tmp/mig-root.txt; echo; cat /tmp/mig-cmd.txt; } \
     | kubectl -n "$NS" exec -i "$POD" -c openbao -- \
         env BAO_ADDR=http://127.0.0.1:8200 \
-        sh -c 'read -r T; export BAO_TOKEN="$T"; read -r C; eval "$C"' >/dev/null
+        sh -c "read -r T; export BAO_TOKEN=\"\$T\"; bao kv put ${MOUNT}/${NAME} -" >/dev/null
   log "   OpenBao 에 기록"
 
   # 왕복 검증 — 값을 출력하지 않고 **해시로** 비교한다.
