@@ -6,13 +6,26 @@
 #   과금 토픽(`api-usage`)도 그 안에 있다(Gotcha 16·23).
 #
 # ★ 권한(실측으로 고른 이름은 아래 설정에 있다):
-#     Keycloak 그룹 platform  -> admin       전체
+#     Keycloak 그룹 platform  -> platform-admin  전체(ACL 제외 — 아래)
 #     그 밖의 realm 사용자     -> edge-reader  `edge.*` 읽기만(과금 토픽은 안 보인다)
-#     로그인하지 않은 사용자   -> no-access    **아무것도 매치하지 않는다**
+#     로그인하지 않은 사용자   -> no-roles     **역할이 없다** -> UI 가 로그인 화면으로 간다
 #   ★★ `akhq.security.default-group` 은 **로그인하지 않은 사용자**의 그룹이다.
-#     보안을 켜도 이것을 admin 그대로 두면 익명이 여전히 관리자다. 빈 그룹 이름이
-#     이미지에 정의돼 있지 않아(jar 의 기본값은 admin 하나뿐) 절대 매치하지 않는
-#     정규식 `(?!)` 로 막았다.
+#     보안을 켜도 이것을 admin 그대로 두면 익명이 여전히 관리자다.
+#   ★★★ 정의하지 않은 그룹 이름(`no-roles`)을 준다 — 그러면 `/api/me` 가
+#     `{"logged":false}` 로 **roles 를 아예 빼고** 돌려준다(실측 2026-11-03).
+#     처음에는 매치하지 않는 정규식 `(?!)` 로 막은 그룹(no-access)을 줬는데,
+#     그러면 익명에게 **빈 권한의 역할이 붙어** SPA 가 그를 `user="default"` 로
+#     취급하고, 클러스터가 0개라 `getClusters()` 를 끝없이 다시 부르며 **빈 화면**에
+#     갇혔다(번들의 App.render 분기 — 로그인 버튼조차 나오지 않는다).
+#     API 는 401 로 정상이라 서버만 보면 멀쩡해 보였다.
+#   ★ 대가: 익명이 클러스터 **이름**(`/api/cluster`)은 본다. 토픽·데이터·설정은
+#     전부 401 이다.
+#   ★ ACL 은 어느 그룹에도 주지 않는다(2026-11-03) — 브로커에 authorizer 가 없어
+#     (PLAINTEXT·무인증) ACLs 화면이 `No Authorizer is configured on the broker`(409)
+#     만 낸다. jar 기본 그룹 `admin` 과 역할 `reader` 가 ACL 읽기를 품고 있어서
+#     `platform-admin`(= admin - acl-reader)과 `reader-no-acl` 을 따로 정의했다.
+#     역할·그룹 이름은 jar 의 application.yml 에서 읽었다(이 파일과 병합된다).
+#     Kafka 에 SASL+authorizer 를 켜는 날 `acl-reader` 를 platform-admin 에 되돌릴 것.
 #   ★ platform 그룹·groups 클레임 매퍼·akhq 클라이언트는 keycloak-realm 부트스트랩이
 #     만든다(base/bootstrap/keycloak-realm.yaml 의 [5a]·[5b]).
 #
@@ -77,19 +90,30 @@ data:
           properties:
             bootstrap.servers: "192.168.0.103:30992"
       security:
-        default-group: no-access
+        default-group: no-roles
+        roles:
+          reader-no-acl:
+            - resources: [ "TOPIC", "TOPIC_DATA", "CONSUMER_GROUP", "CONNECT_CLUSTER", "CONNECTOR", "SCHEMA", "NODE", "KSQLDB" ]
+              actions: [ "READ" ]
+            - resources: [ "TOPIC", "NODE" ]
+              actions: [ "READ_CONFIG" ]
         groups:
+          platform-admin:
+            - role: node-admin
+            - role: topic-admin
+            - role: topic-data-admin
+            - role: consumer-group-admin
+            - role: connect-cluster-reader
+            - role: connector-admin
+            - role: schema-admin
+            - role: ksqldb-admin
           edge-reader:
-            - role: reader
+            - role: reader-no-acl
               patterns: ["edge\\..*"]
               clusters: ["oneinchmarket"]
-            - role: reader
+            - role: reader-no-acl
               patterns: [".*"]
               clusters: ["edge-via-kroxylicious"]
-          no-access:
-            - role: reader
-              patterns: ["(?!)"]
-              clusters: ["(?!)"]
         oidc:
           enabled: true
           providers:
@@ -101,7 +125,7 @@ data:
               groups:
                 - name: platform
                   groups:
-                    - admin
+                    - platform-admin
 ---
 apiVersion: apps/v1
 kind: StatefulSet
