@@ -42,6 +42,8 @@ resources:
   #   둘 다 실제 토픽 `edge.*` 안에 갇힌다. 사유와 한계는 그 디렉터리의
   #   kustomization.yaml 머리말.
   - kafka-edge
+  # Knox 의 Ranger 플러그인 설정 — patches/knox-local.yaml 의 짝(새 리소스라 여기 둔다).
+  - knox-ranger-config.yaml
 
 patches:
   # 로컬 레플리카 1
@@ -53,6 +55,8 @@ patches:
   - path: patches/akhq-local.yaml
   # Trino — LDAP 로그인 + Ranger 인가. 전에는 사용자 이름을 헤더로 자칭했고 allow-all 이었다.
   - path: patches/trino-local.yaml
+  # Knox — AclsAuthz 대신 Ranger 인가(XASecurePDPKnox). 플러그인은 docker/ranger-knox-plugin.
+  - path: patches/knox-local.yaml
   - path: patches/nginx-local.yaml
   # ★ 메모리 limits 정리 — 3단계 종료 시 limits 합이 98% 였다
   - path: patches/limits-local.yaml

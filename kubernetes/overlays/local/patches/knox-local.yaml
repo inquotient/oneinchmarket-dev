@@ -1,0 +1,153 @@
+# Knox — Ranger 인가(XASecurePDPKnox)로 바꾼다 (local 전용, 2026-11-03)
+#
+# ★★ 왜: Knox 는 Hadoop(WebHDFS·Hive·HBase REST)으로 들어오는 단일 입구인데
+#   인가가 토폴로지 ACL(AclsAuthz) 한 줄이었다 — 바꾸려면 ConfigMap 을 고치고
+#   재기동해야 했고, 누가 무엇을 했는지 감사가 없었다. Ranger 로 옮기면 정책이
+#   Ranger 한 곳에 모이고 재기동 없이 30초 안에 반영된다.
+#
+# ★ 왜 local 인가: 플러그인이 클러스터 안 GitLab 레지스트리의 자체 빌드 이미지
+#   (docker/ranger-knox-plugin — Knox 3.0 대상으로 다시 빌드)라 dev·prod 에는
+#   없다. base 는 AclsAuthz 그대로 둔다.
+#
+# ★★ 토폴로지(oim.xml)를 **통째로** 갈아끼운다 — ConfigMap 안 리터럴 블록이라
+#   부분 패치가 안 된다. 인증·서비스 절은 base 의 knox-topology-configmap.yaml 과
+#   같아야 하고, 바뀐 것은 authorization 절 하나다. base 를 고치면 여기도 고칠 것
+#   (Gotcha 117).
+#
+# ★★ 정책(local/ranger-services/ — ranger-bootstrap.sh 가 넣는다):
+#     WEBHDFS·HIVE  public(로그인한 누구나) — 예전과 같다. 데이터 인가는 뒤의
+#                   HDFS·Hive Ranger 플러그인이 한다.
+#     WEBHBASE      oim-svc 만 — 예전 `webhbase.acl` 그대로. HBase REST 는 Knox 가
+#                   넘긴 사용자 이름을 버리므로(Gotcha 201) **누가** 쓰는지는 여기가
+#                   유일한 판단 지점이다.
+#     그 밖         서비스 사용자(data-admin)의 기본 정책만 — 닫힌 것이 기본값이다.
+#   ★ 정책은 그룹이 아니라 사용자로 건다 — KnoxLdapRealm 의 그룹 조회는 바인드
+#     계정이 필요해 이 토폴로지에서는 그룹이 비어 있다(Trino 와 같은 사정, Gotcha 202).
+#     `public` 은 예외다 — Ranger 가 모든 사용자에게 적용한다.
+#   ★★ 정책을 내려받지 못하면(서비스 미등록·Admin 다운) 플러그인은 **전부 거부**한다.
+#     AclsAuthz 시절에는 WEBHDFS·HIVE 가 열려 있었으니, 클러스터를 다시 세울 때
+#     ranger-bootstrap.sh 를 빠뜨리면 Knox 전체가 403 이 된다.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: knox-topology
+data:
+  oim.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <topology>
+        <gateway>
+            <!-- 인증 — DS389 LDAP 에 직접 bind 한다(base 와 같다) -->
+            <provider>
+                <role>authentication</role>
+                <name>ShiroProvider</name>
+                <enabled>true</enabled>
+                <param>
+                    <name>sessionTimeout</name>
+                    <value>30</value>
+                </param>
+                <param>
+                    <name>main.ldapContextFactory</name>
+                    <value>org.apache.knox.gateway.shirorealm.KnoxLdapContextFactory</value>
+                </param>
+                <param>
+                    <name>main.ldapRealm</name>
+                    <value>org.apache.knox.gateway.shirorealm.KnoxLdapRealm</value>
+                </param>
+                <param>
+                    <name>main.ldapRealm.contextFactory</name>
+                    <value>$ldapContextFactory</value>
+                </param>
+                <param>
+                    <name>main.ldapRealm.contextFactory.url</name>
+                    <value>ldap://ds389-headless:3389</value>
+                </param>
+                <param>
+                    <name>main.ldapRealm.contextFactory.authenticationMechanism</name>
+                    <value>simple</value>
+                </param>
+                <param>
+                    <name>main.ldapRealm.userDnTemplate</name>
+                    <value>uid={0},ou=people,dc=oneinchmarket,dc=co,dc=kr</value>
+                </param>
+                <param>
+                    <name>urls./**</name>
+                    <value>authcBasic</value>
+                </param>
+            </provider>
+
+            <provider>
+                <role>identity-assertion</role>
+                <name>Default</name>
+                <enabled>true</enabled>
+            </provider>
+
+            <!-- 인가 — Ranger. 정책은 oim-knox 서비스(ranger-bootstrap.sh) -->
+            <provider>
+                <role>authorization</role>
+                <name>XASecurePDPKnox</name>
+                <enabled>true</enabled>
+            </provider>
+        </gateway>
+
+        <service>
+            <role>WEBHDFS</role>
+            <url>http://hadoop-namenode:9870/webhdfs</url>
+        </service>
+
+        <service>
+            <role>HIVE</role>
+            <url>http://hive-server-headless:10001/cliservice</url>
+        </service>
+
+        <service>
+            <role>WEBHBASE</role>
+            <url>http://hbase-rest:8085</url>
+        </service>
+    </topology>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: knox
+spec:
+  template:
+    spec:
+      # 자체 빌드 이미지를 쓰는 다른 워크로드와 같다(Trivy 스캔 Job 이 이것으로 당긴다).
+      imagePullSecrets:
+        - name: gitlab-registry-secret
+      initContainers:
+        - name: fetch-ranger-plugin
+          # docker/ranger-knox-plugin — Ranger 2.9.0 Knox 플러그인을 Knox 3.0.0 대상으로
+          #   다시 빌드했다(배포물은 Knox 2.0.0 · Java 8 대상).
+          image: gitlab-registry.local.svc.cluster.local:5050/oneinch/ranger-knox-plugin:2.9.0-knox3
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh","-c"]
+          args:
+            - |
+              set -eu
+              cp -r /plugin/. /ext/
+              ls /ext/
+              # fail-closed: 다시 빌드한 jar 와 shim 이 실제로 들어왔는지 본다.
+              test -f /ext/ranger-knox-plugin-shim-2.9.0.jar
+              test -f /ext/ranger-knox-plugin-impl/ranger-knox-plugin-2.9.0.jar
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits:   {cpu: 500m, memory: 256Mi}
+          volumeMounts:
+            - {name: knox-ext, mountPath: /ext}
+      containers:
+        - name: knox
+          volumeMounts:
+            # ext/ 는 클래스패스(../ext/*.jar)다. 원래 README 둘뿐이라 가려도 잃는 것이 없다.
+            - {name: knox-ext, mountPath: /home/knox/knox/ext}
+            - {name: ranger-config, mountPath: /home/knox/knox/conf/ranger-knox-security.xml, subPath: ranger-knox-security.xml, readOnly: true}
+            - {name: ranger-config, mountPath: /home/knox/knox/conf/ranger-knox-audit.xml, subPath: ranger-knox-audit.xml, readOnly: true}
+      volumes:
+        - name: knox-ext
+          emptyDir: {}
+        - name: ranger-config
+          configMap:
+            name: ranger-knox-config

@@ -1,0 +1,33 @@
+# Knox Ranger 플러그인 설정 — patches/knox-local.yaml 의 짝이다(local 전용).
+# ★ 새 리소스라 patches 가 아니라 resources 에 둔다 — patch 는 없는 오브젝트를
+#   만들지 못하고 렌더가 `no resource matches` 로 깨진다(Gotcha 145 와 같은 자리).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ranger-knox-config
+  labels:
+    app.kubernetes.io/name: knox
+    app.kubernetes.io/component: governance
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+data:
+  ranger-knox-security.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <configuration>
+      <!-- local/ranger-services/oim-knox.json 의 name 과 같아야 한다 -->
+      <property><name>ranger.plugin.knox.service.name</name><value>oim-knox</value></property>
+      <!-- 배포물 기본값 그대로 — Knox 플러그인은 원래 Jersey 2 클라이언트를 갖고 있다 -->
+      <property><name>ranger.plugin.knox.policy.source.impl</name><value>org.apache.ranger.admin.client.RangerAdminJersey2RESTClient</value></property>
+      <property><name>ranger.plugin.knox.policy.rest.url</name><value>http://ranger-admin:6080</value></property>
+      <property><name>ranger.plugin.knox.policy.pollIntervalMs</name><value>30000</value></property>
+      <property><name>ranger.plugin.knox.policy.cache.dir</name><value>/tmp/ranger/knox/policycache</value></property>
+      <property><name>ranger.plugin.knox.policy.rest.client.connection.timeoutMs</name><value>120000</value></property>
+      <property><name>ranger.plugin.knox.policy.rest.client.read.timeoutMs</name><value>30000</value></property>
+    </configuration>
+  # 감사는 끈다 — Ranger 2.9 에는 log4j 목적지가 없고(Gotcha 37) Solr 감사 경로는
+  #   다른 플러그인도 쓰지 않는다. 켤 때는 다른 플러그인과 함께 정한다.
+  ranger-knox-audit.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <configuration>
+      <property><name>xasecure.audit.is.enabled</name><value>false</value></property>
+    </configuration>

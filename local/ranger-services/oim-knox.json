@@ -1,0 +1,11 @@
+{
+  "name": "oim-knox",
+  "type": "knox",
+  "description": "Knox (oim 토폴로지) - overlays/local/knox-ranger-config.yaml 의 ranger.plugin.knox.service.name 과 같아야 한다",
+  "isEnabled": true,
+  "configs": {
+    "username": "data-admin",
+    "password": "__LOOKUP_NOT_USED__",
+    "knox.url": "https://knox:8443/gateway/admin/api/v1/topologies"
+  }
+}

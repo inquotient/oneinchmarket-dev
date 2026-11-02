@@ -1,0 +1,11 @@
+{
+  "service": "oim-knox",
+  "policy": "oim - WEBHDFS, HIVE",
+  "_why": "AclsAuthz 시절과 같게 로그인한 누구나 Knox 를 지나 WebHDFS·Hive 로 간다. 데이터 인가는 뒤의 HDFS·Hive Ranger 플러그인이 사용자별로 한다(Knox 가 user.name 을 넘긴다). Knox 에 그룹이 없어(바인드 계정 없음) public 으로 건다 — Ranger 가 모든 사용자에게 적용하는 내장 그룹이다",
+  "resources": {"topology": ["oim"], "service": ["WEBHDFS", "HIVE"]},
+  "item": {
+    "groups": ["public"],
+    "users": [],
+    "accesses": [{"type": "allow", "isAllowed": true}]
+  }
+}

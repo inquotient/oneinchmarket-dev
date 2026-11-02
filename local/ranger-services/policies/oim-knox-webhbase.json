@@ -1,0 +1,11 @@
+{
+  "service": "oim-knox",
+  "policy": "oim - WEBHBASE",
+  "_why": "예전 토폴로지의 webhbase.acl(oim-svc;*;*) 그대로. HBase REST 는 Knox 가 넘긴 사용자 이름을 버리고 자기 계정(hbase-rest)으로만 돌아(Gotcha 201) 누가 그 경로를 쓰는지는 여기가 유일한 판단 지점이다. ranger-sync(읽기 전용 동기화 계정)를 넣지 말 것 — HBase 쓰기 권한을 얻는다. 쓸 사람이 생기면 DS389 계정을 만들고 users 에 더한다",
+  "resources": {"topology": ["oim"], "service": ["WEBHBASE"]},
+  "item": {
+    "users": ["oim-svc"],
+    "groups": [],
+    "accesses": [{"type": "allow", "isAllowed": true}]
+  }
+}
