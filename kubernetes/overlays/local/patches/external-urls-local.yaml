@@ -53,6 +53,26 @@ spec:
             - name: REGISTRY_API_URL
               value: "https://apicurio-registry.oneinchmarket.local/apis/registry/v3"
 ---
+# Apicurio Registry — 위 UI 의 짝이다. ★ UI 주소만 바꾸고 이것을 빠뜨려
+#   UI 가 "Connection to the Registry server failed (could not reach the
+#   server)" 를 냈다. 이미지 기본값이 `quarkus.http.cors.origins=
+#   http://localhost:8888,http://127.0.0.1:8888` 이라(jar 의
+#   application.properties 실측) 다른 Origin 은 **403** 이고, 브라우저는
+#   CORS 실패를 "닿지 않는다" 로만 보고한다. Origin 없는 curl 은 200 이라
+#   API 가 멀쩡해 보인다 — 판정은 `-H "Origin: https://apicurio.…"` 를 붙여서.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: apicurio-registry
+spec:
+  template:
+    spec:
+      containers:
+        - name: apicurio-registry
+          env:
+            - name: QUARKUS_HTTP_CORS_ORIGINS
+              value: "https://apicurio.oneinchmarket.local"
+---
 # Dependency-Track 프런트 — ★ 이 값은 엔트리포인트가
 #   `/static/config.json` 을 **제자리에서 고쳐** 넣는다. 그래서
 #   `readOnlyRootFilesystem: true` 면 **환경변수를 통째로 버리고** 파드는
