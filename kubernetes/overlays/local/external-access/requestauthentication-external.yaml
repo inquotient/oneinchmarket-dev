@@ -61,3 +61,24 @@ spec:
       #   Backstage)이고 그들은 토큰을 **Keycloak 자신에게** 다시 보낸다.
       #   base 의 api-jwt 는 false 그대로다(내부 issuer 경로는 바꾸지 않는다).
       forwardOriginalToken: true
+    # ── Backstage 가 스스로 발급하는 사용자 토큰 ─────────────────────────────
+    # ★ 증상(2026-11-02, 로그인 직후): "Failed to load entity kinds ·
+    #   Failed to fetch user settings, Request failed with 401".
+    #   로그인 뒤 프런트는 **Backstage 자신이 발급한** 토큰(ES256,
+    #   iss=https://backstage.oneinchmarket.local/api/auth, aud=backstage)을
+    #   `Authorization` 에 실어 /api/catalog 등을 부른다. 게이트웨이가 그 issuer
+    #   를 몰라 `Jwt issuer is not configured` 로 막았다. 같은 토큰을 파드에
+    #   직접 보내면 200 이다. port-forward 시절에는 게이트웨이를 안 거쳐
+    #   드러나지 않았다.
+    # ★ `outputClaimToHeaders` 가 없다 — 이 토큰에는 tenant 클레임이 없다.
+    #   그래서 이 토큰이 **과금 호스트에 쓰이지 못하게** 하는 DENY 정책을
+    #   함께 둔다(authz-external-access.yaml 의 api-only-realm-issuers).
+    #   그것이 없으면 포털 사용자가 이 토큰 + 위조한 x-oim-tenant 로
+    #   api-require-jwt(requestPrincipals "*")를 통과할 수 있다.
+    # ★★ JWKS 는 **istiod 가** 가져간다 — 메시 밖이라 평문 7007 이 필요하고
+    #   default-deny 에 막힌다(Gotcha 17). netpol-external-access.yaml 의
+    #   allow-backstage-jwks 가 그 길이다. 빠뜨리면 증상이 그대로(401)이고
+    #   단서는 istiod 로그에만 있다.
+    - issuer: "https://backstage.oneinchmarket.local/api/auth"
+      jwksUri: "http://backstage-headless.local.svc.cluster.local:7007/api/auth/.well-known/jwks.json"
+      forwardOriginalToken: true

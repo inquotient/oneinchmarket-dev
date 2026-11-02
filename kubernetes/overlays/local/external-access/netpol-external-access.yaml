@@ -67,3 +67,40 @@ spec:
         - {protocol: TCP, port: 9092}    # Kafka
         - {protocol: TCP, port: 15002}   # Spark Connect
         - {protocol: TCP, port: 2181}    # ZooKeeper
+---
+# istiod -> Backstage 7007 — JWKS 를 가져가는 길 (local 전용)
+#
+# ★ `requestauthentication-external.yaml` 의 Backstage 발급자 규칙은
+#   `jwksUri` 를 istiod 가 가져간다. istio-system 은 메시 밖이라 **평문** 7007
+#   로 오고 `default-deny-ingress` 에 막힌다 — 그러면 유효한 토큰이 그대로
+#   401 이고 단서는 istiod 로그(`Failed to refresh JWT public key`)에만 있다
+#   (Gotcha 17 · base 의 allow-keycloak-access 와 같은 자리).
+# ★ 게이트웨이 -> Backstage 는 이것이 필요 없다 — HBONE(15008)으로 간다
+#   (Gotcha 200 ①).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backstage-jwks
+  labels:
+    app.kubernetes.io/name: allow-backstage-jwks
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: ["backstage"]
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: istio-system
+      ports:
+        - protocol: TCP
+          port: 7007

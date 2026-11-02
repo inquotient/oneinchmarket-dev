@@ -186,3 +186,51 @@ spec:
       to:
         - operation:
             ports: ["9092"]
+---
+# 과금 호스트는 Keycloak realm 이 발급한 토큰만 받는다 — DENY 다.
+#
+# ★ 왜 필요한가: `requestauthentication-external.yaml` 이 Backstage 발급
+#   토큰도 게이트웨이가 인정하게 했다(포털 API 호출을 위해서). 그런데
+#   `api-require-jwt` 는 `requestPrincipals: ["*"]` 라 **유효한 토큰이면 아무
+#   발급자나** 과금 호스트를 통과시킨다. Backstage 토큰에는 tenant 클레임이
+#   없어 `outputClaimToHeaders` 가 `x-oim-tenant` 를 덮지 못하므로, 포털
+#   사용자가 그 토큰 + 위조한 헤더로 남의 회사에 청구를 떠넘길 수 있다.
+#
+# ★★ ALLOW 를 고치지 않고 DENY 를 더한다 — DENY 가 ALLOW 보다 먼저
+#   평가되고, base 의 `rules` 배열을 덮어쓰면 통째로 교체된다(위 ★★★ ②).
+#   `notRequestPrincipals` 는 토큰 없는 요청(principal 없음)에도 매칭하므로
+#   그것도 여기서 거부된다 — api-require-jwt 가 이미 거부하던 것이라
+#   동작이 바뀌지 않는다.
+# ★ principal 표기는 `<iss>/<sub>` 이고 접두 매칭(`abc*`)만 쓴다(Gotcha 9).
+# ★ 적용 때 istioctl 이 경고한다 — "HTTP 속성만 쓰는 DENY 는 범위 안의 TCP
+#   포트를 전부 거부한다". 게이트웨이 리스너는 HTTP 80 · HTTPS 443(종단 후
+#   HTTP) 뿐이라 해당 포트가 없다(2026-11-02 실측 `proxy-config listener`).
+#   **TCP·TLS 패스스루 리스너를 더하는 날** 이 정책에 `ports` 를 줄 것 —
+#   안 그러면 그 리스너가 통째로 막힌다.
+# ★ 새 발급자를 게이트웨이에 더할 때는 여기를 함께 볼 것 — 과금에 쓰일
+#   발급자이면 이 목록에, 아니면 그대로 둔다.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: api-only-realm-issuers
+  labels:
+    app.kubernetes.io/name: api-only-realm-issuers
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    matchLabels:
+      gateway.networking.k8s.io/gateway-name: ingress
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notRequestPrincipals:
+              - "http://keycloak-headless:8080/realms/oneinchmarket/*"
+              - "https://keycloak.oneinchmarket.local/realms/oneinchmarket/*"
+      to:
+        - operation:
+            hosts: ["api.oneinchmarket.local", "api.oneinchmarket.local:*"]
