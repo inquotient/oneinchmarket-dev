@@ -160,33 +160,6 @@ spec:
             ports: ["5432", "3306", "3307", "6033", "27017", "6379",
                     "8123", "9000"]
 ---
-# kafka — db-gateway 의 9092. ★ 이것이 있어도 **네이티브 클라이언트는 끝까지
-#   가지 못한다**(브로커가 클러스터 안 광고 주소를 돌려준다). 정책은 열어
-#   두되 그 제약은 문서에 적어 두었다 — 정책을 의심하며 시간을 쓰지 않도록.
-apiVersion: security.istio.io/v1
-kind: AuthorizationPolicy
-metadata:
-  name: allow-ext-kafka
-  labels:
-    app.kubernetes.io/name: allow-ext-kafka
-    app.kubernetes.io/component: external-access
-    app.kubernetes.io/part-of: oneinchmarket
-    app.kubernetes.io/managed-by: kustomize
-  annotations:
-    argocd.argoproj.io/sync-wave: "8"
-spec:
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: kafka
-  action: ALLOW
-  rules:
-    - from:
-        - source:
-            principals: ["*/sa/db-gateway"]
-      to:
-        - operation:
-            ports: ["9092"]
----
 # 과금 호스트는 Keycloak realm 이 발급한 토큰만 받는다 — DENY 다.
 #
 # ★ 왜 필요한가: `requestauthentication-external.yaml` 이 Backstage 발급

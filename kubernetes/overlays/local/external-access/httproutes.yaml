@@ -495,39 +495,6 @@ spec:
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: ext-kafka-bridge
-  labels:
-    app.kubernetes.io/name: ext-kafka-bridge
-    app.kubernetes.io/component: gateway-routes
-    app.kubernetes.io/part-of: oneinchmarket
-    app.kubernetes.io/managed-by: kustomize
-  annotations:
-    argocd.argoproj.io/sync-wave: "8"
-    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
-    oneinchmarket.local/auth-tier: "open"
-spec:
-  parentRefs:
-    - group: gateway.networking.k8s.io
-      kind: Gateway
-      name: ingress
-      sectionName: https
-  hostnames:
-    - kafka-bridge.oneinchmarket.local
-  rules:
-    - matches:
-        - path:
-            type: PathPrefix
-            value: /
-      backendRefs:
-        - group: ""
-          kind: Service
-          name: kafka-bridge
-          port: 8080
-          weight: 1
----
-apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
-metadata:
   name: ext-kafka-connect
   labels:
     app.kubernetes.io/name: ext-kafka-connect

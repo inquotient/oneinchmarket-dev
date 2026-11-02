@@ -11,11 +11,15 @@
 #   매칭되지 않는다**(Gotcha 187·197 에서 실측했다. `allow-falcosidekick-access`
 #   가 정확히 그 이유로 노드 하나의 경보를 10시간 잃었다).
 #
-#   **실제 통제는 두 층에서 한다**:
-#     ① 각 DB 의 자격 — 이 프록시는 인증을 하지 않고 중계만 한다
-#     ② 노드의 nftables — `local/external-access-node.sh` 가 이 NodePort 대역을
-#        **LAN(192.168.0.0/24)과 VPN(172.30.0.0/24)에서만** 받게 제한한다
-#   15008 을 넓게 열고 인가를 ztunnel 에 맡기는 것과 같은 논리다(Gotcha 13).
+#   **실제 통제는 각 대상의 자격 하나다** — 이 프록시는 인증을 하지 않고 중계만
+#   한다. 15008 을 넓게 열고 인가를 ztunnel 에 맡기는 것과 같은 논리다(Gotcha 13).
+#   ★★ 2026-11-02 정정 — 여기는 "② 노드의 nftables 가 이 NodePort 대역을 LAN·VPN
+#     에서만 받게 제한한다" 고 적혀 있었는데 **사실이 아니었다.**
+#     `local/external-access-node.sh` 에 그런 코드가 없고(VPN 의 MASQUERADE 뿐이다),
+#     있었더라도 NodePort 는 Cilium 이 tc 의 eBPF 에서 처리해 호스트 방화벽이
+#     보지 못한다(Gotcha 200 ②). **출발지는 L3 로 좁혀지지 않는다 — 신뢰 경계는
+#     LAN 이다.** 그래서 자격이 없는 대상(인증 없는 Kafka 9092)은 이 프록시에서
+#     뺐다 — Kroxylicious(edge.* 에 갇힌다)가 대신한다.
 #
 # ★ 그래서 **`podSelector` 는 비우지 않는다** — 비우면 네임스페이스 전체가 이
 #   포트들에 열려 default-deny 가 무의미해진다.
@@ -64,7 +68,6 @@ spec:
         - {protocol: TCP, port: 9083}    # Hive Metastore
         - {protocol: TCP, port: 3389}    # DS389 LDAP
         - {protocol: TCP, port: 3636}    # DS389 LDAPS
-        - {protocol: TCP, port: 9092}    # Kafka
         - {protocol: TCP, port: 15002}   # Spark Connect
         - {protocol: TCP, port: 2181}    # ZooKeeper
 ---

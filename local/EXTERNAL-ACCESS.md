@@ -11,7 +11,7 @@
 > 때 port-forward 가 대조군이 된다.
 
 <!-- GENERATED:counts START -->
-웹 호스트 **57**(자체 인증 26 · 인증 없음 18 · 도구용 13, 그중 백엔드가 HTTPS 인 것 5) · TCP 대상 **15**
+웹 호스트 **56**(자체 인증 26 · 인증 없음 17 · 도구용 13, 그중 백엔드가 HTTPS 인 것 5) · TCP 대상 **14**
 <!-- GENERATED:counts END -->
 
 ---
@@ -146,7 +146,6 @@ nslookup grafana.oneinchmarket.local 192.168.0.103
 192.168.0.103 akhq.oneinchmarket.local
 192.168.0.103 apicurio.oneinchmarket.local
 192.168.0.103 apicurio-registry.oneinchmarket.local
-192.168.0.103 kafka-bridge.oneinchmarket.local
 192.168.0.103 kafka-connect.oneinchmarket.local
 192.168.0.103 zilla.oneinchmarket.local
 192.168.0.103 backstage.oneinchmarket.local
@@ -233,7 +232,6 @@ Import-Certificate -FilePath .\oim-ca.crt -CertStoreLocation Cert:\LocalMachine\
 | https://akhq.oneinchmarket.local | 자체 인증 | `akhq-headless:8080` | Kafka 브라우저. ★ Keycloak 로그인 — `platform` 그룹은 admin, 그 밖은 `edge.*` 읽기만, 익명은 아무것도 안 보인다. 연결 `edge-via-kroxylicious` 는 외부 클라이언트가 보는 그대로(§3-e) |
 | https://apicurio.oneinchmarket.local | **없음** | `apicurio-ui:8080` | SPA — 브라우저가 레지스트리를 직접 부른다(§6 의 SPA 항) |
 | https://apicurio-registry.oneinchmarket.local | 도구용 | `apicurio-registry-headless:8080` | 계약 레지스트리 API. 위 UI 의 전제다 |
-| https://kafka-bridge.oneinchmarket.local | **없음** | `kafka-bridge:8080` | HTTP->Kafka. ★ 자체 인증이 없다(SEC-206) |
 | https://kafka-connect.oneinchmarket.local | 도구용 | `kafka-connect-headless:8083` | 커넥터 REST. `GET /connectors` |
 | https://zilla.oneinchmarket.local | 도구용 | `zilla:7114` | HTTP·SSE <-> Kafka `edge.events` (`POST`·`GET /events` · `GET /sse/events`). ★ Keycloak realm JWT 필수(게이트웨이 DENY) |
 | https://backstage.oneinchmarket.local | 자체 인증 | `backstage-headless:7007` | Keycloak OIDC. `portal` / `pw keycloak-secret portal-user-password` |
@@ -301,7 +299,7 @@ pw grafana-secret admin-password
 ### ★★ 인증이 없는 호스트 — 집 밖으로 내보내지 말 것
 
 <!-- GENERATED:open-list START -->
-**18 종** — `prometheus.oneinchmarket.local` · `alertmanager.oneinchmarket.local` · `pyroscope.oneinchmarket.local` · `pyrra.oneinchmarket.local` · `temporal.oneinchmarket.local` · `flink.oneinchmarket.local` · `apicurio.oneinchmarket.local` · `kafka-bridge.oneinchmarket.local` · `ranger-solr.oneinchmarket.local` · `solr.oneinchmarket.local` · `trino.oneinchmarket.local` · `spark-history.oneinchmarket.local` · `spark-ui.oneinchmarket.local` · `livy.oneinchmarket.local` · `hdfs.oneinchmarket.local` · `hbase.oneinchmarket.local` · `hbase-rs.oneinchmarket.local` · `hive.oneinchmarket.local`
+**17 종** — `prometheus.oneinchmarket.local` · `alertmanager.oneinchmarket.local` · `pyroscope.oneinchmarket.local` · `pyrra.oneinchmarket.local` · `temporal.oneinchmarket.local` · `flink.oneinchmarket.local` · `apicurio.oneinchmarket.local` · `ranger-solr.oneinchmarket.local` · `solr.oneinchmarket.local` · `trino.oneinchmarket.local` · `spark-history.oneinchmarket.local` · `spark-ui.oneinchmarket.local` · `livy.oneinchmarket.local` · `hdfs.oneinchmarket.local` · `hbase.oneinchmarket.local` · `hbase-rs.oneinchmarket.local` · `hive.oneinchmarket.local`
 <!-- GENERATED:open-list END -->
 
 이것들은 **누구든 주소를 알면 그대로 들어온다.** 그리고 이 배치에서는
@@ -379,7 +377,6 @@ PY
 | `192.168.0.103:30083` | **Hive Metastore (Thrift)** -> `hive-metastore-headless:9083` | 테이블 목록만 보려면 PG 의 `hive_metastore` 가 더 빠르다 |
 | `192.168.0.103:30389` | **DS389 LDAP** -> `ds389-headless:3389` | `pw ds389-secret dm-password` · Apache Directory Studio·`ldapsearch` |
 | `192.168.0.103:30636` | **DS389 LDAPS** -> `ds389-headless:3636` | 같은 디렉터리. TLS |
-| `192.168.0.103:30092` | **Kafka 9092** -> `kafka-headless:9092` | ★★ 브로커가 클러스터 안 이름을 광고한다 — §3 의 제약을 볼 것. AKHQ 가 정답이다 |
 | `192.168.0.103:30002` | **Spark Connect (gRPC)** -> `spark-connect-headless:15002` | PySpark 의 `SparkSession.builder.remote` 로 붙는다 |
 | `192.168.0.103:30181` | **ZooKeeper** -> `zookeeper-headless:2181` | `zkCli.sh` |
 <!-- GENERATED:tcp-table END -->
@@ -443,7 +440,7 @@ Trino 는 HTTP 프로토콜이라 **TCP 프록시가 아니라 HTTPS 게이트�
 
 | 대상 | 왜 | 쓸 것 |
 |---|---|---|
-| **Kafka** `30092` | 브로커가 메타데이터로 **자기 광고 주소**(`kafka-headless:9092`)를 돌려준다. 클라이언트는 bootstrap 뒤 그 이름으로 다시 붙으려 하고 밖에서는 풀리지 않는다 | **Kroxylicious**(§3-e, `192.168.0.103:30992`) — 광고 주소를 자기 주소로 고쳐 써서 끝까지 된다. 단 `edge.*` 토픽만 보인다. 전체를 보려면 **AKHQ**(`akhq.oneinchmarket.local`) |
+| **Kafka** ~~`30092`~~ (2026-11-02 에 뺐다) | 브로커가 메타데이터로 **자기 광고 주소**(`kafka-headless:9092`)를 돌려준다. ★ 그리고 단일 브로커에서는 bootstrap 연결이 곧 그 브로커라, 직접 짠 클라이언트는 그 소켓으로 produce 할 수 있었다 — **인증 없는 Kafka 전체 접근**이라 이 프록시에서 뺐다 | **Kroxylicious**(§3-e, `192.168.0.103:30992`) — 광고 주소를 자기 주소로 고쳐 써서 끝까지 된다. 단 `edge.*` 토픽만 보인다. 전체를 보려면 **AKHQ**(`akhq.oneinchmarket.local`, Keycloak 로그인) |
 | **HDFS RPC** `8020` | NameNode 가 **DataNode 주소**를 돌려준다. DataNode 는 노출돼 있지 않다 | **Knox 의 WebHDFS**(§4) — 모든 홉이 Knox 를 지난다 |
 | **HBase RPC** `16000/16020` | 위와 같은 이유(RegionServer 주소) | **Knox 의 HBase REST**(§4) |
 

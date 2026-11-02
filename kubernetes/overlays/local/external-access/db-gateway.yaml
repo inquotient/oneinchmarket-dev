@@ -175,18 +175,10 @@ data:
         proxy_pass $up_ldaps;
       }
       # ---- 메시징 ----------------------------------------------------------
-      # ★★ 이것만으로는 네이티브 Kafka 클라이언트가 동작하지 않는다.
-      # 브로커가 메타데이터로 **자기 광고 주소**(kafka-headless:9092)를
-      # 돌려주므로 bootstrap 뒤의 재접속이 밖에서 풀리지 않는다. 고치려면
-      # advertised.listeners 에 외부 리스너를 더해야 하고 그것은 base 변경이다.
-      # 평소에는 AKHQ UI 를 쓸 것. 그래도 포트를 두는 이유: bootstrap 자체는
-      # 성립해서 **문제가 어디인지 눈으로 보는** 데 쓰이고, 외부 리스너를
-      # 붙이는 날 그대로 쓰인다.
-      server {
-        listen 9092;
-        set $up_kafka kafka-headless.local.svc.cluster.local:9092;
-        proxy_pass $up_kafka;
-      }
+      # Kafka 9092 는 2026-11-02 에 뺐다 — Kroxylicious(NodePort 30992,
+      # overlays/local/kafka-edge/)가 대신한다. 단일 브로커에서는 bootstrap
+      # 연결이 곧 그 브로커라 직접 짠 클라이언트가 그 소켓으로 produce 할 수
+      # 있었다(인증 없는 Kafka 전체 접근). Kroxylicious 는 edge.* 에 갇힌다.
       # ---- 연산 ------------------------------------------------------------
       server {
         listen 15002;
@@ -268,7 +260,6 @@ spec:
             - {name: metastore,  containerPort: 9083,  protocol: TCP}
             - {name: ldap,       containerPort: 3389,  protocol: TCP}
             - {name: ldaps,      containerPort: 3636,  protocol: TCP}
-            - {name: kafka,      containerPort: 9092,  protocol: TCP}
             - {name: sparkconn,  containerPort: 15002, protocol: TCP}
             - {name: zookeeper,  containerPort: 2181,  protocol: TCP}
             # 프로브 전용 — Service 에 노출하지 않는다
@@ -346,6 +337,5 @@ spec:
     - {name: metastore,  port: 9083,  targetPort: 9083,  nodePort: 30083, protocol: TCP}
     - {name: ldap,       port: 3389,  targetPort: 3389,  nodePort: 30389, protocol: TCP}
     - {name: ldaps,      port: 3636,  targetPort: 3636,  nodePort: 30636, protocol: TCP}
-    - {name: kafka,      port: 9092,  targetPort: 9092,  nodePort: 30092, protocol: TCP}
     - {name: sparkconn,  port: 15002, targetPort: 15002, nodePort: 30002, protocol: TCP}
     - {name: zookeeper,  port: 2181,  targetPort: 2181,  nodePort: 30181, protocol: TCP}

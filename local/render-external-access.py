@@ -75,8 +75,12 @@ CATALOG = [
      "SPA — 브라우저가 레지스트리를 직접 부른다(§6 의 SPA 항)"),
     ("apicurio-registry", "apicurio-registry-headless", 8080, "http", TOOL,
      "계약 레지스트리 API. 위 UI 의 전제다"),
-    ("kafka-bridge", "kafka-bridge", 8080, "http", OPEN,
-     "HTTP->Kafka. ★ 자체 인증이 없다(SEC-206)"),
+    # ★ kafka-bridge 는 **외부에 열지 않는다**(2026-11-02 에 뺐다). 자체 인증이 없어
+    #   (SEC-206) LAN 의 누구나 과금 토픽에 쓸 수 있었고, ADR-035 가 "인증 앞단이
+    #   생기기 전까지 진입점을 만들지 않는다" 고 이미 정해 둔 것을 10-11 에 어겼다.
+    #   JWT 만 요구하는 것으로는 부족하다 — 고객 테넌트의 client_credentials 토큰도
+    #   이 realm 의 것이라 남에게 청구를 떠넘길 수 있다. 외부 HTTP->Kafka 는 `zilla`
+    #   (edge.events 하나에 갇힌다)가 대신한다.
     ("kafka-connect", "kafka-connect-headless", 8083, "http", TOOL,
      "커넥터 REST. `GET /connectors`"),
     ("zilla", "zilla", 7114, "http", TOOL,
@@ -208,8 +212,10 @@ TCP_CATALOG = [
      "`pw ds389-secret dm-password` · Apache Directory Studio·`ldapsearch`"),
     (30636, 3636, "ds389-headless", 3636, "DS389 LDAPS",
      "같은 디렉터리. TLS"),
-    (30092, 9092, "kafka-headless", 9092, "Kafka 9092",
-     "★★ 브로커가 클러스터 안 이름을 광고한다 — §3 의 제약을 볼 것. AKHQ 가 정답이다"),
+    # ★ Kafka 9092(30092)는 2026-11-02 에 뺐다 — Kroxylicious(30992)가 대신한다.
+    #   "bootstrap 까지만 된다" 로 적어 두었지만 단일 브로커에서는 bootstrap 연결이
+    #   곧 그 브로커라, 직접 짠 클라이언트는 그 소켓으로 produce 할 수 있었다 —
+    #   인증 없는 Kafka 전체 접근이었다.
     (30002, 15002, "spark-connect-headless", 15002, "Spark Connect (gRPC)",
      "PySpark 의 `SparkSession.builder.remote` 로 붙는다"),
     (30181, 2181, "zookeeper-headless", 2181, "ZooKeeper",

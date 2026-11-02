@@ -289,7 +289,19 @@ curl -X POST http://kafka-bridge:8080/consumers/<group> \
 ```
 
 > **브리지에는 자체 인증이 없다**(SEC-206). 도달 가능한 누구나 produce·consume 한다.
-> NetworkPolicy 가 사실상 유일한 통제이므로 **외부에 직접 노출하지 말 것.**
+> **외부에 직접 노출하지 말 것.**
+>
+> ★★ **2026-11-02 부터 브리지를 쓰려면 자기 SA 를 등록해야 한다.** base 의
+> `allow-kafka-bridge`(`kubernetes/base/service-mesh/authorization-policies.yaml`)가
+> 8080 을 **아무도 허용하지 않는다** — 그 전에는 메시 안 아무 파드나 브리지를 거쳐
+> 과금 토픽(`api-usage`)까지 쓸 수 있었다(브리지는 Kafka 쪽에서 허용된 신원이라
+> 대리인이 된다). 쓰려는 앱은 그 정책의 `principals` 에 `"*/sa/<앱 SA>"` 를 더하고
+> 이유를 함께 적을 것. 빠뜨리면 증상은 TCP 는 열리고 바로 끊기는 것이다(Gotcha 9).
+> ★ NetworkPolicy 는 이 통제가 되지 못한다 — ambient 에서는 메시 트래픽이
+> 15008 로 들어와 8080 포트 규칙이 적용되지 않는다(Gotcha 13).
+> ★ 외부에서 HTTP 로 Kafka 를 써야 하면 브리지가 아니라 **Zilla**
+> (`zilla.oneinchmarket.local`, `edge.events` 하나에 갇히고 realm JWT 필수)를 쓴다 —
+> `local/EXTERNAL-ACCESS.md` §3-e.
 > 컨슈머 세션이 파드에 고정되므로 레플리카를 늘리면 세션 어피니티가 필요하다.
 
 ---
