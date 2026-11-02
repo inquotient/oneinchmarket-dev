@@ -7,6 +7,7 @@
 #   authz-external-access.yaml  AuthorizationPolicy 가 선택하는 백엔드에 대한 추가 허용
 #   destinationrules.yaml       백엔드가 HTTPS 인 다섯에 대한 TLS 오리지네이션
 #   netpol-external-access.yaml db-gateway 의 외부 수신 허용
+#   requestauthentication-external.yaml  외부 이름으로 발급된 Keycloak 토큰 인정
 #
 # ★★ `httproutes.yaml` 은 **생성 파일**이다. 손으로 고치지 말 것 —
 #   원천은 `local/render-external-access.py` 의 CATALOG 이고, 그것이 같은
@@ -43,3 +44,4 @@ resources:
   - authz-external-access.yaml
   - destinationrules.yaml
   - netpol-external-access.yaml
+  - requestauthentication-external.yaml

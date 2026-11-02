@@ -73,6 +73,81 @@ spec:
             - name: QUARKUS_HTTP_CORS_ORIGINS
               value: "https://apicurio.oneinchmarket.local"
 ---
+# Backstage — 외부 진입점에서 Keycloak OIDC 로그인이 되게 한다.
+#
+# ★ 증상: `/api/auth/oidc/start` 가 403
+#     NotAllowedError: Origin 'https://backstage.oneinchmarket.local' is not allowed
+#   auth 백엔드는 팝업을 연 Origin 을 `app.baseUrl` 과 대조하는데 그 값이
+#   port-forward 주소(`http://localhost:17007`)였다.
+#
+# ★★ Origin 만 고치면 다음 단계에서 깨진다(EXTERNAL-ACCESS §6 이 미뤄 둔 것).
+#   브라우저는 Keycloak 을 `https://keycloak.oneinchmarket.local` 로 보고
+#   (게이트웨이 경유 메타데이터의 issuer 가 그것이다 — KC_PROXY_HEADERS=
+#   xforwarded), 백엔드는 `http://keycloak-headless:8080` 으로 봐서 `iss` 가
+#   갈린다(Gotcha 69·136). 그래서 **백엔드도 외부 이름으로** 보게 한다:
+#     ① hostAliases — 그 이름을 externalIP(노드 103)로 푼다. 브라우저와
+#        **같은 경로**(externalIP -> 게이트웨이 -> keycloak)라 issuer 가 같다.
+#        CoreDNS 오버라이드보다 범위가 좁다(이 파드 하나, kube-system 무관).
+#     ② NODE_EXTRA_CA_CERTS — 게이트웨이 인증서는 자체 CA 가 발급한다.
+#        ★ Secret 에 CA **개인키(tls.key)도 들어 있다** — `items` 로 ca.crt
+#        하나만 투영할 것. 통째로 마운트하면 포털 파드가 CA 를 위조할 수 있다.
+#   실측(2026-11-02, 파드 안 node): 192.168.0.103 + SNI keycloak.… + 이 CA
+#     -> 200, issuer https://keycloak.oneinchmarket.local/realms/oneinchmarket
+#
+# ★ 설정은 `APP_CONFIG_<경로>` 환경변수로 덮는다 — app-config 는 ConfigMap 안
+#   리터럴 블록이라 오버레이가 부분 패치할 수 없다. 프런트 번들도 이 값을
+#   받는다(백엔드가 기동 때 static 파일에 주입한다 — 그래서 rootfs 가 쓰기 가능).
+# ★ 대가: port-forward(17007) 로는 로그인이 안 된다 — Apicurio 와 같은 선택.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backstage
+spec:
+  template:
+    spec:
+      hostAliases:
+        - ip: "192.168.0.103"
+          hostnames: ["keycloak.oneinchmarket.local"]
+      containers:
+        - name: backstage
+          env:
+            - name: APP_CONFIG_app_baseUrl
+              value: "https://backstage.oneinchmarket.local"
+            - name: APP_CONFIG_backend_baseUrl
+              value: "https://backstage.oneinchmarket.local"
+            - name: APP_CONFIG_backend_cors_origin
+              value: "https://backstage.oneinchmarket.local"
+            - name: APP_CONFIG_auth_providers_oidc_production_metadataUrl
+              value: "https://keycloak.oneinchmarket.local/realms/oneinchmarket/.well-known/openid-configuration"
+            - name: NODE_EXTRA_CA_CERTS
+              value: /etc/oim-gateway-ca/ca.crt
+          volumeMounts:
+            - name: gateway-ca
+              mountPath: /etc/oim-gateway-ca
+              readOnly: true
+      volumes:
+        - name: gateway-ca
+          secret:
+            secretName: gateway-ca-cert
+            items:
+              - key: ca.crt
+                path: ca.crt
+---
+# Keycloak 의 backstage 클라이언트 — 콜백·webOrigin 을 위 baseUrl 에 맞춘다.
+#   이 Job 은 Sync 훅이라 동기화마다 돌고, 클라이언트가 있으면 PUT 으로 갱신한다.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: keycloak-realm-bootstrap
+spec:
+  template:
+    spec:
+      containers:
+        - name: bootstrap
+          env:
+            - name: BACKSTAGE_BASE_URL
+              value: "https://backstage.oneinchmarket.local"
+---
 # Dependency-Track 프런트 — ★ 이 값은 엔트리포인트가
 #   `/static/config.json` 을 **제자리에서 고쳐** 넣는다. 그래서
 #   `readOnlyRootFilesystem: true` 면 **환경변수를 통째로 버리고** 파드는

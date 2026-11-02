@@ -593,7 +593,6 @@ SPA 는 **브라우저에서** 백엔드를 직접 부르므로 `localhost` 가 
 | 무엇 | 지금 상태 | 왜 그대로 두었나 |
 |---|---|---|
 | **HiveServer2 웹 UI**(`hive` 호스트) | 게이트웨이 경유로 **500** | Jetty 가 **Host 헤더의 포트**로 핸들러를 고른다(`No handler found for port 80`). 게이트웨이는 Host 를 `<이름>:10002` 로 만들어 줄 수 없다 — `URLRewrite.hostname` 은 포트를 담지 못한다. ★ **대조군이 선재 결함이 아님을 말해 줬다**: 클러스터 안에서 같은 경로가 **200** 이다. 주변 UI 하나 때문에 구조를 비틀지 않는다 — 테이블 목록은 PG 의 `hive_metastore` 가 더 빠르고(ACCESS.md), 질의는 Knox JDBC 다 |
-| **Backstage 의 Keycloak OIDC** | 외부에서 로그인이 깨질 수 있다 | 백엔드는 `keycloak-headless:8080` 으로 토큰을 교환하고 브라우저는 `keycloak...local` 로 간다 — `iss` 가 갈린다(Gotcha 69·136). 처방은 **양쪽을 같은 이름으로 맞추는 것**이고, 그러려면 CoreDNS 가 클러스터 안에서도 `*.oneinchmarket.local` 을 게이트웨이로 풀어 줘야 한다. ★ 그 CoreDNS 오버라이드는 **지금 넣지 않았다** — 쓰는 소비자가 없는 기전을 남기지 않는다(Gotcha 131). Backstage 를 고치는 날 함께 넣을 것 |
 | **과금 경로 쿼터의 행동 검증** | 런타임 설정으로만 확인했다 | `api` 호스트는 토큰 없이는 RBAC 403 에서 멈춰 레이트 리밋 필터에 닿지 않는다. 토큰을 쓰려면 스모크 클라이언트가 필요한데 그 `tenant` 클레임이 **`acme-corp` 로 하드코딩**돼 있고 그것은 **구독이 있는 실제 고객**이다 — 시험이 곧 청구 이벤트가 되고(CLAUDE.md 금지), 게다가 그 쿼터는 분당 600 이라 11건으로는 429 가 나오지도 않는다. 비청구 테넌트 클라이언트를 따로 만들면 행동 검증이 가능하다 |
 | **ArgoCD · Hubble UI** | 외부 경로가 없다 | `argocd`·`kube-system` 네임스페이스에 있고 리스너가 `allowedRoutes.namespaces.from: Same` 이다. 넘으려면 `ReferenceGrant` 가 필요하다 |
 | **GitLab 컨테이너 레지스트리** | 밖에서 당길 수 없다 | 평문 HTTP 이고 주소가 클러스터 안 이름이다(§9-8 로 미뤄져 있다) |

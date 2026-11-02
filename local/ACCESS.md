@@ -130,7 +130,7 @@ pw() { $K get secret "$1" -o jsonpath="{.data.$2}" | base64 -d; echo; }
 
 | 컴포넌트 | port-forward | URL | 비고 |
 |---|---|---|---|
-| **Backstage** | `$K port-forward deploy/backstage 17007:7007` **+ 아래 ★ Keycloak forward** | http://localhost:17007 | **Keycloak 로그인**: `portal` / `pw keycloak-secret portal-user-password` — ★ 아래 §1-c 를 먼저 볼 것(hosts 한 줄이 필요하다). 카탈로그 엔티티 10건 |
+| **Backstage** | ★ **local 은 port-forward 로 로그인되지 않는다** — `https://backstage.oneinchmarket.local` 을 쓸 것(§1-c) | https://backstage.oneinchmarket.local | **Keycloak 로그인**: `portal` / `pw keycloak-secret portal-user-password`. 카탈로그 엔티티 10건 |
 | **Gravitee Console** | `$K port-forward deploy/gravitee-console 18081:8080` | http://localhost:18081 | ★ **management-api 도 함께 forward 해야 한다** — SPA 가 브라우저에서 `http://localhost:8083/management` 를 부른다(Apicurio UI 와 같은 구조) |
 | **Gravitee Portal** | `$K port-forward deploy/gravitee-portal 18082:8080` | http://localhost:18082 | 같은 이유로 management-api 를 8083 으로 함께 forward |
 | **Gravitee Management API** | `$K port-forward deploy/gravitee-management-api 8083:8083` | http://localhost:8083/management | 위 둘의 전제. 포트를 **8083 그대로** 써야 한다(UI 에 그 주소가 박혀 있다) |
@@ -143,6 +143,13 @@ pw() { $K get secret "$1" -o jsonpath="{.data.$2}" | base64 -d; echo; }
 >   Console·Portal 에 아무도 로그인할 수 없었다(Gotcha 155).
 
 #### ★ §1-c. Backstage 로그인에 필요한 것 — Keycloak 을 **같은 이름으로** 열어야 한다
+
+> ★★★ **2026-11-02 부터 local 은 이 절차로 로그인되지 않는다.** Backstage 가
+> 외부 진입점 기준으로 바뀌었다 — `https://backstage.oneinchmarket.local` 로
+> 열 것(EXTERNAL-ACCESS.md). `app.baseUrl` · Keycloak 클라이언트의 콜백이
+> 그 주소이고, 백엔드도 Keycloak 을 `https://keycloak.oneinchmarket.local` 로
+> 본다(`overlays/local/patches/external-urls-local.yaml` 의 사유). 아래는
+> 그 오버레이가 없는 환경(dev·prod)에 남는 기록이다.
 
 Backstage 는 2026-09-11 부터 **guest 가 아니라 Keycloak OIDC** 로 로그인한다.
 그래서 포트포워딩이 하나로는 부족하다.
