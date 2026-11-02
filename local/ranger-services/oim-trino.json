@@ -1,0 +1,12 @@
+{
+  "name": "oim-trino",
+  "type": "trino",
+  "description": "Trino (trino-0) - overlays/local/patches/trino-local.yaml 의 ranger.service.name 과 같아야 한다",
+  "isEnabled": true,
+  "configs": {
+    "username": "data-admin",
+    "password": "__LOOKUP_NOT_USED__",
+    "jdbc.driverClassName": "io.trino.jdbc.TrinoDriver",
+    "jdbc.url": "jdbc:trino://trino-headless:8080"
+  }
+}

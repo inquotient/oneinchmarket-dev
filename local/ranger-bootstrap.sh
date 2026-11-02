@@ -16,7 +16,9 @@
 # ★ 원천은 `local/ranger-services/*.json` 하나다(Gotcha 117). 파일 이름이 아니라
 #   본문의 `name` 이 플러그인 설정의 service.name 과 같아야 한다.
 #   `local/ranger-services/policies/*.json` 은 **기본 정책에 보탤 항목**이다 —
-#   지금은 hbase-rest(읽기·쓰기만). 정책을 새로 만들지 않는 이유는 아래 해당 절.
+#   지금은 hbase-rest(읽기·쓰기만)와 Trino analyst(조회만). 정책을 새로 만들지 않는
+#   이유는 아래 해당 절 — 단 `resources` 를 가진 파일은 기본 정책과 리소스가 다른
+#   **새 정책**이라 만든다(Trino 의 trinouser={USER}, CLAUDE.md Gotcha 202).
 #
 # ★ `username` 은 조회(lookup)용 사용자이면서, Ranger 가 서비스를 만들 때 생성하는
 #   **기본 정책에 전권으로 들어가는 사용자**다. 그래서 각 서비스가 실제로 도는
@@ -114,6 +116,25 @@ done
 for f in "$SRC"/policies/*.json; do
   read -r svc pname < <(python3 -c 'import json,sys,urllib.parse as u; d=json.load(open(sys.argv[1])); print(d["service"], u.quote(d["policy"], safe=""))' "$f")
   code=$("${C[@]}" -o "$tmp/pol.json" -w '%{http_code}' "$B/service/$svc/policy/$pname")
+  # ★ `resources` 가 있는 파일은 **새 정책**이다 — 기본 정책과 리소스가 달라
+  #   3010 에 걸리지 않을 때만 쓴다(예: trinouser={USER}, 자기 자신으로의 전환만).
+  #   없으면 만들고, 있으면 아래의 항목 비교로 넘어간다.
+  if [ "$code" = "404" ] && python3 -c 'import json,sys; sys.exit(0 if "resources" in json.load(open(sys.argv[1])) else 1)' "$f"; then
+    if [ "$CHECK" = 1 ]; then log "$svc / 새 정책 $(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["policy"])' "$f"): **없다**"; missing=$((missing+1)); continue; fi
+    python3 - "$f" "$tmp/post.json" <<'PY3'
+import json,sys
+d=json.load(open(sys.argv[1])); i=d["item"]
+json.dump({"service":d["service"],"name":d["policy"],"isEnabled":True,"description":d.get("_why",""),
+           "resources":{k:{"values":v,"isExcludes":False,"isRecursive":False} for k,v in d["resources"].items()},
+           "policyItems":[{"users":i.get("users",[]),"groups":i.get("groups",[]),"roles":[],
+                           "accesses":i["accesses"],"delegateAdmin":False}]},open(sys.argv[2],"w"))
+PY3
+    code=$("${C[@]}" -o "$tmp/new.json" -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
+           --data @"$tmp/post.json" "$B/policy?createPrincipalsIfAbsent=true")
+    [ "$code" = "200" ] || { echo "[ranger] $svc 새 정책 생성이 $code 다: $(head -c 300 "$tmp/new.json")" >&2; exit 1; }
+    log "$svc / 새 정책 $(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["policy"])' "$f"): 만들었다"
+    continue
+  fi
   [ "$code" = "200" ] || { echo "[ranger] $svc 의 정책 $pname 조회가 $code 다 — 서비스를 먼저 만들 것" >&2; exit 1; }
   state=$(python3 - "$f" "$tmp/pol.json" "$tmp/put.json" <<'PY2'
 import json,sys

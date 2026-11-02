@@ -11,7 +11,7 @@
 > 때 port-forward 가 대조군이 된다.
 
 <!-- GENERATED:counts START -->
-웹 호스트 **56**(자체 인증 26 · 인증 없음 17 · 도구용 13, 그중 백엔드가 HTTPS 인 것 5) · TCP 대상 **14**
+웹 호스트 **56**(자체 인증 27 · 인증 없음 16 · 도구용 13, 그중 백엔드가 HTTPS 인 것 5) · TCP 대상 **14**
 <!-- GENERATED:counts END -->
 
 ---
@@ -261,7 +261,7 @@ Import-Certificate -FilePath .\oim-ca.crt -CertStoreLocation Cert:\LocalMachine\
 | https://glitchtip.oneinchmarket.local | 자체 인증 | `glitchtip:8000` | 오류 추적. 가입이 필요하다 |
 | https://minio.oneinchmarket.local | 자체 인증 | `minio-headless:9001` | 콘솔. `pw minio-secret root-user` / `root-password` |
 | https://s3.oneinchmarket.local | 자체 인증 | `minio-headless:9000` | S3 API — `mc`·`s3cmd`·boto3. 서명 인증 |
-| https://trino.oneinchmarket.local | **없음** | `trino-headless:8080` | 웹 UI(`/ui/`) + **JDBC**(§3-b). ★ `http-server.process-forwarded=true` 가 있어야 한다 — 없으면 전부 406 이다 |
+| https://trino.oneinchmarket.local | 자체 인증 | `trino-headless:8080` | LDAP 로그인 `data-admin`(전권)·`analyst`(조회만) / `pw ds389-secret <uid>-password` · 권한은 Ranger `oim-trino` · 웹 UI(`/ui/`) + **JDBC**(§3-b). ★ `http-server.process-forwarded=true` 가 있어야 한다 — 없으면 전부 406 이다 |
 | https://spark-history.oneinchmarket.local | **없음** | `spark-history-headless:18080` | 완료된 Spark 앱 |
 | https://spark-ui.oneinchmarket.local | **없음** | `spark-connect-headless:4040` | Spark Connect 세션 UI |
 | https://livy.oneinchmarket.local | **없음** | `livy-headless:8998` | Spark REST 세션 |
@@ -299,7 +299,7 @@ pw grafana-secret admin-password
 ### ★★ 인증이 없는 호스트 — 집 밖으로 내보내지 말 것
 
 <!-- GENERATED:open-list START -->
-**17 종** — `prometheus.oneinchmarket.local` · `alertmanager.oneinchmarket.local` · `pyroscope.oneinchmarket.local` · `pyrra.oneinchmarket.local` · `temporal.oneinchmarket.local` · `flink.oneinchmarket.local` · `apicurio.oneinchmarket.local` · `ranger-solr.oneinchmarket.local` · `solr.oneinchmarket.local` · `trino.oneinchmarket.local` · `spark-history.oneinchmarket.local` · `spark-ui.oneinchmarket.local` · `livy.oneinchmarket.local` · `hdfs.oneinchmarket.local` · `hbase.oneinchmarket.local` · `hbase-rs.oneinchmarket.local` · `hive.oneinchmarket.local`
+**16 종** — `prometheus.oneinchmarket.local` · `alertmanager.oneinchmarket.local` · `pyroscope.oneinchmarket.local` · `pyrra.oneinchmarket.local` · `temporal.oneinchmarket.local` · `flink.oneinchmarket.local` · `apicurio.oneinchmarket.local` · `ranger-solr.oneinchmarket.local` · `solr.oneinchmarket.local` · `spark-history.oneinchmarket.local` · `spark-ui.oneinchmarket.local` · `livy.oneinchmarket.local` · `hdfs.oneinchmarket.local` · `hbase.oneinchmarket.local` · `hbase-rs.oneinchmarket.local` · `hive.oneinchmarket.local`
 <!-- GENERATED:open-list END -->
 
 이것들은 **누구든 주소를 알면 그대로 들어온다.** 그리고 이 배치에서는
@@ -413,9 +413,18 @@ Trino 는 HTTP 프로토콜이라 **TCP 프록시가 아니라 HTTPS 게이트�
 |---|---|
 | 드라이버 | **Trino** |
 | JDBC URL | `jdbc:trino://trino.oneinchmarket.local:443/?SSL=true` |
-| Username | 아무 값(예: `admin`) — 인증이 없다 |
+| Username / Password | `data-admin`(전권) 또는 `analyst`(조회만) / `pw ds389-secret data-admin-password` · `pw ds389-secret analyst-password` |
 
 > `gateway-ca` 를 신뢰하지 않았으면 `&SSLVerification=NONE` 을 붙인다.
+>
+> ★★ **2026-11-03 부터 로그인이 필요하다.** 전에는 사용자 이름을 아무 값으로
+> 자칭했고 접근 제어가 allow-all 이었다. 지금은 DS389 LDAP 비밀번호로 인증하고
+> (계정은 `ds389-bootstrap` 이 만든다) Ranger `oim-trino` 가 권한을 정한다
+> (`overlays/local/patches/trino-local.yaml`). 실측: 인증 없음·헤더 자칭·틀린
+> 비밀번호 전부 401 · `analyst` 는 조회 OK 이고 INSERT·CREATE·DROP·남으로 행세
+> 전부 Access Denied.
+> ★ 비밀번호는 **HTTPS 로만** 받는다 — 게이트웨이의 `X-Forwarded-Proto` 로
+> 보안 연결을 인정한다. 그래서 port-forward(평문)로는 로그인이 거부된다(의도).
 >
 > ★★ **2026-10-11 에 고친 것**: 게이트웨이가 붙이는 `X-Forwarded-For` 를
 > Trino 가 거부해 **모든 요청이 406** 이었다. 증상이 원인을 가리키지 않는다 —

@@ -18,6 +18,8 @@ spec:
         # 연결 시점에 NetworkPolicy 를 찾아 헤매지 않도록 미리 연다.
         - podSelector: {matchLabels: {app.kubernetes.io/name: keycloak}}
         - podSelector: {matchLabels: {app.kubernetes.io/name: knox}}
+        # Trino 의 LDAP 비밀번호 인증 — 호출자 자격으로 직접 bind 한다(local 패치).
+        - podSelector: {matchLabels: {app.kubernetes.io/name: trino}}
       ports:
         - {protocol: TCP, port: 3389}
         - {protocol: TCP, port: 3636}
@@ -74,7 +76,9 @@ spec:
         - podSelector: {matchLabels: {app.kubernetes.io/name: hive-server}}
         - podSelector: {matchLabels: {app.kubernetes.io/name: hbase-master}}
         - podSelector: {matchLabels: {app.kubernetes.io/name: hbase-regionserver}}
-        # Trino·Kafka 는 아직 플러그인이 없다. 붙일 때 여기에 더한다.
+        # Trino 는 이미지에 번들된 플러그인을 쓴다(overlays/local/patches/trino-local.yaml).
+        - podSelector: {matchLabels: {app.kubernetes.io/name: trino}}
+        # Kafka 는 아직 플러그인이 없다. 붙일 때 여기에 더한다.
         #
         # ★ 이 규칙은 지금 실질적인 통제가 아니다. local 네임스페이스가
         #   ambient 라 트래픽이 15008(HBONE)로 흐르고, `allow-istio-hbone` 이

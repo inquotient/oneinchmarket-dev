@@ -209,7 +209,15 @@ RANGER_PW="Rg$(gen 16)#A1"
 # ★ sync-password — ds389-bootstrap 이 이 값으로 동기화 바인드 계정을 만들고
 #   ranger-admin(LDAP_BIND_PASSWORD)·ranger-usersync 가 같은 키를 읽는다.
 #   양쪽이 같은 Secret 을 보므로 난수여도 된다.
-mk ds389-secret   "dm-password=$DS_DM" "sync-password=$(gen)"   # cn=Directory Manager
+mk ds389-secret   "dm-password=$DS_DM" "sync-password=$(gen)" \
+                  "data-admin-password=$(gen)" "analyst-password=$(gen)"   # cn=Directory Manager
+# ★ data-admin·analyst — Trino 에 LDAP 비밀번호로 로그인하는 사람 계정이다
+#   (2026-11-03). ds389-bootstrap 이 이 값으로 엔트리를 만든다. 권한은 Ranger 의
+#   oim-trino 정책이 정한다(local/ranger-services/). 둘 다 사람이 쓰는 값이라
+#   로테이션 CronJob 에 넣지 않는다.
+# ★ Trino 노드 간 통신 서명 키. 인증을 켜면 필수다 — 노드가 하나여도
+#   없으면 기동하지 않는다(`internal-communication.shared-secret`).
+mk trino-secret   "shared-secret=$(gen 64)"
 mk lam-secret     "master-password=$LAM_PW"     # LAM 마스터 설정 비밀번호
 # ★★ Ranger 는 **자격이 다섯**이다 — db-password 하나로는 부족하다.
 #   매니페스트가 RANGER_ADMIN/KEYADMIN/TAGSYNC/USERSYNC_PASSWORD 를 각각

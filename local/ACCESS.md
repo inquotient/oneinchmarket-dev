@@ -279,7 +279,7 @@ curl -k -u "ranger-sync:$PW" \n  'https://localhost:8443/gateway/oim/webhdfs/v1/
 | 컴포넌트 | port-forward | URL | 비고 |
 |---|---|---|---|
 | **MinIO Console** | `$K port-forward svc/minio-headless 9001:9001` | http://localhost:9001 | `pw minio-secret root-user` / `root-password` |
-| **Trino** | `$K port-forward svc/trino-headless 8095:8080` | http://localhost:8095 | 인증 없음 |
+| **Trino** | — (외부 주소를 쓸 것) | https://trino.oneinchmarket.local | LDAP `data-admin`·`analyst` — 평문 port-forward 로는 로그인 불가 |
 | Spark History | `$K port-forward spark-history-0 18080:18080` | http://localhost:18080 | |
 | Spark Connect UI | `$K port-forward spark-connect-0 4041:4040` | http://localhost:4041 | |
 | Livy | `$K port-forward livy-0 8998:8998` | http://localhost:8998 | |
@@ -420,12 +420,16 @@ $K port-forward svc/proxysql              16033:6033    # MySQL 와이어
 |---|---|
 | 드라이버 | **Trino** |
 | Host / Port | `localhost` / `8095` |
-| Username | 아무 값(예: `admin`) — 인증 없음 |
-| Password | 비움 |
+| Username / Password | ★ **port-forward 로는 로그인할 수 없다**(아래) |
 | JDBC URL | `jdbc:trino://localhost:8095/` |
 
-카탈로그는 `hive`(MinIO 의 Iceberg·Parquet)와 `system` 이다. 웹 UI 도 같은
-포트다 — http://localhost:8095
+★★ **2026-11-03 부터 Trino 는 LDAP 비밀번호 인증 + Ranger 인가다** — 비밀번호를
+**HTTPS 로만** 받으므로 평문 port-forward 에서는 로그인이 거부된다(의도다).
+외부 주소로 붙을 것: `jdbc:trino://trino.oneinchmarket.local:443/?SSL=true`
+(EXTERNAL-ACCESS §3-b). 계정은 `data-admin`(전권)·`analyst`(조회만), 비밀번호는
+`pw ds389-secret data-admin-password` · `pw ds389-secret analyst-password`.
+
+카탈로그는 `hive`·`iceberg`(MinIO)와 `system` 이다.
 
 ### 2-6. HiveServer2
 

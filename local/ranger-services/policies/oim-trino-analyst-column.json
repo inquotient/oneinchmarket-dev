@@ -1,0 +1,16 @@
+{
+  "service": "oim-trino",
+  "policy": "all - catalog, schema, table, column",
+  "_why": "analyst(DS389 사람 계정) — 조회만. Trino 세션에는 그룹이 없어(그룹 공급자 없음) 그룹이 아니라 사용자로 건다. 같은 리소스(*)에 정책을 하나 더 둘 수 없어(Ranger 3010) 기본 정책에 항목을 보탠다. 쓰기(insert·create·drop·delete·alter)는 주지 않는다",
+  "item": {
+    "users": [
+      "analyst"
+    ],
+    "accesses": [
+      {
+        "type": "select",
+        "isAllowed": true
+      }
+    ]
+  }
+}

@@ -182,6 +182,35 @@ spec:
                 exit 1
               fi
 
+              # ── 5. 데이터 계층 사람 계정 (Trino LDAP 로그인, 2026-11-03)
+              #   data-admin = 전권 · analyst = 조회만. 권한은 여기가 아니라
+              #   Ranger 의 oim-trino 정책이 정한다 — LDAP 은 "누구인가" 만 답한다.
+              #   ★ 비밀번호 키는 optional 이다. 없는 환경(dev·prod)에서는 엔트리를
+              #     만들지 않는다 — 비밀번호 없는 사람 계정은 bind 할 수 없어 무의미하다.
+              person() {  # person <uid> <cn> <password>
+                [ -n "$3" ] || { echo "[ds389-bootstrap] uid=$1 — 비밀번호 키가 없어 건너뛴다"; return 0; }
+                echo "[ds389-bootstrap] uid=$1"
+                add "dn: uid=$1,ou=people,${BASE}
+              objectClass: top
+              objectClass: person
+              objectClass: organizationalPerson
+              objectClass: inetOrgPerson
+              uid: $1
+              cn: $2
+              sn: $1
+              userPassword: $3"
+                printf '%s\n' "dn: uid=$1,ou=people,${BASE}
+              changetype: modify
+              replace: userPassword
+              userPassword: $3" | sed 's/^[[:space:]]*//' \
+                  | ldapmodify -x -H "$LDAP" -D "$DM" -w "$DM_PASSWORD" 2>&1 | sed 's/^/  /'
+                # 그 자격으로 실제로 bind 되는지 본다 — Trino 가 하는 일과 같다.
+                ldapwhoami -x -H "$LDAP" -D "uid=$1,ou=people,${BASE}" -w "$3" >/dev/null 2>&1 \
+                  || { echo "[ds389-bootstrap] 실패 — uid=$1 로 bind 되지 않는다"; exit 1; }
+              }
+              person data-admin "Data Platform Admin" "${DATA_ADMIN_PASSWORD:-}"
+              person analyst    "Data Analyst"        "${ANALYST_PASSWORD:-}"
+
               echo "[ds389-bootstrap] 검증"
               found=$(ldapsearch -x -LLL -H "$LDAP" -D "$DM" -w "$DM_PASSWORD" \
                         -b "$BASE" -s sub "(objectClass=*)" dn 2>/dev/null | grep -c '^dn:')
@@ -200,6 +229,10 @@ spec:
             # 같은 값을 쓰면 계정을 나눈 의미가 없다.
             - name: SYNC_PASSWORD
               valueFrom: { secretKeyRef: { name: ds389-secret, key: sync-password } }
+            - name: DATA_ADMIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: ds389-secret, key: data-admin-password, optional: true } }
+            - name: ANALYST_PASSWORD
+              valueFrom: { secretKeyRef: { name: ds389-secret, key: analyst-password, optional: true } }
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

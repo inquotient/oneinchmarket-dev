@@ -1,0 +1,154 @@
+# Trino — LDAP 비밀번호 인증 + Ranger 접근 제어 (local 전용, 2026-11-03)
+#
+# ★★★ 왜: Trino 는 인증이 없었다. 사용자 이름을 클라이언트가 `X-Trino-User`
+#   헤더로 **자칭**했고, 접근 제어가 기본값(allow-all)이라 LAN 의 누구나
+#   Iceberg·Hive 카탈로그 전체를 읽고 쓰고 지울 수 있었다
+#   (EXTERNAL-ACCESS 의 인증 없는 호스트 중 하나).
+#
+# ★ 순서가 중요하다 — **인증 먼저, 인가는 그 위에.** 인증 없이 Ranger 만
+#   붙이면 Ranger 는 자칭한 이름으로 판단한다. 정책은 있는데 누구나 아무
+#   이름이나 댈 수 있으니 통제가 아니라 장식이다(Gotcha 39 와 같은 부류).
+#
+# ── 인증: PASSWORD + LDAP(DS389) ─────────────────────────────────────────
+#   Knox 와 같은 방식이다 — 호출자 자격으로 직접 bind 하므로 **바인드 계정이
+#   필요 없다**(`user-bind-pattern`). 계정은 ds389-bootstrap 이 만든다
+#   (data-admin · analyst, 비밀번호는 ds389-secret).
+#   ★ Trino 는 비밀번호를 **HTTPS 로만** 받는다. 이 클러스터는 TLS 를
+#     게이트웨이에서 끝내고 `http-server.process-forwarded=true` 라서,
+#     게이트웨이가 붙이는 `X-Forwarded-Proto: https` 로 요청을 보안 연결로
+#     인정한다. 그래서 `allow-insecure-over-http` 를 켜지 않는다 —
+#     port-forward(평문)로는 로그인이 거부되는 것이 **의도**다.
+#   ★ `/v1/info` 는 인증 없이 열린다 — 프로브가 그대로 동작한다.
+#   ★ 인증을 켜면 `internal-communication.shared-secret` 이 필수다(노드가
+#     하나여도). trino-secret/shared-secret.
+#
+# ── 인가: Ranger (`access-control.name=ranger`) ───────────────────────────
+#   Trino 483 이미지에 플러그인이 **번들돼 있다**(plugin/ranger, ranger 2.8.0
+#   클라이언트) — 다른 컴포넌트와 달리 이식이 필요 없다. 키 이름은 문서가
+#   아니라 jar 의 RangerConfig 에서 읽었다(`ranger.service.name` ·
+#   `ranger.plugin.config.resource` · `ranger.hadoop.config.resource`).
+#   ★ XML 안의 접두는 `ranger.plugin.trino.*` 다. Hive 값을 복사하고 접두를
+#     안 고치면 **오류 없이 무시**된다(ranger-hive-configmap.yaml 과 같은 함정).
+#   ★ 서비스 `oim-trino` 와 정책은 local/ranger-bootstrap.sh 가 넣는다.
+#     없으면 플러그인이 정책 0건을 받아 **전부 거부**된다(Gotcha 201 배경).
+#   ★★ 정책을 **그룹이 아니라 사용자**로 건다. Trino 에는 그룹 공급자가
+#     없어 세션의 그룹이 비어 있다 — 그룹 정책은 조용히 아무것도 허용하지 않는다.
+#   ★ 감사는 끈다 — 다른 Ranger 플러그인과 같다(Gotcha 37).
+#
+# ★ base 를 고치지 않는다 — 계정 원천(DS389 사람 계정)과 Ranger 서비스 정의가
+#   local 에만 있다. 같은 것을 dev·prod 에 내보내려면 그 둘이 먼저다.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trino-config
+data:
+  config.properties: |
+    coordinator=true
+    node-scheduler.include-coordinator=true
+    http-server.http.port=8080
+    discovery.uri=http://localhost:8080
+    http-server.process-forwarded=true
+    http-server.authentication.type=PASSWORD
+    internal-communication.shared-secret=${ENV:TRINO_SHARED_SECRET}
+  password-authenticator.properties: |
+    password-authenticator.name=ldap
+    ldap.url=ldap://ds389-headless:3389
+    ldap.allow-insecure=true
+    ldap.user-bind-pattern=uid=${USER},ou=people,dc=oneinchmarket,dc=co,dc=kr
+    ldap.cache-ttl=1m
+  access-control.properties: |
+    access-control.name=ranger
+    ranger.service.name=oim-trino
+    ranger.plugin.config.resource=/etc/trino/ranger-trino-security.xml,/etc/trino/ranger-trino-audit.xml
+  ranger-trino-security.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <configuration>
+      <property>
+        <name>ranger.plugin.trino.service.name</name>
+        <value>oim-trino</value>
+      </property>
+      <property>
+        <name>ranger.plugin.trino.policy.source.impl</name>
+        <value>org.apache.ranger.admin.client.RangerAdminRESTClient</value>
+      </property>
+      <property>
+        <name>ranger.plugin.trino.policy.rest.url</name>
+        <value>http://ranger-admin:6080</value>
+      </property>
+      <property>
+        <name>ranger.plugin.trino.policy.pollIntervalMs</name>
+        <value>30000</value>
+      </property>
+      <property>
+        <name>ranger.plugin.trino.policy.cache.dir</name>
+        <value>/tmp/ranger/trino/policycache</value>
+      </property>
+      <property>
+        <name>ranger.plugin.trino.policy.rest.client.connection.timeoutMs</name>
+        <value>120000</value>
+      </property>
+      <property>
+        <name>ranger.plugin.trino.policy.rest.client.read.timeoutMs</name>
+        <value>30000</value>
+      </property>
+    </configuration>
+  ranger-trino-audit.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <configuration>
+      <property>
+        <name>xasecure.audit.is.enabled</name>
+        <value>false</value>
+      </property>
+      <property>
+        <name>xasecure.audit.destination.solr</name>
+        <value>false</value>
+      </property>
+      <property>
+        <name>xasecure.audit.destination.hdfs</name>
+        <value>false</value>
+      </property>
+      <property>
+        <name>xasecure.audit.destination.elasticsearch</name>
+        <value>false</value>
+      </property>
+    </configuration>
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: trino
+spec:
+  template:
+    spec:
+      containers:
+        - name: trino
+          env:
+            - name: TRINO_SHARED_SECRET
+              valueFrom: { secretKeyRef: { name: trino-secret, key: shared-secret } }
+      volumes:
+        # ★ items 는 병합되지 않고 **통째로 바뀐다**(병합 키가 없는 리스트) —
+        #   base 의 여섯 개를 여기 다시 적는다. base 에 카탈로그를 더하면 여기도.
+        - name: trino-config
+          configMap:
+            name: trino-config
+            items:
+              - key: config.properties
+                path: config.properties
+              - key: jvm.config
+                path: jvm.config
+              - key: node.properties
+                path: node.properties
+              - key: log.properties
+                path: log.properties
+              - key: catalog-iceberg.properties
+                path: catalog/iceberg.properties
+              - key: catalog-hive.properties
+                path: catalog/hive.properties
+              - key: password-authenticator.properties
+                path: password-authenticator.properties
+              - key: access-control.properties
+                path: access-control.properties
+              - key: ranger-trino-security.xml
+                path: ranger-trino-security.xml
+              - key: ranger-trino-audit.xml
+                path: ranger-trino-audit.xml
