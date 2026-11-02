@@ -234,3 +234,40 @@ spec:
       to:
         - operation:
             hosts: ["api.oneinchmarket.local", "api.oneinchmarket.local:*"]
+---
+# Zilla(HTTP·SSE -> Kafka)는 Keycloak realm 토큰이 있어야 한다 — DENY 다.
+#
+# ★ 왜: Zilla 는 HTTP 로 Kafka(`edge.events`)에 **쓴다**. 인증 없이 두면 LAN 의
+#   누구나 이벤트를 넣는다. Zilla 자체에는 인증을 두지 않고 게이트웨이에서 막는다
+#   (api-only-realm-issuers 와 같은 모양 — ALLOW 의 rules 를 덮지 않으려고 DENY).
+#   `notRequestPrincipals` 는 토큰 없는 요청에도 매칭하므로 무토큰은 403 이다.
+# ★★ 과금: 이 게이트웨이의 계량 로그는 모든 호스트에 걸리고(Telemetry
+#   `filter: "true"`) 과금 feature 는 route 로 거르지 않는다 — `tenant` 클레임이
+#   있는 토큰으로 Zilla 를 부르면 **그 테넌트의 사용량**이 된다. Zilla 는 API 라
+#   그것이 맞다고 보았고, 시험은 그 경로를 피해 클러스터 안에서 했다(Gotcha 23).
+# ★ 리스너가 HTTP 뿐이라 "TCP 포트 전부 거부" 경고는 해당 없음(위 정책과 같다).
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: zilla-require-realm-jwt
+  labels:
+    app.kubernetes.io/name: zilla-require-realm-jwt
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    matchLabels:
+      gateway.networking.k8s.io/gateway-name: ingress
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notRequestPrincipals:
+              - "http://keycloak-headless:8080/realms/oneinchmarket/*"
+              - "https://keycloak.oneinchmarket.local/realms/oneinchmarket/*"
+      to:
+        - operation:
+            hosts: ["zilla.oneinchmarket.local", "zilla.oneinchmarket.local:*"]

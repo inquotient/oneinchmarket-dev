@@ -77,6 +77,9 @@ CATALOG = [
      "HTTP->Kafka. ★ 자체 인증이 없다(SEC-206)"),
     ("kafka-connect", "kafka-connect-headless", 8083, "http", TOOL,
      "커넥터 REST. `GET /connectors`"),
+    ("zilla", "zilla", 7114, "http", TOOL,
+     "HTTP·SSE <-> Kafka `edge.events` (`POST`·`GET /events` · `GET /sse/events`). "
+     "★ Keycloak realm JWT 필수(게이트웨이 DENY)"),
     # -- 개발자 포털 · API 관리 --------------------------------------------
     ("backstage", "backstage-headless", 7007, "http", AUTH,
      "Keycloak OIDC. `portal` / `pw keycloak-secret portal-user-password`"),

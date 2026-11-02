@@ -1,0 +1,247 @@
+# Kroxylicious 0.25.1 — Kafka 프로토콜 프록시 (local 전용)
+#
+# ★★ 왜 db-gateway(nginx stream)로는 안 되나 — Kafka 는 **주소를 되돌려준다.**
+#   bootstrap 에 붙으면 브로커가 메타데이터로 `kafka-0.kafka-headless:9092` 를
+#   광고하고, 클라이언트는 그 이름으로 **다시** 붙는다. 밖에서는 풀리지 않으므로
+#   TCP 프록시로는 bootstrap 까지만 되고 다음 홉에서 죽는다(EXTERNAL-ACCESS §6).
+#   Kroxylicious 는 메타데이터의 브로커 주소를 **자기 주소로 고쳐 쓴다** —
+#   그것이 이 컴포넌트를 들인 이유다.
+#
+# ★ 포트 배정(`portIdentifiesNode`): bootstrap 30992, 브로커는 nodeStartPort
+#   부터 node id 순으로 하나씩. local Kafka 는 node 0 하나라 30993 만 쓴다.
+#   Kafka 를 늘리면 nodeIdRanges·Service·NetworkPolicy 셋을 함께 늘릴 것 —
+#   빠뜨린 포트는 거부가 아니라 타임아웃이다(Gotcha 13).
+# ★ NodePort 번호와 컨테이너 포트를 **같게** 둔다. 광고 주소(192.168.0.103:30993)가
+#   곧 클라이언트가 붙는 주소라, 둘이 다르면 메타데이터가 거짓말을 한다.
+# ★★ 광고 주소는 노드 103 의 IP 다(EXTERNAL-ACCESS 의 다른 경로와 같다).
+#   노드 IP 가 static 이어야 성립한다(node-rejoin-check.sh 가 본다).
+#
+# ★★ 이미지에서 확인한 것(2026-11-02, Gotcha 103):
+#   - 저장소는 `quay.io/kroxylicious/proxy` 다. `.../kroxylicious` 는 스냅샷·커밋
+#     태그뿐이라 `0.25.1` 이 **없다**(manifest unknown).
+#   - 필드 이름은 `nodeStartPort` 다. 0.25.1 문서는 `brokerStartPort` 라 적었는데
+#     바이너리가 거부했다(`Unrecognized field "brokerStartPort"`).
+#   - uid 185 · JRE 21 · 읽기 전용 rootfs 에서 쓰기 0건으로 기동했다.
+#   - 관리 포트 9190: `/livez` 200 · `/metrics` 200 · `/readyz` 는 **없다**(404).
+#   - 기동 스크립트(run-java.sh)는 JAVA_OPTIONS 에 `-Xmx` 가 있으면 자기 값을
+#     붙이지 않는다(Gotcha 123 의 함정이 없다).
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kroxylicious
+  labels:
+    app.kubernetes.io/name: kroxylicious
+    app.kubernetes.io/component: messaging
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kroxylicious-config
+  labels:
+    app.kubernetes.io/name: kroxylicious
+    app.kubernetes.io/component: messaging
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+data:
+  # ★ 리터럴 블록 안에 `#` 주석을 쓰지 말 것 — 값의 일부가 된다(Gotcha 83).
+  #   필터 `edge-tenant` 가 가상 클러스터 이름 `edge` 와 구분자 `.` 로 실제
+  #   토픽·컨슈머 그룹 이름 앞에 `edge.` 를 붙이고 응답에서 뗀다.
+  config.yaml: |
+    management:
+      endpoints:
+        prometheus: {}
+    clusterDefinitions:
+      - name: oim
+        bootstrapServers: kafka-headless:9092
+    virtualClusters:
+      - name: edge
+        target:
+          cluster: oim
+        gateways:
+          - name: lan
+            portIdentifiesNode:
+              bootstrapAddress: 0.0.0.0:30992
+              advertisedBrokerAddressPattern: 192.168.0.103
+              nodeStartPort: 30993
+              nodeIdRanges:
+                - name: brokers
+                  start: 0
+                  end: 0
+        filters:
+          - edge-tenant
+    filterDefinitions:
+      - name: edge-tenant
+        type: MultiTenant
+        config:
+          prefixResourceNameSeparator: "."
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kroxylicious
+  labels:
+    app.kubernetes.io/name: kroxylicious
+    app.kubernetes.io/component: messaging
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  # 이 노드에서 maxSurge 기본값은 무중단이 아니라 교착이다(Gotcha 87).
+  # 그리고 고정 NodePort 를 쓰는 파드가 둘이면 광고 주소가 갈린다.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kroxylicious
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kroxylicious
+        app.kubernetes.io/component: messaging
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/managed-by: kustomize
+    spec:
+      serviceAccountName: kroxylicious
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        # 이미지의 `kroxylicious` 사용자다(uid=185 gid=185, 실측).
+        runAsUser: 185
+        runAsGroup: 185
+        fsGroup: 185
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: kroxylicious
+          image: quay.io/kroxylicious/proxy:0.25.1
+          imagePullPolicy: IfNotPresent
+          # ENTRYPOINT 는 tini -- kroxylicious-start.sh 이고 Cmd 가 없다.
+          # args 가 그 뒤에 붙는다.
+          args: ["--config", "/etc/kroxylicious/config.yaml"]
+          env:
+            # ★ 힙 + direct + 나머지가 limit 안에 들어가야 한다. Netty 는
+            #   direct 상한을 명시하지 않으면 최대 힙과 같은 값을 쓴다
+            #   (Gotcha 184 — data-prepper 가 그것으로 조용히 OOMKilled 였다).
+            - name: JAVA_OPTIONS
+              value: "-Xms128m -Xmx256m -XX:MaxDirectMemorySize=128m"
+          ports:
+            - name: bootstrap
+              containerPort: 30992
+              protocol: TCP
+            - name: broker-0
+              containerPort: 30993
+              protocol: TCP
+            - name: management
+              containerPort: 9190
+              protocol: TCP
+          startupProbe:
+            httpGet: { path: /livez, port: management }
+            periodSeconds: 5
+            failureThreshold: 24
+          livenessProbe:
+            httpGet: { path: /livez, port: management }
+            periodSeconds: 20
+            timeoutSeconds: 5
+          # `/readyz` 가 없다. 게이트웨이가 bootstrap 포트를 실제로 열었는지 본다.
+          readinessProbe:
+            tcpSocket: { port: bootstrap }
+            periodSeconds: 10
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 384Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/kroxylicious
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: kroxylicious-config
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kroxylicious
+  labels:
+    app.kubernetes.io/name: kroxylicious
+    app.kubernetes.io/component: messaging
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  # ★★ NodePort 를 **고정**하고 컨테이너 포트와 같은 번호로 둔다(머리말 참조).
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: kroxylicious
+  ports:
+    - name: bootstrap
+      port: 30992
+      targetPort: bootstrap
+      nodePort: 30992
+      protocol: TCP
+    - name: broker-0
+      port: 30993
+      targetPort: broker-0
+      nodePort: 30993
+      protocol: TCP
+---
+# 외부 수신 허용 — default-deny-ingress 가 이 파드도 덮는다.
+#
+# ★ `from` 을 비운 것은 의도다(db-gateway 와 같은 이유): NodePort 로 들어온
+#   트래픽은 `remote-node`·world 신원이라 `ipBlock` 으로 좁힐 수 없다
+#   (Gotcha 187·197). 범위를 가두는 것은 네트워크가 아니라 MultiTenant 필터다.
+# ★ `matchExpressions` 를 쓴다 — 라벨 변환기가 `matchLabels` 에 environment 를
+#   주입한다(Gotcha 185).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-kroxylicious-external
+  labels:
+    app.kubernetes.io/name: allow-kroxylicious-external
+    app.kubernetes.io/component: messaging
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: ["kroxylicious"]
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - {protocol: TCP, port: 30992}
+        - {protocol: TCP, port: 30993}

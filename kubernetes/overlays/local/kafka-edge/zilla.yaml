@@ -1,0 +1,295 @@
+# Zilla 2.6.0 — HTTP·SSE <-> Kafka (local 전용)
+#
+# 경로(게이트웨이 `zilla.oneinchmarket.local` 뒤):
+#   POST /events        -> edge.events 에 produce (본문이 곧 메시지 값)
+#   GET  /events        -> edge.events 를 JSON 배열로 fetch
+#   GET  /sse/events    -> edge.events 를 SSE 로 스트리밍
+# ★ 라우팅하는 토픽은 `edge.events` **하나뿐**이다. 경로 변수로 토픽을 고르게
+#   하지 않는다 — 그러면 HTTP 로 과금 토픽에 쓸 수 있게 된다.
+# ★★ 게이트웨이에서 **Keycloak realm JWT 가 필수**다(authz-external-access.yaml 의
+#   zilla-require-realm-jwt). Zilla 자체는 인증하지 않는다.
+#   ★ 브라우저 EventSource 는 Authorization 헤더를 못 실어 SSE 는 도구용이다.
+#
+# ★★ 이미지에서 확인한 것(2026-11-02, 노드에서 띄워 봤다 — Gotcha 103):
+#   ① **기본 실행 사용자가 root** 이고, 런처 `/opt/zilla/zilla` 가 `0744`(소유자만
+#      실행)다. 비-root 로 그냥 돌리면 `exec ... Permission denied` 로 죽는다.
+#      파일은 모두가 읽을 수 있으므로 `sh /opt/zilla/zilla` 로 **셸이 읽어 실행**
+#      하게 한다 — 이미지를 고치지 않고 uid 1000 으로 돈다.
+#   ② ★★★ **기본값으로는 기동하자마자 메모리 4.6 GB** 다. 워커마다 버퍼 풀을
+#      `슬롯 32 KiB × zilla.engine.worker.capacity` 크기로 mmap 하는데 그 기본값이
+#      커서 buffers·data 파일이 워커당 1 GiB 씩 생겼다(2 워커에 /var/run/zilla 4.1 GiB).
+#      그 페이지가 cgroup 에 잡혀 쿠버네티스에서는 즉시 OOMKill 이다.
+#      `worker.capacity=1024` 로 워커당 32 MiB(합계 135 MiB) · 메모리 336 MB 가 됐다.
+#      ★ 속성 이름은 문서가 아니라 소스(EngineConfiguration.java)에서 읽었다.
+#   ③ 워커 수 기본값이 **호스트 코어 수**(availableProcessors)다 — Gotcha 79 의
+#      함정이라 `-w 2` 로 고정한다. 워커 수가 곧 mmap 파일 수다.
+#   ④ 준비 판정은 엔진이 쓰는 `/var/run/zilla/ready` 파일이다(상류 예제와 같다).
+#   ⑤ 읽기 전용 rootfs 에서 쓰기 실패 0건(실행 디렉터리·/tmp 만 쓴다).
+#   ⑥ `ZILLA_INCUBATOR_ENABLED=true` — 상류 SSE 예제가 켠다.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: zilla
+  labels:
+    app.kubernetes.io/name: zilla
+    app.kubernetes.io/component: messaging
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zilla-config
+  labels:
+    app.kubernetes.io/name: zilla
+    app.kubernetes.io/component: messaging
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+data:
+  # ★ 리터럴 블록 안에 `#` 주석을 쓰지 말 것(Gotcha 83).
+  zilla.yaml: |
+    ---
+    name: edge
+    bindings:
+      north_tcp_server:
+        type: tcp
+        kind: server
+        options:
+          host: 0.0.0.0
+          port:
+            - 7114
+        routes:
+          - when:
+              - port: 7114
+            exit: north_http_server
+      north_http_server:
+        type: http
+        kind: server
+        routes:
+          - when:
+              - headers:
+                  :path: /sse/*
+            exit: north_sse_server
+          - exit: north_http_kafka_mapping
+      north_http_kafka_mapping:
+        type: http-kafka
+        kind: proxy
+        routes:
+          - when:
+              - method: POST
+                path: /events
+            exit: north_kafka_cache_client
+            with:
+              capability: produce
+              topic: edge.events
+          - when:
+              - method: GET
+                path: /events
+            exit: north_kafka_cache_client
+            with:
+              capability: fetch
+              topic: edge.events
+              merge:
+                content-type: application/json
+      north_sse_server:
+        type: sse
+        kind: server
+        exit: north_sse_kafka_mapping
+      north_sse_kafka_mapping:
+        type: sse-kafka
+        kind: proxy
+        routes:
+          - when:
+              - path: /sse/events
+            exit: north_kafka_cache_client
+            with:
+              topic: edge.events
+      north_kafka_cache_client:
+        type: kafka
+        kind: cache_client
+        exit: south_kafka_cache_server
+      south_kafka_cache_server:
+        type: kafka
+        kind: cache_server
+        options:
+          bootstrap:
+            - edge.events
+        exit: south_kafka_client
+      south_kafka_client:
+        type: kafka
+        kind: client
+        options:
+          servers:
+            - kafka-headless:9092
+        exit: south_tcp_client
+      south_tcp_client:
+        type: tcp
+        kind: client
+    telemetry:
+      exporters:
+        stdout_logs_exporter:
+          type: stdout
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zilla
+  labels:
+    app.kubernetes.io/name: zilla
+    app.kubernetes.io/component: messaging
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  # 이 노드에서 maxSurge 기본값은 무중단이 아니라 교착이다(Gotcha 87).
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: zilla
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: zilla
+        app.kubernetes.io/component: messaging
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/managed-by: kustomize
+    spec:
+      serviceAccountName: zilla
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # 라우팅하는 토픽이 없으면 cache_server 가 bootstrap 하지 못한다.
+        # 만드는 것은 이 파드 자신이다 — base 의 kafka-topics Job 에 넣으면
+        # Zilla 가 없는 dev·prod 에도 토픽이 생긴다. 이 신원(sa/zilla)은
+        # authz.yaml 에서 9092 를 허용받는다.
+        - name: ensure-topic
+          image: docker.io/apache/kafka:4.3.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              BS=kafka-headless:9092
+              i=0
+              until /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server "$BS" >/dev/null 2>&1; do
+                i=$((i+1)); [ "$i" -gt 60 ] && { echo "Kafka 가 5분 안에 응답하지 않았다"; exit 1; }
+                echo "  Kafka 대기 ($i/60)"; sleep 5
+              done
+              # local 은 단일 브로커라 replication-factor 1 (base kafka-topics Job 과 같다).
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server "$BS" \
+                --create --if-not-exists --topic edge.events --partitions 3 --replication-factor 1
+              echo "토픽 edge.events 준비됨"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 50m, memory: 256Mi }
+            limits:   { cpu: 500m, memory: 512Mi }
+      containers:
+        - name: zilla
+          image: ghcr.io/aklivity/zilla:2.6.0
+          imagePullPolicy: IfNotPresent
+          # ★ 런처가 0744 라 비-root 는 직접 실행할 수 없다 — 셸에 읽힌다(머리말 ①).
+          command: ["sh", "/opt/zilla/zilla"]
+          args:
+            - start
+            - --exception-traces
+            - --workers
+            - "2"
+            - --property
+            - zilla.engine.worker.capacity=1024
+          env:
+            - name: ZILLA_INCUBATOR_ENABLED
+              value: "true"
+            # 힙은 작게 — Zilla 의 버퍼는 힙이 아니라 mmap 파일이다(머리말 ②).
+            - name: JAVA_OPTIONS
+              value: "-Xms64m -Xmx192m -XX:MaxDirectMemorySize=64m"
+          ports:
+            - name: http
+              containerPort: 7114
+              protocol: TCP
+          startupProbe:
+            exec: { command: ["sh", "-c", "test -f /var/run/zilla/ready"] }
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 36
+          readinessProbe:
+            exec: { command: ["sh", "-c", "test -f /var/run/zilla/ready"] }
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 20
+            timeoutSeconds: 3
+          # ★ 유휴에도 CPU 약 108m 을 쓴다(실측 2026-11-02, 워커 2) — 엔진 워커가
+          #   쉬지 않고 돌며 일을 확인하는 구조로 보인다. 예약을 그 위로 둔다.
+          #   메모리는 기동 직후 186Mi(mmap 135 MiB 포함).
+          resources:
+            requests:
+              cpu: 150m
+              memory: 384Mi
+            limits:
+              cpu: "1"
+              memory: 640Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/zilla
+              readOnly: true
+            # 엔진 디렉터리 — mmap 버퍼 파일이 여기 생긴다(약 135 MiB).
+            - name: run
+              mountPath: /var/run/zilla
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: zilla-config
+        - name: run
+          emptyDir:
+            sizeLimit: 512Mi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zilla
+  labels:
+    app.kubernetes.io/name: zilla
+    app.kubernetes.io/component: messaging
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  selector:
+    app.kubernetes.io/name: zilla
+  ports:
+    - name: http
+      port: 7114
+      targetPort: http
+      protocol: TCP

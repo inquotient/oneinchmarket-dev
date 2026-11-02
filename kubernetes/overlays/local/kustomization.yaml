@@ -38,6 +38,10 @@ resources:
   #   한다. 노드 쪽 전제(443 DNAT·와일드카드 DNS·VPN)는 매니페스트로 담을 수
   #   없어 `local/external-access-node.sh` 가 넣는다.
   - external-access
+  # Kafka 의 바깥 가장자리 — Kroxylicious(Kafka 프로토콜) · Zilla(HTTP·SSE).
+  #   둘 다 실제 토픽 `edge.*` 안에 갇힌다. 사유와 한계는 그 디렉터리의
+  #   kustomization.yaml 머리말.
+  - kafka-edge
 
 patches:
   # 로컬 레플리카 1

@@ -11,7 +11,7 @@
 > 때 port-forward 가 대조군이 된다.
 
 <!-- GENERATED:counts START -->
-웹 호스트 **56**(자체 인증 25 · 인증 없음 19 · 도구용 12, 그중 백엔드가 HTTPS 인 것 5) · TCP 대상 **15**
+웹 호스트 **57**(자체 인증 25 · 인증 없음 19 · 도구용 13, 그중 백엔드가 HTTPS 인 것 5) · TCP 대상 **15**
 <!-- GENERATED:counts END -->
 
 ---
@@ -148,6 +148,7 @@ nslookup grafana.oneinchmarket.local 192.168.0.103
 192.168.0.103 apicurio-registry.oneinchmarket.local
 192.168.0.103 kafka-bridge.oneinchmarket.local
 192.168.0.103 kafka-connect.oneinchmarket.local
+192.168.0.103 zilla.oneinchmarket.local
 192.168.0.103 backstage.oneinchmarket.local
 192.168.0.103 gravitee-console.oneinchmarket.local
 192.168.0.103 gravitee-portal.oneinchmarket.local
@@ -234,6 +235,7 @@ Import-Certificate -FilePath .\oim-ca.crt -CertStoreLocation Cert:\LocalMachine\
 | https://apicurio-registry.oneinchmarket.local | 도구용 | `apicurio-registry-headless:8080` | 계약 레지스트리 API. 위 UI 의 전제다 |
 | https://kafka-bridge.oneinchmarket.local | **없음** | `kafka-bridge:8080` | HTTP->Kafka. ★ 자체 인증이 없다(SEC-206) |
 | https://kafka-connect.oneinchmarket.local | 도구용 | `kafka-connect-headless:8083` | 커넥터 REST. `GET /connectors` |
+| https://zilla.oneinchmarket.local | 도구용 | `zilla:7114` | HTTP·SSE <-> Kafka `edge.events` (`POST`·`GET /events` · `GET /sse/events`). ★ Keycloak realm JWT 필수(게이트웨이 DENY) |
 | https://backstage.oneinchmarket.local | 자체 인증 | `backstage-headless:7007` | Keycloak OIDC. `portal` / `pw keycloak-secret portal-user-password` |
 | https://gravitee-console.oneinchmarket.local | 자체 인증 | `gravitee-console-headless:8080` | admin / `pw gravitee-secret admin-password` · SPA(§6) |
 | https://gravitee-portal.oneinchmarket.local | 자체 인증 | `gravitee-portal-headless:8080` | 구독·API 키 발급 · SPA(§6) |
@@ -441,7 +443,7 @@ Trino 는 HTTP 프로토콜이라 **TCP 프록시가 아니라 HTTPS 게이트�
 
 | 대상 | 왜 | 쓸 것 |
 |---|---|---|
-| **Kafka** `30092` | 브로커가 메타데이터로 **자기 광고 주소**(`kafka-headless:9092`)를 돌려준다. 클라이언트는 bootstrap 뒤 그 이름으로 다시 붙으려 하고 밖에서는 풀리지 않는다 | **AKHQ**(`akhq.oneinchmarket.local`). 꼭 네이티브로 붙어야 하면 `advertised.listeners` 에 외부 리스너를 더해야 하고 그것은 base 매니페스트 변경이다 |
+| **Kafka** `30092` | 브로커가 메타데이터로 **자기 광고 주소**(`kafka-headless:9092`)를 돌려준다. 클라이언트는 bootstrap 뒤 그 이름으로 다시 붙으려 하고 밖에서는 풀리지 않는다 | **Kroxylicious**(§3-e, `192.168.0.103:30992`) — 광고 주소를 자기 주소로 고쳐 써서 끝까지 된다. 단 `edge.*` 토픽만 보인다. 전체를 보려면 **AKHQ**(`akhq.oneinchmarket.local`) |
 | **HDFS RPC** `8020` | NameNode 가 **DataNode 주소**를 돌려준다. DataNode 는 노출돼 있지 않다 | **Knox 의 WebHDFS**(§4) — 모든 홉이 Knox 를 지난다 |
 | **HBase RPC** `16000/16020` | 위와 같은 이유(RegionServer 주소) | **Knox 의 HBase REST**(§4) |
 
@@ -449,6 +451,46 @@ Trino 는 HTTP 프로토콜이라 **TCP 프록시가 아니라 HTTPS 게이트�
 > 된다" 로 읽히지만, 열린 포트로 bootstrap 은 성공하고 **그 다음 홉에서**
 > 죽는다. 증상이 원인과 멀다. 그래서 포트는 열어 두되 이 표를 함께 둔다 —
 > 정책을 의심하며 시간을 쓰지 않도록.
+
+### 3-e. Kafka 를 밖에서 — Kroxylicious(Kafka 프로토콜) · Zilla(HTTP·SSE)
+
+2026-11-02 에 들였다(`kubernetes/overlays/local/kafka-edge/`). 둘은 **같은 토픽
+공간**을 쓴다 — 실제 토픽 `edge.*` 다.
+
+| 경로 | 주소 | 무엇이 보이나 | 인증 |
+|---|---|---|---|
+| **Kroxylicious** | `192.168.0.103:30992` (bootstrap) · `:30993` (broker 0) | 실제 `edge.*` 를 **접두사 없이** — `edge.events` 가 `events` 로 보인다 | **없음** — LAN 이 쓸 수 있다 |
+| **Zilla** | `https://zilla.oneinchmarket.local` | `edge.events` 하나 — `POST /events` · `GET /events` · `GET /sse/events` | **Keycloak realm JWT 필수**(무토큰 403) |
+
+```bash
+# Kafka 클라이언트 (Kafka 4.x CLI 예)
+kafka-topics.sh          --bootstrap-server 192.168.0.103:30992 --list          # -> events
+kafka-console-producer.sh --bootstrap-server 192.168.0.103:30992 --topic events
+kafka-console-consumer.sh --bootstrap-server 192.168.0.103:30992 --topic events --from-beginning
+
+# HTTP — 토큰은 Keycloak realm oneinchmarket 에서 받는다
+curl -X POST -H "Authorization: Bearer $T" -H 'Content-Type: application/json' \
+     -d '{"msg":"hi"}' https://zilla.oneinchmarket.local/events          # 204
+curl -H "Authorization: Bearer $T" https://zilla.oneinchmarket.local/events   # JSON 배열
+curl -N -H "Authorization: Bearer $T" https://zilla.oneinchmarket.local/sse/events
+```
+
+> ★★ **격리를 실측했다**(2026-11-02, NodePort 경유): 프록시로 본 토픽 목록이
+> `events` **하나뿐**이고, `api-usage` 를 찾으면 `does not exist` 다. 프록시로
+> `events` 에 쓴 메시지는 실제 `edge.events` 에 들어갔고, 그 사이 진짜
+> `api-usage` 의 끝 오프셋은 **변하지 않았다**. Zilla 로 넣은 이벤트를
+> Kroxylicious 쪽 클라이언트가 읽는 것까지 확인했다.
+>
+> ★ **`edge.events` 의 값은 JSON 으로 쓸 것** — `GET /events` 는 값을 JSON
+> 배열로 합치므로 평문이 섞이면 배열이 깨진다(실측).
+>
+> ★ **한계**: Kroxylicious 의 `MultiTenant` 필터는 상류가 **프리뷰**로 적은
+> 것이고 인증이 없다 — `edge.*` 는 LAN 이 읽고 쓸 수 있다(신뢰 경계는 LAN,
+> §2 의 경고와 같다). Zilla 는 **Aklivity Community License**(source-available)다.
+> 게이트웨이 경유 **토큰이 있는** Zilla 호출은 시험하지 않았다 — 게이트웨이의
+> 계량 로그가 모든 호스트에 걸려 있어 `tenant` 클레임이 있는 토큰이면 그
+> 테넌트의 과금 사용량이 되기 때문이다(Gotcha 23). 토큰 경로는 클러스터 안에서
+> Zilla 를 직접 쳐서 확인했다.
 
 ---
 

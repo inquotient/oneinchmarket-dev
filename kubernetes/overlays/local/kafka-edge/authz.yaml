@@ -1,0 +1,30 @@
+# 두 프록시가 Kafka 에 닿는 길 — **추가** ALLOW (local 전용)
+#
+# ★ Kafka 는 `allow-messaging-access` 가 선택하는 워크로드라, 거기 없는 신원은
+#   전부 거부된다(Gotcha 9·19). 증상은 TCP 는 열리고 핸드셰이크에서 끊기는 것이다
+#   (Zilla 는 `BINDING_KAFKA_BROKER_CONNECTION_FAILED`, Kroxylicious 는 upstream 오류).
+# ★★ base 정책의 `rules` 를 고치지 않고 더한다 — ALLOW 는 합집합이고, 배열을
+#   패치로 고치면 통째로 교체되어 principals 를 잃는다(Gotcha 146 과 같은 뿌리).
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-kafka-edge
+  labels:
+    app.kubernetes.io/name: allow-kafka-edge
+    app.kubernetes.io/component: messaging
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafka
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals: ["*/sa/kroxylicious", "*/sa/zilla"]
+      to:
+        - operation:
+            ports: ["9092"]
