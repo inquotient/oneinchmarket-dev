@@ -121,9 +121,28 @@ spec:
               value: "https://keycloak.oneinchmarket.local/realms/oneinchmarket/.well-known/openid-configuration"
             - name: NODE_EXTRA_CA_CERTS
               value: /etc/oim-gateway-ca/ca.crt
+            # ★★ 사용자 토큰 서명 키를 고정한다(2026-11-03).
+            #   증상: 로그인 직후 "Failed to load entity kinds · Failed to fetch
+            #   user settings, 401". 게이트웨이 응답이 50바이트
+            #   `Jwks doesn't have key to match kid or alg from Jwt` 였다.
+            #   기본(database) 키 저장소는 토큰 수명(1h)마다 **새 kid** 로 키를
+            #   만들고 즉시 그것으로 서명하는데, 게이트웨이는 istiod 가 가져가
+            #   캐시한 JWKS(PILOT_JWT_PUB_KEY_REFRESH_INTERVAL 기본 20분)로
+            #   검증한다 — 회전 직후 최대 20분 동안 포털 API 전부가 401 이다.
+            #   그 사이 Backstage 백엔드 로그에는 401 이 한 줄도 없다(파드에
+            #   닿지 않는다). 25bc656 이 게이트웨이에 이 issuer 를 넣은 짝이다.
+            # ★ static 저장소는 키를 회전하지 않는다. 회전이 필요하면 키쌍을
+            #   **하나 더 나열**해 둘 다 JWKS 에 올린 뒤(istiod 가 집을 때까지
+            #   기다리고) 앞의 것을 뺄 것 — 서명은 목록의 첫 키로 한다.
+            # ★ APP_CONFIG_ 값은 JSON 으로 해석된다(배열을 담을 수 있다).
+            - name: APP_CONFIG_auth_keyStore
+              value: '{"provider":"static","static":{"keys":[{"keyId":"oim-backstage-1","algorithm":"ES256","publicKeyFile":"/etc/backstage-token-keys/public.pem","privateKeyFile":"/etc/backstage-token-keys/private.pem"}]}}'
           volumeMounts:
             - name: gateway-ca
               mountPath: /etc/oim-gateway-ca
+              readOnly: true
+            - name: token-keys
+              mountPath: /etc/backstage-token-keys
               readOnly: true
       volumes:
         - name: gateway-ca
@@ -132,6 +151,16 @@ spec:
             items:
               - key: ca.crt
                 path: ca.crt
+        # 서명 키쌍만 투영한다 — backstage-secret 의 다른 키는 env 로만 쓴다.
+        - name: token-keys
+          secret:
+            secretName: backstage-secret
+            defaultMode: 0440   # fsGroup 1000(node) 이 읽는다. 0400 이면 root 만 읽는다
+            items:
+              - key: user-token-private-key
+                path: private.pem
+              - key: user-token-public-key
+                path: public.pem
 ---
 # Keycloak 의 backstage 클라이언트 — 콜백·webOrigin 을 위 baseUrl 에 맞춘다.
 #   이 Job 은 Sync 훅이라 동기화마다 돌고, 클라이언트가 있으면 PUT 으로 갱신한다.

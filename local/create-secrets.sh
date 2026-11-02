@@ -92,6 +92,24 @@ mk redis-secret       "redis-password=$REDIS"
 #   keycloak-realm 부트스트랩이 이 값을 읽어 클라이언트에 심는다. 반대로 두면
 #   Backstage 가 남의 Secret 을 읽어야 한다.
 mk backstage-secret "db-password=$(gen)" "backend-secret=$(gen 32)" "oidc-client-secret=$(gen 32)" "session-secret=$(gen 32)"
+# ★ Backstage 사용자 토큰 서명 키쌍(EC P-256, PKCS8/SPKI PEM) — 2026-11-03.
+#   기본 키 저장소는 키를 한 시간마다 새 kid 로 갈아 끼우는데, 게이트웨이는
+#   istiod 가 캐시한 JWKS(갱신 20분)로 그 토큰을 검증해서 **회전 직후 최대 20분
+#   동안 포털 API 가 전부 401** 이었다(patches/external-urls-local.yaml).
+#   고정 kid 의 static 키 저장소가 이 키쌍을 읽는다.
+#   여러 줄 값이라 mk(stringData 패치)로는 못 넣는다 — data 로 따로 넣는다.
+if ! kubectl -n "$NS" get secret backstage-secret \
+       -o jsonpath='{.data.user-token-private-key}' | grep -q .; then
+  _d=$(mktemp -d)
+  openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "$_d/priv.pem" 2>/dev/null
+  openssl pkey -in "$_d/priv.pem" -pubout -out "$_d/pub.pem"
+  grep -q 'PRIVATE KEY' "$_d/priv.pem" && grep -q 'PUBLIC KEY' "$_d/pub.pem" \
+    || { echo "  FAIL   backstage 서명 키쌍 생성 실패"; rm -rf "$_d"; exit 1; }
+  kubectl -n "$NS" patch secret backstage-secret --type=merge -p \
+    "{\"data\":{\"user-token-private-key\":\"$(base64 -w0 "$_d/priv.pem")\",\"user-token-public-key\":\"$(base64 -w0 "$_d/pub.pem")\"}}" >/dev/null
+  rm -rf "$_d"
+  echo "  patch  backstage-secret  (+keys: user-token-private-key user-token-public-key)"
+fi
 # AKHQ — Keycloak OIDC 로그인(2026-11-02). oidc-client-secret 은 Keycloak 의
 #   akhq 클라이언트에 realm 부트스트랩이 심는다(Backstage 와 같은 방향).
 #   jwt-secret 은 AKHQ 세션 쿠키 서명 키 — 이미지 기본값이 하드코딩된
