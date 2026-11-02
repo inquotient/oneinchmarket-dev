@@ -22,6 +22,8 @@ kind: Kustomization
 resources:
   - openmeter.yaml
   - dlq-replay.yaml
+  # 메시 안 호출자를 logstash·dlq-replay 로 좁힌다 — 자체 인증이 없다.
+  - authz.yaml
 
 # ★★★ sync-wave 3 — 2026-10-05 에 **처음** 붙였다. 그 전까지 이 오버레이에는
 #   wave 선언이 없어 전부 **wave 0** 이었다. 그런데 OpenMeter 는

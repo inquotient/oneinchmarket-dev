@@ -1,0 +1,45 @@
+# OpenMeter API 를 실제 호출자에게만 연다 (2026-11-03)
+#
+# ★★ 왜: OSS 판 OpenMeter 는 자체 인증이 없다. 이 정책 전에는 메시 안의 **어떤
+#   파드든** `POST /api/v1/events` 로 아무 테넌트 명의의 사용량을 넣거나 고객·구독·
+#   인보이스를 바꿀 수 있었다(청구 오염 — kafka-bridge 와 같은 부류). 외부 경로는
+#   같은 날 뺐고(render-external-access.py), 이것이 안쪽 절반이다.
+# ★ NetworkPolicy 로는 막을 수 없다 — ambient 에서 메시 트래픽은 15008(HBONE)로
+#   들어와 포트 규칙이 적용되지 않는다(Gotcha 13). 실제 통제는 이 정책이다.
+#
+# ★ 호출자(렌더 전수, 2026-11-03):
+#     logstash              과금 다리 — api-usage 를 CloudEvents 로 POST
+#     openmeter-dlq-replay  DLQ 재처리 CronJob(Airflow DAG 이 Job 으로 띄운다)
+#   과금 CronJob 셋(subscription-sync·advance·collect)은 API 가 아니라 DB 로 붙고
+#   SA 도 openmeter 다. Prometheus 는 이 파드를 긁지 않는다(스크레이프 어노테이션 없음).
+#   운영자 도구(openmeter-pricing.sh · seed-usage.py)는 port-forward 라 파드 안
+#   루프백으로 들어와 이 정책을 지나지 않는다.
+# ★★ 80 만 연다 — ALLOW 정책이 워크로드를 고르면 적히지 않은 포트는 전부 닫힌다
+#   (Gotcha 9). 10000(텔레메트리)은 kubelet 프로브만 쓰고, 프로브는 ztunnel 이
+#   따로 허용하므로 적지 않는다.
+# ★ 새 호출자는 **자기 SA 를 여기 더할 것** — 청구를 쓸 수 있는 신원을 하나 늘리는
+#   일이므로 이유를 함께 적는다. 쓰지 않는 신원을 미리 넣지 않는다(Gotcha 131).
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-openmeter-api
+  labels:
+    app.kubernetes.io/name: allow-openmeter-api
+    app.kubernetes.io/component: service-mesh
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: openmeter
+      app.kubernetes.io/component: api
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - "*/sa/logstash"
+              - "*/sa/openmeter-dlq-replay"
+      to:
+        - operation:
+            ports: ["80"]
