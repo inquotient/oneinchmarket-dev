@@ -79,21 +79,120 @@ spec:
             limits:   {cpu: 200m, memory: 128Mi}
           volumeMounts:
             - {name: data, mountPath: /var/solr}
+        # ★★ Ranger 감사 스키마(2026-11-03). 예전에는 `_default` 스키마리스로 코어를 만들었는데,
+        #   플러그인 감사를 켜 보니 필드가 전부 **배열**(`"access":["CreateSchema"]`)이 되고
+        #   `result` 가 **실수**(`[1.0]`)로 잡혔다 — Ranger Admin 의 감사 화면은 Ranger 스키마
+        #   (단일값 · result 정수 · evtTime 날짜)를 전제한다.
+        #   Ranger 배포물의 configset(contrib/solr_for_audit_setup)은 **Solr 8.4 용**이라 그대로
+        #   쓸 수 없다 — Solr 9 에서 없어진 Trie 타입(tdate·tint·tlong)과 FastLRUCache 를 쓴다.
+        #   그래서 **Solr 10 의 `_default` configset 을 바탕으로** 그 필드만 덧붙인다:
+        #     tdate->pdate · tlong/long->plong · tint->pint, 사용자 정의 타입 둘(key_lower_case ·
+        #     text_std_token_lower_case)은 그대로. id·_version_ 은 _default 의 것을 쓴다(중복 정의 금지).
+        #   ★ `*` -> ignored 동적 필드를 둔다 — 스키마 자동 추가를 껐으므로(SOLR_OPTS) 스키마에 없는
+        #     필드가 오면 **감사 전송 전체가 거부**된다. 필드 하나를 잃는 편이 감사를 잃는 것보다 낫다.
+        #   ★ 스키마리스로 만든 옛 코어는 표식이 없으면 /var/solr/schemaless-backup/ 으로 옮기고
+        #     새로 만든다(data/ 밖이어야 한다 — 안에 두면 core.properties 때문에 같은 이름의 코어가
+        #     둘로 발견된다). 표식이 있는 코어는 건드리지 않는다 — 데이터가 든 코어의 스키마를
+        #     바꾸면 색인이 어긋난다.
+        - name: schema
+          image: docker.io/library/solr:10.0.0-slim
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              MARK='oim-ranger-audit-schema-v1'
+              CS=/var/solr/configsets/ranger_audits
+              rm -rf "$CS"; mkdir -p "$CS"
+              cp -r /opt/solr/server/solr/configsets/_default/conf "$CS/conf"
+              S="$CS/conf/managed-schema.xml"
+              # </schema> 를 떼고 Ranger 필드를 붙인 뒤 다시 닫는다(그 태그는 한 번만 있어야 한다).
+              [ "$(grep -c '</schema>' "$S")" = 1 ]
+              grep -v '</schema>' "$S" > "$S.new"
+              cat >> "$S.new" <<'XML'
+              <!-- oim-ranger-audit-schema-v1 : Ranger 2.9 contrib/solr_for_audit_setup 의 필드를 Solr 10 타입으로 이식 -->
+              <fieldType name="key_lower_case" class="solr.TextField" sortMissingLast="true" omitNorms="true">
+                <analyzer>
+                  <tokenizer class="solr.KeywordTokenizerFactory"/>
+                  <filter class="solr.LowerCaseFilterFactory"/>
+                  <filter class="solr.LengthFilterFactory" min="0" max="2500"/>
+                </analyzer>
+              </fieldType>
+              <fieldType name="text_std_token_lower_case" class="solr.TextField" multiValued="true" positionIncrementGap="100">
+                <analyzer>
+                  <tokenizer class="solr.StandardTokenizerFactory"/>
+                  <filter class="solr.LowerCaseFilterFactory"/>
+                </analyzer>
+              </fieldType>
+              <field name="_expire_at_" type="pdate" multiValued="false" stored="true" docValues="true"/>
+              <field name="_ttl_" type="string" multiValued="false" indexed="true" stored="true"/>
+              <field name="access" type="key_lower_case" multiValued="false"/>
+              <field name="action" type="key_lower_case" multiValued="false"/>
+              <field name="agent" type="key_lower_case" multiValued="false"/>
+              <field name="agentHost" type="key_lower_case" multiValued="false"/>
+              <field name="cliIP" type="key_lower_case" multiValued="false"/>
+              <field name="cliType" type="key_lower_case" multiValued="false"/>
+              <field name="cluster" type="key_lower_case" multiValued="false"/>
+              <field name="reqContext" type="key_lower_case" multiValued="true"/>
+              <field name="enforcer" type="key_lower_case" multiValued="false"/>
+              <field name="event_count" type="plong" multiValued="false" docValues="true" default="1"/>
+              <field name="event_dur_ms" type="plong" multiValued="false" docValues="true"/>
+              <field name="evtTime" type="pdate" docValues="true"/>
+              <field name="logType" type="key_lower_case" multiValued="false"/>
+              <field name="policy" type="plong" docValues="true"/>
+              <field name="proxyUsers" type="key_lower_case" multiValued="true"/>
+              <field name="reason" type="text_std_token_lower_case" multiValued="false" omitNorms="false"/>
+              <field name="repo" type="key_lower_case" multiValued="false"/>
+              <field name="repoType" type="pint" multiValued="false" docValues="true"/>
+              <field name="req_caller_id" type="key_lower_case" multiValued="false"/>
+              <field name="req_self_id" type="key_lower_case" multiValued="false"/>
+              <field name="reqData" type="text_std_token_lower_case" multiValued="false"/>
+              <field name="reqUser" type="key_lower_case" multiValued="false"/>
+              <field name="resType" type="key_lower_case" multiValued="false"/>
+              <field name="resource" type="key_lower_case" multiValued="false"/>
+              <field name="result" type="pint" multiValued="false"/>
+              <field name="seq_num" type="plong" multiValued="false" docValues="true" default="0"/>
+              <field name="sess" type="key_lower_case" multiValued="false"/>
+              <field name="tags" type="key_lower_case" multiValued="true"/>
+              <field name="tags_str" type="text_std_token_lower_case" multiValued="false"/>
+              <field name="text" type="text_std_token_lower_case" multiValued="true" indexed="true" stored="false"/>
+              <field name="zoneName" type="key_lower_case" multiValued="false"/>
+              <field name="policyVersion" type="plong" multiValued="false"/>
+              <dynamicField name="*" type="ignored" multiValued="true"/>
+              </schema>
+              XML
+              mv "$S.new" "$S"
+              grep -q "$MARK" "$S"; grep -q '<field name="result" type="pint"' "$S"; [ "$(grep -c '</schema>' "$S")" = 1 ]
+              # 표식 없는(스키마리스) 옛 코어는 옮기고 새로 만들게 한다.
+              C=/var/solr/data/ranger_audits
+              if [ -d "$C" ] && ! grep -qs "$MARK" "$C/conf/managed-schema.xml" "$C/conf/managed-schema"; then
+                mkdir -p /var/solr/schemaless-backup
+                mv "$C" "/var/solr/schemaless-backup/ranger_audits-$(date +%Y%m%d%H%M%S)"
+                echo "[solr-schema] 스키마리스 코어를 백업으로 옮겼다 — 새 스키마로 다시 만든다"
+              fi
+              echo "[solr-schema] configset 준비 ($MARK)"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 50m, memory: 32Mi}
+            limits:   {cpu: 200m, memory: 128Mi}
+          volumeMounts:
+            - {name: data, mountPath: /var/solr}
       containers:
         - name: solr
           # ★ `apache/solr` 가 아니라 `library/solr` 다. v1 이 적은
           #   apache/solr:9.10.0-slim 은 저장소에 존재하지 않는 태그다.
           image: docker.io/library/solr:10.0.0-slim
           # solr-precreate 는 코어가 없을 때만 만든다. 재시작에 안전하다.
-          # 별도 configset 없이 _default 스키마리스로 만든다 — Ranger 가
-          # 감사 문서를 넣으면 필드가 동적으로 생긴다. 운영 규모에서는
-          # Ranger 배포물의 ranger_audits configset 을 쓰는 편이 낫다.
-          args: ["solr-precreate", "ranger_audits"]
+          # 위 schema initContainer 가 만든 Ranger 감사 configset 으로 만든다.
+          args: ["solr-precreate", "ranger_audits", "/var/solr/configsets/ranger_audits"]
           ports:
             - {containerPort: 8983, name: http, protocol: TCP}
           env:
             # 로컬 메모리 예산. 기본값은 컨테이너 한도를 모른다.
             - {name: SOLR_JAVA_MEM, value: "-Xms256m -Xmx512m"}
+            # 스키마리스를 끈다 — 필드는 Ranger 스키마가 정한다(_default solrconfig 의 스위치).
+            - {name: SOLR_OPTS, value: "-Dupdate.autoCreateFields=false"}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: {drop: ["ALL"]}

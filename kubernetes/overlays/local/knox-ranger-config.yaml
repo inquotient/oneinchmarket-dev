@@ -29,5 +29,10 @@ data:
   ranger-knox-audit.xml: |
     <?xml version="1.0" encoding="UTF-8"?>
     <configuration>
+      <!-- ★ Knox 감사는 끈다(2026-11-03). 켜면 SolrAuditDestination 이 SolrJ 8.11 의 Krb5HttpClientBuilder 를
+           만들다 NoClassDefFoundError: org/eclipse/jetty/client/util/SPNEGOAuthentication 으로 죽는다 —
+           그 클래스는 Jetty 9 의 것이고 Knox 3.0 은 Jetty 12 다(패키지가 옮겨졌다). 인증 문제가 아니라
+           클래스 충돌이라 docker/ranger-knox-plugin 이미지에 Jetty 9 client 를 impl 쪽에 넣어야 풀린다.
+           켜 둔 채로 두면 실패한 감사가 파드의 spool 에 끝없이 쌓인다. -->
       <property><name>xasecure.audit.is.enabled</name><value>false</value></property>
     </configuration>

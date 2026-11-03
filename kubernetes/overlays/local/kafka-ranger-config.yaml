@@ -30,5 +30,9 @@ data:
   ranger-kafka-audit.xml: |
     <?xml version="1.0" encoding="UTF-8"?>
     <configuration>
-      <property><name>xasecure.audit.is.enabled</name><value>false</value></property>
+      <property><name>xasecure.audit.is.enabled</name><value>true</value></property>
+      <!-- Solr 감사(2026-11-03). 자격은 JAVA_TOOL_OPTIONS 의 SolrJ 속성(patches/ranger-solr-audit-local.yaml). -->
+      <property><name>xasecure.audit.destination.solr</name><value>true</value></property>
+      <property><name>xasecure.audit.destination.solr.urls</name><value>http://ranger-solr:8983/solr/ranger_audits</value></property>
+      <property><name>xasecure.audit.destination.solr.batch.filespool.dir</name><value>/tmp/ranger/kafka/audit/solr/spool</value></property>
     </configuration>

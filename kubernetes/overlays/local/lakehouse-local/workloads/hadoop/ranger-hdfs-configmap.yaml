@@ -107,11 +107,21 @@ data:
            끄고, 확인하려는 것(인가가 실제로 걸리는가)에 집중한다. -->
       <property>
         <name>xasecure.audit.is.enabled</name>
-        <value>false</value>
+        <value>true</value>
       </property>
       <property>
         <name>xasecure.audit.destination.solr</name>
-        <value>false</value>
+        <value>true</value>
+      </property>
+      <!-- Solr 감사(2026-11-03). BasicAuth 자격은 JAVA_TOOL_OPTIONS 의 SolrJ 속성이 준다
+           (patches/ranger-solr-audit-local.yaml) — 이 감사 모듈에는 BasicAuth 설정이 없다. -->
+      <property>
+        <name>xasecure.audit.destination.solr.urls</name>
+        <value>http://ranger-solr:8983/solr/ranger_audits</value>
+      </property>
+      <property>
+        <name>xasecure.audit.destination.solr.batch.filespool.dir</name>
+        <value>/tmp/ranger/hdfs/audit/solr/spool</value>
       </property>
       <property>
         <name>xasecure.audit.destination.hdfs</name>

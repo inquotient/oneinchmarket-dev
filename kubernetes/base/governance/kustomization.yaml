@@ -22,6 +22,7 @@ resources:
   # Solr — Ranger 감사 저장소
   - solr/solr-headless.yaml
   - solr/solr-statefulset.yaml
+  - solr/solr-audit-purge.yaml
   # Ranger admin — 정책 관리
   - ranger/ranger-admin-service.yaml
   - ranger/ranger-admin-configmap.yaml

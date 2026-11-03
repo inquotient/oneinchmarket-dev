@@ -1,0 +1,218 @@
+# Ranger 플러그인 감사 -> Solr 의 BasicAuth 자격 (local 전용, 2026-11-03)
+#
+# ★★ 왜 이런 모양인가 — Ranger 의 SolrAuditDestination 에는 BasicAuth 설정이 없다(인증 수단은
+#   Kerberos JAAS 뿐, jar 문자열 실측). 그래서 SolrJ 의 **전역 손잡이**를 쓴다:
+#     -Dsolr.httpclient.builder.factory=...PreemptiveBasicAuthClientBuilderFactory
+#     -Dsolr.httpclient.config=<파일>   (httpBasicAuthUser / httpBasicAuthPassword)
+#   SolrJ 의 HttpClientUtil 이 기동 때 그 빌더를 기본으로 삼고, Ranger 가 부르는
+#   Krb5HttpClientBuilder.getBuilder() 는 **그 빌더를 받아** JAAS 설정이 있을 때만 Kerberos 를
+#   덧붙인다(바이트코드 확인). Trino 에서 먼저 실측했다 — 감사가 ranger-audit 자격으로 들어왔다.
+#   ★ 자격을 -Dbasicauth=user:pw 로 주지 않는 이유: /proc 의 cmdline 에 비밀번호가 남는다.
+#   ★ JAVA_TOOL_OPTIONS 로 주는 이유: 서비스마다 JVM 옵션 손잡이가 다르고(HDFS_NAMENODE_OPTS ·
+#     HBASE_*_OPTS · SERVICE_OPTS · 없음) 일부는 base 의 리터럴 블록이다. 모든 JVM 이 이 변수를
+#     읽는다(컨테이너 안의 CLI JVM 도 — 무해하다, 그 속성은 SolrJ 를 쓸 때만 뜻이 있다).
+#   ★ Knox 는 뺐다 — Jetty 9/12 클래스 충돌로 감사 전송이 죽는다(knox-ranger-config.yaml 주석).
+#   ★ 감사 XML(xasecure.audit.destination.solr*)은 각 플러그인 ConfigMap 에 있다. Trino 는
+#     patches/trino-local.yaml 에 같은 모양이 따로 있다(그 파일이 trino StatefulSet 을 이미 덮는다).
+#
+# 자격 파일은 메모리 emptyDir 에 init 컨테이너가 쓴다(값은 solr-secret/audit-password).
+# 이미지는 sh 와 printf 만 있으면 된다 — keycloak-realm 부트스트랩이 쓰는 curl 이미지를 쓴다.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hadoop-namenode
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: solr-audit-cred
+          image: docker.io/curlimages/curl:8.22.0
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              [ -n "$SOLR_AUDIT_PASSWORD" ] || { echo "[solr-audit-cred] 비밀번호가 비었다" >&2; exit 1; }
+              umask 077
+              printf 'httpBasicAuthUser=ranger-audit\nhttpBasicAuthPassword=%s\n' "$SOLR_AUDIT_PASSWORD" > /solr-audit/basicauth.properties
+              grep -q '^httpBasicAuthPassword=.' /solr-audit/basicauth.properties
+          env:
+            - name: SOLR_AUDIT_PASSWORD
+              valueFrom: {secretKeyRef: {name: solr-secret, key: audit-password}}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits:   {cpu: 100m, memory: 64Mi}
+          volumeMounts:
+            - {name: solr-audit, mountPath: /solr-audit}
+      containers:
+        - name: hadoop-namenode
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: "-Dsolr.httpclient.builder.factory=org.apache.solr.client.solrj.impl.PreemptiveBasicAuthClientBuilderFactory -Dsolr.httpclient.config=/solr-audit/basicauth.properties"
+          volumeMounts:
+            - {name: solr-audit, mountPath: /solr-audit, readOnly: true}
+      volumes:
+        - name: solr-audit
+          emptyDir: {medium: Memory, sizeLimit: 1Mi}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hbase-master
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: solr-audit-cred
+          image: docker.io/curlimages/curl:8.22.0
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              [ -n "$SOLR_AUDIT_PASSWORD" ] || { echo "[solr-audit-cred] 비밀번호가 비었다" >&2; exit 1; }
+              umask 077
+              printf 'httpBasicAuthUser=ranger-audit\nhttpBasicAuthPassword=%s\n' "$SOLR_AUDIT_PASSWORD" > /solr-audit/basicauth.properties
+              grep -q '^httpBasicAuthPassword=.' /solr-audit/basicauth.properties
+          env:
+            - name: SOLR_AUDIT_PASSWORD
+              valueFrom: {secretKeyRef: {name: solr-secret, key: audit-password}}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits:   {cpu: 100m, memory: 64Mi}
+          volumeMounts:
+            - {name: solr-audit, mountPath: /solr-audit}
+      containers:
+        - name: hbase-master
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: "-Dsolr.httpclient.builder.factory=org.apache.solr.client.solrj.impl.PreemptiveBasicAuthClientBuilderFactory -Dsolr.httpclient.config=/solr-audit/basicauth.properties"
+          volumeMounts:
+            - {name: solr-audit, mountPath: /solr-audit, readOnly: true}
+      volumes:
+        - name: solr-audit
+          emptyDir: {medium: Memory, sizeLimit: 1Mi}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hbase-regionserver
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: solr-audit-cred
+          image: docker.io/curlimages/curl:8.22.0
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              [ -n "$SOLR_AUDIT_PASSWORD" ] || { echo "[solr-audit-cred] 비밀번호가 비었다" >&2; exit 1; }
+              umask 077
+              printf 'httpBasicAuthUser=ranger-audit\nhttpBasicAuthPassword=%s\n' "$SOLR_AUDIT_PASSWORD" > /solr-audit/basicauth.properties
+              grep -q '^httpBasicAuthPassword=.' /solr-audit/basicauth.properties
+          env:
+            - name: SOLR_AUDIT_PASSWORD
+              valueFrom: {secretKeyRef: {name: solr-secret, key: audit-password}}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits:   {cpu: 100m, memory: 64Mi}
+          volumeMounts:
+            - {name: solr-audit, mountPath: /solr-audit}
+      containers:
+        - name: hbase-regionserver
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: "-Dsolr.httpclient.builder.factory=org.apache.solr.client.solrj.impl.PreemptiveBasicAuthClientBuilderFactory -Dsolr.httpclient.config=/solr-audit/basicauth.properties"
+          volumeMounts:
+            - {name: solr-audit, mountPath: /solr-audit, readOnly: true}
+      volumes:
+        - name: solr-audit
+          emptyDir: {medium: Memory, sizeLimit: 1Mi}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hive-server
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: solr-audit-cred
+          image: docker.io/curlimages/curl:8.22.0
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              [ -n "$SOLR_AUDIT_PASSWORD" ] || { echo "[solr-audit-cred] 비밀번호가 비었다" >&2; exit 1; }
+              umask 077
+              printf 'httpBasicAuthUser=ranger-audit\nhttpBasicAuthPassword=%s\n' "$SOLR_AUDIT_PASSWORD" > /solr-audit/basicauth.properties
+              grep -q '^httpBasicAuthPassword=.' /solr-audit/basicauth.properties
+          env:
+            - name: SOLR_AUDIT_PASSWORD
+              valueFrom: {secretKeyRef: {name: solr-secret, key: audit-password}}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits:   {cpu: 100m, memory: 64Mi}
+          volumeMounts:
+            - {name: solr-audit, mountPath: /solr-audit}
+      containers:
+        - name: hive-server
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: "-Dsolr.httpclient.builder.factory=org.apache.solr.client.solrj.impl.PreemptiveBasicAuthClientBuilderFactory -Dsolr.httpclient.config=/solr-audit/basicauth.properties"
+          volumeMounts:
+            - {name: solr-audit, mountPath: /solr-audit, readOnly: true}
+      volumes:
+        - name: solr-audit
+          emptyDir: {medium: Memory, sizeLimit: 1Mi}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: solr-audit-cred
+          image: docker.io/curlimages/curl:8.22.0
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              [ -n "$SOLR_AUDIT_PASSWORD" ] || { echo "[solr-audit-cred] 비밀번호가 비었다" >&2; exit 1; }
+              umask 077
+              printf 'httpBasicAuthUser=ranger-audit\nhttpBasicAuthPassword=%s\n' "$SOLR_AUDIT_PASSWORD" > /solr-audit/basicauth.properties
+              grep -q '^httpBasicAuthPassword=.' /solr-audit/basicauth.properties
+          env:
+            - name: SOLR_AUDIT_PASSWORD
+              valueFrom: {secretKeyRef: {name: solr-secret, key: audit-password}}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits:   {cpu: 100m, memory: 64Mi}
+          volumeMounts:
+            - {name: solr-audit, mountPath: /solr-audit}
+      containers:
+        - name: kafka
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: "-Dsolr.httpclient.builder.factory=org.apache.solr.client.solrj.impl.PreemptiveBasicAuthClientBuilderFactory -Dsolr.httpclient.config=/solr-audit/basicauth.properties"
+          volumeMounts:
+            - {name: solr-audit, mountPath: /solr-audit, readOnly: true}
+      volumes:
+        - name: solr-audit
+          emptyDir: {medium: Memory, sizeLimit: 1Mi}
