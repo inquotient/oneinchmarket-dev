@@ -132,7 +132,13 @@ mk temporal-secret "db-password=$(gen)"
 #   둘이었다: postgres-bootstrap 이 이 값으로 midpoint 롤을 만들고
 #   midpoint-deployment 가 같은 키를 읽는다. 없으면 두 쪽이 모두 멈추는데
 #   증상은 `Init:CreateContainerConfigError` 뿐이라 원인이 멀다(§8-103).
-mk midpoint-secret "db-password=$(gen)"
+#   ★★ admin-password (2026-11-03) — midPoint 4.10 은 관리자 초기 비밀번호의
+#   고정 기본값이 없고, 주지 않으면 무작위로 만들어 첫 기동 로그에만 찍는다.
+#   그 로그가 사라져 아무도 관리자 비밀번호를 몰랐다. 저장소가 **처음 만들어질
+#   때만** 쓰인다(이미 있는 administrator 는 바꾸지 않는다). 대소문자·숫자·
+#   특수를 섞는다 — 값 정책에 걸리면 관리자가 비밀번호 없이 만들어진다
+#   (DataImport: "Administrator account was created without password").
+mk midpoint-secret "db-password=$(gen)" "admin-password=Mp$(gen 20)#A1"
 # Airflow — 넷이 필요하고 서로 역할이 다르다.
 #   db-password     메타데이터 DB (postgres-bootstrap 이 같은 값을 쓴다)
 #   fernet-key      연결·변수를 DB 에 암호화해 넣는 키

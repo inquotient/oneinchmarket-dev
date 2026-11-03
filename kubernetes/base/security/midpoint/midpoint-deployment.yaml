@@ -143,6 +143,16 @@ spec:
             # H2 폴백을 끈다 — DB 가 안 붙으면 조용히 H2 로 뜨는 것보다
             # 죽는 편이 낫다("성공 출력이 성공이 아닌" 부류를 만들지 않는다).
             - {name: MP_H2_DEFAULTS, value: "false"}
+            # ★★ 관리자 초기 비밀번호 (2026-11-03). 4.10 은 고정 기본값이 없다 —
+            #   이 값이 없으면 **무작위 비밀번호를 만들어 첫 기동 로그에 한 번만**
+            #   찍는다(admin-gui DataImport: "Administrator initial password ...").
+            #   그 로그는 var 에 남고 var 가 emptyDir 이던 시절 첫 파드와 함께
+            #   사라져, 관리자 비밀번호를 아는 사람이 없었다.
+            # ★ **저장소가 처음 만들어질 때 한 번만** 쓰인다 — administrator 가
+            #   이미 있으면 이 값을 바꿔도 아무 일도 없다. 그때 비밀번호를 바꾸는
+            #   것은 UI(또는 ninja)다. 이 키는 "처음 세울 때의 값" 이다.
+            - name: MP_SET_midpoint_administrator_initialPassword
+              valueFrom: { secretKeyRef: { name: midpoint-secret, key: admin-password } }
           ports:
             - {containerPort: 8080, name: http, protocol: TCP}
           # ★ 기동이 느리다(JVM + 초기 저장소 구성). startupProbe 로 여유를 준다.
@@ -158,7 +168,8 @@ spec:
             periodSeconds: 15
           volumeMounts:
             # ★ 엔트리 스크립트가 쓰기 가능을 요구하는 유일한 경로다.
-            - {name: var, mountPath: /opt/midpoint/var}
+            #   keystore.jceks 가 여기 있으므로 영속이어야 한다(아래 volumes).
+            - {name: var-data, mountPath: /opt/midpoint/var}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: {drop: ["ALL"]}
@@ -167,10 +178,35 @@ spec:
             limits: {memory: 2Gi}
       volumes:
         - {name: sql, emptyDir: {}}
-        # ★ emptyDir 이다 — 재시작하면 비워진다. midPoint 의 상태는 전부
-        #   PostgreSQL 에 있으므로 var 는 로그·작업 디렉터리다. 영속이
-        #   필요해지면 PVC 로 바꿀 것.
-        - {name: var, emptyDir: {}}
+        # ★★★ PVC 다 — emptyDir 이던 것은 틀렸다 (2026-11-03).
+        #   "midPoint 의 상태는 전부 PostgreSQL 에 있으므로 var 는 로그·작업
+        #   디렉터리다" 라고 적어 두었는데 **keystore.jceks 가 var 에 있다.**
+        #   저장소의 비밀번호·자격은 그 키로 암호화되므로, 파드가 새로 뜰 때마다
+        #   키스토어가 새로 생성되어 **DB 의 암호값을 영영 못 읽게 된다**
+        #   (GitLab db_key_base 와 같은 부류 — Gotcha 51·72). 실측: 저장소 생성
+        #   10-05 14:21 · 키스토어 생성 10-10 13:37 — 관리자 비밀번호를 알았어도
+        #   로그인할 수 없었다.
+        # ★ 볼륨 이름을 바꿨다(var -> var-data) — SSA 가 볼륨 리스트를 이름으로
+        #   병합해 emptyDir 과 PVC 가 한 항목에 겹친다(Gotcha 113).
+        - name: var-data
+          persistentVolumeClaim: {claimName: midpoint-var}
+---
+# midPoint home — keystore.jceks(저장소 암호값의 키) · config.xml · 로그.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: midpoint-var
+  labels:
+    app.kubernetes.io/name: midpoint
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 2Gi
 ---
 apiVersion: v1
 kind: Service
