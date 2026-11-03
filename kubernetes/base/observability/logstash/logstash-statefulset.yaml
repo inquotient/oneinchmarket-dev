@@ -75,22 +75,30 @@ spec:
             #   LS_JAVA_OPTS 는 그 **뒤에** 붙고 java 는 마지막 -Xmx 를 취하므로
             #   여기서 이긴다(Gotcha 82·123 이 경계하는 반대 방향이다).
             #   판정은 설정이 아니라 `_node/stats` 의 heap_max_in_bytes 로 한다.
+            # ★★ direct memory 상한을 명시한다(2026-11-03, Gotcha 184 와 같은 모양).
+            #   없으면 기본값이 최대 힙(384m)과 같아 힙 384 + 힙 밖 ~190(JRuby 메타스페이스가
+            #   크다) + direct 최대 384 가 limit 을 넘을 수 있고, 그 몫은 GC 가 줄여 주지 않아
+            #   **커널이 먼저 죽인다** — 실측 OOMKilled 두 번(02:43 Kafka 재연결 직후 · 04:02),
+            #   로그에 오류 한 줄 없이. 지금 direct 사용은 ~40MB(cgroup 619Mi - 힙 384 - 힙 밖
+            #   193)라 128m 는 세 배 여유다. 넘으면 `OutOfMemoryError: Direct buffer memory` 로
+            #   **보이는 실패**가 된다.
             - name: LS_JAVA_OPTS
-              value: "-Xms384m -Xmx384m"
+              value: "-Xms384m -Xmx384m -XX:MaxDirectMemorySize=128m"
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
           resources:
-            # ★ 힙 384m + 비힙 211MB + JVM/스레드 오버헤드 ≈ 700MB.
-            #   limit 을 그보다 조금 위에 둔다 — 힙과 limit 을 같게 두면
-            #   힙이 차기 전에 커널이 먼저 죽인다(Gotcha 82).
+            # ★ 힙 384m + 비힙 ~200MB + direct 상한 128m + JVM/스레드 오버헤드 ≈ 800MB.
+            #   limit 을 그보다 위에 둔다 — 힙과 limit 을 같게 두면
+            #   힙이 차기 전에 커널이 먼저 죽인다(Gotcha 82). 예전 896Mi 는 direct 를
+            #   셈에 넣지 않은 값이라 그 몫이 자라면 OOMKilled 였다(2026-11-03, 두 번).
             requests:
               cpu: 100m
               memory: 768Mi
             limits:
               cpu: 500m
-              memory: 896Mi
+              memory: 1Gi
           # Logstash 는 파이프라인 컴파일에 60~90초가 걸린다. startupProbe 가 없으면
           # livenessProbe 가 즉시 시작해 3회x10초=30초 만에 SIGTERM 한다(exitCode 143).
           startupProbe:
