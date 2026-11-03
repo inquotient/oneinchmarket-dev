@@ -45,3 +45,5 @@ resources:
   - destinationrules.yaml
   - netpol-external-access.yaml
   - requestauthentication-external.yaml
+  # 게이트웨이 JWT 필터를 api·zilla 밖의 호스트에서 끈다(생성물 — render-external-access.py).
+  - jwt-scope-envoyfilter.yaml

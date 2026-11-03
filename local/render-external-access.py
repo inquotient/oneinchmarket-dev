@@ -28,6 +28,18 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROUTES = os.path.join(ROOT, "kubernetes", "overlays", "local",
                       "external-access", "httproutes.yaml")
 DOC = os.path.join(ROOT, "local", "EXTERNAL-ACCESS.md")
+JWTSCOPE = os.path.join(ROOT, "kubernetes", "overlays", "local",
+                        "external-access", "jwt-scope-envoyfilter.yaml")
+
+# ★★ 게이트웨이 JWT 검증이 **필요한** 호스트(2026-11-03). 나머지 호스트에서는 그 필터를 끈다.
+#   RequestAuthentication(api-jwt·api-jwt-external)은 게이트웨이 **전체**에 걸려, Keycloak 이 아닌
+#   발급자의 Bearer 토큰을 호스트와 상관없이 `Jwt issuer is not configured` 로 401 한다. 그래서
+#   자체 Bearer 토큰을 쓰는 앱 — Dependency-Track(로그인은 성공하는데 다음 요청이 전부 막혀
+#   "Could not perform the requested action") · Wazuh API · GitLab 개인 토큰 — 이 깨졌다.
+#   게이트웨이 JWT 를 실제로 쓰는 정책은 api(과금 — api-require-jwt·api-only-realm-issuers)와
+#   zilla(zilla-require-realm-jwt) 둘뿐이다. api 는 이 CATALOG 밖(base 의 HTTPRoute)이라 목록에
+#   없어도 필터가 꺼지지 않는다 — 꺼지는 것은 여기서 생성한 가상 호스트뿐이다.
+JWT_GATEWAY_HOSTS = {"zilla"}
 
 DOMAIN = "oneinchmarket.local"
 NODE = "192.168.0.103"
@@ -356,6 +368,54 @@ def gen_routes():
     return "".join(out)
 
 
+def gen_jwt_scope():
+    """게이트웨이 JWT 필터를 JWT_GATEWAY_HOSTS 밖의 가상 호스트에서 끄는 EnvoyFilter."""
+    out = ['''# 생성 파일 — 손으로 고치지 말 것. 원천은 local/render-external-access.py 의 CATALOG ·
+#   JWT_GATEWAY_HOSTS(사유는 그 상수의 주석). `--check` 가 뒤처짐을 1 로 알린다.
+#
+# 게이트웨이 JWT 필터(envoy.filters.http.jwt_authn)를 **가상 호스트 단위로** 끈다(JwtPerRoute disabled).
+#   RequestAuthentication 은 게이트웨이 전체에 걸려 자체 Bearer 토큰을 쓰는 앱을 막았다.
+#   과금 경로(api)와 zilla 는 여기 없으므로 그대로 검증된다.
+# ★ 판정: 그 호스트에 Keycloak 이 아닌 JWT 를 Bearer 로 보내 401 `Jwt issuer is not configured` 가
+#   **사라지는지**, 그리고 api 호스트에서는 **그대로인지**(양방향 — Gotcha 200 ③ 과 같은 방식).
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: gateway-jwt-scope
+  labels:
+    app.kubernetes.io/name: gateway-jwt-scope
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  workloadSelector:
+    labels:
+      gateway.networking.k8s.io/gateway-name: ingress
+  configPatches:
+''']
+    for row in CATALOG:
+        host = row[0]
+        if host in JWT_GATEWAY_HOSTS:
+            continue
+        out.append('''    - applyTo: VIRTUAL_HOST
+      match:
+        context: GATEWAY
+        routeConfiguration:
+          vhost:
+            name: "{host}.{domain}:443"
+      patch:
+        operation: MERGE
+        value:
+          typed_per_filter_config:
+            envoy.filters.http.jwt_authn:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.PerRouteConfig
+              disabled: true
+'''.format(host=host, domain=DOMAIN))
+    return "".join(out)
+
+
 def md_hosts():
     lines = ["```text",
              "# oneinchmarket 외부 접속 — Windows 는 "
@@ -444,9 +504,12 @@ def main():
         raise SystemExit("없다: %s — 마커를 담은 문서 뼈대를 먼저 만들 것" % DOC)
     doc = fill_doc(doc_src)
 
+    jwtscope = gen_jwt_scope()
     stale = []
     if read(ROUTES) != routes:
         stale.append(ROUTES)
+    if read(JWTSCOPE) != jwtscope:
+        stale.append(JWTSCOPE)
     if doc_src != doc:
         stale.append(DOC)
 
@@ -462,6 +525,7 @@ def main():
         return 0
 
     write(ROUTES, routes)
+    write(JWTSCOPE, jwtscope)
     write(DOC, doc)
     print("생성 완료 — %s" % md_counts())
     print("  %s" % os.path.relpath(ROUTES, ROOT))
