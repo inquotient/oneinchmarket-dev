@@ -251,6 +251,9 @@ mk ds389-secret   "dm-password=$DS_DM" "sync-password=$(gen)" \
 #   없으면 기동하지 않는다(`internal-communication.shared-secret`).
 mk trino-secret   "shared-secret=$(gen 64)"
 mk lam-secret     "master-password=$LAM_PW"     # LAM 마스터 설정 비밀번호
+# Solr BasicAuth(2026-11-03) — solr-admin(전부) · ranger-audit(ranger_audits 읽기·쓰기).
+#   solr 의 initContainer 가 security.json 해시를, ranger-admin 이 감사 조회 자격을 여기서 읽는다.
+mk solr-secret    "admin-password=$(gen)" "audit-password=$(gen)"
 # ★★ Ranger 는 **자격이 다섯**이다 — db-password 하나로는 부족하다.
 #   매니페스트가 RANGER_ADMIN/KEYADMIN/TAGSYNC/USERSYNC_PASSWORD 를 각각
 #   별도 키로 읽는데 **그 넷이 없었다**(베어메탈 첫 구축 실측). 없으면

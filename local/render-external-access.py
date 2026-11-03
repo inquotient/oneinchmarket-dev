@@ -109,10 +109,13 @@ CATALOG = [
      "토큰 `pw openbao-keys root-token`"),
     ("ranger", "ranger-admin", 6080, "http", AUTH,
      "admin / `pw ranger-secret admin-password` · ★★ 로그인 반복 실패 금지(Gotcha 11)"),
-    ("ranger-solr", "ranger-solr", 8983, "http", OPEN,
-     "Ranger 감사 색인"),
-    ("solr", "solr-headless", 8983, "http", OPEN,
-     "거버넌스 Solr"),
+    ("ranger-solr", "ranger-solr", 8983, "http", AUTH,
+     "Ranger 감사 색인(아래 solr 와 같은 파드). BasicAuth `solr-admin` / "
+     "`pw solr-secret admin-password`"),
+    ("solr", "solr-headless", 8983, "http", AUTH,
+     "거버넌스 Solr — Ranger 감사 색인 `ranger_audits` 하나. ★ BasicAuth(2026-11-03): "
+     "`solr-admin` / `pw solr-secret admin-password` · 감사 조회용 `ranger-audit` 은 "
+     "`ranger_audits` 읽기·쓰기만"),
     ("lam", "lam-headless", 80, "http", AUTH,
      "`cn=Directory Manager` / `pw ds389-secret dm-password` · DS389 관리. "
      "★ `lam-secret master-password` 는 로그인이 아니라 **설정 편집기**(LAM configuration) 암호다 — "

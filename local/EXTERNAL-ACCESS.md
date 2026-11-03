@@ -11,7 +11,7 @@
 > 때 port-forward 가 대조군이 된다.
 
 <!-- GENERATED:counts START -->
-웹 호스트 **55**(자체 인증 28 · 인증 없음 15 · 도구용 12, 그중 백엔드가 HTTPS 인 것 5) · TCP 대상 **14**
+웹 호스트 **55**(자체 인증 30 · 인증 없음 13 · 도구용 12, 그중 백엔드가 HTTPS 인 것 5) · TCP 대상 **14**
 <!-- GENERATED:counts END -->
 
 ---
@@ -240,8 +240,8 @@ Import-Certificate -FilePath .\oim-ca.crt -CertStoreLocation Cert:\LocalMachine\
 | https://keycloak.oneinchmarket.local | 자체 인증 | `keycloak-headless:8080` | admin / `pw keycloak-secret admin-password` · ★ iss 가 이 호스트로 발급된다 |
 | https://openbao.oneinchmarket.local | 자체 인증 | `openbao:8200` | 토큰 `pw openbao-keys root-token` |
 | https://ranger.oneinchmarket.local | 자체 인증 | `ranger-admin:6080` | admin / `pw ranger-secret admin-password` · ★★ 로그인 반복 실패 금지(Gotcha 11) |
-| https://ranger-solr.oneinchmarket.local | **없음** | `ranger-solr:8983` | Ranger 감사 색인 |
-| https://solr.oneinchmarket.local | **없음** | `solr-headless:8983` | 거버넌스 Solr |
+| https://ranger-solr.oneinchmarket.local | 자체 인증 | `ranger-solr:8983` | Ranger 감사 색인(아래 solr 와 같은 파드). BasicAuth `solr-admin` / `pw solr-secret admin-password` |
+| https://solr.oneinchmarket.local | 자체 인증 | `solr-headless:8983` | 거버넌스 Solr — Ranger 감사 색인 `ranger_audits` 하나. ★ BasicAuth(2026-11-03): `solr-admin` / `pw solr-secret admin-password` · 감사 조회용 `ranger-audit` 은 `ranger_audits` 읽기·쓰기만 |
 | https://lam.oneinchmarket.local | 자체 인증 | `lam-headless:80` | `cn=Directory Manager` / `pw ds389-secret dm-password` · DS389 관리. ★ `lam-secret master-password` 는 로그인이 아니라 **설정 편집기**(LAM configuration) 암호다 — 로그인에 넣으면 `LDAP error, server says: Invalid credentials` |
 | https://knox.oneinchmarket.local | 자체 인증 | `knox-headless:8443` **(https)** | DS389 LDAP basic. ★ **Hadoop 계층의 정식 진입점**(§4) |
 | https://wazuh.oneinchmarket.local | 자체 인증 | `wazuh-manager:55000` **(https)** | `pw wazuh-secret api-username` / `api-password` |
@@ -297,7 +297,7 @@ pw grafana-secret admin-password
 ### ★★ 인증이 없는 호스트 — 집 밖으로 내보내지 말 것
 
 <!-- GENERATED:open-list START -->
-**15 종** — `prometheus.oneinchmarket.local` · `alertmanager.oneinchmarket.local` · `pyroscope.oneinchmarket.local` · `pyrra.oneinchmarket.local` · `temporal.oneinchmarket.local` · `flink.oneinchmarket.local` · `ranger-solr.oneinchmarket.local` · `solr.oneinchmarket.local` · `spark-history.oneinchmarket.local` · `spark-ui.oneinchmarket.local` · `livy.oneinchmarket.local` · `hdfs.oneinchmarket.local` · `hbase.oneinchmarket.local` · `hbase-rs.oneinchmarket.local` · `hive.oneinchmarket.local`
+**13 종** — `prometheus.oneinchmarket.local` · `alertmanager.oneinchmarket.local` · `pyroscope.oneinchmarket.local` · `pyrra.oneinchmarket.local` · `temporal.oneinchmarket.local` · `flink.oneinchmarket.local` · `spark-history.oneinchmarket.local` · `spark-ui.oneinchmarket.local` · `livy.oneinchmarket.local` · `hdfs.oneinchmarket.local` · `hbase.oneinchmarket.local` · `hbase-rs.oneinchmarket.local` · `hive.oneinchmarket.local`
 <!-- GENERATED:open-list END -->
 
 이것들은 **누구든 주소를 알면 그대로 들어온다.** 그리고 이 배치에서는

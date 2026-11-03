@@ -45,6 +45,10 @@ data:
     audit_store=solr
     audit_solr_urls=http://ranger-solr:8983/solr/ranger_audits
     audit_solr_collection_name=ranger_audits
+    # Solr BasicAuth(2026-11-03) — 감사 조회용 사용자. 비밀번호는 기동 래퍼가 solr-secret 에서
+    # 치환하고, setup.sh 가 자격 저장소(jceks)의 ranger.solr.password 로 옮긴다.
+    audit_solr_user=ranger-audit
+    audit_solr_password=__SOLR_AUDIT_PASSWORD__
     audit_elasticsearch_urls=
     audit_elasticsearch_port=9200
     audit_elasticsearch_protocol=http
