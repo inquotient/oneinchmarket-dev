@@ -11,7 +11,7 @@
 > 때 port-forward 가 대조군이 된다.
 
 <!-- GENERATED:counts START -->
-웹 호스트 **55**(자체 인증 30 · 인증 없음 13 · 도구용 12, 그중 백엔드가 HTTPS 인 것 5) · TCP 대상 **14**
+웹 호스트 **56**(자체 인증 30 · 인증 없음 13 · 도구용 13, 그중 백엔드가 HTTPS 인 것 5) · TCP 대상 **14**
 <!-- GENERATED:counts END -->
 
 ---
@@ -160,6 +160,7 @@ nslookup grafana.oneinchmarket.local 192.168.0.103
 192.168.0.103 lam.oneinchmarket.local
 192.168.0.103 knox.oneinchmarket.local
 192.168.0.103 wazuh.oneinchmarket.local
+192.168.0.103 wazuh-api.oneinchmarket.local
 192.168.0.103 wazuh-indexer.oneinchmarket.local
 192.168.0.103 defectdojo.oneinchmarket.local
 192.168.0.103 dtrack.oneinchmarket.local
@@ -244,7 +245,8 @@ Import-Certificate -FilePath .\oim-ca.crt -CertStoreLocation Cert:\LocalMachine\
 | https://solr.oneinchmarket.local | 자체 인증 | `solr-headless:8983` | 거버넌스 Solr — Ranger 감사 색인 `ranger_audits` 하나. ★ BasicAuth(2026-11-03): `solr-admin` / `pw solr-secret admin-password` · 감사 조회용 `ranger-audit` 은 `ranger_audits` 읽기·쓰기만 |
 | https://lam.oneinchmarket.local | 자체 인증 | `lam-headless:80` | `cn=Directory Manager` / `pw ds389-secret dm-password` · DS389 관리. ★ `lam-secret master-password` 는 로그인이 아니라 **설정 편집기**(LAM configuration) 암호다 — 로그인에 넣으면 `LDAP error, server says: Invalid credentials` |
 | https://knox.oneinchmarket.local | 자체 인증 | `knox-headless:8443` **(https)** | DS389 LDAP basic. ★ **Hadoop 계층의 정식 진입점**(§4) |
-| https://wazuh.oneinchmarket.local | 자체 인증 | `wazuh-manager:55000` **(https)** | `pw wazuh-secret api-username` / `api-password` |
+| https://wazuh.oneinchmarket.local | 자체 인증 | `wazuh-dashboard:5601` | Wazuh 웹 UI(2026-11-03 신설 — 전에는 이 호스트가 매니저 API 로 가서 JSON 401 만 보였다). admin / `pw wazuh-secret indexer-admin-password` |
+| https://wazuh-api.oneinchmarket.local | 도구용 | `wazuh-manager:55000` **(https)** | 매니저 REST API. `POST /security/user/authenticate`(basic `pw wazuh-secret api-username` / `api-password`)로 토큰은 받지만, ★ 그 토큰을 **게이트웨이 경유 Bearer 로는 쓸 수 없다** — 게이트웨이 JWT 검증이 Keycloak 이 아닌 발급자를 `Jwt issuer is not configured` 로 거부한다. API 를 쓰려면 port-forward(`wazuh-manager:55000`)로 |
 | https://wazuh-indexer.oneinchmarket.local | 자체 인증 | `wazuh-indexer:9200` **(https)** | admin / `pw wazuh-secret indexer-admin-password` |
 | https://defectdojo.oneinchmarket.local | 자체 인증 | `defectdojo:8080` | admin / `pw defectdojo-secret admin-password` |
 | https://dtrack.oneinchmarket.local | 자체 인증 | `dependency-track:8080` | admin/admin — 최초 로그인에 변경을 요구한다 · SPA(§6) |

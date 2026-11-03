@@ -1,0 +1,130 @@
+# Wazuh 대시보드 (2026-11-03) — Wazuh 의 웹 UI.
+#
+# ★★ 왜: 이 클러스터에는 매니저(API 55000)와 인덱서만 있고 **UI 가 없었다.** 외부 호스트
+#   `wazuh.oneinchmarket.local` 이 매니저 REST API 로 가서 브라우저에는 JSON 401
+#   (`No authorization token provided`)만 보였다 — 고장이 아니라 처음부터 화면이 없었던 것이다.
+#   그 호스트는 이제 이 대시보드로 가고, API 는 `wazuh-api.oneinchmarket.local` 로 옮겼다.
+#
+# ★ 이미지에서 확인한 것(wazuh/wazuh-dashboard:4.14.7):
+#   · uid 1000(wazuh-dashboard). 엔트리포인트가 config/ 에 keystore 를, data/wazuh/config/wazuh.yml
+#     에 API 접속 정보를 **쓴다** — 그래서 rootfs 는 쓰기 가능해야 한다.
+#   · opensearch_dashboards.yml 은 이미지에 **없다**(공식 compose 가 마운트로 준다) — 여기서 준다.
+#   · 환경변수: DASHBOARD_USERNAME/PASSWORD(인덱서 연결 — keystore 에 들어간다) ·
+#     WAZUH_API_URL · API_USERNAME/API_PASSWORD(매니저 API).
+#   · config/certs/ 에 **데모 인증서**가 들어 있다 — 디렉터리째 wazuh-ca 로 가린다.
+# ★ 인덱서 연결 사용자가 admin 인 이유: 인덱서의 internal_users.yml 이 admin·filebeat 둘뿐이고
+#   (wazuh-indexer-statefulset.yaml 의 initContainer), 보안 인덱스는 첫 기동 때만 그 파일로
+#   초기화된다 — kibanaserver 를 더하려면 securityadmin 재적용이 따로 필요하다. 사람의 로그인도
+#   지금은 admin 하나다. 전용 사용자는 그 재적용 절차를 만들 때 함께 나눈다.
+# ★ HTTPS 는 게이트웨이가 끝낸다 — 대시보드는 메시 안에서 평문 5601 로 듣는다(ztunnel 이 mTLS).
+#   쿠키는 브라우저가 https 로 보므로 secure 로 둔다.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: wazuh-dashboard
+  labels: {app.kubernetes.io/name: wazuh-dashboard, app.kubernetes.io/component: security, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wazuh-dashboard-config
+  labels: {app.kubernetes.io/name: wazuh-dashboard, app.kubernetes.io/component: security, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+data:
+  opensearch_dashboards.yml: |
+    server.host: 0.0.0.0
+    server.port: 5601
+    server.ssl.enabled: false
+    opensearch.hosts: https://wazuh-indexer:9200
+    opensearch.ssl.verificationMode: certificate
+    opensearch.ssl.certificateAuthorities: ["/usr/share/wazuh-dashboard/config/certs/root-ca.pem"]
+    opensearch.requestHeadersAllowlist: ["securitytenant", "Authorization"]
+    opensearch_security.multitenancy.enabled: false
+    opensearch_security.readonly_mode.roles: ["kibana_read_only"]
+    opensearch_security.cookie.secure: true
+    uiSettings.overrides.defaultRoute: /app/wz-home
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wazuh-dashboard
+  labels: {app.kubernetes.io/name: wazuh-dashboard, app.kubernetes.io/component: security, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+spec:
+  selector: {app.kubernetes.io/name: wazuh-dashboard}
+  ports: [{name: http, port: 5601, targetPort: 5601, protocol: TCP}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wazuh-dashboard
+  labels: {app.kubernetes.io/name: wazuh-dashboard, app.kubernetes.io/component: security, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+  annotations: {reloader.stakater.com/auto: "true"}
+spec:
+  replicas: 1
+  strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}
+  selector:
+    matchLabels: {app.kubernetes.io/name: wazuh-dashboard}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: wazuh-dashboard, app.kubernetes.io/component: security, app.kubernetes.io/part-of: oneinchmarket}
+    spec:
+      serviceAccountName: wazuh-dashboard
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: wazuh-dashboard
+          image: docker.io/wazuh/wazuh-dashboard:4.14.7
+          ports:
+            - {containerPort: 5601, name: http, protocol: TCP}
+          env:
+            - {name: WAZUH_API_URL, value: "https://wazuh-manager"}
+            - {name: API_PORT, value: "55000"}
+            - name: API_USERNAME
+              valueFrom: {secretKeyRef: {name: wazuh-secret, key: api-username}}
+            - name: API_PASSWORD
+              valueFrom: {secretKeyRef: {name: wazuh-secret, key: api-password}}
+            - {name: DASHBOARD_USERNAME, value: "admin"}
+            - name: DASHBOARD_PASSWORD
+              valueFrom: {secretKeyRef: {name: wazuh-secret, key: indexer-admin-password}}
+            # Node 힙 상한 — 기본값은 컨테이너 한도를 모른다(Gotcha 79 와 같은 부류).
+            - {name: NODE_OPTIONS, value: "--max-old-space-size=768"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 100m, memory: 768Mi}
+            limits:   {cpu: 1000m, memory: 1280Mi}
+          # 기동(플러그인 최적화)이 1~3분 걸린다. /app/login 은 인증 없이 200 이다.
+          startupProbe:
+            tcpSocket: {port: http}
+            failureThreshold: 60
+            periodSeconds: 5
+          readinessProbe:
+            httpGet: {path: /app/login, port: http}
+            periodSeconds: 15
+            timeoutSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: http}
+            periodSeconds: 20
+            timeoutSeconds: 10
+          volumeMounts:
+            - name: config
+              mountPath: /usr/share/wazuh-dashboard/config/opensearch_dashboards.yml
+              subPath: opensearch_dashboards.yml
+              readOnly: true
+            # 이미지의 데모 인증서 디렉터리를 통째로 가린다 — 남는 것은 wazuh-ca 하나다.
+            - name: ca
+              mountPath: /usr/share/wazuh-dashboard/config/certs
+              readOnly: true
+      volumes:
+        - name: config
+          configMap: {name: wazuh-dashboard-config}
+        - name: ca
+          secret:
+            secretName: wazuh-ca-tls
+            items:
+              - {key: ca.crt, path: root-ca.pem}

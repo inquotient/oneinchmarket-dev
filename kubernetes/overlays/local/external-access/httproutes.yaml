@@ -948,6 +948,39 @@ metadata:
     argocd.argoproj.io/sync-wave: "8"
     # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
     oneinchmarket.local/auth-tier: "auth"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
+      sectionName: https
+  hostnames:
+    - wazuh.oneinchmarket.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: wazuh-dashboard
+          port: 5601
+          weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ext-wazuh-api
+  labels:
+    app.kubernetes.io/name: ext-wazuh-api
+    app.kubernetes.io/component: gateway-routes
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
+    oneinchmarket.local/auth-tier: "tool"
   # ★ 백엔드가 HTTPS 다 — destinationrules.yaml 의 TLS
   #   오리지네이션과 짝이다. 한쪽만 있으면 502 다.
 spec:
@@ -957,7 +990,7 @@ spec:
       name: ingress
       sectionName: https
   hostnames:
-    - wazuh.oneinchmarket.local
+    - wazuh-api.oneinchmarket.local
   rules:
     - matches:
         - path:

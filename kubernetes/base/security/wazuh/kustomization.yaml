@@ -13,6 +13,8 @@ resources:
   - wazuh-indexer-statefulset.yaml
   - wazuh-manager-service.yaml
   - wazuh-manager-statefulset.yaml
+  # 웹 UI(2026-11-03) — 전에는 없어서 외부 호스트가 매니저 API(JSON 401)로 갔다.
+  - wazuh-dashboard.yaml
 
 commonAnnotations:
   argocd.argoproj.io/sync-wave: "4"

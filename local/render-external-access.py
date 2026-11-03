@@ -122,8 +122,14 @@ CATALOG = [
      "로그인에 넣으면 `LDAP error, server says: Invalid credentials`"),
     ("knox", "knox-headless", 8443, "https", AUTH,
      "DS389 LDAP basic. ★ **Hadoop 계층의 정식 진입점**(§4)"),
-    ("wazuh", "wazuh-manager", 55000, "https", AUTH,
-     "`pw wazuh-secret api-username` / `api-password`"),
+    ("wazuh", "wazuh-dashboard", 5601, "http", AUTH,
+     "Wazuh 웹 UI(2026-11-03 신설 — 전에는 이 호스트가 매니저 API 로 가서 JSON 401 만 보였다). "
+     "admin / `pw wazuh-secret indexer-admin-password`"),
+    ("wazuh-api", "wazuh-manager", 55000, "https", TOOL,
+     "매니저 REST API. `POST /security/user/authenticate`(basic `pw wazuh-secret api-username` / "
+     "`api-password`)로 토큰은 받지만, ★ 그 토큰을 **게이트웨이 경유 Bearer 로는 쓸 수 없다** — "
+     "게이트웨이 JWT 검증이 Keycloak 이 아닌 발급자를 `Jwt issuer is not configured` 로 거부한다. "
+     "API 를 쓰려면 port-forward(`wazuh-manager:55000`)로"),
     ("wazuh-indexer", "wazuh-indexer", 9200, "https", AUTH,
      "admin / `pw wazuh-secret indexer-admin-password`"),
     ("defectdojo", "defectdojo", 8080, "http", AUTH,
