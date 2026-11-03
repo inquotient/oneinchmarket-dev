@@ -1,0 +1,90 @@
+# Solr — Ranger 인가(RangerSolrAuthorizer) + Knox user.name 인증 (local 전용, 2026-11-04).
+# ★ 왜: Ranger 감사 색인을 Ranger 가 통제하는 서비스(oim-solr)로 둔다. 전에는 Solr 의 접근
+#   통제가 메시 신원(solr-authz.yaml) 하나였고, Knox 를 지난 사람은 Knox 의 Ranger 정책
+#   (oim-knox · SOLR)을 통과하면 Solr 에서 무엇이든 할 수 있었다. 이제 Knox 가 넘긴 사용자
+#   이름(user.name)으로 Solr 에서도 컬렉션·작업 단위 정책을 고른다.
+# ★ 신뢰 전제는 KnoxUserAuthPlugin 머리말과 같다 — user.name 을 검증하지 않으므로
+#   solr-authz.yaml 이 Solr 에 닿는 신원을 좁혀야 성립한다. 둘은 함께 움직인다.
+# ★ 플러그인 이미지는 docker/ranger-solr-plugin(Solr 10 이식). 배치:
+#     /opt/ranger-solr/                         solr.sharedLib — shim · classloader · Knox 인증 jar
+#     /opt/ranger-solr/ranger-solr-plugin-impl/ shim 이 자기 옆에서 찾는 구현
+#     .../ranger-solr-plugin-impl/conf/         ranger-solr-security.xml · audit.xml (ConfigMap)
+# ★ 정책을 받기 전에도 health 프로브는 통과한다 — 권한 이름이 Ranger 의 switch 에 없는
+#   요청(health 등)은 검사 대상이 없어 200 이다. 그래서 처음 세우는 클러스터의 교착은 없다
+#   (Kafka 와 달리 시드가 필요 없다). 감사 쓰기만 정책을 받을 때까지 거부되고 플러그인 쪽
+#   스풀에 쌓였다가 다시 보내진다.
+# ★ 순서: ranger-bootstrap.sh 가 oim-solr 를 만들기 전에는 정책이 0건이라 감사 쓰기가 403 이다.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: solr
+spec:
+  template:
+    spec:
+      imagePullSecrets:
+        - name: gitlab-registry-secret
+      initContainers:
+        - name: fetch-ranger-plugin
+          image: gitlab-registry.local.svc.cluster.local:5050/oneinch/ranger-solr-plugin:2.9.0-solr10
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              cp -r /plugin/. /ranger/
+              # fail-closed: 이식한 jar 가 들어왔고 옛 Lucene·Jersey 1 이 섞이지 않았는지 본다.
+              # (가드를 `! cmd` 로 쓰지 말 것 — set -e 는 부정한 명령의 실패를 무시한다)
+              test -f /ranger/ranger-solr-plugin-shim-2.9.0.jar
+              test -f /ranger/oim-solr-knox-auth.jar
+              test -f /ranger/ranger-solr-plugin-impl/ranger-solr-plugin-2.9.0.jar
+              if ls /ranger/ranger-solr-plugin-impl | grep -qE '^(lucene-|jersey-client-1|jersey-core-1)'; then
+                echo "옛 Lucene·Jersey 1 이 impl 에 있다" >&2; exit 1
+              fi
+              ls /ranger
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits:   {cpu: 500m, memory: 256Mi}
+          volumeMounts:
+            - {name: ranger-solr, mountPath: /ranger}
+        # ★ 오버레이의 initContainer 는 목록 **앞에** 붙어 base 의 schema 보다 먼저 돈다(렌더 실측).
+        #   그래서 schema 는 BasicAuth 판 security.json 만 지운다 — 이것을 지우지 않는다.
+        - name: solr-security
+          image: docker.io/library/solr:10.0.0-slim
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              cp /conf/security.json /var/solr/data/security.json
+              grep -q RangerSolrAuthorizer /var/solr/data/security.json
+              grep -q KnoxUserAuthPlugin /var/solr/data/security.json
+              echo "[solr-security] Ranger 인가 + Knox user.name 인증"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 20m, memory: 32Mi}
+            limits:   {cpu: 100m, memory: 64Mi}
+          volumeMounts:
+            - {name: data, mountPath: /var/solr}
+            - {name: ranger-solr-conf, mountPath: /conf, readOnly: true}
+      containers:
+        - name: solr
+          env:
+            # base 의 값에 sharedLib 를 더한다(env 는 이름으로 병합되어 값이 통째로 바뀐다).
+            - {name: SOLR_OPTS, value: "-Dupdate.autoCreateFields=false -Dsolr.sharedLib=/opt/ranger-solr"}
+          volumeMounts:
+            - {name: ranger-solr, mountPath: /opt/ranger-solr}
+            - {name: ranger-solr-conf, mountPath: /opt/ranger-solr/ranger-solr-plugin-impl/conf, readOnly: true}
+            # ranger-solr-security.xml 의 policy.cache.dir(/tmp/ranger/solr/policycache)의 부모.
+            - {name: ranger-cache, mountPath: /tmp/ranger}
+      volumes:
+        - name: ranger-solr
+          emptyDir: {}
+        - name: ranger-cache
+          emptyDir: {}
+        - name: ranger-solr-conf
+          configMap:
+            name: ranger-solr-config

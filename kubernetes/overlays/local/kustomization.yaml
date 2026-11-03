@@ -49,6 +49,8 @@ resources:
   - kafka-tls.yaml
   # Kafka Ranger 플러그인 설정(2026-11-03) — patches/kafka-local.yaml 의 짝.
   - kafka-ranger-config.yaml
+  # Solr Ranger 플러그인 설정 · security.json(2026-11-04) — patches/solr-local.yaml 의 짝.
+  - solr-ranger-config.yaml
 
 # ★★ Kafka Ranger 정책 시드(2026-11-03) — 처음 세우는 클러스터의 교착을 끊는다.
 #   Kafka 는 wave 2 인데 Ranger Admin 은 wave 5 이고 ranger-bootstrap.sh 는 그 뒤의 손
@@ -89,6 +91,8 @@ patches:
   - path: patches/trino-local.yaml
   # Knox — AclsAuthz 대신 Ranger 인가(XASecurePDPKnox). 플러그인은 docker/ranger-knox-plugin.
   - path: patches/knox-local.yaml
+  # Solr — Ranger 인가 + Knox user.name 인증. 플러그인은 docker/ranger-solr-plugin(Solr 10 이식).
+  - path: patches/solr-local.yaml
   - path: patches/nginx-local.yaml
   # ★ 메모리 limits 정리 — 3단계 종료 시 limits 합이 98% 였다
   - path: patches/limits-local.yaml

@@ -1,0 +1,11 @@
+{
+  "name": "oim-solr",
+  "type": "solr",
+  "description": "Solr (Ranger 감사 색인) - overlays/local/solr-ranger-config.yaml 의 ranger.plugin.solr.service.name 과 같아야 한다. username 은 KnoxUserAuthPlugin 의 defaultUser(user.name 이 없는 요청 = 감사 플러그인·Ranger Admin·정리 Job)라 기본 정책으로 전권을 받는다",
+  "isEnabled": true,
+  "configs": {
+    "username": "solr",
+    "password": "__LOOKUP_NOT_USED__",
+    "solr.url": "http://ranger-solr:8983/solr"
+  }
+}

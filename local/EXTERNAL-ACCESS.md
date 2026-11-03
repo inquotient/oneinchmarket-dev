@@ -240,7 +240,7 @@ Import-Certificate -FilePath .\oim-ca.crt -CertStoreLocation Cert:\LocalMachine\
 | https://openbao.oneinchmarket.local | 자체 인증 | `openbao:8200` | 토큰 `pw openbao-keys root-token` |
 | https://ranger.oneinchmarket.local | 자체 인증 | `ranger-admin:6080` | admin / `pw ranger-secret admin-password` · ★★ 로그인 반복 실패 금지(Gotcha 11) |
 | https://lam.oneinchmarket.local | 자체 인증 | `lam-headless:80` | `cn=Directory Manager` / `pw ds389-secret dm-password` · DS389 관리. ★ `lam-secret master-password` 는 로그인이 아니라 **설정 편집기**(LAM configuration) 암호다 — 로그인에 넣으면 `LDAP error, server says: Invalid credentials` |
-| https://knox.oneinchmarket.local | 자체 인증 | `knox-headless:8443` **(https)** | DS389 LDAP basic. ★ **Hadoop 계층의 정식 진입점**(§4). 홈 `/gateway/homepage/home/`(KnoxSSO) · Solr(Ranger 감사 색인) 는 `/gateway/oim/solr/` — data-admin 만 |
+| https://knox.oneinchmarket.local | 자체 인증 | `knox-headless:8443` **(https)** | DS389 LDAP basic. ★ **Hadoop 계층의 정식 진입점**(§4). 홈 `/gateway/homepage/home/`(KnoxSSO) · Solr(Ranger 감사 색인) 는 `/gateway/oim/solr/` — data-admin 만 · 읽기만 |
 | https://wazuh.oneinchmarket.local | 자체 인증 | `wazuh-dashboard:5601` | Wazuh 웹 UI(2026-11-03 신설 — 전에는 이 호스트가 매니저 API 로 가서 JSON 401 만 보였다). admin / `pw wazuh-secret indexer-admin-password` |
 | https://wazuh-api.oneinchmarket.local | 도구용 | `wazuh-manager:55000` **(https)** | 매니저 REST API. `POST /security/user/authenticate`(basic `pw wazuh-secret api-username` / `api-password`)로 토큰은 받지만, ★ 그 토큰을 **게이트웨이 경유 Bearer 로는 쓸 수 없다** — 게이트웨이 JWT 검증이 Keycloak 이 아닌 발급자를 `Jwt issuer is not configured` 로 거부한다. API 를 쓰려면 port-forward(`wazuh-manager:55000`)로 |
 | https://wazuh-indexer.oneinchmarket.local | 자체 인증 | `wazuh-indexer:9200` **(https)** | admin / `pw wazuh-secret indexer-admin-password` |
@@ -249,9 +249,9 @@ Import-Certificate -FilePath .\oim-ca.crt -CertStoreLocation Cert:\LocalMachine\
 | https://dtrack-api.oneinchmarket.local | 도구용 | `dependency-track-api:8080` | 위 UI 가 브라우저에서 부르는 API |
 | https://safeline.oneinchmarket.local | 자체 인증 | `safeline-mgt:1443` **(https)** | admin / `pw safeline-secret admin-password` · WAF 콘솔 |
 | https://caldera.oneinchmarket.local | 자체 인증 | `caldera:8888` | `red` / `pw caldera-secret red-password` · `blue` / `pw caldera-secret blue-password` (api-key-* 는 REST API 의 KEY 헤더용 — 로그인이 아니다) |
-| https://midpoint.oneinchmarket.local | 자체 인증 | `midpoint-headless:8080` | IGA. administrator / `pw midpoint-secret admin-password` |
+| https://midpoint.oneinchmarket.local | 자체 인증 | `midpoint-headless:8080` | IGA. administrator / `pw midpoint-secret admin-password` — 저장소를 처음 만들 때의 값이다. UI 에서 바꾸면 Secret 과 갈린다 |
 | https://openfga.oneinchmarket.local | 도구용 | `openfga-headless:8080` | ReBAC 인가 API. preshared key 가 필요하다(`openfga-secret`) |
-| https://opensearch.oneinchmarket.local | 자체 인증 | `opensearch-headless:9200` **(https)** | 검색 엔진 REST. admin / `pw opensearch-secret admin-password` |
+| https://opensearch.oneinchmarket.local | 자체 인증 | `opensearch-headless:9200` **(https)** | 검색 엔진 REST — ★ **화면이 없다**(브라우저는 로그인 창 뒤 JSON). UI 는 `https://osd.oneinchmarket.local` 다. admin / `pw opensearch-secret admin-password` |
 | https://gitlab.oneinchmarket.local | 자체 인증 | `gitlab-headless:80` | root / `pw gitlab-secret root-password` |
 | https://jenkins.oneinchmarket.local | 자체 인증 | `jenkins-headless:8080` | admin / `pw jenkins-secret admin-password` |
 | https://glitchtip.oneinchmarket.local | 자체 인증 | `glitchtip:8000` | 오류 추적. 가입이 필요하다 |
@@ -314,6 +314,24 @@ pw grafana-secret admin-password
 > 그 자리는 **과금 계량의 액세스 로그 공급자**가 쓰고 있고,
 > `istioctl install` 이 그것을 지운 적이 있다(Gotcha 158 — 트래픽은 정상인데
 > 청구만 사라졌다). 과금 경로를 건드리는 변경이라 지시를 받아야 한다.
+
+### ★★ 일부러 열지 않는 호스트 — "접속되지 않는다" 의 답
+
+예전에 열었다가 **닫은** 이름이다. 이름이 풀리고 인증서도 맞지만 라우트가 없어
+`404`(`content-length: 0` — Envoy 자신의 404)가 나온다. 고장이 아니다.
+
+<!-- GENERATED:closed-table START -->
+| 호스트 | 닫은 날 | 왜 닫았나 | 대신 |
+|---|---|---|---|
+| ~~`kafka-bridge.oneinchmarket.local`~~ | 2026-11-02 | 자체 인증이 없어(SEC-206) LAN 의 누구나 과금 토픽에 쓸 수 있었다. JWT 만 요구하는 것으로도 부족하다 — 고객 테넌트의 client_credentials 토큰도 같은 realm 이라 남에게 청구를 떠넘길 수 있다(ADR-035) | 외부 HTTP->Kafka 는 `zilla.oneinchmarket.local`(`edge.events` 하나에 갇힌다, §3-e) |
+| ~~`openmeter.oneinchmarket.local`~~ | 2026-11-03 | OSS 판은 자체 인증이 없어 `POST /api/v1/events` 로 어떤 테넌트 명의로든 사용량을 위조할 수 있었고, 고객·구독·인보이스 변경 API 도 열려 있었다. UI 가 없어(루트 404) 브라우저로 얻는 것도 없다 | 조회는 Grafana(ClickHouse `openmeter` DB) 또는 port-forward(ACCESS.md) |
+| ~~`solr.oneinchmarket.local`~~ | 2026-11-03 | Ranger 감사 색인이다. Solr 에는 자체 인증이 없고 `solr-authz.yaml`(AuthorizationPolicy)이 메시 신원으로 지키는데, 게이트웨이 신원은 그 목록에 없다 — 경로를 되살려도 **503** 이다 | **Knox** — `https://knox.oneinchmarket.local/gateway/oim/solr/`(DS389 로그인 · data-admin 만 · Solr 의 Ranger `oim-solr` 가 **읽기만** 준다, §4) |
+| ~~`ranger-solr.oneinchmarket.local`~~ | 2026-11-03 | `solr` 와 같은 백엔드의 다른 이름(Ranger Admin 설정이 이 이름을 쓴다). 사유도 같다 | 위 `solr` 행과 같다 — Knox |
+<!-- GENERATED:closed-table END -->
+
+> ★ 되살리기 전에 사유를 볼 것 — 넷 다 **인증이 없는 쓰기·조회 경로**가 LAN 에
+> 열리던 자리다. 원천은 `local/render-external-access.py` 의 `CLOSED` 이고, 같은
+> 이름이 `CATALOG` 에 다시 들어가면 생성이 멈춘다.
 
 ### ★★★ 레이트 리밋 — 범위를 고쳤다
 
@@ -513,7 +531,7 @@ curl -N -H "Authorization: Bearer $T" https://zilla.oneinchmarket.local/sse/even
 ## 4. Knox — Hadoop 계층의 정식 진입점
 
 `https://knox.oneinchmarket.local/gateway/oim/...` 하나로 WebHDFS · Hive ·
-HBase REST 가 다 들어온다. **인증은 DS389 LDAP** 이고 Knox 가 인증된 사용자
+HBase REST · **Solr**(Ranger 감사 색인) 가 다 들어온다. **인증은 DS389 LDAP** 이고 Knox 가 인증된 사용자
 이름을 백엔드로 넘긴다.
 
 ```bash
@@ -529,6 +547,7 @@ curl -u "ranger-sync:$PW" \
 | **WebHDFS** | `/gateway/oim/webhdfs/v1/?op=LISTSTATUS` | 200 + 디렉터리 목록 |
 | **HBase REST** | `/gateway/oim/hbase/version/cluster` | 200 + 버전 — ★ **읽기만 증명한다.** 쓰기(테이블 생성 `PUT /<t>/schema` → 201)까지 볼 것 |
 | **Hive JDBC** | 아래 | `show databases` 동작 |
+| **Solr** (Ranger 감사 색인) | `/gateway/oim/solr/ranger_audits/select?q=*:*&rows=0` | 200 + `numFound`. ★ 두 겹이다 — **누가**: Knox 의 Ranger `oim-knox` 가 data-admin 만 통과시키고(다른 사용자 403), **무엇을**: Solr 의 Ranger `oim-solr` 가 data-admin 에게 **읽기만** 준다(삭제·쓰기 403 — 감사 기록을 사람이 고칠 수 없다). 예전 `solr`·`ranger-solr` 호스트는 닫았다(§2 의 닫은 호스트) |
 
 **DBeaver 에서 Hive 를 Knox 경유로:**
 
@@ -670,6 +689,7 @@ SPA 는 **브라우저에서** 백엔드를 직접 부르므로 `localhost` 가 
 | **`403`** | `api.oneinchmarket.local` 은 **JWT 가 필수**다(Gotcha 18). 정상 동작이다 |
 | **`406`** | Trino 다. `http-server.process-forwarded=true` 가 빠졌다 — 본문을 읽을 것 |
 | **`429`** | `api` 호스트의 쿼터다(분당 10건 · 테넌트가 있으면 60~3000). 다른 호스트에서 나오면 레이트 리밋 범위가 되돌아간 것이다 |
+| `solr`·`ranger-solr`·`openmeter`·`kafka-bridge` 가 **404** | 일부러 닫은 이름이다(§2 의 닫은 호스트). Solr 는 Knox 로(§4) |
 | **`500` 에 `No handler found for port`** | HiveServer2 다. §6 의 남은 것 참조 |
 | 특정 호스트만 **리셋·502** | `AuthorizationPolicy` 가 그 백엔드를 선택한다. `authz-external-access.yaml` 에 게이트웨이 신원이 있는지 볼 것 |
 | DBeaver **타임아웃** | `db-gateway` 파드와 `authz-external-access.yaml` 을 볼 것. **TCP 는 열리고 프로토콜에서 죽는다** |

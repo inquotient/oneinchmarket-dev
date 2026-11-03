@@ -89,12 +89,7 @@ CATALOG = [
     ("apicurio-registry", "apicurio-registry-headless", 8080, "http", TOOL,
      "계약 레지스트리 API. 위 UI 의 전제다. ★ **읽기는 익명 허용 · 쓰기는 토큰 또는 "
      "client_id:secret basic**(2026-11-03) — 스키마 내용은 LAN 에 보인다"),
-    # ★ kafka-bridge 는 **외부에 열지 않는다**(2026-11-02 에 뺐다). 자체 인증이 없어
-    #   (SEC-206) LAN 의 누구나 과금 토픽에 쓸 수 있었고, ADR-035 가 "인증 앞단이
-    #   생기기 전까지 진입점을 만들지 않는다" 고 이미 정해 둔 것을 10-11 에 어겼다.
-    #   JWT 만 요구하는 것으로는 부족하다 — 고객 테넌트의 client_credentials 토큰도
-    #   이 realm 의 것이라 남에게 청구를 떠넘길 수 있다. 외부 HTTP->Kafka 는 `zilla`
-    #   (edge.events 하나에 갇힌다)가 대신한다.
+    # ★ kafka-bridge 는 외부에 열지 않는다 — 사유와 대안은 CLOSED(아래).
     ("kafka-connect", "kafka-connect-headless", 8083, "http", TOOL,
      "커넥터 REST. `GET /connectors`"),
     ("zilla", "zilla", 7114, "http", TOOL,
@@ -109,11 +104,7 @@ CATALOG = [
      "구독·API 키 발급 · SPA(§6)"),
     ("gravitee-api", "gravitee-management-api-headless", 8083, "http", TOOL,
      "위 둘의 전제. `/management` · `/portal`"),
-    # ★ openmeter 는 **외부에 열지 않는다**(2026-11-03 에 뺐다). OSS 판은 자체 인증이
-    #   없어 LAN 의 누구나 `POST /api/v1/events` 로 어떤 테넌트 명의로든 사용량을
-    #   위조할 수 있었고, 고객·구독·인보이스 변경 API 도 열려 있었다 — kafka-bridge 와
-    #   같은 부류다(청구 오염). UI 가 없어(루트가 404) 브라우저로 얻는 것도 없다.
-    #   조회는 Grafana(ClickHouse `openmeter` DB)나 port-forward 로 한다(ACCESS.md).
+    # ★ openmeter 는 외부에 열지 않는다 — 사유와 대안은 CLOSED(아래).
     # -- 보안 · 거버넌스 ---------------------------------------------------
     ("keycloak", "keycloak-headless", 8080, "http", AUTH,
      "admin / `pw keycloak-secret admin-password` · ★ iss 가 이 호스트로 발급된다"),
@@ -121,17 +112,14 @@ CATALOG = [
      "토큰 `pw openbao-keys root-token`"),
     ("ranger", "ranger-admin", 6080, "http", AUTH,
      "admin / `pw ranger-secret admin-password` · ★★ 로그인 반복 실패 금지(Gotcha 11)"),
-    # ★ solr·ranger-solr 호스트는 없앴다(2026-11-03) — Solr 의 사람 입구는 Knox 다:
-    #   https://knox.oneinchmarket.local/gateway/oim/solr/ (data-admin 만 — Ranger oim-knox).
-    #   Solr 에는 자체 인증이 없고 solr-authz.yaml 이 메시 신원으로 지킨다. 게이트웨이 신원은
-    #   그 목록에 없어 직접 경로를 되살려도 503 이다.
+    # ★ solr·ranger-solr 는 외부에 열지 않는다 — 사유와 대안은 CLOSED(아래).
     ("lam", "lam-headless", 80, "http", AUTH,
      "`cn=Directory Manager` / `pw ds389-secret dm-password` · DS389 관리. "
      "★ `lam-secret master-password` 는 로그인이 아니라 **설정 편집기**(LAM configuration) 암호다 — "
      "로그인에 넣으면 `LDAP error, server says: Invalid credentials`"),
     ("knox", "knox-headless", 8443, "https", AUTH,
      "DS389 LDAP basic. ★ **Hadoop 계층의 정식 진입점**(§4). 홈 `/gateway/homepage/home/`(KnoxSSO) · "
-     "Solr(Ranger 감사 색인) 는 `/gateway/oim/solr/` — data-admin 만"),
+     "Solr(Ranger 감사 색인) 는 `/gateway/oim/solr/` — data-admin 만 · 읽기만"),
     ("wazuh", "wazuh-dashboard", 5601, "http", AUTH,
      "Wazuh 웹 UI(2026-11-03 신설 — 전에는 이 호스트가 매니저 API 로 가서 JSON 401 만 보였다). "
      "admin / `pw wazuh-secret indexer-admin-password`"),
@@ -153,11 +141,12 @@ CATALOG = [
     ("caldera", "caldera", 8888, "http", AUTH,
      "`red` / `pw caldera-secret red-password` · `blue` / `pw caldera-secret blue-password` (api-key-* 는 REST API 의 KEY 헤더용 — 로그인이 아니다)"),
     ("midpoint", "midpoint-headless", 8080, "http", AUTH,
-     "IGA. administrator / `pw midpoint-secret admin-password`"),
+     "IGA. administrator / `pw midpoint-secret admin-password` — 저장소를 처음 만들 때의 값이다. UI 에서 바꾸면 Secret 과 갈린다"),
     ("openfga", "openfga-headless", 8080, "http", TOOL,
      "ReBAC 인가 API. preshared key 가 필요하다(`openfga-secret`)"),
     ("opensearch", "opensearch-headless", 9200, "https", AUTH,
-     "검색 엔진 REST. admin / `pw opensearch-secret admin-password`"),
+     "검색 엔진 REST — ★ **화면이 없다**(브라우저는 로그인 창 뒤 JSON). UI 는 "
+     "`https://osd.%s` 다. admin / `pw opensearch-secret admin-password`" % DOMAIN),
     # -- DevOps ------------------------------------------------------------
     ("gitlab", "gitlab-headless", 80, "http", AUTH,
      "root / `pw gitlab-secret root-password`"),
@@ -442,6 +431,41 @@ def md_open_list():
     return "**%d 종** — %s" % (len(names), " · ".join(names))
 
 
+# ★★ 외부에 **일부러 열지 않는** 호스트 (호스트, 닫은 날, 사유, 대신 쓰는 것).
+#   예전에 열었다가 닫은 것이라 "왜 안 열리나" 가 반복해서 물어진다 — 문서의
+#   GENERATED:closed-table 이 이것에서 나온다. 되살리기 전에 사유를 먼저 볼 것.
+#   ★ CATALOG 와 겹치면 생성이 멈춘다(열면서 닫힌 목록에도 남는 모순).
+CLOSED = [
+    ("kafka-bridge", "2026-11-02",
+     "자체 인증이 없어(SEC-206) LAN 의 누구나 과금 토픽에 쓸 수 있었다. JWT 만 요구하는 것으로도 "
+     "부족하다 — 고객 테넌트의 client_credentials 토큰도 같은 realm 이라 남에게 청구를 떠넘길 수 있다(ADR-035)",
+     "외부 HTTP->Kafka 는 `zilla.%s`(`edge.events` 하나에 갇힌다, §3-e)"),
+    ("openmeter", "2026-11-03",
+     "OSS 판은 자체 인증이 없어 `POST /api/v1/events` 로 어떤 테넌트 명의로든 사용량을 위조할 수 "
+     "있었고, 고객·구독·인보이스 변경 API 도 열려 있었다. UI 가 없어(루트 404) 브라우저로 얻는 것도 없다",
+     "조회는 Grafana(ClickHouse `openmeter` DB) 또는 port-forward(ACCESS.md)"),
+    ("solr", "2026-11-03",
+     "Ranger 감사 색인이다. Solr 에는 자체 인증이 없고 `solr-authz.yaml`(AuthorizationPolicy)이 "
+     "메시 신원으로 지키는데, 게이트웨이 신원은 그 목록에 없다 — 경로를 되살려도 **503** 이다",
+     "**Knox** — `https://knox.%s/gateway/oim/solr/`(DS389 로그인 · data-admin 만 · Solr 의 Ranger `oim-solr` 가 **읽기만** 준다, §4)"),
+    ("ranger-solr", "2026-11-03",
+     "`solr` 와 같은 백엔드의 다른 이름(Ranger Admin 설정이 이 이름을 쓴다). 사유도 같다",
+     "위 `solr` 행과 같다 — Knox"),
+]
+
+
+def md_closed_table():
+    open_hosts = set(r[0] for r in CATALOG)
+    clash = [h for h, _d, _w, _i in CLOSED if h in open_hosts]
+    if clash:
+        raise SystemExit("CLOSED 와 CATALOG 에 함께 있다: %s" % ", ".join(clash))
+    rows = ["| 호스트 | 닫은 날 | 왜 닫았나 | 대신 |", "|---|---|---|---|"]
+    for host, day, why, instead in CLOSED:
+        inst = instead % DOMAIN if "%s" in instead else instead
+        rows.append("| ~~`%s.%s`~~ | %s | %s | %s |" % (host, DOMAIN, day, why, inst))
+    return "\n".join(rows)
+
+
 def md_tcp_table():
     rows = ["| 접속 주소 | 대상 | 접속 정보 |", "|---|---|---|"]
     for np, _lp, svc, bp, label, note in TCP_CATALOG:
@@ -465,6 +489,7 @@ REGIONS = [
     ("hosts", md_hosts),
     ("ui-table", md_ui_table),
     ("open-list", md_open_list),
+    ("closed-table", md_closed_table),
     ("tcp-table", md_tcp_table),
 ]
 

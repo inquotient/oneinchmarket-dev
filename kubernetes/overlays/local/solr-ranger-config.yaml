@@ -1,0 +1,53 @@
+# Solr Ranger 플러그인 설정 — patches/solr-local.yaml 의 짝이다(local 전용, 2026-11-04).
+# ★ 새 리소스라 patches 가 아니라 resources 에 둔다(Gotcha 145).
+# ★ Solr 는 `java -jar start.jar` 로 떠서 Kafka 처럼 CLASSPATH 로 XML 을 줄 수 없다. 대신
+#   이 ConfigMap 을 **impl 디렉터리 안의 conf/** 에 마운트한다 — RangerPluginClassLoader 는
+#   impl 디렉터리의 항목을 전부 URL 로 넣으므로 하위 디렉터리가 클래스패스 디렉터리가 되고,
+#   RangerConfiguration 이 그 클래스로더에서 XML 을 찾는다(ranger 2.9 소스 확인).
+#   못 찾으면 서비스 이름이 비어 정책을 받지 못하고 **전부 거부**한다.
+# ★ security.json 도 여기 둔다 — 인증(KnoxUserAuthPlugin)·인가(RangerSolrAuthorizer)를 켠다.
+#   예전 BasicAuth 의 security.json 은 base 의 schema initContainer 가 지우고, local 의
+#   solr-security initContainer 가 이것으로 다시 쓴다.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ranger-solr-config
+  labels:
+    app.kubernetes.io/name: solr
+    app.kubernetes.io/component: governance
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+data:
+  ranger-solr-security.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <configuration>
+      <!-- local/ranger-services/oim-solr.json 의 name 과 같아야 한다 -->
+      <property><name>ranger.plugin.solr.service.name</name><value>oim-solr</value></property>
+      <!-- agents-common 의 RangerAdminRESTClient 를 Jersey 2 로 백포트해 넣었다(docker/ranger-solr-plugin) -->
+      <property><name>ranger.plugin.solr.policy.source.impl</name><value>org.apache.ranger.admin.client.RangerAdminRESTClient</value></property>
+      <property><name>ranger.plugin.solr.policy.rest.url</name><value>http://ranger-admin:6080</value></property>
+      <property><name>ranger.plugin.solr.policy.pollIntervalMs</name><value>30000</value></property>
+      <property><name>ranger.plugin.solr.policy.cache.dir</name><value>/tmp/ranger/solr/policycache</value></property>
+      <property><name>ranger.plugin.solr.policy.rest.client.connection.timeoutMs</name><value>120000</value></property>
+      <property><name>ranger.plugin.solr.policy.rest.client.read.timeoutMs</name><value>30000</value></property>
+    </configuration>
+  # 감사는 끈다 — Solr 가 감사 저장소 자신이라, 감사 문서를 쓰는 요청이 다시 감사되는
+  #   순환이 된다(감사 목적지 모듈도 이미지에서 뺐다).
+  ranger-solr-audit.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <configuration>
+      <property><name>xasecure.audit.is.enabled</name><value>false</value></property>
+    </configuration>
+  # defaultUser 는 oim-solr.json 의 username 과 같아야 한다 — user.name 이 없는 요청
+  #   (감사 플러그인·Ranger Admin·정리 Job)이 그 사용자로 기본 정책의 전권을 받는다.
+  security.json: |
+    {
+      "authentication": {
+        "class": "org.oneinchmarket.solr.KnoxUserAuthPlugin",
+        "userParam": "user.name",
+        "defaultUser": "solr"
+      },
+      "authorization": {
+        "class": "org.apache.ranger.authorization.solr.authorizer.RangerSolrAuthorizer"
+      }
+    }

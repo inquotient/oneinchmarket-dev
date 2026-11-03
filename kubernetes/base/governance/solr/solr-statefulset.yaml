@@ -54,7 +54,10 @@ spec:
               set -euo pipefail
               MARK='oim-ranger-audit-schema-v1'
               # 인증은 메시·Knox 가 한다 — 예전 BasicAuth 의 security.json 을 남기지 않는다(위 머리말).
-              rm -f /var/solr/data/security.json
+              # ★ **BasicAuth 판일 때만** 지운다 — local 오버레이는 Ranger 인가용 security.json 을
+              #   다른 initContainer 로 쓰는데, 오버레이의 initContainer 는 목록 **앞에** 붙어 이것보다
+              #   먼저 돈다(렌더 실측). 무조건 지우면 그것을 지운다.
+              if grep -qs BasicAuthPlugin /var/solr/data/security.json; then rm -f /var/solr/data/security.json; fi
               CS=/var/solr/configsets/ranger_audits
               rm -rf "$CS"; mkdir -p "$CS"
               cp -r /opt/solr/server/solr/configsets/_default/conf "$CS/conf"
