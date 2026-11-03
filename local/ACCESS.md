@@ -200,7 +200,7 @@ kubectl -n local port-forward keycloak-0 8080:8080
 | **DefectDojo** | `$K port-forward svc/defectdojo 8085:8080` | http://localhost:8085 | `admin` | `pw defectdojo-secret admin-password` |
 | **Dependency-Track** | `$K port-forward svc/dependency-track 8086:8080` | http://localhost:8086 | `admin`/`admin` | 최초 로그인 시 변경 요구 |
 | **SafeLine** | `$K port-forward svc/safeline-mgt 1443:1443` | https://localhost:1443 | `admin` | `pw safeline-secret admin-password` — ★ **2026-09-12 에 생겼다.** 그 전에는 관리자 자격이 아무 데도 없었다: mgt 가 첫 기동에 만들어 **로그에 한 번만** 찍는데 그 로그는 이미 사라져 있었다. `mgt-cli reset-admin` 으로 회전시켜 Secret 에 넣었다. ★★ 이 값은 `create-secrets.sh` 가 만들지 못한다 — 난수가 아니라 **mgt 가 발급**하는 값이다(GitLab 배포 토큰과 같은 부류, Gotcha 118). 클러스터를 다시 세우면 `reset-admin` 을 다시 돌려 Secret 을 채울 것. ★ `--once` 플래그는 **한 번만** 듣는다 — 이미 쓴 뒤에는 플래그 없이 돌려야 한다(빈 출력이 나오면 그 이유다) |
-| Caldera | `$K port-forward deploy/caldera 8887:8888` | http://localhost:8887 | `red`/`blue` | `$K get secret caldera-secret -o json` 로 키 확인 |
+| Caldera | `$K port-forward deploy/caldera 8887:8888` | http://localhost:8887 | `red` / `blue` | `pw caldera-secret red-password` · `pw caldera-secret blue-password` (api-key-* 는 REST API 용) |
 
 > **★ Ranger 로그인을 반복 실패하지 말 것.** 계정이 영구히 잠기고 파드를
 > 재시작해도 안 풀린다(Gotcha 11). 비밀번호를 먼저 조회한 뒤 한 번에 넣을 것.
@@ -616,7 +616,7 @@ OpenSearch Dashboards(http://localhost:5601) 의 **Dev Tools** 가 가장 편하
 | UI | `akhq-headless` | 8080 | 8080 | Kafka UI · Keycloak 로그인(local) |
 | UI | `alertmanager` | 9093 | 9093 | 인증 없음 |
 | UI | `apicurio-ui` | 8080 | 8888 | ★ Registry(8081)도 함께 forward |
-| UI | `caldera` | 8888 | 8887 | red/blue — `caldera-secret` 키를 먼저 확인 |
+| UI | `caldera` | 8888 | 8887 | `red` / `pw caldera-secret red-password` · `blue` / `pw caldera-secret blue-password` (api-key-* 는 REST API 의 KEY 헤더용 — 로그인이 아니다) |
 | UI | `defectdojo` | 8080 | 8085 | admin / `pw defectdojo-secret admin-password` |
 | UI | `dependency-track` | 8080 | 8086 | admin/admin — 최초 로그인 시 변경 요구 |
 | UI | `frontend-openreplay` | 8080 | 8096 | OpenReplay frontend |

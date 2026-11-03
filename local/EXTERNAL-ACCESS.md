@@ -248,7 +248,7 @@ Import-Certificate -FilePath .\oim-ca.crt -CertStoreLocation Cert:\LocalMachine\
 | https://dtrack.oneinchmarket.local | 자체 인증 | `dependency-track:8080` | admin/admin — 최초 로그인에 변경을 요구한다 · SPA(§6) |
 | https://dtrack-api.oneinchmarket.local | 도구용 | `dependency-track-api:8080` | 위 UI 가 브라우저에서 부르는 API |
 | https://safeline.oneinchmarket.local | 자체 인증 | `safeline-mgt:1443` **(https)** | admin / `pw safeline-secret admin-password` · WAF 콘솔 |
-| https://caldera.oneinchmarket.local | 자체 인증 | `caldera:8888` | red/blue — 키는 `caldera-secret` 에 있다 |
+| https://caldera.oneinchmarket.local | 자체 인증 | `caldera:8888` | `red` / `pw caldera-secret red-password` · `blue` / `pw caldera-secret blue-password` (api-key-* 는 REST API 의 KEY 헤더용 — 로그인이 아니다) |
 | https://midpoint.oneinchmarket.local | 자체 인증 | `midpoint-headless:8080` | IGA. administrator / `pw midpoint-secret admin-password` |
 | https://openfga.oneinchmarket.local | 도구용 | `openfga-headless:8080` | ReBAC 인가 API. preshared key 가 필요하다(`openfga-secret`) |
 | https://opensearch.oneinchmarket.local | 자체 인증 | `opensearch-headless:9200` **(https)** | 검색 엔진 REST. admin / `pw opensearch-secret admin-password` |

@@ -151,7 +151,7 @@ CATALOG = [
     ("safeline", "safeline-mgt", 1443, "https", AUTH,
      "admin / `pw safeline-secret admin-password` · WAF 콘솔"),
     ("caldera", "caldera", 8888, "http", AUTH,
-     "red/blue — 키는 `caldera-secret` 에 있다"),
+     "`red` / `pw caldera-secret red-password` · `blue` / `pw caldera-secret blue-password` (api-key-* 는 REST API 의 KEY 헤더용 — 로그인이 아니다)"),
     ("midpoint", "midpoint-headless", 8080, "http", AUTH,
      "IGA. administrator / `pw midpoint-secret admin-password`"),
     ("openfga", "openfga-headless", 8080, "http", TOOL,

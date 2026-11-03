@@ -75,7 +75,7 @@ RULES = [
     (r"^safeline-chaos$", 8080, "INT", 0, ""),
     (r"^safeline-chaos$", 8088, "INT", 0, ""),
     (r"^safeline-chaos$", 9000, "INT", 0, ""),
-    (r"^caldera$", 8888, "UI", 8887, "red/blue — `caldera-secret` 키를 먼저 확인"),
+    (r"^caldera$", 8888, "UI", 8887, "`red` / `pw caldera-secret red-password` · `blue` / `pw caldera-secret blue-password` (api-key-* 는 REST API 의 KEY 헤더용 — 로그인이 아니다)"),
     (r"^gitlab", 80, "UI", 8090, "root / `pw gitlab-secret root-password`"),
     (r"^gitlab", 443, "UI", 8443, "https"),
     (r"^gitlab", 22, "DB", 2222, "git+ssh"),
