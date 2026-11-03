@@ -75,10 +75,9 @@ spec:
               #   LDAP bind 비밀번호만 치환한다(ConfigMap 에 둘 수 없다).
               T=/etc/ranger-admin/install.properties.tmpl
               D="${RANGER_SCRIPTS}/ranger-admin-install.properties"
-              sed -e "s|__LDAP_BIND_PASSWORD__|${LDAP_BIND_PASSWORD}|" \
-                  -e "s|__SOLR_AUDIT_PASSWORD__|${SOLR_AUDIT_PASSWORD}|" "$T" > "$D"
-              # 자리표시자가 남으면 setup 이 그 글자를 비밀번호로 저장해 감사 조회가 조용히 401 이다.
-              if grep -q "__SOLR_AUDIT_PASSWORD__\|__LDAP_BIND_PASSWORD__" "$D"; then
+              sed -e "s|__LDAP_BIND_PASSWORD__|${LDAP_BIND_PASSWORD}|" "$T" > "$D"
+              # 자리표시자가 남으면 setup 이 그 글자를 비밀번호로 저장해 LDAP 조회가 조용히 실패한다.
+              if grep -q "__LDAP_BIND_PASSWORD__" "$D"; then
                 echo "[ranger-admin] 자리표시자 치환 실패 — 기동하지 않는다." >&2; exit 1
               fi
               chmod 600 "$D"
@@ -217,9 +216,6 @@ spec:
               valueFrom: {secretKeyRef: {name: ds389-secret, key: sync-password}}
             - name: RANGER_KEYADMIN_PASSWORD
               valueFrom: {secretKeyRef: {name: ranger-secret, key: keyadmin-password}}
-            # Solr 감사 조회 사용자 ranger-audit 의 비밀번호(solr 의 security.json 과 같은 원천).
-            - name: SOLR_AUDIT_PASSWORD
-              valueFrom: {secretKeyRef: {name: solr-secret, key: audit-password}}
           volumeMounts:
             - {name: config, mountPath: /etc/ranger-admin}
           ports:

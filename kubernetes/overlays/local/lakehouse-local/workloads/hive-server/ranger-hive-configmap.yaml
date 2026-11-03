@@ -72,8 +72,8 @@ data:
         <name>xasecure.audit.destination.solr</name>
         <value>true</value>
       </property>
-      <!-- Solr 감사(2026-11-03). BasicAuth 자격은 JAVA_TOOL_OPTIONS 의 SolrJ 속성이 준다
-           (patches/ranger-solr-audit-local.yaml) — 이 감사 모듈에는 BasicAuth 설정이 없다. -->
+      <!-- Solr 감사(2026-11-03). 자격은 없다 — Solr 는 메시 신원(solr-authz.yaml)으로 지킨다
+           (이 감사 모듈에는 BasicAuth 설정이 없다 — Gotcha 206 ⑥). -->
       <property>
         <name>xasecure.audit.destination.solr.urls</name>
         <value>http://ranger-solr:8983/solr/ranger_audits</value>

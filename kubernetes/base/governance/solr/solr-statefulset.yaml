@@ -21,64 +21,16 @@ spec:
         runAsGroup: 8983
         fsGroup: 8983
         seccompProfile: {type: RuntimeDefault}
-      # ★★ 인증(2026-11-03) — 전에는 `No authentication configured` 로 LAN 에 두 이름
-      #   (solr · ranger-solr)으로 열려 있었다. 단독 모드 Solr 는 $SOLR_HOME/security.json 을
-      #   읽으므로, 기동마다 Secret 에서 그 파일을 **다시 만든다**(git·Secret 이 원천 —
-      #   보안 API 로 고친 것은 재시작에 사라진다).
-      #     solr-admin    역할 admin  — 전부(사람·운영)
-      #     ranger-audit  역할 audit  — ranger_audits 읽기·쓰기만(Ranger Admin 의 감사 조회)
-      #     익명           health 하나(프로브) — 나머지는 마지막 `all` 규칙이 admin 을 요구해 401
-      #   ★ read·update 에 `collection` 을 걸지 말 것 — 단독 모드에서는 요청이 코어(x:)로만
-      #     식별되고 컬렉션(c:)이 비어 있어 그 규칙이 **맞지 않고** 마지막 `all` 로 떨어진다
-      #     (실측: ranger-audit 의 select 가 403, 로그 `configured to have a permission {"role":"admin"}`).
-      #     코어가 ranger_audits 하나뿐이라 범위가 같다. 코어를 더하면 다시 볼 것.
-      #   ★ blockUnknown=false 인 이유가 그 health 다. 규칙 인가는 **어느 권한에도 안 걸리는 요청을
-      #     허용**하므로 `all` 을 반드시 마지막에 둔다.
-      #   해시는 Solr Sha256AuthenticationProvider 의 형식: base64(sha256(sha256(salt+pw))) + " " + base64(salt).
+      # ★★ 인증은 Solr 가 아니라 **메시와 Knox** 가 한다(2026-11-03).
+      #   처음에는 security.json 으로 BasicAuth(solr-admin · ranger-audit)를 켰는데, 사람의 입구를
+      #   Knox(DS389 로그인 + Ranger 정책 + 감사)로 두기로 하면서 걷어 냈다 — Knox 는 백엔드로 보낼 때
+      #   Authorization 헤더를 떼고 user.name 만 붙여서, Solr 가 BasicAuth 를 요구하면 Knox 경로가
+      #   전부 401 이다. 대신 solr-authz.yaml(AuthorizationPolicy)이 Solr 에 닿을 수 있는 **신원**을
+      #   knox · ranger-admin · 감사 플러그인 6종의 SA · 정리 Job 으로 좁힌다. 외부 직접 경로
+      #   (solr·ranger-solr 호스트)는 없앴다.
+      #   ★ 예전 기동이 PVC 에 남긴 security.json 은 schema initContainer 가 지운다 — 남아 있으면
+      #     인증이 계속 켜진 채라 Knox 경로가 401 이다.
       initContainers:
-        - name: security
-          image: docker.io/library/solr:10.0.0-slim
-          command: ["/bin/bash", "-c"]
-          args:
-            - |
-              set -euo pipefail
-              h() {  # h <password> -> "<hash> <salt>"
-                local salt; salt=$(mktemp); openssl rand 32 > "$salt"
-                local hash; hash=$({ cat "$salt"; printf %s "$1"; } | openssl dgst -sha256 -binary | openssl dgst -sha256 -binary | base64 -w0)
-                printf '%s %s' "$hash" "$(base64 -w0 < "$salt")"; rm -f "$salt"
-              }
-              [ -n "$SOLR_ADMIN_PASSWORD" ] && [ -n "$SOLR_AUDIT_PASSWORD" ] || { echo "[solr-security] 비밀번호가 비었다" >&2; exit 1; }
-              A=$(h "$SOLR_ADMIN_PASSWORD"); R=$(h "$SOLR_AUDIT_PASSWORD")
-              mkdir -p /var/solr/data
-              umask 077
-              cat > /var/solr/data/security.json <<JSON
-              {"authentication":{"class":"solr.BasicAuthPlugin","blockUnknown":false,"realm":"oim-solr","forwardCredentials":false,
-                "credentials":{"solr-admin":"$A","ranger-audit":"$R"}},
-               "authorization":{"class":"solr.RuleBasedAuthorizationPlugin",
-                "user-role":{"solr-admin":["admin"],"ranger-audit":["audit"]},
-                "permissions":[
-                  {"name":"health","role":null},
-                  {"name":"read","role":["admin","audit"]},
-                  {"name":"update","role":["admin","audit"]},
-                  {"name":"all","role":"admin"}]}}
-              JSON
-              # fail-closed: 두 사용자가 실제로 들어갔는지 본다(빈 해시 금지).
-              grep -q '"solr-admin":"[A-Za-z0-9+/=]\{20,\} ' /var/solr/data/security.json
-              grep -q '"ranger-audit":"[A-Za-z0-9+/=]\{20,\} ' /var/solr/data/security.json
-              echo "[solr-security] security.json 생성 (사용자 2)"
-          env:
-            - name: SOLR_ADMIN_PASSWORD
-              valueFrom: {secretKeyRef: {name: solr-secret, key: admin-password}}
-            - name: SOLR_AUDIT_PASSWORD
-              valueFrom: {secretKeyRef: {name: solr-secret, key: audit-password}}
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities: {drop: ["ALL"]}
-          resources:
-            requests: {cpu: 50m, memory: 32Mi}
-            limits:   {cpu: 200m, memory: 128Mi}
-          volumeMounts:
-            - {name: data, mountPath: /var/solr}
         # ★★ Ranger 감사 스키마(2026-11-03). 예전에는 `_default` 스키마리스로 코어를 만들었는데,
         #   플러그인 감사를 켜 보니 필드가 전부 **배열**(`"access":["CreateSchema"]`)이 되고
         #   `result` 가 **실수**(`[1.0]`)로 잡혔다 — Ranger Admin 의 감사 화면은 Ranger 스키마
@@ -101,6 +53,8 @@ spec:
             - |
               set -euo pipefail
               MARK='oim-ranger-audit-schema-v1'
+              # 인증은 메시·Knox 가 한다 — 예전 BasicAuth 의 security.json 을 남기지 않는다(위 머리말).
+              rm -f /var/solr/data/security.json
               CS=/var/solr/configsets/ranger_audits
               rm -rf "$CS"; mkdir -p "$CS"
               cp -r /opt/solr/server/solr/configsets/_default/conf "$CS/conf"

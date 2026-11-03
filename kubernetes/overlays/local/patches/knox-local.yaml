@@ -103,6 +103,16 @@ data:
             <role>WEBHBASE</role>
             <url>http://hbase-rest:8085</url>
         </service>
+
+        <!-- Solr(Ranger 감사 색인) — 사람의 유일한 입구다(2026-11-03). Solr 에는 자체 인증이 없고
+             메시 정책(solr-authz.yaml)이 knox SA 등만 들인다. 인가는 Ranger oim-knox 의 기본 정책이
+             data-admin 에게만 준다(analyst 는 403 — 감사 기록이라 관리자만 본다).
+             ★ Knox 는 백엔드로 보낼 때 Authorization 헤더를 떼므로 Solr 가 BasicAuth 를 요구하면
+             이 경로가 전부 401 이었다 — 그래서 Solr 의 BasicAuth 를 걷었다. -->
+        <service>
+            <role>SOLR</role>
+            <url>http://solr-headless:8983/solr</url>
+        </service>
     </topology>
 ---
 apiVersion: apps/v1

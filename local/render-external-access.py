@@ -121,19 +121,17 @@ CATALOG = [
      "토큰 `pw openbao-keys root-token`"),
     ("ranger", "ranger-admin", 6080, "http", AUTH,
      "admin / `pw ranger-secret admin-password` · ★★ 로그인 반복 실패 금지(Gotcha 11)"),
-    ("ranger-solr", "ranger-solr", 8983, "http", AUTH,
-     "Ranger 감사 색인(아래 solr 와 같은 파드). BasicAuth `solr-admin` / "
-     "`pw solr-secret admin-password`"),
-    ("solr", "solr-headless", 8983, "http", AUTH,
-     "거버넌스 Solr — Ranger 감사 색인 `ranger_audits` 하나. ★ BasicAuth(2026-11-03): "
-     "`solr-admin` / `pw solr-secret admin-password` · 감사 조회용 `ranger-audit` 은 "
-     "`ranger_audits` 읽기·쓰기만"),
+    # ★ solr·ranger-solr 호스트는 없앴다(2026-11-03) — Solr 의 사람 입구는 Knox 다:
+    #   https://knox.oneinchmarket.local/gateway/oim/solr/ (data-admin 만 — Ranger oim-knox).
+    #   Solr 에는 자체 인증이 없고 solr-authz.yaml 이 메시 신원으로 지킨다. 게이트웨이 신원은
+    #   그 목록에 없어 직접 경로를 되살려도 503 이다.
     ("lam", "lam-headless", 80, "http", AUTH,
      "`cn=Directory Manager` / `pw ds389-secret dm-password` · DS389 관리. "
      "★ `lam-secret master-password` 는 로그인이 아니라 **설정 편집기**(LAM configuration) 암호다 — "
      "로그인에 넣으면 `LDAP error, server says: Invalid credentials`"),
     ("knox", "knox-headless", 8443, "https", AUTH,
-     "DS389 LDAP basic. ★ **Hadoop 계층의 정식 진입점**(§4)"),
+     "DS389 LDAP basic. ★ **Hadoop 계층의 정식 진입점**(§4). 홈 `/gateway/homepage/home/`(KnoxSSO) · "
+     "Solr(Ranger 감사 색인) 는 `/gateway/oim/solr/` — data-admin 만"),
     ("wazuh", "wazuh-dashboard", 5601, "http", AUTH,
      "Wazuh 웹 UI(2026-11-03 신설 — 전에는 이 호스트가 매니저 API 로 가서 JSON 401 만 보였다). "
      "admin / `pw wazuh-secret indexer-admin-password`"),

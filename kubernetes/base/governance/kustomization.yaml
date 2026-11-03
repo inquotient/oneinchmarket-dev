@@ -23,6 +23,7 @@ resources:
   - solr/solr-headless.yaml
   - solr/solr-statefulset.yaml
   - solr/solr-audit-purge.yaml
+  - solr/solr-authz.yaml
   # Ranger admin — 정책 관리
   - ranger/ranger-admin-service.yaml
   - ranger/ranger-admin-configmap.yaml

@@ -128,47 +128,14 @@ metadata:
 spec:
   template:
     spec:
-      # ★ Ranger 감사 -> Solr(2026-11-03). Ranger 의 SolrAuditDestination 에는 BasicAuth 설정이
-      #   없어서(인증 수단은 Kerberos JAAS 뿐) SolrJ 의 전역 손잡이를 쓴다: JVM 시스템 속성
-      #   solr.httpclient.builder.factory=PreemptiveBasicAuthClientBuilderFactory 가 SolrJ 의
-      #   기본 빌더를 바꾸고, Ranger 가 부르는 Krb5HttpClientBuilder.getBuilder() 는 그 빌더를
-      #   받아 JAAS 가 있을 때만 Kerberos 를 덧붙인다(바이트코드 확인). 자격은 파일로 준다 —
-      #   -Dbasicauth=user:pw 는 /proc 의 cmdline 에 비밀번호를 남긴다.
-      #   jvm.config 는 base 의 리터럴 블록이라 일부만 덮을 수 없어 JAVA_TOOL_OPTIONS 로 준다.
-      initContainers:
-        - name: solr-audit-cred
-          image: docker.io/trinodb/trino:483
-          command: ["/bin/sh", "-c"]
-          args:
-            - |
-              set -eu
-              [ -n "$SOLR_AUDIT_PASSWORD" ] || { echo "[solr-audit-cred] 비밀번호가 비었다" >&2; exit 1; }
-              umask 077
-              printf 'httpBasicAuthUser=ranger-audit\nhttpBasicAuthPassword=%s\n' "$SOLR_AUDIT_PASSWORD" > /solr-audit/basicauth.properties
-              grep -q '^httpBasicAuthPassword=.' /solr-audit/basicauth.properties
-          env:
-            - name: SOLR_AUDIT_PASSWORD
-              valueFrom: { secretKeyRef: { name: solr-secret, key: audit-password } }
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities: { drop: ["ALL"] }
-          resources:
-            requests: { cpu: 10m, memory: 16Mi }
-            limits:   { cpu: 100m, memory: 64Mi }
-          volumeMounts:
-            - { name: solr-audit, mountPath: /solr-audit }
+      # Ranger 감사 -> Solr 에는 자격이 필요 없다(2026-11-03) — Solr 에 자체 인증이 없고
+      #   trino SA 가 solr-authz.yaml 의 허용 신원이다.
       containers:
         - name: trino
           env:
             - name: TRINO_SHARED_SECRET
               valueFrom: { secretKeyRef: { name: trino-secret, key: shared-secret } }
-            - name: JAVA_TOOL_OPTIONS
-              value: "-Dsolr.httpclient.builder.factory=org.apache.solr.client.solrj.impl.PreemptiveBasicAuthClientBuilderFactory -Dsolr.httpclient.config=/solr-audit/basicauth.properties"
-          volumeMounts:
-            - { name: solr-audit, mountPath: /solr-audit, readOnly: true }
       volumes:
-        - name: solr-audit
-          emptyDir: { medium: Memory, sizeLimit: 1Mi }
         # ★ items 는 병합되지 않고 **통째로 바뀐다**(병합 키가 없는 리스트) —
         #   base 의 여섯 개를 여기 다시 적는다. base 에 카탈로그를 더하면 여기도.
         - name: trino-config

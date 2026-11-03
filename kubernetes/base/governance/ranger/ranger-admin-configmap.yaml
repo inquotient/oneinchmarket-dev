@@ -45,10 +45,9 @@ data:
     audit_store=solr
     audit_solr_urls=http://ranger-solr:8983/solr/ranger_audits
     audit_solr_collection_name=ranger_audits
-    # Solr BasicAuth(2026-11-03) — 감사 조회용 사용자. 비밀번호는 기동 래퍼가 solr-secret 에서
-    # 치환하고, setup.sh 가 자격 저장소(jceks)의 ranger.solr.password 로 옮긴다.
-    audit_solr_user=ranger-audit
-    audit_solr_password=__SOLR_AUDIT_PASSWORD__
+    # Solr 에는 자체 인증이 없다(2026-11-03) — ranger-admin 의 SA 가 solr-authz.yaml 의 허용 신원이라
+    # 닿는다. 한때 audit_solr_user/password 를 넣었는데, setup.sh 가 자격 저장소가 없으면 그 비밀번호를
+    # ranger-admin-site.xml 에 **평문**으로 썼다(Gotcha 206 ⑤). 그 경로가 사라졌다.
     audit_elasticsearch_urls=
     audit_elasticsearch_port=9200
     audit_elasticsearch_protocol=http

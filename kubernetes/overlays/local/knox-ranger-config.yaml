@@ -29,7 +29,7 @@ data:
   ranger-knox-audit.xml: |
     <?xml version="1.0" encoding="UTF-8"?>
     <configuration>
-      <!-- Solr 감사(2026-11-03). 자격은 JAVA_TOOL_OPTIONS 의 SolrJ 속성(patches/ranger-solr-audit-local.yaml).
+      <!-- Solr 감사(2026-11-03). 자격은 없다 — Solr 는 메시 신원(solr-authz.yaml)으로 지킨다.
            ★ 처음에는 NoClassDefFoundError(Jetty 9 의 SPNEGOAuthentication — Knox 3.0 은 Jetty 12)로 죽어
            껐다가, docker/ranger-knox-plugin 이 impl 에 Jetty 9 client 를 넣은 2.9.0-knox3-jetty9 로 켰다. -->
       <property><name>xasecure.audit.is.enabled</name><value>true</value></property>

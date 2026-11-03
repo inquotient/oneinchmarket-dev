@@ -89,8 +89,6 @@ patches:
   - path: patches/trino-local.yaml
   # Knox — AclsAuthz 대신 Ranger 인가(XASecurePDPKnox). 플러그인은 docker/ranger-knox-plugin.
   - path: patches/knox-local.yaml
-  # Ranger 플러그인 감사 -> Solr 의 BasicAuth 자격(JAVA_TOOL_OPTIONS + 자격 파일). 감사 XML 은 각 ConfigMap.
-  - path: patches/ranger-solr-audit-local.yaml
   - path: patches/nginx-local.yaml
   # ★ 메모리 limits 정리 — 3단계 종료 시 limits 합이 98% 였다
   - path: patches/limits-local.yaml
