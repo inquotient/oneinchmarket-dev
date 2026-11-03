@@ -1008,7 +1008,14 @@ bash local/build-images.sh                   # 레지스트리로 push
                                              #   우회한 방법: `kubectl port-forward pod/gitlab-0 80:80 5050:5050` 을 띄우고
                                              #   push 하는 동안만 /etc/hosts 의 레지스트리 이름을 127.0.0.1 로 둔 뒤
                                              #   trap 으로 ClusterIP 로 되돌린다(kubelet 도 그 파일을 읽는다 — Gotcha 52 ①).
-                                             #   realm 이 FQDN 의 80 이라 5050 만 포워딩하면 로그인에서 막힌다.
+                                             #   ★ 왜 80 까지 포워딩하나 — push 는 두 포트를 쓴다(실측 헤더):
+                                             #     ① 5050 /v2/ -> 401 + `Www-Authenticate: Bearer
+                                             #        realm="http://gitlab-registry.local.svc.cluster.local/jwt/auth"`
+                                             #     ② 그 realm(포트 생략 = **80**, GitLab 본체)에서 토큰을 받는다
+                                             #     ③ 그 토큰으로 **5050** 에 레이어·매니페스트를 올린다
+                                             #   이미지가 오가는 곳은 5050 이지만 ②가 80 이라, 5050 만 포워딩하면
+                                             #   ①은 되고 ②에서 ClusterIP:80 에 못 가 로그인이 막힌다.
+                                             #   realm 은 gitlab-configmap.yaml 의 registry['token_realm'] 이 정한다(Gotcha 52 ②).
                                              #   상시 해법(CiliumNetworkPolicy fromEntities 등)은 정책 변경이라 열어 두었다.
                                              # ★ 프로젝트 하나를 더할 때 gitlab-registry-bootstrap.sh 를 돌리지 말고
                                              #   그 스크립트의 프로젝트 생성 Ruby 만 돌릴 것 — 통째로 돌리면 배포 토큰이 회전한다(Gotcha 118).
