@@ -912,6 +912,18 @@ spec:
   hostnames:
     - knox.oneinchmarket.local
   rules:
+    # 루트에 핸들러가 없는 앱 — 정확히 `/` 만 사람용 진입점으로 보낸다(ROOT_REDIRECT).
+    - matches:
+        - path:
+            type: Exact
+            value: /
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: /gateway/homepage/home/
+            statusCode: 302
     - matches:
         - path:
             type: PathPrefix

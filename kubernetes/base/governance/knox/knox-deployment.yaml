@@ -142,6 +142,11 @@ spec:
               mountPath: /home/knox/knox/conf/topologies/oim.xml
               subPath: oim.xml
               readOnly: true
+            # KnoxSSO — 이미지 기본값이 데모 LDAP 을 봐서 DS389 로 로그인할 수 없었다(2026-11-03).
+            - name: topology
+              mountPath: /home/knox/knox/conf/topologies/knoxsso.xml
+              subPath: knoxsso.xml
+              readOnly: true
             # 기동 시 생성되는 키스토어·트러스트스토어. 파드 수명과 같이 간다.
             # 매 기동마다 자체 서명 인증서가 새로 생긴다 — 앞단에 실 인증서를
             # 둘 때(Gateway/Ingress 도입 시) KNOX_CERT·KNOX_KEY 로 바꾼다.

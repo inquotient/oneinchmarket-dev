@@ -56,6 +56,7 @@ spec:
         #   ambient 메시 안에서는 HBONE(15008)으로 가서 이 포트 규칙을 타지 않지만(Gotcha 13),
         #   정책이 실제 사용처를 말하게 둔다(메시 밖 환경에서는 이것이 유일한 허용이다).
         - podSelector: {matchLabels: {app.kubernetes.io/name: trino}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: knox}}
         - podSelector: {matchLabels: {app.kubernetes.io/name: kafka}}
         - podSelector: {matchLabels: {app.kubernetes.io/name: hadoop-namenode}}
         - podSelector: {matchLabels: {app.kubernetes.io/name: hbase-master}}

@@ -136,3 +136,56 @@ data:
             <url>http://hbase-rest:8085</url>
         </service>
     </topology>
+  # ★★ KnoxSSO(2026-11-03) — 홈페이지(/gateway/homepage/home/)·관리 UI 가 로그인하는 토폴로지.
+  #   이미지 기본값은 **데모 LDAP**(ldap://localhost:33389 · dc=hadoop,dc=apache,dc=org)을 봐서
+  #   DS389 사용자가 로그인할 수 없었다(실측: analyst 로 websso 401). 위 sandbox 와 같은 사연이다.
+  #   oim.xml 과 같은 DS389 무바인드 방식(userDnTemplate)으로 바꾼다 — 비밀번호가 들어가지 않는다.
+  #   ★ knoxsso.redirect.whitelist.regex 를 명시한다 — 로그인 뒤 돌아갈 originalUrl 이 허용 목록에
+  #     없으면 Knox 가 400 으로 거부한다. 외부 호스트 체계(*.oneinchmarket.local)와 상대 경로만 허용한다.
+  #     ★ 경로 부분은 **선택**이어야 한다 — Knox 는 originalUrl 의 경로를 떼고 기준 URL
+  #     (`https://knox.oneinchmarket.local`)만 대조한다. 끝에 `/.*` 를 요구하면 맞지 않는다(실측 400 ·
+  #     로그 `is not valid according to the configured whitelist`).
+  #   ★ deployment 가 subPath 로 이 파일 하나만 덮는다(homepage·manager·admin 은 이미지 기본 그대로).
+  knoxsso.xml: |
+    <?xml version="1.0" encoding="utf-8"?>
+    <topology>
+        <gateway>
+            <provider>
+                <role>webappsec</role>
+                <name>WebAppSec</name>
+                <enabled>true</enabled>
+                <param><name>xframe.options.enabled</name><value>true</value></param>
+            </provider>
+            <provider>
+                <role>authentication</role>
+                <name>ShiroProvider</name>
+                <enabled>true</enabled>
+                <param><name>sessionTimeout</name><value>30</value></param>
+                <param><name>redirectToUrl</name><value>/${GATEWAY_PATH}/knoxsso/knoxauth/login.html</value></param>
+                <param><name>restrictedCookies</name><value>rememberme,WWW-Authenticate</value></param>
+                <param><name>main.ldapRealm</name><value>org.apache.knox.gateway.shirorealm.KnoxLdapRealm</value></param>
+                <param><name>main.ldapContextFactory</name><value>org.apache.knox.gateway.shirorealm.KnoxLdapContextFactory</value></param>
+                <param><name>main.ldapRealm.contextFactory</name><value>$ldapContextFactory</value></param>
+                <param><name>main.ldapRealm.userDnTemplate</name><value>uid={0},ou=people,dc=oneinchmarket,dc=co,dc=kr</value></param>
+                <param><name>main.ldapRealm.contextFactory.url</name><value>ldap://ds389-headless:3389</value></param>
+                <param><name>main.ldapRealm.authenticationCachingEnabled</name><value>false</value></param>
+                <param><name>main.ldapRealm.contextFactory.authenticationMechanism</name><value>simple</value></param>
+                <param><name>urls./**</name><value>authcBasic</value></param>
+            </provider>
+            <provider>
+                <role>identity-assertion</role>
+                <name>Default</name>
+                <enabled>true</enabled>
+            </provider>
+        </gateway>
+        <application>
+            <name>knoxauth</name>
+        </application>
+        <service>
+            <role>KNOXSSO</role>
+            <param><name>knoxsso.cookie.secure.only</name><value>true</value></param>
+            <param><name>knoxsso.token.ttl</name><value>86400000</value></param>
+            <param><name>knox.token.exp.server-managed</name><value>false</value></param>
+            <param><name>knoxsso.redirect.whitelist.regex</name><value>^(https://([a-z0-9-]+\.)*oneinchmarket\.local(:443)?)?(/.*)?$</value></param>
+        </service>
+    </topology>

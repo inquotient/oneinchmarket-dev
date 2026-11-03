@@ -268,12 +268,36 @@ HEADER = """# ★ 생성 파일이다 — 손으로 고치지 말 것.
 """
 
 
+# 루트(`/`)에 아무것도 없는 앱 — 정확히 `/` 로 온 요청만 사람용 진입점으로 보낸다(302).
+#   ★ knox: Knox 는 `/` 에 핸들러가 없어 **404** 다(2026-11-03 실측 — 앱이 죽은 것이 아니라
+#     원래 그렇다). 사람용 홈은 /gateway/homepage/home/ 이고 KnoxSSO 로그인으로 이어진다.
+#     문서가 호스트만 안내해서 처음 들어온 사람이 404 를 보고 "접속되지 않는다" 로 읽었다.
+#   Exact 매치라 /gateway/... 같은 다른 경로는 그대로 백엔드로 간다.
+ROOT_REDIRECT = {
+    "knox": "/gateway/homepage/home/",
+}
+
+
 def route_yaml(host, svc, port, scheme, tier, note):
     guard = ""
     if (svc, port) in AUTHZ_GUARDED:
         guard = ("  # ★ 이 백엔드는 AuthorizationPolicy 가 선택한다 — 게이트웨이\n"
                  "  #   신원 허용이 authz-external-access.yaml 에 함께 있어야\n"
                  "  #   한다. 없으면 이 호스트만 502·리셋이다.\n")
+    redirect = ""
+    if host in ROOT_REDIRECT:
+        redirect = ("    # 루트에 핸들러가 없는 앱 — 정확히 `/` 만 사람용 진입점으로 보낸다(ROOT_REDIRECT).\n"
+                    "    - matches:\n"
+                    "        - path:\n"
+                    "            type: Exact\n"
+                    "            value: /\n"
+                    "      filters:\n"
+                    "        - type: RequestRedirect\n"
+                    "          requestRedirect:\n"
+                    "            path:\n"
+                    "              type: ReplaceFullPath\n"
+                    "              replaceFullPath: %s\n"
+                    "            statusCode: 302\n") % ROOT_REDIRECT[host]
     tls = ""
     if scheme == "https":
         tls = ("  # ★ 백엔드가 HTTPS 다 — destinationrules.yaml 의 TLS\n"
@@ -301,7 +325,7 @@ metadata:
   hostnames:
     - {host}.{domain}
   rules:
-    - matches:
+{redirect}    - matches:
         - path:
             type: PathPrefix
             value: /
@@ -312,7 +336,7 @@ metadata:
           port: {port}
           weight: 1
 """.format(host=host, svc=svc, port=port, tier=tier, domain=DOMAIN,
-           guard=guard, tls=tls)
+           guard=guard, tls=tls, redirect=redirect)
 
 
 def gen_routes():

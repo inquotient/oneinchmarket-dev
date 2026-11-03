@@ -107,6 +107,21 @@ RUN set -eux; \
     cp ranger-knox-plugin-shim/target/ranger-knox-plugin-shim-2.9.0.jar /plugin/; \
     rm -f /plugin/ranger-knox-plugin-impl/jersey-client-1.*.jar; \
     ! ls /plugin/ranger-knox-plugin-impl | grep -q '^jersey-client-1'
+# ★★ Solr 감사용 Jetty 9 client (2026-11-03). Ranger 의 SolrAuditDestination 이 SolrJ 8.11 의
+#   Krb5HttpClientBuilder 를 만들 때 org.eclipse.jetty.client.util.SPNEGOAuthentication(Jetty 9)을
+#   찾는다. Knox 3.0 은 Jetty 12 라 그 클래스가 없고(패키지가 옮겨졌다) 감사 전송이
+#   NoClassDefFoundError 로 죽었다. 다른 플러그인(HDFS·HBase·Hive)은 Hadoop 이 Jetty 9 를 들고
+#   있어 드러나지 않았다.
+#   impl 디렉터리에만 넣는다 — RangerPluginClassLoader 가 impl 의 jar 를 먼저 보므로 Knox 자신의
+#   Jetty 12 와 섞이지 않는다. client 하나만 넣으면 http·io·util 이 부모(Jetty 12)에서 와서 어긋나므로
+#   네 개를 같은 버전으로 넣는다.
+ARG JETTY9=9.4.53.v20231009
+RUN set -eux; \
+    for a in jetty-client jetty-http jetty-io jetty-util; do \
+      curl -sSL --fail -o "/plugin/ranger-knox-plugin-impl/${a}-${JETTY9}.jar" \
+        "https://repo1.maven.org/maven2/org/eclipse/jetty/${a}/${JETTY9}/${a}-${JETTY9}.jar"; \
+    done; \
+    jar tf "/plugin/ranger-knox-plugin-impl/jetty-client-${JETTY9}.jar" | grep -q '^org/eclipse/jetty/client/util/SPNEGOAuthentication.class$'
 
 FROM docker.io/library/busybox:1.36
 LABEL org.opencontainers.image.title="ranger-knox-plugin (Knox 3 / Jersey 2)" \

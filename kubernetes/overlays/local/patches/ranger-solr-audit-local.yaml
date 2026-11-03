@@ -11,7 +11,7 @@
 #   ★ JAVA_TOOL_OPTIONS 로 주는 이유: 서비스마다 JVM 옵션 손잡이가 다르고(HDFS_NAMENODE_OPTS ·
 #     HBASE_*_OPTS · SERVICE_OPTS · 없음) 일부는 base 의 리터럴 블록이다. 모든 JVM 이 이 변수를
 #     읽는다(컨테이너 안의 CLI JVM 도 — 무해하다, 그 속성은 SolrJ 를 쓸 때만 뜻이 있다).
-#   ★ Knox 는 뺐다 — Jetty 9/12 클래스 충돌로 감사 전송이 죽는다(knox-ranger-config.yaml 주석).
+#   ★ Knox 는 Jetty 9/12 클래스 충돌이 있어 플러그인 이미지(2.9.0-knox3-jetty9)가 impl 에 Jetty 9 client 를 넣는다.
 #   ★ 감사 XML(xasecure.audit.destination.solr*)은 각 플러그인 ConfigMap 에 있다. Trino 는
 #     patches/trino-local.yaml 에 같은 모양이 따로 있다(그 파일이 trino StatefulSet 을 이미 덮는다).
 #
@@ -208,6 +208,46 @@ spec:
             - {name: solr-audit, mountPath: /solr-audit}
       containers:
         - name: kafka
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: "-Dsolr.httpclient.builder.factory=org.apache.solr.client.solrj.impl.PreemptiveBasicAuthClientBuilderFactory -Dsolr.httpclient.config=/solr-audit/basicauth.properties"
+          volumeMounts:
+            - {name: solr-audit, mountPath: /solr-audit, readOnly: true}
+      volumes:
+        - name: solr-audit
+          emptyDir: {medium: Memory, sizeLimit: 1Mi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: knox
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: solr-audit-cred
+          image: docker.io/curlimages/curl:8.22.0
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              [ -n "$SOLR_AUDIT_PASSWORD" ] || { echo "[solr-audit-cred] 비밀번호가 비었다" >&2; exit 1; }
+              umask 077
+              printf 'httpBasicAuthUser=ranger-audit\nhttpBasicAuthPassword=%s\n' "$SOLR_AUDIT_PASSWORD" > /solr-audit/basicauth.properties
+              grep -q '^httpBasicAuthPassword=.' /solr-audit/basicauth.properties
+          env:
+            - name: SOLR_AUDIT_PASSWORD
+              valueFrom: {secretKeyRef: {name: solr-secret, key: audit-password}}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits:   {cpu: 100m, memory: 64Mi}
+          volumeMounts:
+            - {name: solr-audit, mountPath: /solr-audit}
+      containers:
+        - name: knox
           env:
             - name: JAVA_TOOL_OPTIONS
               value: "-Dsolr.httpclient.builder.factory=org.apache.solr.client.solrj.impl.PreemptiveBasicAuthClientBuilderFactory -Dsolr.httpclient.config=/solr-audit/basicauth.properties"
