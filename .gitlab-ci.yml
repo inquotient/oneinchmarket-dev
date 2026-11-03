@@ -312,73 +312,14 @@ deploy-dev:
 
 
 # ──────────────────────────────────────────
-# Stage: deploy - API 계약을 Apicurio 에 게시 (ADR-067)
+# API 계약 게시는 CI 가 아니라 클러스터의 PostSync 훅이 한다 (2026-11-03)
 # ──────────────────────────────────────────
-# 계약 우선이므로 **레지스트리는 contracts/ 를 따라간다.**
-# 게시 시점에 레지스트리 전역 규칙(VALIDITY=FULL·COMPATIBILITY=BACKWARD)이
-# 한 번 더 막는다 — CI 의 Spectral 과 이중 게이트다.
-#
-# 스키마는 ccompat(v7)로, OpenAPI/AsyncAPI 는 Registry v3 API 로 올린다.
-# subject·artifactId 규칙은 contracts/README.md 를 볼 것.
-publish-contracts:
-  stage: deploy
-  image: curlimages/curl:8.11.1
-  # ★★ 네임스페이스를 브랜치에서 뽑는다 — 이전에는 `dev` 로 박혀 있었고
-  #   잡도 `v2` 브랜치에서만 돌았다. 그러면 **실제 클러스터가 있는
-  #   `local` 에서는 영영 돌지 않는다** — 계약을 써 두고도 등록되지
-  #   않아 cmmn-api 의 POST 가 500 으로 남는다(§8-99).
-  variables:
-    CONTRACTS_NS: dev
-    REGISTRY_V3: "http://apicurio-registry-headless.${CONTRACTS_NS}.svc.cluster.local:8080/apis/registry/v3"
-    REGISTRY_CCOMPAT: "http://apicurio-registry-headless.${CONTRACTS_NS}.svc.cluster.local:8080/apis/ccompat/v7"
-  script:
-    - |
-      set -eu
-      published=0
-
-      # ── 1. Avro/JSON 스키마 -> ccompat. 파일명이 곧 subject 다.
-      for f in $(find contracts/schemas -type f \( -name '*.avsc' -o -name '*.json' \) 2>/dev/null | sort); do
-        subject=$(basename "$f"); subject="${subject%.*}"
-        echo "[publish] subject=$subject  <- $f"
-        payload=$(awk 'BEGIN{ORS=""} {gsub(/"/,"\\\""); gsub(/\t/,"  "); print $0"\n"}' "$f")
-        code=$(curl -s -o /tmp/out -w '%{http_code}' -X POST \
-          "$REGISTRY_CCOMPAT/subjects/$subject/versions" \
-          -H 'Content-Type: application/vnd.schemaregistry.v1+json' \
-          -d "{\"schema\":\"$payload\"}")
-        echo "  http=$code"; [ "$code" -lt 300 ] || { cat /tmp/out; exit 1; }
-        published=$((published+1))
-      done
-
-      # ── 2. OpenAPI/AsyncAPI -> Registry v3. 파일명이 곧 artifactId 다.
-      for f in $(find contracts/openapi contracts/asyncapi -type f \( -name '*.yaml' -o -name '*.yml' \) 2>/dev/null | sort); do
-        aid=$(basename "$f"); aid="${aid%.*}"
-        case "$f" in *openapi*) atype=OPENAPI ;; *) atype=ASYNCAPI ;; esac
-        echo "[publish] artifactId=$aid type=$atype  <- $f"
-        code=$(curl -s -o /tmp/out -w '%{http_code}' -X POST \
-          "$REGISTRY_V3/groups/default/artifacts?ifExists=CREATE_VERSION" \
-          -H 'Content-Type: application/create.extended+json' \
-          -H "X-Registry-ArtifactId: $aid" \
-          -H "X-Registry-ArtifactType: $atype" \
-          --data-binary "@$f")
-        echo "  http=$code"; [ "$code" -lt 300 ] || { cat /tmp/out; exit 1; }
-        published=$((published+1))
-      done
-
-      if [ "$published" -eq 0 ]; then
-        echo "[publish] contracts/ 가 비어 있다 — 게시할 것이 없다."
-        echo "[publish] 계약이 들어오면 이 잡이 레지스트리에 반영한다."
-      else
-        echo "[publish] $published 건 게시 완료"
-      fi
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "v2"'
-      changes:
-        - contracts/**/*
-    - if: '$CI_COMMIT_BRANCH == "local"'
-      changes:
-        - contracts/**/*
-      variables:
-        CONTRACTS_NS: local
+# 예전 publish-contracts 잡은 지웠다. 클러스터 안 GitLab 에 레포가 없어 베어메탈
+# 재구축(2026-10-04) 뒤로 한 번도 돌 수 없었고(레지스트리 아티팩트 0개), ArgoCD 는
+# GitHub 를 읽는다. 지금은 kubernetes/base/bootstrap/apicurio-contracts.yaml 이
+# 동기화마다 contracts/ 를 멱등으로 게시한다. 요청 본문은 local/render-contracts.py 가
+# 만들고 `--check` 가 뒤처짐을 1 로 알린다. 게시 잡을 여기 되살리지 말 것 — 게시자가
+# 둘이 되면 v3 쪽이 버전을 중복으로 만든다(옛 잡은 ifExists=CREATE_VERSION 이었다).
 
 deploy-prod:
   stage: deploy

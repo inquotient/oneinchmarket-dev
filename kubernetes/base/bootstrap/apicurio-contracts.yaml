@@ -1,0 +1,150 @@
+# contracts/ 를 Apicurio Registry 에 게시한다 (2026-11-03).
+#
+# ★★ 왜 여기 있나 — 게시가 GitLab CI 잡(publish-contracts)에만 있었는데, 베어메탈
+#   재구축(2026-10-04) 뒤로 클러스터 안 GitLab 에 레포가 없어 그 잡이 **한 번도
+#   돌 수 없었다**. ArgoCD 는 GitHub 를 읽고 git push 도 GitHub 로만 간다(GitHub
+#   Actions 없음). 실측: 레지스트리의 아티팩트 0개 · ccompat subject 0개. 그러면
+#   cmmn-api 는 `auto.register.schemas=false` 라 게시 POST 가 `Subject ... not found`
+#   로 500 이다(Gotcha 94). ArgoCD 가 이미 읽는 git 을 원천으로 삼으면 CI 없이도
+#   끊기지 않는다.
+#
+# ★ 원천은 contracts/ 이고 이 Job 이 읽는 ConfigMap 은 **생성물**이다
+#   (apicurio-contracts-configmap.yaml ← local/render-contracts.py, `--check` 게이트).
+#   계약을 바꾸면 생성기를 돌려 함께 커밋할 것 — ConfigMap 이 바뀌면 동기화가 돌고
+#   이 훅도 다시 돈다. 문서만 고친 커밋은 동기화를 부르지 않는다(Gotcha 64 ①).
+#
+# ★★ Sync 가 아니라 **PostSync** 다. 계약 하나가 레지스트리 규칙(VALIDITY FULL ·
+#   COMPATIBILITY BACKWARD)에 걸려 실패해도 **그 wave 에서 플랫폼 전체 동기화가 서지
+#   않게** 하려는 것이다(Sync 훅의 실패는 뒤 wave 를 전부 세운다 — Gotcha 58·169).
+#   PostSync 는 모든 리소스가 적용·Healthy 된 뒤에 돌고, 실패하면 동기화가 Failed 로
+#   **보인다** — 조용히 넘어가지 않는다. 동기화 안에서 이 계약에 의존하는 것은 없다
+#   (cmmn-api 는 런타임에 읽는다).
+#
+# ★ 멱등이다. ccompat 은 같은 스키마를 다시 POST 하면 기존 id 를 돌려주고, v3 는
+#   `ifExists=FIND_OR_CREATE_VERSION` 이라 내용이 같으면 새 버전을 만들지 않는다.
+#   매 동기화마다 돌아도 버전이 늘지 않는다.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: apicurio-contracts
+  labels:
+    app.kubernetes.io/name: apicurio-contracts
+    app.kubernetes.io/component: bootstrap
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+automountServiceAccountToken: false
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: apicurio-contracts
+  labels:
+    app.kubernetes.io/name: apicurio-contracts
+    app.kubernetes.io/component: bootstrap
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels:
+        # component=bootstrap 이 allow-bootstrap-to-apicurio(8080)의 셀렉터다.
+        app.kubernetes.io/name: apicurio-contracts
+        app.kubernetes.io/component: bootstrap
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      # 전용 SA — ambient 에서 SA 는 곧 신원이다(Gotcha 10·19).
+      serviceAccountName: apicurio-contracts
+      restartPolicy: OnFailure
+      priorityClassName: batch-low
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: publish
+          # curl 때문에 레지스트리 이미지를 쓴다(apicurio-rules 와 같다). python·jq 는
+          # 없으므로 요청 본문은 생성기가 미리 만들어 둔다.
+          image: docker.io/apicurio/apicurio-registry:3.3.2
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -uo pipefail
+              BASE="http://apicurio-registry-headless:8080/apis"
+              C="curl --connect-timeout 5 --max-time 30 -s"
+
+              echo "[contracts] 레지스트리 대기"
+              # 상한을 둔다 — 무한 대기는 보이지 않는다(Gotcha 19·120).
+              n=0
+              until $C -f "$BASE/registry/v3/system/info" >/dev/null 2>&1; do
+                n=$((n+1))
+                if [ "$n" -ge 100 ]; then echo "[contracts] 300초 동안 응답이 없다" >&2; exit 1; fi
+                sleep 3
+              done
+
+              ok=0; fail=0; seen=0
+              for f in /contracts/*.json; do
+                [ -e "$f" ] || continue
+                seen=$((seen+1))
+                key=$(basename "$f" .json)
+                case "$key" in
+                  ccompat--*)
+                    name="${key#ccompat--}"
+                    url="$BASE/ccompat/v7/subjects/$name/versions"
+                    ctype="application/vnd.schemaregistry.v1+json" ;;
+                  v3--*)
+                    name="${key#v3--}"
+                    url="$BASE/registry/v3/groups/default/artifacts?ifExists=FIND_OR_CREATE_VERSION"
+                    ctype="application/json" ;;
+                  *) echo "  ? 알 수 없는 키 $key"; fail=$((fail+1)); continue ;;
+                esac
+                code=$($C -o /tmp/out -w '%{http_code}' -X POST "$url" -H "Content-Type: $ctype" --data-binary "@$f")
+                if [ "$code" -ge 200 ] && [ "$code" -lt 300 ]; then
+                  echo "  ok   $key  http=$code"; ok=$((ok+1))
+                else
+                  # 응답에 비밀은 없다(레지스트리의 검증 메시지다) — 사유를 남긴다.
+                  echo "  FAIL $key  http=$code  $(head -c 400 /tmp/out)"; fail=$((fail+1))
+                fi
+              done
+
+              # 빈 마운트를 성공으로 접지 않는다(Gotcha 117·148).
+              if [ "$seen" -eq 0 ]; then echo "[contracts] 마운트에 계약이 없다 — ConfigMap 을 볼 것" >&2; exit 1; fi
+
+              # 되읽어 확인 — POST 의 2xx 가 아니라 레지스트리가 실제로 들고 있는지로 판정한다.
+              miss=0
+              for f in /contracts/*.json; do
+                key=$(basename "$f" .json)
+                case "$key" in
+                  ccompat--*) u="$BASE/ccompat/v7/subjects/${key#ccompat--}/versions/latest" ;;
+                  v3--*)      u="$BASE/registry/v3/groups/default/artifacts/${key#v3--}" ;;
+                  *) continue ;;
+                esac
+                c=$($C -o /dev/null -w '%{http_code}' "$u")
+                [ "$c" = "200" ] || { echo "  MISSING $key (GET http=$c)"; miss=$((miss+1)); }
+              done
+
+              echo "[contracts] 게시 ok=$ok fail=$fail · 되읽기 누락=$miss (계약 $seen건)"
+              [ "$fail" -eq 0 ] && [ "$miss" -eq 0 ] || exit 1
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits:   { cpu: 300m, memory: 256Mi }
+          volumeMounts:
+            - name: contracts
+              mountPath: /contracts
+              readOnly: true
+      volumes:
+        - name: contracts
+          configMap:
+            name: apicurio-contracts

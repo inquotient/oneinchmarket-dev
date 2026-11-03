@@ -20,6 +20,9 @@ resources:
   - keycloak-realm.yaml
   - ds389-bootstrap.yaml
   - apicurio-rules.yaml
+  # contracts/ 게시 — PostSync 훅. ConfigMap 은 local/render-contracts.py 의 생성물이다.
+  - apicurio-contracts-configmap.yaml
+  - apicurio-contracts.yaml
   - glitchtip-migrate.yaml
   # ★ Connect 워커(wave 3) 뒤에 돌아야 해 자체 wave 는 4 다.
   - kafka-connect-connectors.yaml

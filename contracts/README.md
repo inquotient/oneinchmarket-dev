@@ -40,8 +40,9 @@ dev.api.cmmn.menu-refresh            (추정 — menu POST 는 201 로 성공해
 
 ★★ 지금 `POST /api/multiLanguage` 는 **DB 에는 쓰고 500 을 낸다** —
 위 subject 가 레지스트리에 없기 때문이다. `AUTO_REGISTER_SCHEMAS=false`
-이므로 앱은 스스로 등록하지 않는다. **`publish-contracts` 잡이 돌면
-해소된다** — 그것이 이 디렉터리가 존재하는 이유다.
+이므로 앱은 스스로 등록하지 않는다. **게시 훅이 돌면 해소된다** — 그것이
+이 디렉터리가 존재하는 이유다. (2026-11-03 실측: 게시 뒤 subject 가 등록됐다.
+아래 **게시** 절)
 
 ## 명명 — ccompat subject 와 맞춘다
 
@@ -104,7 +105,31 @@ CI 는 `validate` 단계에서 Spectral 로 스타일을 본다(`.spectral.yaml`
 ## 흐름
 
 ```
-contracts/ 수정 ─▶ CI validate: Spectral 린트
-                 ─▶ CI deploy:   Apicurio 게시 (규칙이 여기서 한 번 더 막는다)
+contracts/ 수정 ─▶ python3 local/render-contracts.py   (요청 본문 ConfigMap 을 다시 만든다 — 함께 커밋)
+                 ─▶ CI validate: Spectral 린트
+                 ─▶ ArgoCD 동기화 ─▶ PostSync 훅 apicurio-contracts 가 게시
+                                      (레지스트리 규칙이 여기서 한 번 더 막는다)
                  ─▶ 앱은 레지스트리에서 읽어 쓴다 (auto-register 꺼짐)
 ```
+
+## 게시 — 클러스터 안 PostSync 훅 (2026-11-03)
+
+예전에는 GitLab CI 의 `publish-contracts` 잡이 게시했는데, 베어메탈 재구축(2026-10-04)
+뒤로 클러스터 안 GitLab 에 레포가 없어 **한 번도 돌 수 없었다** — 레지스트리의 아티팩트가
+0개였다. ArgoCD 가 읽는 git(GitHub) 하나가 원천이 되도록 게시를 클러스터로 옮겼다.
+
+```
+contracts/*                     원천
+local/render-contracts.py       요청 본문(JSON)을 미리 만든다 — 이미지에 python·jq 가 없다
+  -> kubernetes/base/bootstrap/apicurio-contracts-configmap.yaml   (생성물, `--check` 게이트)
+kubernetes/base/bootstrap/apicurio-contracts.yaml                  (PostSync Job)
+```
+
+- **계약을 고치면 생성기를 돌려 함께 커밋할 것.** 생성물을 안 고치면 레지스트리는 옛 내용
+  그대로다. `local/render-contracts.py --check` 가 뒤처짐을 1 로 알린다.
+- **멱등이다** — ccompat 은 같은 스키마에 기존 id 를 돌려주고, v3 는
+  `ifExists=FIND_OR_CREATE_VERSION` 이다. 실측: 두 번 돌려도 네 계약 모두 버전 1.
+- **PostSync 라 실패해도 플랫폼 동기화의 wave 를 세우지 않는다.** 규칙에 걸린 계약은
+  동기화를 Failed 로 보이게 하고 Job 로그에 레지스트리의 사유를 남긴다.
+- JSON 스키마(`*.json`)는 ccompat 에 `schemaType: JSON` 으로, Avro(`*.avsc`)는
+  `AVRO` 로 올린다 — 예전 CI 잡은 타입을 보내지 않아 JSON 스키마도 Avro 로 해석됐을 것이다.
