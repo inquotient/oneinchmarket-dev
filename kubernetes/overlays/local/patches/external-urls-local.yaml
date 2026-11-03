@@ -179,6 +179,9 @@ spec:
             # AKHQ 의 콜백 — patches/akhq-local.yaml 이 외부 진입점 기준으로 바꾼 짝이다.
             - name: AKHQ_BASE_URL
               value: "https://akhq.oneinchmarket.local"
+            # Apicurio UI 의 콜백·webOrigin — patches/apicurio-local.yaml 의 짝이다.
+            - name: APICURIO_UI_URL
+              value: "https://apicurio.oneinchmarket.local"
 ---
 # Dependency-Track 프런트 — ★ 이 값은 엔트리포인트가
 #   `/static/config.json` 을 **제자리에서 고쳐** 넣는다. 그래서

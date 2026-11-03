@@ -46,6 +46,8 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   annotations:
     argocd.argoproj.io/hook: PostSync
+    # 같은 PostSync 안에서 apicurio-rules(wave 0) 뒤에 — 규칙이 먼저 서야 게이트가 된다.
+    argocd.argoproj.io/sync-wave: "1"
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
   backoffLimit: 3
@@ -74,12 +76,28 @@ spec:
           # curl 때문에 레지스트리 이미지를 쓴다(apicurio-rules 와 같다). python·jq 는
           # 없으므로 요청 본문은 생성기가 미리 만들어 둔다.
           image: docker.io/apicurio/apicurio-registry:3.3.2
+          env:
+            # 비우면 인증 없이 쓴다. overlays/local/patches/apicurio-local.yaml 이 채운다.
+            - name: APICURIO_CLIENT_ID
+              value: ""
+            - name: APICURIO_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: {name: apicurio-secret, key: contracts-client-secret, optional: true}
           command: ["/bin/bash", "-c"]
           args:
             - |
               set -uo pipefail
               BASE="http://apicurio-registry-headless:8080/apis"
-              C="curl --connect-timeout 5 --max-time 30 -s"
+              # ★ 인증(2026-11-03) — APICURIO_CLIENT_ID 가 있으면 client_id:secret 을 basic 으로
+              #   보낸다(Apicurio 의 basic-client-credentials 가 Keycloak 토큰으로 바꾼다). 비어 있으면
+              #   인증 없는 레지스트리(dev·prod base)다. 시크릿을 argv 에 싣지 않으려고 netrc 로 준다.
+              AUTHOPT=""
+              if [ -n "${APICURIO_CLIENT_ID:-}" ]; then
+                [ -n "${APICURIO_CLIENT_SECRET:-}" ] || { echo "[auth] APICURIO_CLIENT_SECRET 이 비었다" >&2; exit 1; }
+                ( umask 077; printf 'machine apicurio-registry-headless login %s password %s\n' "$APICURIO_CLIENT_ID" "$APICURIO_CLIENT_SECRET" > /tmp/netrc )
+                AUTHOPT="--netrc-file /tmp/netrc"
+              fi
+              C="curl $AUTHOPT --connect-timeout 5 --max-time 30 -s"
 
               echo "[contracts] 레지스트리 대기"
               # 상한을 둔다 — 무한 대기는 보이지 않는다(Gotcha 19·120).

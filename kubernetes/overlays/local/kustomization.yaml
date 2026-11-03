@@ -83,6 +83,8 @@ patches:
   - path: patches/kafka-local.yaml
   # AKHQ — Keycloak OIDC 로그인 + Kroxylicious 연결. 기본값은 "닿는 누구나 admin" 이었다.
   - path: patches/akhq-local.yaml
+  # Apicurio — Keycloak OIDC + 역할 인가, 익명 읽기만 허용. 전에는 관리 API 까지 무인증이었다.
+  - path: patches/apicurio-local.yaml
   # Trino — LDAP 로그인 + Ranger 인가. 전에는 사용자 이름을 헤더로 자칭했고 allow-all 이었다.
   - path: patches/trino-local.yaml
   # Knox — AclsAuthz 대신 Ranger 인가(XASecurePDPKnox). 플러그인은 docker/ranger-knox-plugin.

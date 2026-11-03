@@ -44,17 +44,28 @@ spec:
               name: management
               protocol: TCP
           env:
-            - name: QUARKUS_DATASOURCE_URL
+            # ★★★ 저장소 키는 Apicurio **3.x** 의 이름이어야 한다(2026-11-03 정정).
+            #   예전 값 `QUARKUS_DATASOURCE_URL`·`REGISTRY_STORAGE_KIND` 는 2.x 의 키라 3.x 에서
+            #   **조용히 무시**되고, jar 기본값 `apicurio.storage.sql.kind=h2` ·
+            #   `apicurio.datasource.url=jdbc:h2:mem:...` 이 쓰였다. 즉 레지스트리가 처음부터
+            #   **메모리 H2** 였고 재시작마다 아티팩트·규칙이 전부 사라졌다 — 실측: 기동 로그
+            #   `Using h2 SQL storage.` · PostgreSQL apicurio DB 의 테이블 **0개**. 오류는 한 줄도
+            #   없다(`quarkus.datasource.url ... build time fixed to 'null'` 경고만 남는다).
+            #   ★ 판정: 기동 로그에 `Using postgresql SQL storage` 가 나오는지, 그리고 재시작 뒤
+            #   아티팩트가 남는지. 키 이름은 jar 의 application.properties 에서 읽었다.
+            - name: APICURIO_STORAGE_KIND
+              value: "sql"
+            - name: APICURIO_STORAGE_SQL_KIND
+              value: "postgresql"
+            - name: APICURIO_DATASOURCE_URL
               value: "jdbc:postgresql://postgresql-headless:5432/apicurio"
-            - name: QUARKUS_DATASOURCE_USERNAME
+            - name: APICURIO_DATASOURCE_USERNAME
               value: "apicurio"
-            - name: QUARKUS_DATASOURCE_PASSWORD
+            - name: APICURIO_DATASOURCE_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: apicurio-secret
                   key: db-password
-            - name: REGISTRY_STORAGE_KIND
-              value: "sql"
             # ★ Apicurio Studio 후계 기능 스위치.
             #   Studio 는 upstream 에서 완전 폐기되었고 그 기능이 Registry
             #   3.1.0 에 opt-in 으로 흡수되었다. 이 값을 켜야 UI 에 Drafts

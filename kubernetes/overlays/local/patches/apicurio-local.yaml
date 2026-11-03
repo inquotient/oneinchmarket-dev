@@ -1,0 +1,157 @@
+# Apicurio Registry — Keycloak OIDC 인증 + 역할 인가, 익명 읽기 허용 (local 전용, 2026-11-03)
+#
+# ★★★ 왜: 레지스트리가 인증 없이 열려 있었다 — 실측 `/system/uiConfig` 가
+#   `"auth":{"type":"none","rbacEnabled":false}` · `readOnly:false` 였고 관리 API
+#   (`/admin/rules`)도 자격 없이 200 이었다. 게이트웨이(apicurio-registry.oneinchmarket.local)
+#   로 LAN 에 열려 있으니 누구나 스키마를 올리고 **전역 호환성 규칙을 바꿀 수 있었다** —
+#   Kafka 직렬화 계약(cmmn-api)이 조용히 깨지는 자리다.
+#
+# ★ 권한
+#     익명(토큰 없음)           읽기만 — cmmn-api·akhq 의 ccompat 조회가 그대로 돈다
+#     로그인한 realm 사용자       읽기만(authenticated-read-access)
+#     Keycloak 그룹 platform    sr-admin (keycloak-realm [5c])
+#     apicurio-contracts Job    sr-developer — contracts/ 게시
+#     apicurio-rules Job        sr-admin     — 전역 규칙
+#   ★ 익명 읽기를 연 것은 결정이다 — 기계 클라이언트(cmmn-api 직렬화기·akhq)에 자격을
+#     넣지 않아도 되는 대신 **스키마 내용은 LAN 에 계속 보인다.** 막는 것은 쓰기다.
+#
+# ★ 쓰기 Job 은 client_id:secret 을 **basic** 으로 보낸다 — Apicurio 의
+#   basic-client-credentials 가 Keycloak 토큰 엔드포인트에서 토큰으로 바꾼다. 그래서
+#   Job 스크립트가 토큰을 다루지 않는다(curl --netrc-file 하나).
+#   ★ OIDC 와 Kubernetes TokenReview 인증은 **동시에 켤 수 없다**(jar 의 AppAuthenticationMechanism:
+#     "Cannot enable both OIDC and Kubernetes authentication simultaneously") — 사람이 UI 로
+#     로그인해야 하므로 OIDC 를 골랐다.
+#
+# ★★ OIDC 는 브라우저와 백엔드가 Keycloak 을 **같은 이름**으로 봐야 한다(Gotcha 69·136) —
+#   AKHQ·Backstage 와 같은 처방이다: hostAliases 로 keycloak.oneinchmarket.local 을
+#   externalIP(노드 103)에 풀고, 게이트웨이 CA 를 신뢰하게 한다. 이 이미지는 temurin 이
+#   아니라 `USE_SYSTEM_CA_CERTS` 가 없다 — initContainer 가 만든 JVM 신뢰 저장소로 준다.
+#   basic 교환이 받아 오는 토큰도 같은 외부 이름에서 나오므로 `iss` 가 하나로 맞는다.
+#
+# ★ 처음 세우는 클러스터: Apicurio 는 wave 2, Keycloak 은 wave 4 다. OIDC 공급자를 못 찾아도
+#   익명 읽기는 돈다. 인증이 필요한 쓰기 Job 둘은 그래서 **PostSync** 다(모든 wave 뒤).
+#
+# 키 이름은 jar 의 application.properties·AuthConfig 에서 읽었다(apicurio-registry-app-3.3.2).
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: apicurio-registry
+spec:
+  template:
+    spec:
+      hostAliases:
+        - ip: "192.168.0.103"
+          hostnames: ["keycloak.oneinchmarket.local"]
+      # ★ 게이트웨이 CA 를 JVM 기본 신뢰 저장소에 더한 사본을 만든다.
+      #   처음에는 Quarkus TLS 레지스트리의 기본 신뢰 저장소(QUARKUS_TLS_TRUST_STORE_PEM_CERTS)로
+      #   줬는데 **OIDC 클라이언트가 그것을 쓰지 않았다** — 실측 `PKIX path building failed`
+      #   · `OIDC Server is not available`. 그 경고 뒤에도 파드는 Ready 이고 익명 읽기는 돌아서
+      #   쓰기를 시험해야 드러난다. JVM 신뢰 저장소는 Vert.x 클라이언트가 기본으로 쓴다.
+      #   저장소 내용은 공개 신뢰 앵커뿐이라 기본 암호(changeit)를 그대로 쓴다.
+      initContainers:
+        - name: truststore
+          image: docker.io/apicurio/apicurio-registry:3.3.2
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              cp /usr/lib/jvm/java-21-openjdk/lib/security/cacerts /truststore/cacerts
+              chmod 600 /truststore/cacerts
+              keytool -importcert -noprompt -alias oim-gateway-ca \
+                -file /certificates/oim-gateway-ca.crt \
+                -keystore /truststore/cacerts -storepass changeit >/dev/null
+              # fail-closed: 들어갔는지 되읽는다
+              keytool -list -keystore /truststore/cacerts -storepass changeit -alias oim-gateway-ca >/dev/null
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits:   {cpu: 500m, memory: 256Mi}
+          volumeMounts:
+            - {name: gateway-ca, mountPath: /certificates, readOnly: true}
+            - {name: truststore, mountPath: /truststore}
+      containers:
+        - name: apicurio-registry
+          env:
+            - name: QUARKUS_OIDC_TENANT_ENABLED
+              value: "true"
+            - name: QUARKUS_OIDC_AUTH_SERVER_URL
+              value: "https://keycloak.oneinchmarket.local/realms/oneinchmarket"
+            # 역할은 realm 역할에서 읽는다 — 토큰에 groups 클레임이 생기면 Quarkus 가 그쪽을
+            # 먼저 보므로 경로를 못박는다.
+            - name: QUARKUS_OIDC_ROLES_ROLE_CLAIM_PATH
+              value: "realm_access/roles"
+            # 이미지의 run-java.sh 가 JAVA_OPTS 가 없을 때 이것을 덧붙인다.
+            - name: JAVA_OPTS_APPEND
+              value: "-Djavax.net.ssl.trustStore=/truststore/cacerts -Djavax.net.ssl.trustStorePassword=changeit"
+            - name: APICURIO_AUTH_ROLE_BASED_AUTHORIZATION
+              value: "true"
+            - name: APICURIO_AUTH_ANONYMOUS_READ_ACCESS_ENABLED
+              value: "true"
+            - name: APICURIO_AUTH_AUTHENTICATED_READ_ACCESS_ENABLED
+              value: "true"
+            - name: APICURIO_AUTHN_BASIC_CLIENT_CREDENTIALS_ENABLED
+              value: "true"
+            # ★ UI 는 자기 config.js 와 백엔드의 `/system/uiConfig` 를 **병합**한다(번들의
+            #   fetchAndMergeConfigs). 백엔드 기본값이 `clientId: default_client` 라 어느 쪽이 이기는지에
+            #   따라 로그인이 Keycloak 의 "Client not found" 로 깨질 수 있다 — 두 곳을 같은 값으로 둔다.
+            - name: APICURIO_UI_AUTH_OIDC_CLIENT_ID
+              value: "apicurio-ui"
+            - name: APICURIO_UI_AUTH_OIDC_REDIRECT_URI
+              value: "https://apicurio.oneinchmarket.local"
+          volumeMounts:
+            - name: truststore
+              mountPath: /truststore
+              readOnly: true
+      volumes:
+        - name: truststore
+          emptyDir: {}
+        - name: gateway-ca
+          secret:
+            secretName: gateway-ca-cert
+            # ★ 그 Secret 에는 CA 개인키(tls.key)도 있다 — ca.crt 만 투영한다.
+            items:
+              - key: ca.crt
+                path: oim-gateway-ca.crt
+---
+# UI — 브라우저 SPA. 공개 클라이언트 apicurio-ui(PKCE)로 Keycloak 에 로그인한다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apicurio-ui
+spec:
+  template:
+    spec:
+      containers:
+        - name: apicurio-ui
+          env:
+            - {name: REGISTRY_AUTH_TYPE, value: "oidc"}
+            - {name: REGISTRY_AUTH_RBAC_ENABLED, value: "true"}
+            - {name: REGISTRY_AUTH_URL, value: "https://keycloak.oneinchmarket.local/realms/oneinchmarket"}
+            - {name: REGISTRY_AUTH_CLIENT_ID, value: "apicurio-ui"}
+            - {name: REGISTRY_AUTH_REDIRECT_URL, value: "https://apicurio.oneinchmarket.local"}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: apicurio-rules
+spec:
+  template:
+    spec:
+      containers:
+        - name: bootstrap
+          env:
+            - {name: APICURIO_CLIENT_ID, value: "apicurio-rules"}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: apicurio-contracts
+spec:
+  template:
+    spec:
+      containers:
+        - name: publish
+          env:
+            - {name: APICURIO_CLIENT_ID, value: "apicurio-contracts"}

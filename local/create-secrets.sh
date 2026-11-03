@@ -180,7 +180,10 @@ mk minio-secret       "root-user=oimadmin"           "root-password=$MINIO_PW" \
 mk keycloak-secret       "admin-password=$KC_ADMIN"  "db-password=$(gen)" "portal-user-password=$(gen)" "smoke-client-secret=$(gen 32)"
 mk gitlab-secret         "db-password=$(gen)"        "root-password=$GL_ROOT" "admin-token=$(gen 32)"
 mk gitlab-deploy-token   "token=$(gen 32)"
-mk apicurio-secret       "db-password=$(gen)"
+# rules-/contracts-client-secret — Apicurio 쓰기 Job 둘의 Keycloak 클라이언트 시크릿
+# (2026-11-03). keycloak-realm 부트스트랩이 같은 값을 클라이언트에 심고, Job 은
+# client_id:secret 을 basic 으로 보내 Apicurio 가 토큰으로 바꾼다.
+mk apicurio-secret       "db-password=$(gen)" "rules-client-secret=$(gen 32)" "contracts-client-secret=$(gen 32)"
 mk hive-metastore-secret "db-password=$(gen)"
 mk cmmn-api-secret       "db-password=$MARIA_APP"     # MariaDB cmmn DB 사용자와 동일해야 한다
 # elasticsearch-secret 은 없앴다(2026-09-11) — Elasticsearch 를 철거하고

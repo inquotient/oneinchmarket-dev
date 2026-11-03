@@ -71,10 +71,12 @@ CATALOG = [
      "Kafka 브라우저. ★ Keycloak 로그인 — `platform` 그룹은 admin, 그 밖은 "
      "`edge.*` 읽기만, 익명은 아무것도 안 보인다. 연결 `edge-via-kroxylicious` 는 "
      "외부 클라이언트가 보는 그대로(§3-e)"),
-    ("apicurio", "apicurio-ui", 8080, "http", OPEN,
-     "SPA — 브라우저가 레지스트리를 직접 부른다(§6 의 SPA 항)"),
+    ("apicurio", "apicurio-ui", 8080, "http", AUTH,
+     "SPA — 브라우저가 레지스트리를 직접 부른다(§6 의 SPA 항). ★ Keycloak 로그인"
+     "(공개 클라이언트 `apicurio-ui`) — `platform` 그룹은 sr-admin, 그 밖은 읽기만"),
     ("apicurio-registry", "apicurio-registry-headless", 8080, "http", TOOL,
-     "계약 레지스트리 API. 위 UI 의 전제다"),
+     "계약 레지스트리 API. 위 UI 의 전제다. ★ **읽기는 익명 허용 · 쓰기는 토큰 또는 "
+     "client_id:secret basic**(2026-11-03) — 스키마 내용은 LAN 에 보인다"),
     # ★ kafka-bridge 는 **외부에 열지 않는다**(2026-11-02 에 뺐다). 자체 인증이 없어
     #   (SEC-206) LAN 의 누구나 과금 토픽에 쓸 수 있었고, ADR-035 가 "인증 앞단이
     #   생기기 전까지 진입점을 만들지 않는다" 고 이미 정해 둔 것을 10-11 에 어겼다.

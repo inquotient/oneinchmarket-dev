@@ -36,8 +36,11 @@ metadata:
     app.kubernetes.io/part-of: oneinchmarket
     app.kubernetes.io/managed-by: kustomize
   annotations:
-    argocd.argoproj.io/sync-wave: "2"
-    argocd.argoproj.io/hook: Sync
+    # ★ PostSync(2026-11-03) — local 은 인증을 켜서 쓰기에 Keycloak(wave 4)이 필요하다.
+    #   Sync 훅이면 처음 세우는 클러스터의 wave 2 에서 Keycloak 없이 실패해 동기화가 선다.
+    #   이 규칙에 의존하는 것은 게시 훅(apicurio-contracts, 같은 PostSync 의 wave 1)뿐이다.
+    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/hook: PostSync
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
   backoffLimit: 20
@@ -69,11 +72,27 @@ spec:
           # curl 이 들어 있는 이미지를 새로 끌어오지 않고 레지스트리 이미지를 쓴다
           # (ds389-bootstrap 이 ds389 이미지를 쓰는 것과 같은 이유).
           image: docker.io/apicurio/apicurio-registry:3.3.2
+          env:
+            # 비우면 인증 없이 쓴다. overlays/local/patches/apicurio-local.yaml 이 채운다.
+            - name: APICURIO_CLIENT_ID
+              value: ""
+            - name: APICURIO_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: {name: apicurio-secret, key: rules-client-secret, optional: true}
           command: ["/bin/bash", "-c"]
           args:
             - |
               set -uo pipefail
               API="http://apicurio-registry-headless:8080/apis/registry/v3"
+              # ★ 인증(2026-11-03) — APICURIO_CLIENT_ID 가 있으면 client_id:secret 을 basic 으로
+              #   보낸다(Apicurio 의 basic-client-credentials 가 Keycloak 토큰으로 바꾼다). 비어 있으면
+              #   인증 없는 레지스트리(dev·prod base)다. 시크릿을 argv 에 싣지 않으려고 netrc 로 준다.
+              AUTHOPT=""
+              if [ -n "${APICURIO_CLIENT_ID:-}" ]; then
+                [ -n "${APICURIO_CLIENT_SECRET:-}" ] || { echo "[auth] APICURIO_CLIENT_SECRET 이 비었다" >&2; exit 1; }
+                ( umask 077; printf 'machine apicurio-registry-headless login %s password %s\n' "$APICURIO_CLIENT_ID" "$APICURIO_CLIENT_SECRET" > /tmp/netrc )
+                AUTHOPT="--netrc-file /tmp/netrc"
+              fi
 
               echo "[apicurio-rules] 레지스트리 대기"
               # ★★ 상한을 둔다 — 무한 대기는 ArgoCD 동기화를 **영원히** 세운다.
@@ -94,11 +113,11 @@ spec:
               set_rule() {   # set_rule <RULE_TYPE> <CONFIG>
                 local rt="$1" cfg="$2" code
                 # 있으면 409 가 온다. 그때는 PUT 으로 값을 맞춘다.
-                code=$(curl --connect-timeout 5 --max-time 30 -s -o /dev/null -w '%{http_code}' -X POST "$API/admin/rules" \
+                code=$(curl $AUTHOPT --connect-timeout 5 --max-time 30 -s -o /dev/null -w '%{http_code}' -X POST "$API/admin/rules" \
                         -H 'Content-Type: application/json' \
                         -d "{\"ruleType\":\"${rt}\",\"config\":\"${cfg}\"}")
                 if [ "$code" = "409" ]; then
-                  code=$(curl --connect-timeout 5 --max-time 30 -s -o /dev/null -w '%{http_code}' -X PUT "$API/admin/rules/${rt}" \
+                  code=$(curl $AUTHOPT --connect-timeout 5 --max-time 30 -s -o /dev/null -w '%{http_code}' -X PUT "$API/admin/rules/${rt}" \
                           -H 'Content-Type: application/json' \
                           -d "{\"ruleType\":\"${rt}\",\"config\":\"${cfg}\"}")
                   echo "  ${rt}=${cfg}  (기존 규칙 갱신, http ${code})"
@@ -116,7 +135,7 @@ spec:
               ok=0
               for want in "VALIDITY:FULL" "COMPATIBILITY:BACKWARD"; do
                 rt="${want%%:*}"; cfg="${want##*:}"
-                got=$(curl --connect-timeout 5 --max-time 30 -s "$API/admin/rules/${rt}" | grep -o "\"config\":\"[^\"]*\"" | cut -d'"' -f4)
+                got=$(curl $AUTHOPT --connect-timeout 5 --max-time 30 -s "$API/admin/rules/${rt}" | grep -o "\"config\":\"[^\"]*\"" | cut -d'"' -f4)
                 echo "  ${rt} -> ${got:-없음}"
                 [ "$got" = "$cfg" ] && ok=$((ok+1))
               done

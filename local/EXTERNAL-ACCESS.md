@@ -11,7 +11,7 @@
 > 때 port-forward 가 대조군이 된다.
 
 <!-- GENERATED:counts START -->
-웹 호스트 **55**(자체 인증 27 · 인증 없음 16 · 도구용 12, 그중 백엔드가 HTTPS 인 것 5) · TCP 대상 **14**
+웹 호스트 **55**(자체 인증 28 · 인증 없음 15 · 도구용 12, 그중 백엔드가 HTTPS 인 것 5) · TCP 대상 **14**
 <!-- GENERATED:counts END -->
 
 ---
@@ -229,8 +229,8 @@ Import-Certificate -FilePath .\oim-ca.crt -CertStoreLocation Cert:\LocalMachine\
 | https://temporal.oneinchmarket.local | **없음** | `temporal-ui-headless:8080` | 워크플로 이력. 서버는 gRPC 7233 이다 |
 | https://flink.oneinchmarket.local | **없음** | `flink-jobmanager:8081` | 잡 0건. 판정은 `/overview` 의 slots-total 이다(Gotcha 164) |
 | https://akhq.oneinchmarket.local | 자체 인증 | `akhq-headless:8080` | Kafka 브라우저. ★ Keycloak 로그인 — `platform` 그룹은 admin, 그 밖은 `edge.*` 읽기만, 익명은 아무것도 안 보인다. 연결 `edge-via-kroxylicious` 는 외부 클라이언트가 보는 그대로(§3-e) |
-| https://apicurio.oneinchmarket.local | **없음** | `apicurio-ui:8080` | SPA — 브라우저가 레지스트리를 직접 부른다(§6 의 SPA 항) |
-| https://apicurio-registry.oneinchmarket.local | 도구용 | `apicurio-registry-headless:8080` | 계약 레지스트리 API. 위 UI 의 전제다 |
+| https://apicurio.oneinchmarket.local | 자체 인증 | `apicurio-ui:8080` | SPA — 브라우저가 레지스트리를 직접 부른다(§6 의 SPA 항). ★ Keycloak 로그인(공개 클라이언트 `apicurio-ui`) — `platform` 그룹은 sr-admin, 그 밖은 읽기만 |
+| https://apicurio-registry.oneinchmarket.local | 도구용 | `apicurio-registry-headless:8080` | 계약 레지스트리 API. 위 UI 의 전제다. ★ **읽기는 익명 허용 · 쓰기는 토큰 또는 client_id:secret basic**(2026-11-03) — 스키마 내용은 LAN 에 보인다 |
 | https://kafka-connect.oneinchmarket.local | 도구용 | `kafka-connect-headless:8083` | 커넥터 REST. `GET /connectors` |
 | https://zilla.oneinchmarket.local | 도구용 | `zilla:7114` | HTTP·SSE <-> Kafka `edge.events` (`POST`·`GET /events` · `GET /sse/events`). ★ Keycloak realm JWT 필수(게이트웨이 DENY) |
 | https://backstage.oneinchmarket.local | 자체 인증 | `backstage-headless:7007` | Keycloak OIDC. `portal` / `pw keycloak-secret portal-user-password` |
@@ -297,7 +297,7 @@ pw grafana-secret admin-password
 ### ★★ 인증이 없는 호스트 — 집 밖으로 내보내지 말 것
 
 <!-- GENERATED:open-list START -->
-**16 종** — `prometheus.oneinchmarket.local` · `alertmanager.oneinchmarket.local` · `pyroscope.oneinchmarket.local` · `pyrra.oneinchmarket.local` · `temporal.oneinchmarket.local` · `flink.oneinchmarket.local` · `apicurio.oneinchmarket.local` · `ranger-solr.oneinchmarket.local` · `solr.oneinchmarket.local` · `spark-history.oneinchmarket.local` · `spark-ui.oneinchmarket.local` · `livy.oneinchmarket.local` · `hdfs.oneinchmarket.local` · `hbase.oneinchmarket.local` · `hbase-rs.oneinchmarket.local` · `hive.oneinchmarket.local`
+**15 종** — `prometheus.oneinchmarket.local` · `alertmanager.oneinchmarket.local` · `pyroscope.oneinchmarket.local` · `pyrra.oneinchmarket.local` · `temporal.oneinchmarket.local` · `flink.oneinchmarket.local` · `ranger-solr.oneinchmarket.local` · `solr.oneinchmarket.local` · `spark-history.oneinchmarket.local` · `spark-ui.oneinchmarket.local` · `livy.oneinchmarket.local` · `hdfs.oneinchmarket.local` · `hbase.oneinchmarket.local` · `hbase-rs.oneinchmarket.local` · `hive.oneinchmarket.local`
 <!-- GENERATED:open-list END -->
 
 이것들은 **누구든 주소를 알면 그대로 들어온다.** 그리고 이 배치에서는
