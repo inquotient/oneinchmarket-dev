@@ -193,7 +193,7 @@ kubectl -n local port-forward keycloak-0 8080:8080
 | **Keycloak** | `$K port-forward keycloak-0 8083:8080` | http://localhost:8083 | `admin` | `pw keycloak-secret admin-password` |
 | **OpenBao** | `$K port-forward openbao-0 8200:8200` | http://localhost:8200 | 토큰 | `pw openbao-keys root-token` |
 | **Ranger Admin** | `$K port-forward ranger-admin-0 6080:6080` | http://localhost:6080 | `admin` | `pw ranger-secret admin-password` |
-| **LAM**(LDAP 관리) | `$K port-forward deploy/lam 8084:80` | http://localhost:8084 | — | `pw lam-secret master-password` |
+| **LAM**(LDAP 관리) | `$K port-forward deploy/lam 8084:80` | http://localhost:8084 | `cn=Directory Manager` | `pw ds389-secret dm-password` (★ `lam-secret master-password` 는 설정 편집기 암호다 — 로그인에 넣으면 `Invalid credentials`) |
 | **Knox**(게이트웨이) | `$K port-forward svc/knox-headless 8443:8443` | https://localhost:8443/gateway/oim/ | DS389 사용자 | ★ **§1-b 참조** — WEBHDFS·HIVE·WEBHBASE 를 프록시한다 |
 | **Wazuh Manager API** | `$K port-forward svc/wazuh-manager 55000:55000` | https://localhost:55000 | `pw wazuh-secret api-username` | `pw wazuh-secret api-password` |
 | Wazuh Indexer | `$K port-forward svc/wazuh-indexer 9201:9200` | https://localhost:9201 | `admin` | `pw wazuh-secret indexer-admin-password` |
@@ -637,7 +637,7 @@ OpenSearch Dashboards(http://localhost:5601) 의 **Dev Tools** 가 가장 편하
 | UI | `keycloak-headless` | 8443 | 8446 | TLS 쪽 |
 | UI | `opensearch-dashboards` | 5601 | 5601 | http · admin / `pw opensearch-secret admin-password` |
 | UI | `knox-headless` | 8443 | 8443 | https · `pw knox-secret master-secret` |
-| UI | `lam-headless` | 80 | 8084 | `pw lam-secret master-password` |
+| UI | `lam-headless` | 80 | 8084 | `cn=Directory Manager` / `pw ds389-secret dm-password` (★ `lam-secret master-password` 는 로그인이 아니라 설정 편집기 암호다) |
 | UI | `livy-headless` | 8998 | 8998 |  |
 | UI | `minio-headless` | 9001 | 9001 | 콘솔 · `pw minio-secret root-user`/`root-password` |
 | UI | `nginx` | 80 | 8093 |  |

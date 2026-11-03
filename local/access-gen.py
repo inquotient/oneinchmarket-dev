@@ -54,7 +54,7 @@ RULES = [
     (r"^proxysql$", 6033, "DB", 16033,
      "**MySQL 와이어** · `cmmn-api` / `pw cmmn-api-secret db-password` · 관리(6032)는 파드 안에서만"),
     (r"^solr-headless$", 8983, "UI", 8983, "거버넌스 Solr"),
-    (r"^lam-headless$", 80, "UI", 8084, "`pw lam-secret master-password`"),
+    (r"^lam-headless$", 80, "UI", 8084, "`cn=Directory Manager` / `pw ds389-secret dm-password` (★ `lam-secret master-password` 는 로그인이 아니라 설정 편집기 암호다)"),
     (r"^knox-headless$", 8443, "UI", 8443, "https · `pw knox-secret master-secret`"),
     (r"^wazuh-manager$", 55000, "API", 55000, "https · `pw wazuh-secret api-username`/`api-password`"),
     (r"^wazuh-manager$", 1514, "INT", 0, "에이전트 수신"),

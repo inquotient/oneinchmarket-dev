@@ -242,7 +242,7 @@ Import-Certificate -FilePath .\oim-ca.crt -CertStoreLocation Cert:\LocalMachine\
 | https://ranger.oneinchmarket.local | 자체 인증 | `ranger-admin:6080` | admin / `pw ranger-secret admin-password` · ★★ 로그인 반복 실패 금지(Gotcha 11) |
 | https://ranger-solr.oneinchmarket.local | **없음** | `ranger-solr:8983` | Ranger 감사 색인 |
 | https://solr.oneinchmarket.local | **없음** | `solr-headless:8983` | 거버넌스 Solr |
-| https://lam.oneinchmarket.local | 자체 인증 | `lam-headless:80` | `pw lam-secret master-password` · DS389 관리 |
+| https://lam.oneinchmarket.local | 자체 인증 | `lam-headless:80` | `cn=Directory Manager` / `pw ds389-secret dm-password` · DS389 관리. ★ `lam-secret master-password` 는 로그인이 아니라 **설정 편집기**(LAM configuration) 암호다 — 로그인에 넣으면 `LDAP error, server says: Invalid credentials` |
 | https://knox.oneinchmarket.local | 자체 인증 | `knox-headless:8443` **(https)** | DS389 LDAP basic. ★ **Hadoop 계층의 정식 진입점**(§4) |
 | https://wazuh.oneinchmarket.local | 자체 인증 | `wazuh-manager:55000` **(https)** | `pw wazuh-secret api-username` / `api-password` |
 | https://wazuh-indexer.oneinchmarket.local | 자체 인증 | `wazuh-indexer:9200` **(https)** | admin / `pw wazuh-secret indexer-admin-password` |

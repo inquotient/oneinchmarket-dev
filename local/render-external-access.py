@@ -114,7 +114,9 @@ CATALOG = [
     ("solr", "solr-headless", 8983, "http", OPEN,
      "거버넌스 Solr"),
     ("lam", "lam-headless", 80, "http", AUTH,
-     "`pw lam-secret master-password` · DS389 관리"),
+     "`cn=Directory Manager` / `pw ds389-secret dm-password` · DS389 관리. "
+     "★ `lam-secret master-password` 는 로그인이 아니라 **설정 편집기**(LAM configuration) 암호다 — "
+     "로그인에 넣으면 `LDAP error, server says: Invalid credentials`"),
     ("knox", "knox-headless", 8443, "https", AUTH,
      "DS389 LDAP basic. ★ **Hadoop 계층의 정식 진입점**(§4)"),
     ("wazuh", "wazuh-manager", 55000, "https", AUTH,
