@@ -61,6 +61,10 @@ spec:
             # 남겨 두면 ES 철거와 함께 Secret 이 사라져 기동이 막힌다.
             - name: DATA_PREPPER_URL
               value: "http://data-prepper:2021/log/ingest"
+            # api-usage 소비 — SASL/SCRAM 사용자 logstash(2026-11-03).
+            - name: KAFKA_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: kafka-secret, key: logstash-password}
             # ★ 힙을 1g -> 384m 로 줄인다. 실측(2026-09-11): 힙 사용 252 MB /
             #   최대 990 MB(25%)이고 이벤트가 **1시간여에 100건**이다
             #   (zeek 94 · alertmanager 6 · api-usage 0). 전환으로 입력이

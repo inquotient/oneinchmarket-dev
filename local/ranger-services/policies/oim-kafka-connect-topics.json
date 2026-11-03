@@ -1,0 +1,45 @@
+{
+  "service": "oim-kafka",
+  "policy": "kafka-connect - 내부·CDC 토픽",
+  "_why": "워커 내부 토픽 셋과 Debezium 이 만드는 cdc.* (topic.creation.enable) · 스키마 이력",
+  "resources": {
+    "topic": [
+      "connect-configs",
+      "connect-offsets",
+      "connect-status",
+      "cdc.*"
+    ]
+  },
+  "item": {
+    "users": [
+      "kafka-connect"
+    ],
+    "groups": [],
+    "accesses": [
+      {
+        "type": "publish",
+        "isAllowed": true
+      },
+      {
+        "type": "consume",
+        "isAllowed": true
+      },
+      {
+        "type": "describe",
+        "isAllowed": true
+      },
+      {
+        "type": "create",
+        "isAllowed": true
+      },
+      {
+        "type": "describe_configs",
+        "isAllowed": true
+      },
+      {
+        "type": "configure",
+        "isAllowed": true
+      }
+    ]
+  }
+}

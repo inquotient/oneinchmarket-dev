@@ -1,0 +1,27 @@
+{
+  "service": "oim-kafka",
+  "policy": "edge.* 컨슈머 그룹",
+  "_why": "MultiTenant 가 그룹 이름에도 edge. 를 붙인다. kafka-bridge 도 같은 경계",
+  "resources": {
+    "consumergroup": [
+      "edge.*"
+    ]
+  },
+  "item": {
+    "users": [
+      "edge",
+      "kafka-bridge"
+    ],
+    "groups": [],
+    "accesses": [
+      {
+        "type": "consume",
+        "isAllowed": true
+      },
+      {
+        "type": "describe",
+        "isAllowed": true
+      }
+    ]
+  }
+}

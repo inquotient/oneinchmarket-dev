@@ -12,6 +12,9 @@ data:
       connections:
         oneinchmarket:
           properties:
-            bootstrap.servers: "kafka-0.kafka-headless:9092,kafka-1.kafka-headless:9092,kafka-2.kafka-headless:9092"
+            bootstrap.servers: "kafka-0.kafka-headless:9094,kafka-1.kafka-headless:9094,kafka-2.kafka-headless:9094"
+            security.protocol: SASL_PLAINTEXT
+            sasl.mechanism: SCRAM-SHA-512
+            sasl.jaas.config: 'org.apache.kafka.common.security.scram.ScramLoginModule required username="akhq" password="${KAFKA_PASSWORD}";'
           schema-registry:
             url: "http://apicurio-registry-headless:8080/apis/ccompat/v7"

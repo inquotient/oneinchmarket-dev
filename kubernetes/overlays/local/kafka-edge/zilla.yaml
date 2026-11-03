@@ -53,9 +53,22 @@ metadata:
     argocd.argoproj.io/sync-wave: "3"
 data:
   # ★ 리터럴 블록 안에 `#` 주석을 쓰지 말 것(Gotcha 83).
+  # ★★ Kafka SASL(2026-11-03) — `south_kafka_client` 의 authorization 이 SCRAM 자격이다.
+  #   그런데 Zilla 2.6 은 **guard 가 있을 때만** SASL 을 보낸다(KafkaBindingConfig.sasl() 이
+  #   guard == null 이면 null — 소스에서 확인). guard 없이 credentials 만 적으면 오류 없이
+  #   **인증 없이** 붙는다. 그래서 자격을 담는 inline guard `kafka_sasl` 를 둔다.
+  #   비밀번호는 env 리졸버(`${{env.KAFKA_PASSWORD}}`)로 넣는다 — 이 ConfigMap 에 값이 없다.
+  #   options 키 이름(authorization.<guard>.credentials)은 2.6.0 의 스키마·예제에서 읽었다
+  #   (`sasl:` 가 아니다).
   zilla.yaml: |
     ---
     name: edge
+    guards:
+      kafka_sasl:
+        type: inline
+        options:
+          identity: zilla
+          credentials: ${{env.KAFKA_PASSWORD}}
     bindings:
       north_tcp_server:
         type: tcp
@@ -126,7 +139,13 @@ data:
         kind: client
         options:
           servers:
-            - kafka-headless:9092
+            - kafka-headless:9094
+          authorization:
+            kafka_sasl:
+              credentials:
+                mechanism: scram-sha-512
+                username: zilla
+                password: ${{env.KAFKA_PASSWORD}}
         exit: south_tcp_client
       south_tcp_client:
         type: tcp
@@ -187,16 +206,28 @@ spec:
           args:
             - |
               set -eu
-              BS=kafka-headless:9092
+              # SASL/SCRAM 사용자 zilla(2026-11-03).
+              BS=kafka-headless:9094
+              CFG=/tmp/client.properties
+              umask 077
+              {
+                echo "security.protocol=SASL_PLAINTEXT"
+                echo "sasl.mechanism=SCRAM-SHA-512"
+                echo "sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username=\"zilla\" password=\"${KAFKA_PASSWORD}\";"
+              } > "$CFG"
               i=0
-              until /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server "$BS" >/dev/null 2>&1; do
+              until /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server "$BS" --command-config "$CFG" >/dev/null 2>&1; do
                 i=$((i+1)); [ "$i" -gt 60 ] && { echo "Kafka 가 5분 안에 응답하지 않았다"; exit 1; }
                 echo "  Kafka 대기 ($i/60)"; sleep 5
               done
               # local 은 단일 브로커라 replication-factor 1 (base kafka-topics Job 과 같다).
-              /opt/kafka/bin/kafka-topics.sh --bootstrap-server "$BS" \
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server "$BS" --command-config "$CFG" \
                 --create --if-not-exists --topic edge.events --partitions 3 --replication-factor 1
               echo "토픽 edge.events 준비됨"
+          env:
+            - name: KAFKA_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: kafka-secret, key: zilla-password}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: { drop: ["ALL"] }
@@ -222,6 +253,9 @@ spec:
             # 힙은 작게 — Zilla 의 버퍼는 힙이 아니라 mmap 파일이다(머리말 ②).
             - name: JAVA_OPTIONS
               value: "-Xms64m -Xmx192m -XX:MaxDirectMemorySize=64m"
+            - name: KAFKA_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: kafka-secret, key: zilla-password}
           ports:
             - name: http
               containerPort: 7114

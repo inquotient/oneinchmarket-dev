@@ -1,0 +1,26 @@
+{
+  "service": "oim-kafka",
+  "policy": "api-usage (과금 이벤트 - 쓰기 otel · 읽기 logstash)",
+  "_why": "과금 이벤트 토픽(Gotcha 15·16). 한 리소스에 정책을 둘 둘 수 없어(Ranger 3010) 한 정책에 항목을 나눴다 - 이 파일이 정책을 만들고(logstash 읽기) 다음 파일이 otel 쓰기 항목을 보탠다. 파일 이름의 -1-/-2- 가 그 순서다. logstash 에 쓰기를 주지 말 것 - 과금 토픽에 실험하지 말 것(Gotcha 23)",
+  "resources": {
+    "topic": [
+      "api-usage"
+    ]
+  },
+  "item": {
+    "users": [
+      "logstash"
+    ],
+    "groups": [],
+    "accesses": [
+      {
+        "type": "consume",
+        "isAllowed": true
+      },
+      {
+        "type": "describe",
+        "isAllowed": true
+      }
+    ]
+  }
+}

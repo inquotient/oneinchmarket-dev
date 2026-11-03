@@ -83,6 +83,17 @@ mk postgresql-secret  "postgresql-password=$PG"      "postgres-password=$PG"
 mk mariadb-secret     "root-password=$MARIA_ROOT"    "mariadb-root-password=$MARIA_ROOT" "app-password=$MARIA_APP" "debezium-password=$(gen)"
 mk mongodb-secret     "root-password=$MONGO"         "mongodb-root-password=$MONGO"
 mk redis-secret       "redis-password=$REDIS"
+# Kafka SASL (2026-11-03). broker-password 는 브로커 자신(PLAIN, 컨트롤러·
+# 브로커 간)이고 나머지는 워크로드별 SCRAM-SHA-512 사용자다 — 키 이름에서
+# `-password` 를 뗀 것이 곧 Kafka 사용자 이름이자 Ranger 사용자 이름이다.
+# ★ 사용자를 더할 때는 여기 키 하나만 더하면 된다 — kafka-topics Job 이
+#   이 Secret 의 `*-password` 키 전부를 SCRAM 사용자로 만든다.
+# ★ hex 다(gen) — JAAS 의 큰따옴표·로그스태시 ${} 치환 안에서 깨지지 않는다.
+mk kafka-secret "broker-password=$(gen 32)" \
+   "cmmn-api-password=$(gen)" "kafka-connect-password=$(gen)" "kafka-bridge-password=$(gen)" \
+   "akhq-password=$(gen)" "data-prepper-password=$(gen)" "falcosidekick-password=$(gen)" \
+   "logstash-password=$(gen)" "otel-password=$(gen)" "openmeter-password=$(gen)" \
+   "zilla-password=$(gen)" "edge-password=$(gen)"
 # ShardingSphere-Proxy 의 프록시 사용자(proxyadmin). 뒤쪽 PostgreSQL 자격과
 # **별개**여야 한다 — 프록시 자격이 새도 DB 자격은 지켜진다(§8-44 와 같은 이유).
 # Backstage — db-password 는 PostgreSQL 롬, backend-secret 은 세션·토큰

@@ -1,0 +1,11 @@
+{
+  "name": "oim-kafka",
+  "type": "kafka",
+  "description": "Kafka(SASL/SCRAM) - overlays/local/patches/kafka-local.yaml 의 ranger-kafka-config 에 있는 ranger.plugin.kafka.service.name 과 같아야 한다. username 은 브로커 자신(PLAIN 정적 사용자 kafka)이라 기본 정책 전권을 받는다 - 컨트롤러·브로커 간 요청(CLUSTER_ACTION)이 그것으로 통과한다",
+  "isEnabled": true,
+  "configs": {
+    "username": "kafka",
+    "password": "__LOOKUP_NOT_USED__",
+    "zookeeper.connect": "__KRAFT_NO_ZOOKEEPER__"
+  }
+}

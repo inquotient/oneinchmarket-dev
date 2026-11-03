@@ -269,7 +269,9 @@ spec:
               - "*/ns/argo-events/sa/argo-events-sa"
       to:
         - operation:
-            ports: ["9092", "9093"]
+            # 9094 = SASL 리스너(2026-11-03). 평문 9092 는 닫았다.
+            # 9095 = SASL_SSL 리스너 — local 에만 있다(OpenMeter 전용, overlays/local/kafka-tls.yaml).
+            ports: ["9093", "9094", "9095"]
 ---
 # Observability 접근 제어 — OpenSearch
 #

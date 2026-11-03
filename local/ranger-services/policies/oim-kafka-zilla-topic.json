@@ -1,0 +1,38 @@
+{
+  "service": "oim-kafka",
+  "policy": "zilla - edge.events",
+  "_why": "HTTP·SSE 다리는 이 토픽 하나에 갇힌다. create 는 initContainer 의 --if-not-exists",
+  "resources": {
+    "topic": [
+      "edge.events"
+    ]
+  },
+  "item": {
+    "users": [
+      "zilla"
+    ],
+    "groups": [],
+    "accesses": [
+      {
+        "type": "publish",
+        "isAllowed": true
+      },
+      {
+        "type": "consume",
+        "isAllowed": true
+      },
+      {
+        "type": "describe",
+        "isAllowed": true
+      },
+      {
+        "type": "create",
+        "isAllowed": true
+      },
+      {
+        "type": "describe_configs",
+        "isAllowed": true
+      }
+    ]
+  }
+}

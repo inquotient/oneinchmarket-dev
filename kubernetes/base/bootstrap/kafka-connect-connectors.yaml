@@ -45,8 +45,14 @@ data:
       "database.include.list": "cmmn",
       "table.include.list": "cmmn.menu,cmmn.multi_language",
 
-      "schema.history.internal.kafka.bootstrap.servers": "kafka-headless:9092",
+      "schema.history.internal.kafka.bootstrap.servers": "kafka-headless:9094",
       "schema.history.internal.kafka.topic": "cdc.__schema-history",
+      "schema.history.internal.producer.security.protocol": "SASL_PLAINTEXT",
+      "schema.history.internal.producer.sasl.mechanism": "SCRAM-SHA-512",
+      "schema.history.internal.producer.sasl.jaas.config": "org.apache.kafka.common.security.scram.ScramLoginModule required username=\"kafka-connect\" password=\"${secrets:/etc/connect-secrets:kafka-password}\";",
+      "schema.history.internal.consumer.security.protocol": "SASL_PLAINTEXT",
+      "schema.history.internal.consumer.sasl.mechanism": "SCRAM-SHA-512",
+      "schema.history.internal.consumer.sasl.jaas.config": "org.apache.kafka.common.security.scram.ScramLoginModule required username=\"kafka-connect\" password=\"${secrets:/etc/connect-secrets:kafka-password}\";",
 
       "topic.creation.enable": "true",
       "topic.creation.default.replication.factor": "1",

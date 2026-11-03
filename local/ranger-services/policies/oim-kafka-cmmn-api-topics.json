@@ -1,0 +1,30 @@
+{
+  "service": "oim-kafka",
+  "policy": "cmmn-api - 다국어·메뉴 토픽",
+  "_why": "게시(-refresh)와 소비를 같은 앱이 한다(Gotcha 94)",
+  "resources": {
+    "topic": [
+      "dev.api.cmmn.*"
+    ]
+  },
+  "item": {
+    "users": [
+      "cmmn-api"
+    ],
+    "groups": [],
+    "accesses": [
+      {
+        "type": "publish",
+        "isAllowed": true
+      },
+      {
+        "type": "consume",
+        "isAllowed": true
+      },
+      {
+        "type": "describe",
+        "isAllowed": true
+      }
+    ]
+  }
+}

@@ -66,9 +66,21 @@ spec:
             #   더 구체적인 키가 우선하기 때문이다. 이미지에 구워진 값은
             #   kafka-0.kafka-headless.dev.svc.cluster.local:9092 다.
             - name: SPRING_KAFKA_CONSUMER_BOOTSTRAP_SERVERS
-              value: "kafka-headless:9092"
+              value: "kafka-headless:9094"
             - name: SPRING_KAFKA_PRODUCER_BOOTSTRAP_SERVERS
-              value: "kafka-headless:9092"
+              value: "kafka-headless:9094"
+            # SASL/SCRAM 사용자 cmmn-api(2026-11-03). spring.kafka.properties.* 는
+            # 프로듀서·컨슈머·어드민 모두에 실린다. $(KAFKA_PASSWORD) 는 쿠버네티스가
+            # 앞 항목으로 펼친다 — 순서를 바꾸지 말 것.
+            - name: KAFKA_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: kafka-secret, key: cmmn-api-password}
+            - name: SPRING_KAFKA_PROPERTIES_SECURITY_PROTOCOL
+              value: "SASL_PLAINTEXT"
+            - name: SPRING_KAFKA_PROPERTIES_SASL_MECHANISM
+              value: "SCRAM-SHA-512"
+            - name: SPRING_KAFKA_PROPERTIES_SASL_JAAS_CONFIG
+              value: 'org.apache.kafka.common.security.scram.ScramLoginModule required username="cmmn-api" password="$(KAFKA_PASSWORD)";'
             # Apicurio 의 Confluent 호환 엔드포인트. schema-reg 는 v2 에 없다(ADR-031).
             - name: SPRING_KAFKA_PROPERTIES_SCHEMA_REGISTRY_URL
               value: "http://apicurio-registry-headless:8080/apis/ccompat/v7"
@@ -83,7 +95,7 @@ spec:
             - name: SPRING_KAFKA_PROPERTIES_USE_LATEST_VERSION
               value: "true"
             - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
-              value: "kafka-headless:9092"
+              value: "kafka-headless:9094"
           resources:
             requests:
               cpu: 100m

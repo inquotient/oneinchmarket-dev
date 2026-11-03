@@ -33,6 +33,11 @@ spec:
       containers:
         - name: akhq
           image: docker.io/tchiotludo/akhq:0.28.0
+          # Kafka SASL/SCRAM 사용자 akhq(2026-11-03) — application.yml 의 ${KAFKA_PASSWORD}.
+          env:
+            - name: KAFKA_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: kafka-secret, key: akhq-password}
           ports:
             - containerPort: 8080
               name: http

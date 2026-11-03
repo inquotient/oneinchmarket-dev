@@ -463,14 +463,22 @@ Trino 는 HTTP 프로토콜이라 **TCP 프록시가 아니라 HTTPS 게이트�
 
 | 경로 | 주소 | 무엇이 보이나 | 인증 |
 |---|---|---|---|
-| **Kroxylicious** | `192.168.0.103:30992` (bootstrap) · `:30993` (broker 0) | 실제 `edge.*` 를 **접두사 없이** — `edge.events` 가 `events` 로 보인다 | **없음** — LAN 이 쓸 수 있다 |
+| **Kroxylicious** | `192.168.0.103:30992` (bootstrap) · `:30993` (broker 0) | 실제 `edge.*` 를 **접두사 없이** — `edge.events` 가 `events` 로 보인다 | **SASL/SCRAM-SHA-512 사용자 `edge`**(2026-11-03~) — 프록시가 SASL 을 그대로 넘기고, Ranger `oim-kafka` 가 그 사용자를 `edge.*` 로 묶는다 |
 | **Zilla** | `https://zilla.oneinchmarket.local` | `edge.events` 하나 — `POST /events` · `GET /events` · `GET /sse/events` | **Keycloak realm JWT 필수**(무토큰 403) |
 
 ```bash
-# Kafka 클라이언트 (Kafka 4.x CLI 예)
-kafka-topics.sh          --bootstrap-server 192.168.0.103:30992 --list          # -> events
-kafka-console-producer.sh --bootstrap-server 192.168.0.103:30992 --topic events
-kafka-console-consumer.sh --bootstrap-server 192.168.0.103:30992 --topic events --from-beginning
+# Kafka 클라이언트 (Kafka 4.x CLI 예) — 2026-11-03 부터 SASL/SCRAM 이 필수다.
+#   비밀번호 조회: pw kafka-secret edge-password  (값을 파일에만 쓰고 화면에 찍지 말 것)
+cat > edge.properties <<'EOF'
+security.protocol=SASL_PLAINTEXT
+sasl.mechanism=SCRAM-SHA-512
+sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username="edge" password="<edge-password>";
+EOF
+chmod 600 edge.properties
+kafka-topics.sh          --bootstrap-server 192.168.0.103:30992 --command-config edge.properties --list   # -> events
+kafka-console-producer.sh --bootstrap-server 192.168.0.103:30992 --producer.config edge.properties --topic events
+kafka-console-consumer.sh --bootstrap-server 192.168.0.103:30992 --consumer.config edge.properties --topic events --group edge-cli --from-beginning
+# ★ 컨슈머 그룹 이름도 Kroxylicious 가 edge. 를 붙인다 — Ranger 정책 edge.* 컨슈머 그룹이 그것을 허용한다
 
 # HTTP — 토큰은 Keycloak realm oneinchmarket 에서 받는다
 curl -X POST -H "Authorization: Bearer $T" -H 'Content-Type: application/json' \
@@ -489,8 +497,14 @@ curl -N -H "Authorization: Bearer $T" https://zilla.oneinchmarket.local/sse/even
 > 배열로 합치므로 평문이 섞이면 배열이 깨진다(실측).
 >
 > ★ **한계**: Kroxylicious 의 `MultiTenant` 필터는 상류가 **프리뷰**로 적은
-> 것이고 인증이 없다 — `edge.*` 는 LAN 이 읽고 쓸 수 있다(신뢰 경계는 LAN,
-> §2 의 경고와 같다). Zilla 는 **Aklivity Community License**(source-available)다.
+> 것이다. ~~인증이 없다 — `edge.*` 는 LAN 이 읽고 쓸 수 있다~~ — **2026-11-03 에
+> 닫았다**: Kafka 가 SASL/SCRAM 을 요구하므로 프록시를 지나는 클라이언트도 사용자
+> `edge` 로 인증해야 하고(무인증 연결은 아무것도 나열하지 못한다 — 실측), Ranger
+> 정책이 그 사용자를 `edge.*` 토픽·그룹으로 묶는다. 그래서 MultiTenant 필터가
+> 프리뷰라 새더라도 **브로커가 같은 선을 다시 긋는다**(이중 경계). 실측(같은 정책을
+> 받은 시험 브로커): `edge` 로 `api-usage` 를 읽기·쓰기 모두 `TopicAuthorizationException`,
+> `edge.*` 는 허용. 무인증으로 프록시에 붙으면 아무것도 나열하지 못한다.
+> Zilla 는 **Aklivity Community License**(source-available)다.
 > 게이트웨이 경유 **토큰이 있는** Zilla 호출은 시험하지 않았다 — 게이트웨이의
 > 계량 로그가 모든 호스트에 걸려 있어 `tenant` 클레임이 있는 토큰이면 그
 > 테넌트의 과금 사용량이 되기 때문이다(Gotcha 23). 토큰 경로는 클러스터 안에서

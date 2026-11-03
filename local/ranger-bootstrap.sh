@@ -114,6 +114,8 @@ done
 #   ★ `createPrincipalsIfAbsent=true` — 항목의 사용자(예: hbase-rest)는 LDAP 에
 #     없는 서비스 계정이라 usersync 가 만들어 주지 않는다. 없으면 갱신이 거부된다.
 for f in "$SRC"/policies/*.json; do
+  # `stripGroups` 지시 파일은 아래 절이 따로 처리한다(항목을 보태지 않고 뺀다).
+  if python3 -c 'import json,sys; sys.exit(0 if "stripGroups" in json.load(open(sys.argv[1])) else 1)' "$f"; then continue; fi
   read -r svc pname < <(python3 -c 'import json,sys,urllib.parse as u; d=json.load(open(sys.argv[1])); print(d["service"], u.quote(d["policy"], safe=""))' "$f")
   code=$("${C[@]}" -o "$tmp/pol.json" -w '%{http_code}' "$B/service/$svc/policy/$pname")
   # ★ `resources` 가 있는 파일은 **새 정책**이다 — 기본 정책과 리소스가 달라
@@ -158,6 +160,49 @@ PY2
       [ "$code" = "200" ] || { echo "[ranger] $label 갱신이 $code 다: $(head -c 300 "$tmp/new.json")" >&2; exit 1; }
       log "$label: 보탰다" ;;
   esac
+done
+
+# ── 기본 정책에서 그룹을 **뺀다** (`policies/*.json` 중 `stripGroups` 가 있는 것)
+#   ★★ Ranger 의 Kafka 서비스 기본 정책은 그룹 `public`(로그인한 모두)에게 전체 토픽·
+#     그룹·클러스터 권한을 준다 — kafka_admin·cluster_action 까지(실측 2026-11-03).
+#     그대로 두면 정책을 아무리 좁게 써도 **모든 인증 사용자가 전권**이다. 시험 브로커
+#     에서 edge 가 아무 토픽이나 만들 수 있었던 것이 그 증거다.
+#   ★ 사용자·그룹·롤이 모두 비게 된 항목은 지운다. 서비스 사용자(username) 항목은
+#     users 가 남으므로 지워지지 않는다.
+for f in "$SRC"/policies/*.json; do
+  python3 -c 'import json,sys; sys.exit(0 if "stripGroups" in json.load(open(sys.argv[1])) else 1)' "$f" || continue
+  svc=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["service"])' "$f")
+  "${C[@]}" -o "$tmp/all.json" "$B/service/$svc/policy"
+  python3 - "$f" "$tmp/all.json" "$tmp/strip" <<'PY4'
+import json,sys,os
+d=json.load(open(sys.argv[1])); ps=json.load(open(sys.argv[2])); out=sys.argv[3]
+os.makedirs(out, exist_ok=True)
+strip=set(d["stripGroups"]); names=set(d["policies"]); seen=set()
+for p in ps:
+    if p["name"] not in names: continue
+    seen.add(p["name"]); changed=False; items=[]
+    for i in p.get("policyItems",[]):
+        g=i.get("groups") or []
+        if strip & set(g):
+            i["groups"]=[x for x in g if x not in strip]; changed=True
+        if (i.get("users") or []) or (i.get("groups") or []) or (i.get("roles") or []):
+            items.append(i)
+    p["policyItems"]=items
+    if changed:
+        json.dump(p, open(os.path.join(out, "%d.json" % p["id"]), "w"))
+    print(("strip " if changed else "ok    ") + p["name"])
+for n in sorted(names-seen): print("absent " + n)
+PY4
+  for pj in "$tmp"/strip/*.json; do
+    [ -e "$pj" ] || continue
+    pid=$(basename "$pj" .json)
+    pn=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["name"])' "$pj")
+    if [ "$CHECK" = 1 ]; then log "$svc / $pn: **그룹 $(python3 -c 'import json,sys; print(",".join(json.load(open(sys.argv[1]))["stripGroups"]))' "$f") 이 남아 있다**"; missing=$((missing+1)); continue; fi
+    code=$("${C[@]}" -o "$tmp/new.json" -w '%{http_code}' -X PUT -H 'Content-Type: application/json' --data @"$pj" "$B/policy/$pid")
+    [ "$code" = "200" ] || { echo "[ranger] $svc / $pn 그룹 제거가 $code 다: $(head -c 300 "$tmp/new.json")" >&2; exit 1; }
+    log "$svc / $pn: 그룹 $(python3 -c 'import json,sys; print(",".join(json.load(open(sys.argv[1]))["stripGroups"]))' "$f") 를 뺐다"
+  done
+  rm -rf "$tmp/strip"
 done
 
 [ "$CHECK" = 1 ] && { [ "$missing" = 0 ] && exit 0 || exit 1; }

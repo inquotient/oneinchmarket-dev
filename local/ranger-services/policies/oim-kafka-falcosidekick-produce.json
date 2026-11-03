@@ -1,0 +1,26 @@
+{
+  "service": "oim-kafka",
+  "policy": "falcosidekick - falco-alerts 생산",
+  "_why": "런타임 경보를 쓴다. 읽는 쪽은 data-prepper",
+  "resources": {
+    "topic": [
+      "falco-alerts"
+    ]
+  },
+  "item": {
+    "users": [
+      "falcosidekick"
+    ],
+    "groups": [],
+    "accesses": [
+      {
+        "type": "publish",
+        "isAllowed": true
+      },
+      {
+        "type": "describe",
+        "isAllowed": true
+      }
+    ]
+  }
+}

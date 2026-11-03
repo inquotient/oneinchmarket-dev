@@ -144,7 +144,13 @@ data:
       #   에이전트가 직접 넣는다 — 홉이 하나 줄고, 게이트웨이 장애가
       #   청구 누락으로 이어지지 않는다.
       kafka/usage:
-        brokers: ["kafka-headless:9092"]
+        brokers: ["kafka-headless:9094"]
+        # SASL/SCRAM 사용자 otel(2026-11-03). 비밀번호는 env 참조뿐이다.
+        auth:
+          sasl:
+            mechanism: SCRAM-SHA-512
+            username: otel
+            password: ${env:KAFKA_PASSWORD}
         # ★ 파티션 키는 지금 붙지 않는다 — 메시지 key 가 null 이다.
         #   `partition_logs_by_resource_attributes` 는 최상위에서만 유효하고
         #   (logs 블록 아래에 두면 invalid keys 로 기동 실패), 최상위에 두어도

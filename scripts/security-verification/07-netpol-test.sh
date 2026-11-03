@@ -237,7 +237,10 @@ echo "=== 5. 차단 트래픽 시험 (비인가 출발지) ==="
 DENIED_TESTS=(
   'postgresql-headless:5432:PostgreSQL:\000\000\000\010\004\322\026\057'
   'opensearch-headless:9200:OpenSearch:GET / HTTP/1.0\r\nHost: probe\r\n\r\n'
-  'kafka-headless:9092:Kafka:\000\000\000\027\000\022\000\000\000\000\000\001\000\004prob\000'
+  # ★ 9094(SASL) — 평문 9092 는 2026-11-03 에 닫았다. 닫힌 포트를 재면 리스너가
+  #   없어서 0바이트가 나오고 그것이 "차단" 으로 읽힌다(거짓 안심). SASL 리스너도
+  #   ApiVersions 는 인증 전에 답하므로 메시가 통과시키면 바이트가 돌아온다.
+  'kafka-headless:9094:Kafka:\000\000\000\027\000\022\000\000\000\000\000\001\000\004prob\000'
 )
 
 if [ "$APPARATUS_OK" -ne 1 ]; then

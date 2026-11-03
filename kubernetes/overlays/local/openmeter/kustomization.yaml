@@ -109,3 +109,54 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/securityContext/readOnlyRootFilesystem
         value: true
+
+# ★★ Kafka SASL_SSL 의 서버 인증서를 믿게 한다(2026-11-03). OpenMeter 는 SASL 을
+#   SASL_SSL 에서만 켜므로(../kafka-tls.yaml 머리말) 9095 에 TLS 로 붙는데, 그
+#   인증서는 클러스터 안 kafka-ca 가 발급한다. **클라이언트가 둘이고 신뢰 저장소를
+#   찾는 곳이 다르다** — 실측으로 갈랐다(일회용 파드, 마운트 하나씩):
+#     · Sarama(Go, watermill 발행기)  -> SSL_CERT_FILE 을 읽는다
+#     · librdkafka(ingest 프로듀서)    -> SSL_CERT_FILE 을 **무시한다**. 정적 번들
+#       OpenSSL(OPENSSLDIR=/usr/lib/ssl)이고, ca.location 을 주지 않으면 탐색 목록의
+#       첫 기존 파일을 쓴다 — /etc/pki/tls/certs/ca-bundle.crt 하나로 통과했고
+#       /usr/lib/ssl/cert.pem 만으로는 `certificate verify failed` 였다.
+#   두 경로 다 이 이미지(Alpine)에 없는 자리라 시스템 신뢰 저장소를 덮지 않는다.
+# ★ 생성 파일(openmeter.yaml)이 아니라 여기서 붙인다 — 다음 렌더에 지워지지 않게.
+# ★ kafka-ca-tls 에는 **CA 개인키도** 있다 — items 로 ca.crt 만 투영한다.
+# ★ 대상은 Kafka 를 쓰는 8개뿐이다. openmeter-dlq-replay 는 Kafka 를 쓰지 않고
+#   OpenSearch 등 다른 TLS 상대가 있어, SSL_CERT_FILE 이 그 신뢰를 대체해 버린다.
+# ★ 본 컨테이너에 env 가 아예 없어서 `/env` 를 통째로 add 한다 — 상류 차트가 env 를
+#   붙이기 시작하면 이 patch 가 그것을 덮으니 렌더 diff 를 볼 것.
+  - target:
+      kind: Deployment
+      name: openmeter-(api|balance-worker|billing-worker|notification-service|sink-worker)
+    patch: |
+      - op: add
+        path: /spec/template/spec/containers/0/env
+        value:
+          - {name: SSL_CERT_FILE, value: /etc/kafka-ca/ca.crt}
+      - op: add
+        path: /spec/template/spec/containers/0/volumeMounts/-
+        value: {name: kafka-ca, mountPath: /etc/kafka-ca, readOnly: true}
+      - op: add
+        path: /spec/template/spec/containers/0/volumeMounts/-
+        value: {name: kafka-ca, mountPath: /etc/pki/tls/certs/ca-bundle.crt, subPath: ca.crt, readOnly: true}
+      - op: add
+        path: /spec/template/spec/volumes/-
+        value: {name: kafka-ca, secret: {secretName: kafka-ca-tls, items: [{key: ca.crt, path: ca.crt}]}}
+  - target:
+      kind: CronJob
+      name: openmeter-(subscription-sync|billing-collect-invoices|billing-advance-invoices)
+    patch: |
+      - op: add
+        path: /spec/jobTemplate/spec/template/spec/containers/0/env
+        value:
+          - {name: SSL_CERT_FILE, value: /etc/kafka-ca/ca.crt}
+      - op: add
+        path: /spec/jobTemplate/spec/template/spec/containers/0/volumeMounts/-
+        value: {name: kafka-ca, mountPath: /etc/kafka-ca, readOnly: true}
+      - op: add
+        path: /spec/jobTemplate/spec/template/spec/containers/0/volumeMounts/-
+        value: {name: kafka-ca, mountPath: /etc/pki/tls/certs/ca-bundle.crt, subPath: ca.crt, readOnly: true}
+      - op: add
+        path: /spec/jobTemplate/spec/template/spec/volumes/-
+        value: {name: kafka-ca, secret: {secretName: kafka-ca-tls, items: [{key: ca.crt, path: ca.crt}]}}

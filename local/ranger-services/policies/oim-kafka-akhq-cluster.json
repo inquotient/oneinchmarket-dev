@@ -1,0 +1,21 @@
+{
+  "service": "oim-kafka",
+  "policy": "all - cluster",
+  "_why": "AKHQ 의 노드 화면이 브로커 설정을 읽는다(DescribeConfigs - CLUSTER DESCRIBE_CONFIGS). 바꾸는 권한(alter_configs)은 주지 않는다 - 브로커 설정은 git 이 원천이다",
+  "item": {
+    "users": [
+      "akhq"
+    ],
+    "groups": [],
+    "accesses": [
+      {
+        "type": "describe",
+        "isAllowed": true
+      },
+      {
+        "type": "describe_configs",
+        "isAllowed": true
+      }
+    ]
+  }
+}

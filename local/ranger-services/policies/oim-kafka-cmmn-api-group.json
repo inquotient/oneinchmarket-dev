@@ -1,0 +1,26 @@
+{
+  "service": "oim-kafka",
+  "policy": "cmmn-api - 컨슈머 그룹",
+  "_why": "dev-api-cmmn-menu-consumer · -multilanguage-consumer",
+  "resources": {
+    "consumergroup": [
+      "dev-api-cmmn-*"
+    ]
+  },
+  "item": {
+    "users": [
+      "cmmn-api"
+    ],
+    "groups": [],
+    "accesses": [
+      {
+        "type": "consume",
+        "isAllowed": true
+      },
+      {
+        "type": "describe",
+        "isAllowed": true
+      }
+    ]
+  }
+}

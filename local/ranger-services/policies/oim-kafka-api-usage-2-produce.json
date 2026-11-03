@@ -1,0 +1,21 @@
+{
+  "service": "oim-kafka",
+  "policy": "api-usage (과금 이벤트 - 쓰기 otel · 읽기 logstash)",
+  "_why": "otel agent·gateway 의 kafka/usage 가 과금 이벤트를 쓴다. 읽기는 주지 않는다",
+  "item": {
+    "users": [
+      "otel"
+    ],
+    "groups": [],
+    "accesses": [
+      {
+        "type": "publish",
+        "isAllowed": true
+      },
+      {
+        "type": "describe",
+        "isAllowed": true
+      }
+    ]
+  }
+}

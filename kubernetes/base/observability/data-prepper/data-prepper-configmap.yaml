@@ -102,7 +102,16 @@ data:
       delay: 3000
       source:
         kafka:
-          bootstrap_servers: ["kafka-headless:9092"]
+          # SASL/SCRAM 사용자 data-prepper(2026-11-03). 키 이름은 2.16.0 소스
+          # (AuthConfig·ScramAuthConfig)에서 읽었다. 비밀번호는 아래 opensearch 와 같은
+          # 자리표시자 방식이다(initContainer 가 바꾼다).
+          bootstrap_servers: ["kafka-headless:9094"]
+          authentication:
+            sasl:
+              scram:
+                username: data-prepper
+                password: __KAFKA_PASSWORD__
+                mechanism: SCRAM-SHA-512
           # ★ Data Prepper 의 kafka source 는 암호화 기본값이 **ssl** 이다.
           #   이 클러스터의 브로커는 PLAINTEXT(9092) 라 그대로 두면 클라이언트가
           #   TLS 핸드셰이크를 걸고 브로커가 끊는다. 증상이 고약하다 —

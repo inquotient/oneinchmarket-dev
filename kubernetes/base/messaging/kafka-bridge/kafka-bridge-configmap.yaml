@@ -22,7 +22,12 @@ data:
     bridge.id=oneinchmarket-bridge
 
     # ── Kafka ──
-    kafka.bootstrap.servers=kafka-headless:9092
+    # SASL/SCRAM(2026-11-03) — 사용자 kafka-bridge. 비밀번호 자리표시자는 기동
+    # 래퍼가 /tmp 사본에서 치환한다(이 ConfigMap 에는 값이 없다).
+    kafka.bootstrap.servers=kafka-headless:9094
+    kafka.security.protocol=SASL_PLAINTEXT
+    kafka.sasl.mechanism=SCRAM-SHA-512
+    kafka.sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username="kafka-bridge" password="__KAFKA_PASSWORD__";
     kafka.producer.acks=1
     kafka.consumer.auto.offset.reset=earliest
 

@@ -1,6 +1,18 @@
 # 로컬은 replicas 1 이다. base 의 quorum voters 는 kafka-0,1,2 를 요구해
 # 형성될 수 없는 quorum 을 기다리며 CrashLoop 한다.
 #   java.net.UnknownHostException: kafka-1.kafka-headless: Name does not resolve
+#
+# ★★ SASL_SSL 리스너 TLS://:9095 (2026-11-03) — OpenMeter 전용이다. 사유는
+#   kafka-tls.yaml 머리말(OpenMeter 의 Sarama 드라이버는 SASL_SSL 일 때만 SASL 을
+#   켠다). base 의 리스너 셋(SASL 9094 · CONTROLLER 9093)에 더한다.
+# ★ 리스너 이름을 `SSL`·`SASL_SSL` 로 짓지 말 것 — 이미지의 configure 스크립트가
+#   광고 주소에 `SSL://` 가 보이면 JKS 키스토어 파일(KAFKA_SSL_KEYSTORE_FILENAME)을
+#   강제하고 없으면 멈춘다. 이름은 `TLS`, 프로토콜은 맵이 정한다.
+# ★ 키스토어는 PEM 이다. cert-manager 가 tls.key·tls.crt 를 따로 주는데 Kafka 의
+#   PEM 키스토어는 **파일 하나**(키 + 체인)를 요구하므로 기동 명령이 /tmp 에 합친다.
+#   인증서가 갱신되면 Secret 이 바뀌고 Reloader 가 StatefulSet 을 재시작한다.
+# ★★ base 의 기동 명령을 통째로 덮는다(리스트는 병합되지 않는다) — base 의
+#   명령을 고치면 여기도 함께 고칠 것(Gotcha 117).
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -13,3 +25,122 @@ data:
   KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
   KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
   KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+  KAFKA_LISTENERS: "SASL://:9094,TLS://:9095,CONTROLLER://:9093"
+  KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "SASL:SASL_PLAINTEXT,TLS:SASL_SSL,CONTROLLER:SASL_PLAINTEXT"
+  KAFKA_LISTENER_NAME_TLS_SASL_ENABLED_MECHANISMS: "SCRAM-SHA-512"
+  KAFKA_LISTENER_NAME_TLS_SSL_KEYSTORE_TYPE: "PEM"
+  KAFKA_LISTENER_NAME_TLS_SSL_KEYSTORE_LOCATION: "/tmp/kafka-tls/keystore.pem"
+  # ── 인가: Ranger (2026-11-03) ──
+  # ★★ 순서가 있다 — Ranger 서비스(oim-kafka)와 정책을 **먼저** 만들 것
+  #   (local/ranger-bootstrap.sh). 정책을 못 받은 플러그인은 전부 거부하고, 그러면
+  #   브로커 자신(kafka)의 컨트롤러 요청까지 막힌다(Knox 의 Gotcha 203 ③ 과 같다).
+  # ★ 플러그인은 super.users 를 읽지 않는다 — 브로커 사용자 kafka 는 서비스 설정의
+  #   username 으로 기본 정책 전권을 받아 통과한다(local/ranger-services/oim-kafka.json).
+  KAFKA_AUTHORIZER_CLASS_NAME: "org.apache.ranger.authorization.kafka.authorizer.RangerKafkaAuthorizer"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-headless
+spec:
+  ports:
+    - port: 9095
+      targetPort: tls
+      protocol: TCP
+      name: tls
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+spec:
+  template:
+    spec:
+      # 자체 빌드 이미지(docker/ranger-kafka-plugin) — 다른 Ranger 플러그인과 같다.
+      imagePullSecrets:
+        - name: gitlab-registry-secret
+      initContainers:
+        - name: fetch-ranger-plugin
+          # Ranger 2.9.0 Kafka 플러그인을 kafka-clients 4.3.1 대상으로 다시 빌드했다.
+          image: gitlab-registry.local.svc.cluster.local:5050/oneinch/ranger-kafka-plugin:2.9.0-kafka4
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              cp -r /plugin/. /ranger/
+              # fail-closed: 다시 빌드한 jar 가 들어왔고 kafka-clients 가 섞이지 않았는지 본다.
+              # (가드를 `! cmd` 로 쓰지 말 것 — set -e 는 부정한 명령의 실패를 무시한다)
+              test -f /ranger/ranger-kafka-plugin-shim-2.9.0.jar
+              test -f /ranger/ranger-kafka-plugin-impl/ranger-kafka-plugin-2.9.0.jar
+              if ls /ranger/ranger-kafka-plugin-impl | grep -q '^kafka-clients-'; then echo "kafka-clients 가 impl 에 있다" >&2; exit 1; fi
+              # 정책 시드 — Admin 에 못 닿을 때 플러그인이 읽는 캐시 자리에 둔다(kustomization.yaml 의
+              # configMapGenerator 머리말). Admin 에 닿으면 플러그인이 덮어쓴다.
+              mkdir -p /ranger-cache/kafka/policycache
+              cp /seed/kafka_oim-kafka.json /ranger-cache/kafka/policycache/kafka_oim-kafka.json
+              grep -q '"serviceName": "oim-kafka"' /ranger-cache/kafka/policycache/kafka_oim-kafka.json
+              ls /ranger
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits:   {cpu: 500m, memory: 256Mi}
+          volumeMounts:
+            - {name: ranger-kafka, mountPath: /ranger}
+            - {name: ranger-cache, mountPath: /ranger-cache}
+            - {name: ranger-kafka-seed, mountPath: /seed, readOnly: true}
+      containers:
+        - name: kafka
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -eu
+              export KAFKA_NODE_ID=${HOSTNAME##*-}
+              export KAFKA_ADVERTISED_LISTENERS="SASL://${HOSTNAME}.kafka-headless:9094,TLS://${HOSTNAME}.kafka-headless:9095"
+              mkdir -p /tmp/kafka-tls
+              umask 077
+              cat /etc/kafka-tls/tls.key /etc/kafka-tls/tls.crt > /tmp/kafka-tls/keystore.pem
+              # fail-closed: 키와 인증서가 둘 다 실제로 들어갔는지 본다.
+              #   (PEM 머리 표식을 통째로 적지 않는다 — 시크릿 스캐너가 그 문자열을 잡는다, Gotcha 75)
+              grep -q "PRIVATE KEY" /tmp/kafka-tls/keystore.pem
+              grep -q "CERTIFICATE" /tmp/kafka-tls/keystore.pem
+              exec /etc/kafka/docker/run
+          ports:
+            - containerPort: 9095
+              name: tls
+              protocol: TCP
+          env:
+            - name: KAFKA_LISTENER_NAME_TLS_SCRAM___SHA___512_SASL_JAAS_CONFIG
+              value: 'org.apache.kafka.common.security.scram.ScramLoginModule required;'
+            # kafka-run-class.sh 는 기존 CLASSPATH 뒤에 libs/ 를 붙인다. shim·classloader 는
+            # 최상위, 구현은 shim 옆의 ranger-kafka-plugin-impl/ 에서 shim 이 찾는다.
+            # conf 디렉터리는 ranger-kafka-security.xml 을 찾게 하려고 넣는다.
+            - name: CLASSPATH
+              value: "/opt/ranger-kafka/*:/opt/ranger-kafka-conf"
+          volumeMounts:
+            - name: kafka-tls
+              mountPath: /etc/kafka-tls
+              readOnly: true
+            - {name: ranger-kafka, mountPath: /opt/ranger-kafka}
+            - {name: ranger-kafka-conf, mountPath: /opt/ranger-kafka-conf, readOnly: true}
+            # ranger-kafka-security.xml 의 policy.cache.dir(/tmp/ranger/kafka/policycache)의 부모.
+            - {name: ranger-cache, mountPath: /tmp/ranger}
+      volumes:
+        - name: ranger-kafka
+          emptyDir: {}
+        - name: ranger-cache
+          emptyDir: {}
+        - name: ranger-kafka-seed
+          configMap:
+            name: ranger-kafka-seed
+        - name: ranger-kafka-conf
+          configMap:
+            name: ranger-kafka-config
+        - name: kafka-tls
+          secret:
+            secretName: kafka-tls
+            items:
+              - {key: tls.key, path: tls.key}
+              - {key: tls.crt, path: tls.crt}

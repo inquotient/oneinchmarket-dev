@@ -12,9 +12,30 @@ data:
   KAFKA_LOG_DIRS: "/opt/kafka/data"
   KAFKA_PROCESS_ROLES: "broker,controller"
   KAFKA_CONTROLLER_QUORUM_VOTERS: "0@kafka-0.kafka-headless:9093,1@kafka-1.kafka-headless:9093,2@kafka-2.kafka-headless:9093"
-  KAFKA_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093"
-  KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+  # ── 인증(SASL, 2026-11-03) ──────────────────────────────────────────
+  # ★ 리스너 셋: SASL(9094, 클라이언트) · CONTROLLER(9093). 평문 PLAINTEXT(9092)는
+  #   클라이언트 전부를 옮기고 그 포트의 연결이 0 인 것을 확인한 뒤 **닫았다** —
+  #   빠뜨린 클라이언트는 조용히 남지 않고 연결 거부로 드러난다.
+  # ★ 리스너 이름을 `SASL_PLAINTEXT` 로 짓지 말 것 — 이미지의 configure 스크립트가
+  #   광고 주소에 `SASL_` 이 보이면 KAFKA_OPTS(JAAS 파일)를 강제하고 없으면 멈춘다.
+  #   이름은 `SASL`, 프로토콜은 아래 맵이 정한다.
+  # ★ 메커니즘: 클라이언트는 SCRAM-SHA-512(자격이 Kafka 메타데이터에 해시로
+  #   산다 — kafka-topics Job 이 kafka-secret 에서 만든다). 브로커 자신(컨트롤러·
+  #   브로커 간)은 PLAIN 의 정적 사용자 `kafka` 다 — SCRAM 자격은 메타데이터를
+  #   읽은 뒤에야 생기므로 컨트롤러 리스너에는 쓸 수 없다(닭과 달걀).
+  #   PLAIN 의 사용자 목록에는 `kafka` 하나만 있어 다른 누구도 PLAIN 으로 못 붙는다.
+  # ★ 평문 전송이지만 메시 안이라 ztunnel 이 mTLS(HBONE)로 감싼다.
+  KAFKA_LISTENERS: "SASL://:9094,CONTROLLER://:9093"
+  KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "SASL:SASL_PLAINTEXT,CONTROLLER:SASL_PLAINTEXT"
+  KAFKA_INTER_BROKER_LISTENER_NAME: "SASL"
   KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+  KAFKA_SASL_ENABLED_MECHANISMS: "SCRAM-SHA-512,PLAIN"
+  KAFKA_LISTENER_NAME_CONTROLLER_SASL_ENABLED_MECHANISMS: "PLAIN"
+  KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: "PLAIN"
+  KAFKA_SASL_MECHANISM_CONTROLLER_PROTOCOL: "PLAIN"
+  # Ranger 를 붙이기 전에도 미리 둔다 — 권한 판단기가 생기는 순간 브로커 자신이
+  # 막히지 않게(StandardAuthorizer 는 이것을 읽는다).
+  KAFKA_SUPER_USERS: "User:kafka"
   KAFKA_LOG_RETENTION_HOURS: "168"
   KAFKA_LOG_SEGMENT_BYTES: "1073741824"
   KAFKA_NUM_PARTITIONS: "3"

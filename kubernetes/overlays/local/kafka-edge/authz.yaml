@@ -27,4 +27,5 @@ spec:
             principals: ["*/sa/kroxylicious", "*/sa/zilla"]
       to:
         - operation:
-            ports: ["9092"]
+            # 9094 = SASL 리스너(2026-11-03). 평문 9092 는 닫았다.
+            ports: ["9094"]

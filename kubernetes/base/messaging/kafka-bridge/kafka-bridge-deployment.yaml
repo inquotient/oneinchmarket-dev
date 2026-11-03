@@ -44,8 +44,20 @@ spec:
           image: quay.io/strimzi/kafka-bridge:1.1.0
           # 이미지에 entrypoint 가 없고 Cmd 만 있다. 인자를 주려면 command 와
           # args 를 모두 명시해야 한다 — args 만 주면 Cmd 를 덮어써 버린다.
-          command: ["/opt/strimzi/bin/kafka_bridge_run.sh"]
-          args: ["--config-file=/opt/strimzi/custom-config/application.properties"]
+          # ★ Kafka SASL 비밀번호를 /tmp 사본에 넣은 뒤 띄운다(2026-11-03).
+          #   치환이 빗나가면 기동을 거부한다 — 자리표시자로 붙으면 인증 실패가
+          #   조용히 반복될 뿐 파드는 Ready 다(Gotcha 86).
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              umask 077
+              sed "s|__KAFKA_PASSWORD__|${KAFKA_PASSWORD}|" \
+                /opt/strimzi/custom-config/application.properties > /tmp/application.properties
+              if grep -q __KAFKA_PASSWORD__ /tmp/application.properties; then
+                echo "[kafka-bridge] 비밀번호 치환 실패" >&2; exit 1
+              fi
+              exec /opt/strimzi/bin/kafka_bridge_run.sh --config-file=/tmp/application.properties
           ports:
             - containerPort: 8080
               name: http
@@ -58,6 +70,9 @@ spec:
             # /tmp 는 아래 emptyDir 로 쓰기 가능하게 만든다.
             - name: JAVA_OPTS
               value: "-Xms64m -Xmx256m"
+            - name: KAFKA_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: kafka-secret, key: kafka-bridge-password}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

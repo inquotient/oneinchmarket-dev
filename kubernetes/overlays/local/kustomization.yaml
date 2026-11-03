@@ -44,6 +44,36 @@ resources:
   - kafka-edge
   # Knox 의 Ranger 플러그인 설정 — patches/knox-local.yaml 의 짝(새 리소스라 여기 둔다).
   - knox-ranger-config.yaml
+  # Kafka SASL_SSL 리스너(9095)의 인증서 — OpenMeter 의 Sarama 드라이버가 SASL 을
+  # SASL_SSL 에서만 켜기 때문이다(kafka-tls.yaml 머리말, 2026-11-03).
+  - kafka-tls.yaml
+  # Kafka Ranger 플러그인 설정(2026-11-03) — patches/kafka-local.yaml 의 짝.
+  - kafka-ranger-config.yaml
+
+# ★★ Kafka Ranger 정책 시드(2026-11-03) — 처음 세우는 클러스터의 교착을 끊는다.
+#   Kafka 는 wave 2 인데 Ranger Admin 은 wave 5 이고 ranger-bootstrap.sh 는 그 뒤의 손
+#   작업이다. 정책을 못 받은 플러그인은 **전부 거부**해 브로커가 자기 컨트롤러에도
+#   등록하지 못하고(CLUSTER_AUTHORIZATION_FAILED — 실측으로 한 번 내려갔다), 살아나도
+#   kafka-connect·zilla(wave 3)가 Healthy 가 못 되어 동기화가 거기서 영원히 선다.
+#   플러그인은 Admin 에 못 닿으면 **로컬 캐시**를 읽으므로, 지금 적용된 정책의 스냅숏을
+#   시드로 넣어 둔다. Admin 에 닿는 순간 현재 판으로 바뀐다.
+# ★ 시드는 손으로 쓰지 않는다 — local/ranger-kafka-seed.sh 가 살아 있는 브로커의 캐시를
+#   받아 쓴다. 정책(local/ranger-services/policies/oim-kafka-*)을 바꾸면 다시 돌릴 것
+#   (`--check` 가 뒤처짐을 1 로 알린다). 이름 접미 해시를 끈다 — StatefulSet 이 이름으로
+#   참조하고, 바뀌면 Reloader 가 브로커를 재시작한다.
+configMapGenerator:
+  - name: ranger-kafka-seed
+    files:
+      - kafka_oim-kafka.json=kafka-ranger-seed.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        app.kubernetes.io/name: kafka
+        app.kubernetes.io/component: messaging
+        app.kubernetes.io/part-of: oneinchmarket
+        app.kubernetes.io/managed-by: kustomize
+      annotations:
+        argocd.argoproj.io/sync-wave: "2"
 
 patches:
   # 로컬 레플리카 1

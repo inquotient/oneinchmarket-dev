@@ -1,0 +1,27 @@
+{
+  "service": "oim-kafka",
+  "policy": "kafka-connect - 워커·커넥터 그룹",
+  "_why": "워커 그룹(group.id=oim-connect)과 싱크 커넥터의 connect-<이름> 그룹",
+  "resources": {
+    "consumergroup": [
+      "oim-connect",
+      "connect-*"
+    ]
+  },
+  "item": {
+    "users": [
+      "kafka-connect"
+    ],
+    "groups": [],
+    "accesses": [
+      {
+        "type": "consume",
+        "isAllowed": true
+      },
+      {
+        "type": "describe",
+        "isAllowed": true
+      }
+    ]
+  }
+}

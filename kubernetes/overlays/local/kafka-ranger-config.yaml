@@ -1,0 +1,34 @@
+# Kafka Ranger 플러그인 설정 — patches/kafka-local.yaml 의 짝이다(local 전용, 2026-11-03).
+# ★ 새 리소스라 patches 가 아니라 resources 에 둔다(Gotcha 145).
+# ★ 브로커의 CLASSPATH 에 이 디렉터리(/opt/ranger-kafka-conf)가 들어가야 플러그인이
+#   XML 을 찾는다 — 못 찾으면 서비스 이름이 비어 정책을 받지 못하고 **전부 거부**한다.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ranger-kafka-config
+  labels:
+    app.kubernetes.io/name: kafka
+    app.kubernetes.io/component: messaging
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+data:
+  ranger-kafka-security.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <configuration>
+      <!-- local/ranger-services/oim-kafka.json 의 name 과 같아야 한다 -->
+      <property><name>ranger.plugin.kafka.service.name</name><value>oim-kafka</value></property>
+      <!-- agents-common 의 RangerAdminRESTClient 를 Jersey 2 로 백포트해 넣었다(docker/ranger-kafka-plugin) -->
+      <property><name>ranger.plugin.kafka.policy.source.impl</name><value>org.apache.ranger.admin.client.RangerAdminRESTClient</value></property>
+      <property><name>ranger.plugin.kafka.policy.rest.url</name><value>http://ranger-admin:6080</value></property>
+      <property><name>ranger.plugin.kafka.policy.pollIntervalMs</name><value>30000</value></property>
+      <property><name>ranger.plugin.kafka.policy.cache.dir</name><value>/tmp/ranger/kafka/policycache</value></property>
+      <property><name>ranger.plugin.kafka.policy.rest.client.connection.timeoutMs</name><value>120000</value></property>
+      <property><name>ranger.plugin.kafka.policy.rest.client.read.timeoutMs</name><value>30000</value></property>
+    </configuration>
+  # 감사는 끈다 — Ranger 2.9 에는 log4j 목적지가 없다(Gotcha 37). 다른 플러그인과 같다.
+  ranger-kafka-audit.xml: |
+    <?xml version="1.0" encoding="UTF-8"?>
+    <configuration>
+      <property><name>xasecure.audit.is.enabled</name><value>false</value></property>
+    </configuration>

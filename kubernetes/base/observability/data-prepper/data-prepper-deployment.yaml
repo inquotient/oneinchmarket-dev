@@ -55,13 +55,14 @@ spec:
           args:
             - |
               set -eu
-              sed "s|__OPENSEARCH_INGEST_PASSWORD__|${OPENSEARCH_INGEST_PASSWORD}|g" \
+              sed -e "s|__OPENSEARCH_INGEST_PASSWORD__|${OPENSEARCH_INGEST_PASSWORD}|g" \
+                  -e "s|__KAFKA_PASSWORD__|${KAFKA_PASSWORD}|g" \
                 /src/pipelines.yaml > /rendered/pipelines.yaml
               cp /src/data-prepper-config.yaml /rendered/data-prepper-config.yaml
               # ★ 치환 결과를 되읽어 확인하고 다르면 기동을 거부한다(Gotcha 86).
               #   sed 가 조용히 빗나가면 아무 일도 안 한 것과 같은데 파드는
               #   Running 이 되고, 증상은 OpenSearch 401 로만 보인다.
-              if grep -q '__OPENSEARCH_INGEST_PASSWORD__' /rendered/pipelines.yaml; then
+              if grep -qE '__OPENSEARCH_INGEST_PASSWORD__|__KAFKA_PASSWORD__' /rendered/pipelines.yaml; then
                 echo "[render] 치환 실패 — 자리표시자가 남아 있다" >&2
                 exit 1
               fi
@@ -69,6 +70,8 @@ spec:
           env:
             - name: OPENSEARCH_INGEST_PASSWORD
               valueFrom: {secretKeyRef: {name: opensearch-secret, key: ingest-password}}
+            - name: KAFKA_PASSWORD
+              valueFrom: {secretKeyRef: {name: kafka-secret, key: data-prepper-password}}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: {drop: ["ALL"]}

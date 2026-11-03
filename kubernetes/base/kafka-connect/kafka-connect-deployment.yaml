@@ -63,9 +63,18 @@ spec:
             - -c
             - |
               set -eu
+              # SASL/SCRAM 사용자 kafka-connect(2026-11-03). rootfs 가 읽기 전용이라
+              # 클라이언트 설정은 /tmp(emptyDir)에 쓴다.
+              CFG=/tmp/wait.properties
+              umask 077
+              {
+                echo "security.protocol=SASL_PLAINTEXT"
+                echo "sasl.mechanism=SCRAM-SHA-512"
+                echo "sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username=\"kafka-connect\" password=\"$(cat /etc/connect-secrets/kafka-password)\";"
+              } > "$CFG"
               i=0
               until /opt/kafka/bin/kafka-broker-api-versions.sh \
-                      --bootstrap-server kafka-headless:9092 >/dev/null 2>&1; do
+                      --bootstrap-server kafka-headless:9094 --command-config "$CFG" >/dev/null 2>&1; do
                 i=$((i+1))
                 [ "$i" -gt 60 ] && { echo "Kafka 가 5분 안에 응답하지 않았다"; exit 1; }
                 echo "  Kafka 대기 ($i/60)"; sleep 5
@@ -83,6 +92,12 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+          volumeMounts:
+            - name: connect-secrets
+              mountPath: /etc/connect-secrets
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
       containers:
         - name: kafka-connect
           image: gitlab-registry.local.svc.cluster.local:5050/oneinch/kafka-connect:4.3.1-dbz3.6.2
@@ -169,7 +184,7 @@ spec:
               readOnly: true
             # ★ DirectoryConfigProvider 가 읽는다. Secret 의 키 하나가
             #   파일 하나로 마운트되어 그대로 값이 된다.
-            - name: db-secrets
+            - name: connect-secrets
               mountPath: /etc/connect-secrets
               readOnly: true
             - name: tmp
@@ -183,12 +198,24 @@ spec:
             name: kafka-connect-config
         # ★ mariadb-secret 을 통째로 붙이지 않고 **필요한 키 하나**만
         #   골라 마운트한다. root-password 가 파드 안에 보일 이유가 없다.
-        - name: db-secrets
-          secret:
-            secretName: mariadb-secret
-            items:
-              - key: debezium-password
-                path: debezium-password
+        # ★ 이름을 바꿨다(db-secrets -> connect-secrets, 2026-11-03). 타입이 secret 에서
+        #   projected 로 바뀌는데, 같은 이름으로 두면 SSA 가 볼륨을 이름으로 병합해
+        #   "may not specify more than 1 volume type" 으로 거부한다(Gotcha 113).
+        # ★ Kafka SASL 비밀번호도 같은 디렉터리에 넣는다 — DirectoryConfigProvider 의
+        #   allowed.paths 를 넓히지 않아도 된다. 키 하나 = 파일 하나.
+        - name: connect-secrets
+          projected:
+            sources:
+              - secret:
+                  name: mariadb-secret
+                  items:
+                    - key: debezium-password
+                      path: debezium-password
+              - secret:
+                  name: kafka-secret
+                  items:
+                    - key: kafka-connect-password
+                      path: kafka-password
         - name: tmp
           emptyDir: {}
         - name: logs

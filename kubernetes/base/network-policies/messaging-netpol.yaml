@@ -77,8 +77,12 @@ spec:
             matchLabels:
               app.kubernetes.io/name: falcosidekick
       ports:
+        # SASL 리스너(2026-11-03). 평문 9092 는 닫았다.
         - protocol: TCP
-          port: 9092
+          port: 9094
+        # SASL_SSL 리스너 — local 에만 있다(OpenMeter 전용, overlays/local/kafka-tls.yaml).
+        - protocol: TCP
+          port: 9095
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

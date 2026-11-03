@@ -46,7 +46,12 @@ data:
     #     의도된 것인지 확인되지 않았다. 상관분석 대상을 넓히려면 warning 으로
     #     맞춰야 하고, Kafka 를 고심각도 전용 경로로 둘 것이면 그대로 둔다.
     kafka:
-      hostport: "kafka-headless:9092"
+      # SASL/SCRAM 사용자 falcosidekick(2026-11-03). 비밀번호는 env KAFKA_PASSWORD
+      # (viper 가 kafka.password 를 그 이름으로 읽는다 — ELASTICSEARCH_PASSWORD 와 같은 방식).
+      # 값 이름은 소스(outputs/kafka.go)에서 읽었다 — `SCRAM-SHA-512` 가 아니라 `SCRAM_SHA512`.
+      hostport: "kafka-headless:9094"
+      sasl: "SCRAM_SHA512"
+      username: "falcosidekick"
       topic: "falco-alerts"
       # ★ error -> warning. 걷어낸 elasticsearch 출력이 warning 이었으므로
       #   여기를 낮추지 않으면 warning 등급 알림이 조용히 사라진다.

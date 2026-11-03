@@ -25,7 +25,12 @@
 #     만 낸다. jar 기본 그룹 `admin` 과 역할 `reader` 가 ACL 읽기를 품고 있어서
 #     `platform-admin`(= admin - acl-reader)과 `reader-no-acl` 을 따로 정의했다.
 #     역할·그룹 이름은 jar 의 application.yml 에서 읽었다(이 파일과 병합된다).
-#     Kafka 에 SASL+authorizer 를 켜는 날 `acl-reader` 를 platform-admin 에 되돌릴 것.
+#     ~~Kafka 에 SASL+authorizer 를 켜는 날 `acl-reader` 를 platform-admin 에 되돌릴 것~~ —
+#     2026-11-03 에 켰지만 **되돌리지 않는다**: authorizer 가 Ranger 라 Kafka ACL 이 아니라
+#     Ranger 정책(oim-kafka)이 인가를 정하고, ACL 화면은 그 정책을 보여 주지 않는다.
+#     권한을 보려면 Ranger Admin 의 oim-kafka 를 볼 것(Gotcha 204).
+#   ★ Kafka 연결은 SASL/SCRAM 이다 — 이 UI 는 사용자 akhq(전체 토픽·그룹), edge 연결은
+#     사용자 edge(edge.* 만)로 붙는다.
 #   ★ platform 그룹·groups 클레임 매퍼·akhq 클라이언트는 keycloak-realm 부트스트랩이
 #     만든다(base/bootstrap/keycloak-realm.yaml 의 [5a]·[5b]).
 #
@@ -83,12 +88,18 @@ data:
       connections:
         oneinchmarket:
           properties:
-            bootstrap.servers: "kafka-headless:9092"
+            bootstrap.servers: "kafka-headless:9094"
+            security.protocol: SASL_PLAINTEXT
+            sasl.mechanism: SCRAM-SHA-512
+            sasl.jaas.config: 'org.apache.kafka.common.security.scram.ScramLoginModule required username="akhq" password="${KAFKA_PASSWORD}";'
           schema-registry:
             url: "http://apicurio-registry-headless:8080/apis/ccompat/v7"
         edge-via-kroxylicious:
           properties:
             bootstrap.servers: "192.168.0.103:30992"
+            security.protocol: SASL_PLAINTEXT
+            sasl.mechanism: SCRAM-SHA-512
+            sasl.jaas.config: 'org.apache.kafka.common.security.scram.ScramLoginModule required username="edge" password="${KAFKA_EDGE_PASSWORD}";'
       security:
         default-group: no-roles
         roles:
@@ -146,6 +157,9 @@ spec:
               valueFrom: { secretKeyRef: { name: akhq-secret, key: jwt-secret } }
             - name: USE_SYSTEM_CA_CERTS
               value: "1"
+            # edge-via-kroxylicious 연결 — 밖의 클라이언트가 쓰는 그 자격(사용자 edge).
+            - name: KAFKA_EDGE_PASSWORD
+              valueFrom: { secretKeyRef: { name: kafka-secret, key: edge-password } }
           volumeMounts:
             - name: gateway-ca
               mountPath: /certificates

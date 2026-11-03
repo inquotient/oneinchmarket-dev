@@ -1,0 +1,14 @@
+{
+  "service": "oim-kafka",
+  "stripGroups": [
+    "public"
+  ],
+  "policies": [
+    "all - topic",
+    "all - consumergroup",
+    "all - cluster",
+    "all - transactionalid",
+    "all - delegationtoken"
+  ],
+  "_why": "Ranger 의 Kafka 기본 정책은 그룹 public(로그인한 모두)에게 전체 토픽·그룹·클러스터 권한(kafka_admin·cluster_action 포함)을 준다. 그대로 두면 다른 정책을 아무리 좁게 써도 모든 SCRAM 사용자가 전권이다(실측 2026-11-03 - 시험 브로커에서 edge 가 아무 토픽이나 만들었다). 서비스 사용자 kafka 와 이 디렉터리가 보탠 항목만 남긴다"
+}

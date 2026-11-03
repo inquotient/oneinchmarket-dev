@@ -81,8 +81,9 @@ def inject_secret_substitution(spec):
 sed -e "s|__CLICKHOUSE_PASSWORD__|${CLICKHOUSE_PASSWORD}|" \
     -e "s|__POSTGRES_PASSWORD__|${POSTGRES_PASSWORD}|" \
     -e "s|__REDIS_PASSWORD__|${REDIS_PASSWORD}|" \
+    -e "s|__KAFKA_PASSWORD__|${KAFKA_PASSWORD}|g" \
     /src/config.yaml > /out/config.yaml
-if grep -qE '__(CLICKHOUSE|POSTGRES|REDIS)_PASSWORD__' /out/config.yaml; then
+if grep -qE '__(CLICKHOUSE|POSTGRES|REDIS|KAFKA)_PASSWORD__' /out/config.yaml; then
   echo '[render-config] 치환 실패 — 자리표시자가 남았다.' >&2
   echo '[render-config] 그대로 기동하면 인증이 실패한다.' >&2
   exit 1
@@ -98,6 +99,11 @@ echo '[render-config] 완료'
         }, {
             "name": "REDIS_PASSWORD",
             "valueFrom": {"secretKeyRef": {"name": SECRET_NAME_REDIS, "key": SECRET_KEY_REDIS}},
+        }, {
+            # Kafka SASL/SCRAM 사용자 openmeter(2026-11-03) — ingest·sink 둘 다
+            # 같은 자리표시자라 sed 에 g 플래그를 준다.
+            "name": "KAFKA_PASSWORD",
+            "valueFrom": {"secretKeyRef": {"name": "kafka-secret", "key": "openmeter-password"}},
         }],
         "securityContext": {**CTR_SC},
         "resources": {

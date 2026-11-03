@@ -31,6 +31,10 @@ spec:
           image: docker.io/otel/opentelemetry-collector-contrib:0.160.0
           args:
             - --config=/conf/otel-gateway.yaml
+          # kafka/usage 의 SASL/SCRAM 사용자 otel(2026-11-03) — ${env:KAFKA_PASSWORD}.
+          env:
+            - name: KAFKA_PASSWORD
+              valueFrom: {secretKeyRef: {name: kafka-secret, key: otel-password}}
           ports:
             - {containerPort: 4317, name: otlp-grpc, protocol: TCP}
             - {containerPort: 4318, name: otlp-http, protocol: TCP}

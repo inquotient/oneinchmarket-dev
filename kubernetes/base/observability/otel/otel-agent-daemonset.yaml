@@ -35,6 +35,9 @@ spec:
               valueFrom: {fieldRef: {fieldPath: status.podIP}}
             - name: OTEL_RESOURCE_ATTRIBUTES
               value: "k8s.cluster.name=oneinchmarket"
+            # kafka/usage 의 SASL/SCRAM 사용자 otel(2026-11-03) — ${env:KAFKA_PASSWORD}.
+            - name: KAFKA_PASSWORD
+              valueFrom: {secretKeyRef: {name: kafka-secret, key: otel-password}}
           # 애플리케이션은 `otel-agent` Service 로 보낸다 — 그 Service 가
           # internalTrafficPolicy: Local 이라 **같은 노드의 파드**로만 간다.
           # hostPort 는 쓰지 않는다: 이 클러스터의 Cilium 구성에서는 바인드

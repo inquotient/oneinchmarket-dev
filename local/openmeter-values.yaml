@@ -57,7 +57,18 @@ config:
       #   수집 측이고, sink.kafka.brokers(복수)는 소비 측이다.
       #   sink 를 빠뜨리면 기본값 127.0.0.1:29092 로 붙어 CrashLoop 한다 —
       #   오류는 sink-worker 로그에만 나온다(§8-58).
-      broker: kafka-headless:9092
+      broker: kafka-headless:9095
+      # SASL/SCRAM 사용자 openmeter(2026-11-03). 키 이름은 v1.0.0-beta.232 의
+      # app/config/ingest.go 에서 읽었다. 비밀번호는 다른 것과 같은 자리표시자다
+      # (render-openmeter.py 의 initContainer 가 바꾼다).
+      # ★★ SASL_SSL(9095)이어야 한다 — SASL_PLAINTEXT 면 watermill/Sarama 드라이버가
+      #   SASL 을 **조용히 끄고** 무인증으로 붙어 5개 워크로드가 CrashLoop 한다
+      #   (broker.go:83 이 SASL_SSL 만 본다. overlays/local/kafka-tls.yaml 머리말).
+      #   서버 인증서는 kafka-ca 로 검증한다 — SSL_CERT_FILE(openmeter/kustomization.yaml).
+      securityProtocol: SASL_SSL
+      saslMechanisms: SCRAM-SHA-512
+      saslUsername: openmeter
+      saslPassword: __KAFKA_PASSWORD__
   # ★★ 중복 제거. 과금 정확성의 핵심이다 — Kafka 는 at-least-once 라 같은
   #   이벤트가 반드시 두 번 이상 오고, 제거하지 않으면 **고객에게 과다
   #   청구한다**(계약의 멱등성 규정, CLAUDE.md Gotcha 16).
@@ -116,4 +127,10 @@ config:
   # ★ 소비 측. ingest 와 별도 키다(위 주석 참조).
   sink:
     kafka:
-      brokers: kafka-headless:9092
+      brokers: kafka-headless:9095
+      # ingest 와 같은 사용자 — 키 이름은 app/config/kafka.go(sink 접두사). SASL_SSL 인
+      # 이유는 위 ingest 와 같다.
+      securityProtocol: SASL_SSL
+      saslMechanisms: SCRAM-SHA-512
+      saslUsername: openmeter
+      saslPassword: __KAFKA_PASSWORD__

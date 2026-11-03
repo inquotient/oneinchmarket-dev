@@ -1,0 +1,69 @@
+# Kafka SASL_SSL 리스너용 인증서 (local 전용, 2026-11-03)
+#
+# ★★ 왜 TLS 가 필요한가 — OpenMeter 하나 때문이다. OpenMeter(v1.0.0-beta.232,
+#   main 도 같다)의 watermill/Sarama 드라이버는 `securityProtocol == "SASL_SSL"`
+#   일 때만 SASL 을 켠다(openmeter/watermill/driver/kafka/broker.go:83). SASL_PLAINTEXT
+#   를 주면 SASL 설정을 **조용히 버리고** 무인증으로 붙어 9094 가 EOF 로 끊는다 —
+#   5개 워크로드가 전부 CrashLoop 했다(실측). 그래서 OpenMeter 만 SASL_SSL 리스너
+#   (TLS://:9095)로 붙는다. 다른 클라이언트는 SASL(9094) 그대로다.
+# ★ 메시 안이라 ztunnel mTLS 위에 TLS 를 한 겹 더 거는 셈이다 — 보안상 필요한 것은
+#   아니고 OpenMeter 의 코드가 요구하는 것이다.
+# ★ opensearch-certs.yaml 과 같은 모양이다: selfSigned -> CA -> 서버 인증서.
+#   클라이언트(OpenMeter)는 kafka-ca-tls 의 ca.crt 만 SSL_CERT_FILE 로 신뢰한다
+#   (CA 개인키가 같은 Secret 에 있으므로 items 로 ca.crt 만 투영할 것).
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: kafka-selfsigned
+  labels: {app.kubernetes.io/name: kafka, app.kubernetes.io/component: messaging, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: kafka-ca
+  labels: {app.kubernetes.io/name: kafka, app.kubernetes.io/component: messaging, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+spec:
+  isCA: true
+  commonName: kafka-ca
+  secretName: kafka-ca-tls
+  duration: 87600h    # 10년. 로컬 CA 를 만료로 잃는 일이 없게 한다
+  privateKey: {algorithm: RSA, size: 4096, encoding: PKCS8}
+  issuerRef: {name: kafka-selfsigned, kind: Issuer}
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: kafka-ca
+  labels: {app.kubernetes.io/name: kafka, app.kubernetes.io/component: messaging, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+spec:
+  ca: {secretName: kafka-ca-tls}
+---
+# ★ dnsNames 는 클라이언트가 실제로 쓰는 이름 전부여야 한다 — bootstrap 은
+#   kafka-headless 로, 그 다음 홉은 광고 주소(kafka-0.kafka-headless)로 붙고
+#   Sarama·librdkafka 둘 다 호스트 이름을 검증한다.
+# ★ PKCS8 이어야 한다 — Kafka 의 PEM 키스토어는 PKCS1 키를 읽지 못한다.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: kafka-tls
+  labels: {app.kubernetes.io/name: kafka, app.kubernetes.io/component: messaging, app.kubernetes.io/part-of: oneinchmarket, app.kubernetes.io/managed-by: kustomize}
+  annotations: {argocd.argoproj.io/sync-wave: "2"}
+spec:
+  commonName: kafka
+  secretName: kafka-tls
+  duration: 8760h
+  renewBefore: 720h
+  subject: {organizations: ["oneinchmarket"]}
+  dnsNames:
+    - kafka-headless
+    - kafka-headless.local.svc.cluster.local
+    - kafka-0.kafka-headless
+    - kafka-0.kafka-headless.local.svc.cluster.local
+  usages: [server auth, digital signature, key encipherment]
+  privateKey: {algorithm: RSA, size: 2048, encoding: PKCS8}
+  issuerRef: {name: kafka-ca, kind: Issuer}

@@ -46,7 +46,12 @@ data:
       #   ★ group_id 를 분리한다. SIEM 소비자와 오프셋을 공유하면 한쪽의
       #     재처리가 다른 쪽의 유실이 된다.
       kafka {
-        bootstrap_servers => "kafka-headless:9092"
+        bootstrap_servers => "kafka-headless:9094"
+        # SASL/SCRAM 사용자 logstash(2026-11-03). ${KAFKA_PASSWORD} 는 Logstash 가
+        # 환경변수로 치환한다 — 이 ConfigMap 에 값이 없다.
+        security_protocol => "SASL_PLAINTEXT"
+        sasl_mechanism => "SCRAM-SHA-512"
+        sasl_jaas_config => "org.apache.kafka.common.security.scram.ScramLoginModule required username='logstash' password='${KAFKA_PASSWORD}';"
         topics => ["api-usage"]
         group_id => "logstash-openmeter-bridge"
         codec => plain

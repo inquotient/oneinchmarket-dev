@@ -161,7 +161,13 @@ data:
       #   ★ 재시도를 켠다. 과금 이벤트의 유실은 곧 매출 누락이다.
       #     큐가 가득 차면 버리는 대신 배압을 준다(sending_queue).
       kafka/usage:
-        brokers: ["kafka-headless:9092"]
+        brokers: ["kafka-headless:9094"]
+        # SASL/SCRAM 사용자 otel(2026-11-03). 비밀번호는 env 참조뿐이다.
+        auth:
+          sasl:
+            mechanism: SCRAM-SHA-512
+            username: otel
+            password: ${env:KAFKA_PASSWORD}
         # ★ 최신 contrib 수집기는 topic·encoding 을 **신호별 블록**으로 옮겼다.
         #   최상위에 두면 기동하지 않는다:
         #     'kafkaexporter.Config' has invalid keys: encoding, topic

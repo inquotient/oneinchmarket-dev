@@ -1,0 +1,29 @@
+{
+  "service": "oim-kafka",
+  "policy": "all - cluster",
+  "_why": "Kafka 3.0+ 프로듀서는 기본이 멱등(enable.idempotence=true)이라 InitProducerId 가 CLUSTER IDEMPOTENT_WRITE 를 요구한다. 토픽 WRITE 로 대신하는 경로(authorizeByResourceType)는 Ranger 가 ACL 목록을 내지 않아 통하지 않는다 - 리소스가 * 라 기본 정책(all - cluster)에 항목으로 보탠다(같은 리소스에 정책을 둘 둘 수 없다, Ranger 3010 · Gotcha 201)",
+  "item": {
+    "users": [
+      "otel",
+      "falcosidekick",
+      "cmmn-api",
+      "kafka-connect",
+      "openmeter",
+      "zilla",
+      "edge",
+      "kafka-bridge",
+      "akhq"
+    ],
+    "groups": [],
+    "accesses": [
+      {
+        "type": "idempotent_write",
+        "isAllowed": true
+      },
+      {
+        "type": "describe",
+        "isAllowed": true
+      }
+    ]
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "service": "oim-kafka",
+  "policy": "edge.* 토픽 (LAN 클라이언트 · HTTP 다리)",
+  "_why": "Kroxylicious MultiTenant 가 붙이는 접두사 edge. 와 같은 경계 - 프록시를 우회해도 Ranger 가 같은 선을 긋는다. kafka-bridge(외부 경로를 걷은 HTTP 다리, 자체 인증 없음 SEC-206)도 쓸 곳이 정해지기 전에는 같은 경계에 둔다. 한 리소스에 정책을 둘 둘 수 없어(Ranger 3010) 둘을 한 항목에 묶었다",
+  "resources": {
+    "topic": [
+      "edge.*"
+    ]
+  },
+  "item": {
+    "users": [
+      "edge",
+      "kafka-bridge"
+    ],
+    "groups": [],
+    "accesses": [
+      {
+        "type": "publish",
+        "isAllowed": true
+      },
+      {
+        "type": "consume",
+        "isAllowed": true
+      },
+      {
+        "type": "describe",
+        "isAllowed": true
+      },
+      {
+        "type": "create",
+        "isAllowed": true
+      },
+      {
+        "type": "describe_configs",
+        "isAllowed": true
+      }
+    ]
+  }
+}

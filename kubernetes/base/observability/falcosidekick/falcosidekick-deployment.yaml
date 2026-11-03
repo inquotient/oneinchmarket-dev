@@ -60,6 +60,9 @@ spec:
                   #   Falco 가 도는 순간 경보가 전부 거기서 버려졌다(§8-64).
                   name: opensearch-secret
                   key: admin-password
+            - name: KAFKA_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: kafka-secret, key: falcosidekick-password}
             - name: SLACK_WEBHOOKURL
               valueFrom:
                 secretKeyRef:

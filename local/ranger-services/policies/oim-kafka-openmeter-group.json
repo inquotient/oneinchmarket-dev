@@ -1,0 +1,27 @@
+{
+  "service": "oim-kafka",
+  "policy": "openmeter - 워커 그룹",
+  "_why": "openmeter-sink-worker · om_balance_worker · om_billing_worker · om_notification_service",
+  "resources": {
+    "consumergroup": [
+      "openmeter-*",
+      "om_*"
+    ]
+  },
+  "item": {
+    "users": [
+      "openmeter"
+    ],
+    "groups": [],
+    "accesses": [
+      {
+        "type": "consume",
+        "isAllowed": true
+      },
+      {
+        "type": "describe",
+        "isAllowed": true
+      }
+    ]
+  }
+}

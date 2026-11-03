@@ -1,0 +1,42 @@
+{
+  "service": "oim-kafka",
+  "policy": "openmeter - om_* 토픽",
+  "_why": "네임스페이스마다 om_<ns>_events 를 스스로 만든다 · om_sys.* 는 워커 간 이벤트",
+  "resources": {
+    "topic": [
+      "om_*"
+    ]
+  },
+  "item": {
+    "users": [
+      "openmeter"
+    ],
+    "groups": [],
+    "accesses": [
+      {
+        "type": "publish",
+        "isAllowed": true
+      },
+      {
+        "type": "consume",
+        "isAllowed": true
+      },
+      {
+        "type": "describe",
+        "isAllowed": true
+      },
+      {
+        "type": "create",
+        "isAllowed": true
+      },
+      {
+        "type": "describe_configs",
+        "isAllowed": true
+      },
+      {
+        "type": "configure",
+        "isAllowed": true
+      }
+    ]
+  }
+}

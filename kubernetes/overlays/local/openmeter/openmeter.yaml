@@ -34,14 +34,14 @@ data:
     \    database: openmeter\n    password: __CLICKHOUSE_PASSWORD__\n    username:\
     \ openmeter\ndedupe:\n  config:\n    address: redis-headless:6379\n    database:\
     \ 0\n    expiration: 768h\n    password: __REDIS_PASSWORD__\n  driver: redis\n\
-    \  enabled: true\ningest:\n  kafka:\n    broker: kafka-headless:9092\nmeters:\n\
+    \  enabled: true\ningest:\n  kafka:\n    broker: kafka-headless:9095\n    securityProtocol: SASL_SSL\n    saslMechanisms: SCRAM-SHA-512\n    saslUsername: openmeter\n    saslPassword: __KAFKA_PASSWORD__\nmeters:\n\
     - aggregation: COUNT\n  description: API 호출 수 (과금 기준)\n  eventType: io.oneinchmarket.api.request.v1\n\
     \  groupBy:\n    method: $.method\n    route: $.route\n    status: $.status\n\
     \  slug: api_requests_total\n- aggregation: SUM\n  description: 응답 바이트 (대역 과금용)\n\
     \  eventType: io.oneinchmarket.api.request.v1\n  groupBy:\n    route: $.route\n\
     \  slug: api_response_bytes\n  valueProperty: $.response_bytes\npostgres:\n  autoMigrate:\
     \ migration\n  url: postgres://openmeter:__POSTGRES_PASSWORD__@postgresql-headless:5432/openmeter?sslmode=disable\n\
-    sink:\n  kafka:\n    brokers: kafka-headless:9092\n"
+    sink:\n  kafka:\n    brokers: kafka-headless:9095\n    securityProtocol: SASL_SSL\n    saslMechanisms: SCRAM-SHA-512\n    saslUsername: openmeter\n    saslPassword: __KAFKA_PASSWORD__\n"
 ---
 apiVersion: v1
 kind: Service
@@ -163,12 +163,19 @@ spec:
         - /bin/sh
         - -c
         args:
-        - "set -eu\nsed -e \"s|__CLICKHOUSE_PASSWORD__|${CLICKHOUSE_PASSWORD}|\" \
-          \    -e \"s|__POSTGRES_PASSWORD__|${POSTGRES_PASSWORD}|\"     -e \"s|__REDIS_PASSWORD__|${REDIS_PASSWORD}|\"\
-          \     /src/config.yaml > /out/config.yaml\nif grep -qE '__(CLICKHOUSE|POSTGRES|REDIS)_PASSWORD__'\
-          \ /out/config.yaml; then\n  echo '[render-config] 치환 실패 — 자리표시자가 남았다.' >&2\n\
-          \  echo '[render-config] 그대로 기동하면 인증이 실패한다.' >&2\n  exit 1\nfi\necho '[render-config]\
-          \ 완료'\n"
+        - |
+          set -eu
+          sed -e "s|__CLICKHOUSE_PASSWORD__|${CLICKHOUSE_PASSWORD}|" \
+              -e "s|__POSTGRES_PASSWORD__|${POSTGRES_PASSWORD}|" \
+              -e "s|__REDIS_PASSWORD__|${REDIS_PASSWORD}|" \
+              -e "s|__KAFKA_PASSWORD__|${KAFKA_PASSWORD}|g" \
+              /src/config.yaml > /out/config.yaml
+          if grep -qE '__(CLICKHOUSE|POSTGRES|REDIS|KAFKA)_PASSWORD__' /out/config.yaml; then
+            echo '[render-config] 치환 실패 — 자리표시자가 남았다.' >&2
+            echo '[render-config] 그대로 기동하면 인증이 실패한다.' >&2
+            exit 1
+          fi
+          echo '[render-config] 완료'
         env:
         - name: CLICKHOUSE_PASSWORD
           valueFrom:
@@ -185,6 +192,11 @@ spec:
             secretKeyRef:
               name: redis-secret
               key: redis-password
+        - name: KAFKA_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: kafka-secret
+              key: openmeter-password
         securityContext:
           allowPrivilegeEscalation: false
           capabilities: *id001
@@ -293,12 +305,19 @@ spec:
         - /bin/sh
         - -c
         args:
-        - "set -eu\nsed -e \"s|__CLICKHOUSE_PASSWORD__|${CLICKHOUSE_PASSWORD}|\" \
-          \    -e \"s|__POSTGRES_PASSWORD__|${POSTGRES_PASSWORD}|\"     -e \"s|__REDIS_PASSWORD__|${REDIS_PASSWORD}|\"\
-          \     /src/config.yaml > /out/config.yaml\nif grep -qE '__(CLICKHOUSE|POSTGRES|REDIS)_PASSWORD__'\
-          \ /out/config.yaml; then\n  echo '[render-config] 치환 실패 — 자리표시자가 남았다.' >&2\n\
-          \  echo '[render-config] 그대로 기동하면 인증이 실패한다.' >&2\n  exit 1\nfi\necho '[render-config]\
-          \ 완료'\n"
+        - |
+          set -eu
+          sed -e "s|__CLICKHOUSE_PASSWORD__|${CLICKHOUSE_PASSWORD}|" \
+              -e "s|__POSTGRES_PASSWORD__|${POSTGRES_PASSWORD}|" \
+              -e "s|__REDIS_PASSWORD__|${REDIS_PASSWORD}|" \
+              -e "s|__KAFKA_PASSWORD__|${KAFKA_PASSWORD}|g" \
+              /src/config.yaml > /out/config.yaml
+          if grep -qE '__(CLICKHOUSE|POSTGRES|REDIS|KAFKA)_PASSWORD__' /out/config.yaml; then
+            echo '[render-config] 치환 실패 — 자리표시자가 남았다.' >&2
+            echo '[render-config] 그대로 기동하면 인증이 실패한다.' >&2
+            exit 1
+          fi
+          echo '[render-config] 완료'
         env:
         - name: CLICKHOUSE_PASSWORD
           valueFrom:
@@ -315,6 +334,11 @@ spec:
             secretKeyRef:
               name: redis-secret
               key: redis-password
+        - name: KAFKA_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: kafka-secret
+              key: openmeter-password
         securityContext:
           allowPrivilegeEscalation: false
           capabilities: *id001
@@ -423,12 +447,19 @@ spec:
         - /bin/sh
         - -c
         args:
-        - "set -eu\nsed -e \"s|__CLICKHOUSE_PASSWORD__|${CLICKHOUSE_PASSWORD}|\" \
-          \    -e \"s|__POSTGRES_PASSWORD__|${POSTGRES_PASSWORD}|\"     -e \"s|__REDIS_PASSWORD__|${REDIS_PASSWORD}|\"\
-          \     /src/config.yaml > /out/config.yaml\nif grep -qE '__(CLICKHOUSE|POSTGRES|REDIS)_PASSWORD__'\
-          \ /out/config.yaml; then\n  echo '[render-config] 치환 실패 — 자리표시자가 남았다.' >&2\n\
-          \  echo '[render-config] 그대로 기동하면 인증이 실패한다.' >&2\n  exit 1\nfi\necho '[render-config]\
-          \ 완료'\n"
+        - |
+          set -eu
+          sed -e "s|__CLICKHOUSE_PASSWORD__|${CLICKHOUSE_PASSWORD}|" \
+              -e "s|__POSTGRES_PASSWORD__|${POSTGRES_PASSWORD}|" \
+              -e "s|__REDIS_PASSWORD__|${REDIS_PASSWORD}|" \
+              -e "s|__KAFKA_PASSWORD__|${KAFKA_PASSWORD}|g" \
+              /src/config.yaml > /out/config.yaml
+          if grep -qE '__(CLICKHOUSE|POSTGRES|REDIS|KAFKA)_PASSWORD__' /out/config.yaml; then
+            echo '[render-config] 치환 실패 — 자리표시자가 남았다.' >&2
+            echo '[render-config] 그대로 기동하면 인증이 실패한다.' >&2
+            exit 1
+          fi
+          echo '[render-config] 완료'
         env:
         - name: CLICKHOUSE_PASSWORD
           valueFrom:
@@ -445,6 +476,11 @@ spec:
             secretKeyRef:
               name: redis-secret
               key: redis-password
+        - name: KAFKA_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: kafka-secret
+              key: openmeter-password
         securityContext:
           allowPrivilegeEscalation: false
           capabilities: *id001
@@ -553,12 +589,19 @@ spec:
         - /bin/sh
         - -c
         args:
-        - "set -eu\nsed -e \"s|__CLICKHOUSE_PASSWORD__|${CLICKHOUSE_PASSWORD}|\" \
-          \    -e \"s|__POSTGRES_PASSWORD__|${POSTGRES_PASSWORD}|\"     -e \"s|__REDIS_PASSWORD__|${REDIS_PASSWORD}|\"\
-          \     /src/config.yaml > /out/config.yaml\nif grep -qE '__(CLICKHOUSE|POSTGRES|REDIS)_PASSWORD__'\
-          \ /out/config.yaml; then\n  echo '[render-config] 치환 실패 — 자리표시자가 남았다.' >&2\n\
-          \  echo '[render-config] 그대로 기동하면 인증이 실패한다.' >&2\n  exit 1\nfi\necho '[render-config]\
-          \ 완료'\n"
+        - |
+          set -eu
+          sed -e "s|__CLICKHOUSE_PASSWORD__|${CLICKHOUSE_PASSWORD}|" \
+              -e "s|__POSTGRES_PASSWORD__|${POSTGRES_PASSWORD}|" \
+              -e "s|__REDIS_PASSWORD__|${REDIS_PASSWORD}|" \
+              -e "s|__KAFKA_PASSWORD__|${KAFKA_PASSWORD}|g" \
+              /src/config.yaml > /out/config.yaml
+          if grep -qE '__(CLICKHOUSE|POSTGRES|REDIS|KAFKA)_PASSWORD__' /out/config.yaml; then
+            echo '[render-config] 치환 실패 — 자리표시자가 남았다.' >&2
+            echo '[render-config] 그대로 기동하면 인증이 실패한다.' >&2
+            exit 1
+          fi
+          echo '[render-config] 완료'
         env:
         - name: CLICKHOUSE_PASSWORD
           valueFrom:
@@ -575,6 +618,11 @@ spec:
             secretKeyRef:
               name: redis-secret
               key: redis-password
+        - name: KAFKA_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: kafka-secret
+              key: openmeter-password
         securityContext:
           allowPrivilegeEscalation: false
           capabilities: *id001
@@ -683,12 +731,19 @@ spec:
         - /bin/sh
         - -c
         args:
-        - "set -eu\nsed -e \"s|__CLICKHOUSE_PASSWORD__|${CLICKHOUSE_PASSWORD}|\" \
-          \    -e \"s|__POSTGRES_PASSWORD__|${POSTGRES_PASSWORD}|\"     -e \"s|__REDIS_PASSWORD__|${REDIS_PASSWORD}|\"\
-          \     /src/config.yaml > /out/config.yaml\nif grep -qE '__(CLICKHOUSE|POSTGRES|REDIS)_PASSWORD__'\
-          \ /out/config.yaml; then\n  echo '[render-config] 치환 실패 — 자리표시자가 남았다.' >&2\n\
-          \  echo '[render-config] 그대로 기동하면 인증이 실패한다.' >&2\n  exit 1\nfi\necho '[render-config]\
-          \ 완료'\n"
+        - |
+          set -eu
+          sed -e "s|__CLICKHOUSE_PASSWORD__|${CLICKHOUSE_PASSWORD}|" \
+              -e "s|__POSTGRES_PASSWORD__|${POSTGRES_PASSWORD}|" \
+              -e "s|__REDIS_PASSWORD__|${REDIS_PASSWORD}|" \
+              -e "s|__KAFKA_PASSWORD__|${KAFKA_PASSWORD}|g" \
+              /src/config.yaml > /out/config.yaml
+          if grep -qE '__(CLICKHOUSE|POSTGRES|REDIS|KAFKA)_PASSWORD__' /out/config.yaml; then
+            echo '[render-config] 치환 실패 — 자리표시자가 남았다.' >&2
+            echo '[render-config] 그대로 기동하면 인증이 실패한다.' >&2
+            exit 1
+          fi
+          echo '[render-config] 완료'
         env:
         - name: CLICKHOUSE_PASSWORD
           valueFrom:
@@ -705,6 +760,11 @@ spec:
             secretKeyRef:
               name: redis-secret
               key: redis-password
+        - name: KAFKA_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: kafka-secret
+              key: openmeter-password
         securityContext:
           allowPrivilegeEscalation: false
           capabilities: *id001
@@ -825,12 +885,19 @@ spec:
             - /bin/sh
             - -c
             args:
-            - "set -eu\nsed -e \"s|__CLICKHOUSE_PASSWORD__|${CLICKHOUSE_PASSWORD}|\"\
-              \     -e \"s|__POSTGRES_PASSWORD__|${POSTGRES_PASSWORD}|\"     -e \"\
-              s|__REDIS_PASSWORD__|${REDIS_PASSWORD}|\"     /src/config.yaml > /out/config.yaml\n\
-              if grep -qE '__(CLICKHOUSE|POSTGRES|REDIS)_PASSWORD__' /out/config.yaml;\
-              \ then\n  echo '[render-config] 치환 실패 — 자리표시자가 남았다.' >&2\n  echo '[render-config]\
-              \ 그대로 기동하면 인증이 실패한다.' >&2\n  exit 1\nfi\necho '[render-config] 완료'\n"
+            - |
+              set -eu
+              sed -e "s|__CLICKHOUSE_PASSWORD__|${CLICKHOUSE_PASSWORD}|" \
+                  -e "s|__POSTGRES_PASSWORD__|${POSTGRES_PASSWORD}|" \
+                  -e "s|__REDIS_PASSWORD__|${REDIS_PASSWORD}|" \
+                  -e "s|__KAFKA_PASSWORD__|${KAFKA_PASSWORD}|g" \
+                  /src/config.yaml > /out/config.yaml
+              if grep -qE '__(CLICKHOUSE|POSTGRES|REDIS|KAFKA)_PASSWORD__' /out/config.yaml; then
+                echo '[render-config] 치환 실패 — 자리표시자가 남았다.' >&2
+                echo '[render-config] 그대로 기동하면 인증이 실패한다.' >&2
+                exit 1
+              fi
+              echo '[render-config] 완료'
             env:
             - name: CLICKHOUSE_PASSWORD
               valueFrom:
@@ -847,6 +914,11 @@ spec:
                 secretKeyRef:
                   name: redis-secret
                   key: redis-password
+            - name: KAFKA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kafka-secret
+                  key: openmeter-password
             securityContext:
               allowPrivilegeEscalation: false
               capabilities: *id001
@@ -967,12 +1039,19 @@ spec:
             - /bin/sh
             - -c
             args:
-            - "set -eu\nsed -e \"s|__CLICKHOUSE_PASSWORD__|${CLICKHOUSE_PASSWORD}|\"\
-              \     -e \"s|__POSTGRES_PASSWORD__|${POSTGRES_PASSWORD}|\"     -e \"\
-              s|__REDIS_PASSWORD__|${REDIS_PASSWORD}|\"     /src/config.yaml > /out/config.yaml\n\
-              if grep -qE '__(CLICKHOUSE|POSTGRES|REDIS)_PASSWORD__' /out/config.yaml;\
-              \ then\n  echo '[render-config] 치환 실패 — 자리표시자가 남았다.' >&2\n  echo '[render-config]\
-              \ 그대로 기동하면 인증이 실패한다.' >&2\n  exit 1\nfi\necho '[render-config] 완료'\n"
+            - |
+              set -eu
+              sed -e "s|__CLICKHOUSE_PASSWORD__|${CLICKHOUSE_PASSWORD}|" \
+                  -e "s|__POSTGRES_PASSWORD__|${POSTGRES_PASSWORD}|" \
+                  -e "s|__REDIS_PASSWORD__|${REDIS_PASSWORD}|" \
+                  -e "s|__KAFKA_PASSWORD__|${KAFKA_PASSWORD}|g" \
+                  /src/config.yaml > /out/config.yaml
+              if grep -qE '__(CLICKHOUSE|POSTGRES|REDIS|KAFKA)_PASSWORD__' /out/config.yaml; then
+                echo '[render-config] 치환 실패 — 자리표시자가 남았다.' >&2
+                echo '[render-config] 그대로 기동하면 인증이 실패한다.' >&2
+                exit 1
+              fi
+              echo '[render-config] 완료'
             env:
             - name: CLICKHOUSE_PASSWORD
               valueFrom:
@@ -989,6 +1068,11 @@ spec:
                 secretKeyRef:
                   name: redis-secret
                   key: redis-password
+            - name: KAFKA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kafka-secret
+                  key: openmeter-password
             securityContext:
               allowPrivilegeEscalation: false
               capabilities: *id001
@@ -1109,12 +1193,19 @@ spec:
             - /bin/sh
             - -c
             args:
-            - "set -eu\nsed -e \"s|__CLICKHOUSE_PASSWORD__|${CLICKHOUSE_PASSWORD}|\"\
-              \     -e \"s|__POSTGRES_PASSWORD__|${POSTGRES_PASSWORD}|\"     -e \"\
-              s|__REDIS_PASSWORD__|${REDIS_PASSWORD}|\"     /src/config.yaml > /out/config.yaml\n\
-              if grep -qE '__(CLICKHOUSE|POSTGRES|REDIS)_PASSWORD__' /out/config.yaml;\
-              \ then\n  echo '[render-config] 치환 실패 — 자리표시자가 남았다.' >&2\n  echo '[render-config]\
-              \ 그대로 기동하면 인증이 실패한다.' >&2\n  exit 1\nfi\necho '[render-config] 완료'\n"
+            - |
+              set -eu
+              sed -e "s|__CLICKHOUSE_PASSWORD__|${CLICKHOUSE_PASSWORD}|" \
+                  -e "s|__POSTGRES_PASSWORD__|${POSTGRES_PASSWORD}|" \
+                  -e "s|__REDIS_PASSWORD__|${REDIS_PASSWORD}|" \
+                  -e "s|__KAFKA_PASSWORD__|${KAFKA_PASSWORD}|g" \
+                  /src/config.yaml > /out/config.yaml
+              if grep -qE '__(CLICKHOUSE|POSTGRES|REDIS|KAFKA)_PASSWORD__' /out/config.yaml; then
+                echo '[render-config] 치환 실패 — 자리표시자가 남았다.' >&2
+                echo '[render-config] 그대로 기동하면 인증이 실패한다.' >&2
+                exit 1
+              fi
+              echo '[render-config] 완료'
             env:
             - name: CLICKHOUSE_PASSWORD
               valueFrom:
@@ -1131,6 +1222,11 @@ spec:
                 secretKeyRef:
                   name: redis-secret
                   key: redis-password
+            - name: KAFKA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kafka-secret
+                  key: openmeter-password
             securityContext:
               allowPrivilegeEscalation: false
               capabilities: *id001

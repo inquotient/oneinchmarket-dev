@@ -54,9 +54,45 @@ spec:
           args:
             - |
               set -eu
-              BS=kafka-headless:9092
+              # ★ SASL 리스너(9094)에 브로커 사용자 `kafka`(PLAIN)로 붙는다 —
+              #   SCRAM 사용자를 만드는 일이 이 Job 이라 SCRAM 으로는 붙을 수 없다.
+              BS=kafka-headless:9094
+              CFG=/tmp/admin.properties
+              umask 077
+              {
+                echo "security.protocol=SASL_PLAINTEXT"
+                echo "sasl.mechanism=PLAIN"
+                echo "sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username=\"kafka\" password=\"$(cat /etc/kafka-users/broker-password)\";"
+              } > "$CFG"
               echo "[kafka-topics] Kafka 대기"
-              until /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server "$BS" >/dev/null 2>&1; do sleep 5; done
+              until /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server "$BS" --command-config "$CFG" >/dev/null 2>&1; do sleep 5; done
+
+              # ── SCRAM 사용자 (2026-11-03) ──
+              # kafka-secret 의 `<사용자>-password` 키 전부를 SCRAM-SHA-512 사용자로
+              # 만든다(이미 있으면 같은 값으로 덮는다 — 멱등). 자격은 Kafka 메타데이터에만
+              # 살아 매니페스트로는 복구되지 않으므로, 재구축 때 이 Job 이 되살린다.
+              # ★ --add-config-file 을 쓰지 말 것 — 키의 `-` 를 `_` 로 바꿔 읽고
+              #   (`Invalid credential property SCRAM_SHA_512=[password=...]`) 그 줄을
+              #   **비밀번호째 오류로 찍는다**(2026-11-03 실측 — 그 값은 재발급했다).
+              #   그래서 인자로 넘기고(이 Job 의 프로세스 네임스페이스에서만 보인다)
+              #   오류 출력은 password= 를 가린 뒤에만 내보낸다(Gotcha 186).
+              n=0
+              for f in /etc/kafka-users/*-password; do
+                u=$(basename "$f" -password)
+                [ "$u" = broker ] && continue
+                if ! /opt/kafka/bin/kafka-configs.sh --bootstrap-server "$BS" --command-config "$CFG" \
+                       --alter --entity-type users --entity-name "$u" \
+                       --add-config "SCRAM-SHA-512=[password=$(cat "$f")]" >/tmp/kc.out 2>&1; then
+                  sed -E 's/password=[^],]*/password=***/g' /tmp/kc.out
+                  echo "[kafka-topics] SCRAM 사용자 $u 실패"; exit 1
+                fi
+                n=$((n+1))
+                echo "[kafka-topics] SCRAM 사용자 $u"
+              done
+              rm -f /tmp/kc.out
+              # fail-closed: 하나도 못 만들었으면 Secret 이 안 붙은 것이다.
+              [ "$n" -gt 0 ] || { echo "[kafka-topics] SCRAM 사용자 0명 — kafka-secret 을 볼 것"; exit 1; }
+
               # 로컬은 단일 브로커라 replication-factor 1 이다.
               # ★ api-usage 는 과금 이벤트다. 파티션을 subject(테넌트)로 나누면
               #   한 고객의 이벤트 순서가 유지되어 집계와 정정이 단순해진다
@@ -64,11 +100,11 @@ spec:
               #   보존 기간은 청구 분쟁 대응 기간을 따라야 하며 아직 미결이다 —
               #   집계 후 원본을 버리면 재계산과 감사가 불가능해진다.
               for t in keycloak-events falco-alerts trivy-reports api-usage; do
-                /opt/kafka/bin/kafka-topics.sh --bootstrap-server "$BS" \
+                /opt/kafka/bin/kafka-topics.sh --bootstrap-server "$BS" --command-config "$CFG" \
                   --create --if-not-exists --topic "$t" --partitions 3 --replication-factor 1
                 echo "[kafka-topics] topic $t"
               done
-              /opt/kafka/bin/kafka-topics.sh --bootstrap-server "$BS" --list
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server "$BS" --command-config "$CFG" --list
               echo "[kafka-topics] 완료"
           securityContext:
             allowPrivilegeEscalation: false
@@ -76,3 +112,10 @@ spec:
           resources:
             requests: { cpu: 100m, memory: 256Mi }
             limits:   { cpu: 500m, memory: 512Mi }
+          volumeMounts:
+            - {name: kafka-users, mountPath: /etc/kafka-users, readOnly: true}
+      volumes:
+        - name: kafka-users
+          secret:
+            secretName: kafka-secret
+            defaultMode: 0440

@@ -51,6 +51,10 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "3"
 data:
+  # ★ Kafka SASL(2026-11-03) — 프록시는 자격을 갖지 않는다. 클라이언트의
+  #   SaslHandshake·SaslAuthenticate 를 그대로 상류(9094)로 넘기므로 LAN
+  #   클라이언트는 **자기** SCRAM 자격(사용자 `edge`)으로 인증한다. 그래서
+  #   Ranger 가 보는 주체도 프록시가 아니라 그 클라이언트다.
   # ★ 리터럴 블록 안에 `#` 주석을 쓰지 말 것 — 값의 일부가 된다(Gotcha 83).
   #   필터 `edge-tenant` 가 가상 클러스터 이름 `edge` 와 구분자 `.` 로 실제
   #   토픽·컨슈머 그룹 이름 앞에 `edge.` 를 붙이고 응답에서 뗀다.
@@ -60,7 +64,7 @@ data:
         prometheus: {}
     clusterDefinitions:
       - name: oim
-        bootstrapServers: kafka-headless:9092
+        bootstrapServers: kafka-headless:9094
     virtualClusters:
       - name: edge
         target:

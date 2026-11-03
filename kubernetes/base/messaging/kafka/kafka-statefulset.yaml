@@ -38,18 +38,33 @@ spec:
             - -c
             - |
               export KAFKA_NODE_ID=${HOSTNAME##*-}
-              export KAFKA_ADVERTISED_LISTENERS="PLAINTEXT://${HOSTNAME}.kafka-headless:9092"
+              export KAFKA_ADVERTISED_LISTENERS="SASL://${HOSTNAME}.kafka-headless:9094"
               /etc/kafka/docker/run
           ports:
-            - containerPort: 9092
-              name: plaintext
-              protocol: TCP
             - containerPort: 9093
               name: controller
+              protocol: TCP
+            - containerPort: 9094
+              name: sasl
               protocol: TCP
           envFrom:
             - configMapRef:
                 name: kafka-config
+          # ★ JAAS 는 이미지가 KAFKA_* 환경변수를 속성으로 바꿔 넣는다
+          #   (`_`->`.`, `__`->`_`, `___`->`-`). 비밀번호 변수는 KAFKA_ 로 시작하지
+          #   않게 둔다 — 그러면 그 자체가 엉뚱한 속성으로 server.properties 에 실린다.
+          # ★ `$(OIM_KAFKA_BROKER_PASSWORD)` 는 쿠버네티스가 앞 항목으로 펼친다 —
+          #   순서를 바꾸지 말 것.
+          env:
+            - name: OIM_KAFKA_BROKER_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: kafka-secret, key: broker-password}
+            - name: KAFKA_LISTENER_NAME_SASL_PLAIN_SASL_JAAS_CONFIG
+              value: 'org.apache.kafka.common.security.plain.PlainLoginModule required username="kafka" password="$(OIM_KAFKA_BROKER_PASSWORD)" user_kafka="$(OIM_KAFKA_BROKER_PASSWORD)";'
+            - name: KAFKA_LISTENER_NAME_CONTROLLER_PLAIN_SASL_JAAS_CONFIG
+              value: 'org.apache.kafka.common.security.plain.PlainLoginModule required username="kafka" password="$(OIM_KAFKA_BROKER_PASSWORD)" user_kafka="$(OIM_KAFKA_BROKER_PASSWORD)";'
+            - name: KAFKA_LISTENER_NAME_SASL_SCRAM___SHA___512_SASL_JAAS_CONFIG
+              value: 'org.apache.kafka.common.security.scram.ScramLoginModule required;'
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -64,17 +79,17 @@ spec:
               memory: 4Gi
           startupProbe:
             tcpSocket:
-              port: plaintext
+              port: sasl
             failureThreshold: 30
             periodSeconds: 10
           livenessProbe:
             tcpSocket:
-              port: plaintext
+              port: sasl
             periodSeconds: 10
             timeoutSeconds: 5
           readinessProbe:
             tcpSocket:
-              port: plaintext
+              port: sasl
             periodSeconds: 10
             timeoutSeconds: 5
           volumeMounts:

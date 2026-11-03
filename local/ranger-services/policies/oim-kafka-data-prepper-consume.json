@@ -1,0 +1,27 @@
+{
+  "service": "oim-kafka",
+  "policy": "data-prepper - SIEM 소비",
+  "_why": "siem-pipeline 의 kafka source",
+  "resources": {
+    "topic": [
+      "keycloak-events",
+      "falco-alerts"
+    ]
+  },
+  "item": {
+    "users": [
+      "data-prepper"
+    ],
+    "groups": [],
+    "accesses": [
+      {
+        "type": "consume",
+        "isAllowed": true
+      },
+      {
+        "type": "describe",
+        "isAllowed": true
+      }
+    ]
+  }
+}

@@ -1,0 +1,2035 @@
+{
+ "auditMode": "audit-default",
+ "policies": [
+  {
+   "description": "Policy for all - consumergroup",
+   "guid": "2dc79a98-4215-4f21-8541-aacdf3fd5650",
+   "id": 32,
+   "isAuditEnabled": true,
+   "isDenyAllElse": false,
+   "isEnabled": true,
+   "name": "all - consumergroup",
+   "policyItems": [
+    {
+     "accesses": [
+      {
+       "isAllowed": true,
+       "type": "consume"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe"
+      },
+      {
+       "isAllowed": true,
+       "type": "delete"
+      }
+     ],
+     "delegateAdmin": true,
+     "users": [
+      "kafka"
+     ]
+    },
+    {
+     "accesses": [
+      {
+       "isAllowed": true,
+       "type": "consume"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe"
+      },
+      {
+       "isAllowed": true,
+       "type": "delete"
+      }
+     ],
+     "delegateAdmin": false,
+     "users": [
+      "akhq"
+     ]
+    }
+   ],
+   "policyPriority": 0,
+   "policyType": 0,
+   "resources": {
+    "consumergroup": {
+     "isExcludes": false,
+     "isRecursive": false,
+     "values": [
+      "*"
+     ]
+    }
+   },
+   "service": "oim-kafka",
+   "serviceType": "kafka",
+   "version": 3
+  },
+  {
+   "description": "Policy for all - topic",
+   "guid": "f560810d-27b5-4eb9-8dd3-ce8ff4e1fcf5",
+   "id": 33,
+   "isAuditEnabled": true,
+   "isDenyAllElse": false,
+   "isEnabled": true,
+   "name": "all - topic",
+   "policyItems": [
+    {
+     "accesses": [
+      {
+       "isAllowed": true,
+       "type": "publish"
+      },
+      {
+       "isAllowed": true,
+       "type": "consume"
+      },
+      {
+       "isAllowed": true,
+       "type": "configure"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe"
+      },
+      {
+       "isAllowed": true,
+       "type": "create"
+      },
+      {
+       "isAllowed": true,
+       "type": "delete"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe_configs"
+      },
+      {
+       "isAllowed": true,
+       "type": "alter_configs"
+      },
+      {
+       "isAllowed": true,
+       "type": "alter"
+      }
+     ],
+     "delegateAdmin": true,
+     "users": [
+      "kafka"
+     ]
+    },
+    {
+     "accesses": [
+      {
+       "isAllowed": true,
+       "type": "publish"
+      },
+      {
+       "isAllowed": true,
+       "type": "consume"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe"
+      },
+      {
+       "isAllowed": true,
+       "type": "create"
+      },
+      {
+       "isAllowed": true,
+       "type": "delete"
+      },
+      {
+       "isAllowed": true,
+       "type": "configure"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe_configs"
+      },
+      {
+       "isAllowed": true,
+       "type": "alter_configs"
+      },
+      {
+       "isAllowed": true,
+       "type": "alter"
+      }
+     ],
+     "delegateAdmin": false,
+     "users": [
+      "akhq"
+     ]
+    }
+   ],
+   "policyPriority": 0,
+   "policyType": 0,
+   "resources": {
+    "topic": {
+     "isExcludes": false,
+     "isRecursive": false,
+     "values": [
+      "*"
+     ]
+    }
+   },
+   "service": "oim-kafka",
+   "serviceType": "kafka",
+   "version": 3
+  },
+  {
+   "description": "Policy for all - transactionalid",
+   "guid": "7becf2eb-dae1-4db2-b057-3a320a9acc51",
+   "id": 34,
+   "isAuditEnabled": true,
+   "isDenyAllElse": false,
+   "isEnabled": true,
+   "name": "all - transactionalid",
+   "policyItems": [
+    {
+     "accesses": [
+      {
+       "isAllowed": true,
+       "type": "publish"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe"
+      }
+     ],
+     "delegateAdmin": true,
+     "users": [
+      "kafka"
+     ]
+    }
+   ],
+   "policyPriority": 0,
+   "policyType": 0,
+   "resources": {
+    "transactionalid": {
+     "isExcludes": false,
+     "isRecursive": false,
+     "values": [
+      "*"
+     ]
+    }
+   },
+   "service": "oim-kafka",
+   "serviceType": "kafka",
+   "version": 2
+  },
+  {
+   "description": "Policy for all - cluster",
+   "guid": "51146398-2cde-45d8-a0ce-4c9d62dfa456",
+   "id": 35,
+   "isAuditEnabled": true,
+   "isDenyAllElse": false,
+   "isEnabled": true,
+   "name": "all - cluster",
+   "policyItems": [
+    {
+     "accesses": [
+      {
+       "isAllowed": true,
+       "type": "configure"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe"
+      },
+      {
+       "isAllowed": true,
+       "type": "kafka_admin"
+      },
+      {
+       "isAllowed": true,
+       "type": "create"
+      },
+      {
+       "isAllowed": true,
+       "type": "idempotent_write"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe_configs"
+      },
+      {
+       "isAllowed": true,
+       "type": "alter_configs"
+      },
+      {
+       "isAllowed": true,
+       "type": "cluster_action"
+      },
+      {
+       "isAllowed": true,
+       "type": "alter"
+      }
+     ],
+     "delegateAdmin": true,
+     "users": [
+      "kafka"
+     ]
+    },
+    {
+     "accesses": [
+      {
+       "isAllowed": true,
+       "type": "idempotent_write"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe"
+      }
+     ],
+     "delegateAdmin": false,
+     "users": [
+      "otel",
+      "falcosidekick",
+      "cmmn-api",
+      "kafka-connect",
+      "openmeter",
+      "zilla",
+      "edge",
+      "kafka-bridge",
+      "akhq"
+     ]
+    },
+    {
+     "accesses": [
+      {
+       "isAllowed": true,
+       "type": "describe"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe_configs"
+      }
+     ],
+     "delegateAdmin": false,
+     "users": [
+      "akhq"
+     ]
+    }
+   ],
+   "policyPriority": 0,
+   "policyType": 0,
+   "resources": {
+    "cluster": {
+     "isExcludes": false,
+     "isRecursive": false,
+     "values": [
+      "*"
+     ]
+    }
+   },
+   "service": "oim-kafka",
+   "serviceType": "kafka",
+   "version": 4
+  },
+  {
+   "description": "Policy for all - delegationtoken",
+   "guid": "dfd4fb9e-d5c1-4235-b29e-f0c41e119382",
+   "id": 36,
+   "isAuditEnabled": true,
+   "isDenyAllElse": false,
+   "isEnabled": true,
+   "name": "all - delegationtoken",
+   "policyItems": [
+    {
+     "accesses": [
+      {
+       "isAllowed": true,
+       "type": "describe"
+      }
+     ],
+     "delegateAdmin": true,
+     "users": [
+      "kafka"
+     ]
+    }
+   ],
+   "policyPriority": 0,
+   "policyType": 0,
+   "resources": {
+    "delegationtoken": {
+     "isExcludes": false,
+     "isRecursive": false,
+     "values": [
+      "*"
+     ]
+    }
+   },
+   "service": "oim-kafka",
+   "serviceType": "kafka",
+   "version": 2
+  },
+  {
+   "description": "dev-api-cmmn-menu-consumer · -multilanguage-consumer",
+   "guid": "c77ec10b-e1f0-4b8b-b6bf-7e56345c3cdc",
+   "id": 39,
+   "isAuditEnabled": true,
+   "isDenyAllElse": false,
+   "isEnabled": true,
+   "name": "cmmn-api - 컨슈머 그룹",
+   "policyItems": [
+    {
+     "accesses": [
+      {
+       "isAllowed": true,
+       "type": "consume"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe"
+      }
+     ],
+     "delegateAdmin": false,
+     "users": [
+      "cmmn-api"
+     ]
+    }
+   ],
+   "policyPriority": 0,
+   "policyType": 0,
+   "resources": {
+    "consumergroup": {
+     "isExcludes": false,
+     "isRecursive": false,
+     "values": [
+      "dev-api-cmmn-*"
+     ]
+    }
+   },
+   "service": "oim-kafka",
+   "serviceType": "kafka",
+   "version": 1
+  },
+  {
+   "description": "게시(-refresh)와 소비를 같은 앱이 한다(Gotcha 94)",
+   "guid": "5d6489b4-e406-46d3-806a-6e76e1479229",
+   "id": 40,
+   "isAuditEnabled": true,
+   "isDenyAllElse": false,
+   "isEnabled": true,
+   "name": "cmmn-api - 다국어·메뉴 토픽",
+   "policyItems": [
+    {
+     "accesses": [
+      {
+       "isAllowed": true,
+       "type": "publish"
+      },
+      {
+       "isAllowed": true,
+       "type": "consume"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe"
+      }
+     ],
+     "delegateAdmin": false,
+     "users": [
+      "cmmn-api"
+     ]
+    }
+   ],
+   "policyPriority": 0,
+   "policyType": 0,
+   "resources": {
+    "topic": {
+     "isExcludes": false,
+     "isRecursive": false,
+     "values": [
+      "dev.api.cmmn.*"
+     ]
+    }
+   },
+   "service": "oim-kafka",
+   "serviceType": "kafka",
+   "version": 1
+  },
+  {
+   "description": "워커 그룹(group.id=oim-connect)과 싱크 커넥터의 connect-<이름> 그룹",
+   "guid": "2b5b42fe-fa61-459c-9974-f936bbbb2269",
+   "id": 41,
+   "isAuditEnabled": true,
+   "isDenyAllElse": false,
+   "isEnabled": true,
+   "name": "kafka-connect - 워커·커넥터 그룹",
+   "policyItems": [
+    {
+     "accesses": [
+      {
+       "isAllowed": true,
+       "type": "consume"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe"
+      }
+     ],
+     "delegateAdmin": false,
+     "users": [
+      "kafka-connect"
+     ]
+    }
+   ],
+   "policyPriority": 0,
+   "policyType": 0,
+   "resources": {
+    "consumergroup": {
+     "isExcludes": false,
+     "isRecursive": false,
+     "values": [
+      "oim-connect",
+      "connect-*"
+     ]
+    }
+   },
+   "service": "oim-kafka",
+   "serviceType": "kafka",
+   "version": 1
+  },
+  {
+   "description": "워커 내부 토픽 셋과 Debezium 이 만드는 cdc.* (topic.creation.enable) · 스키마 이력",
+   "guid": "94884818-c8ca-4d89-9a6b-26430f8b9603",
+   "id": 42,
+   "isAuditEnabled": true,
+   "isDenyAllElse": false,
+   "isEnabled": true,
+   "name": "kafka-connect - 내부·CDC 토픽",
+   "policyItems": [
+    {
+     "accesses": [
+      {
+       "isAllowed": true,
+       "type": "publish"
+      },
+      {
+       "isAllowed": true,
+       "type": "consume"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe"
+      },
+      {
+       "isAllowed": true,
+       "type": "create"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe_configs"
+      },
+      {
+       "isAllowed": true,
+       "type": "configure"
+      }
+     ],
+     "delegateAdmin": false,
+     "users": [
+      "kafka-connect"
+     ]
+    }
+   ],
+   "policyPriority": 0,
+   "policyType": 0,
+   "resources": {
+    "topic": {
+     "isExcludes": false,
+     "isRecursive": false,
+     "values": [
+      "connect-configs",
+      "connect-offsets",
+      "connect-status",
+      "cdc.*"
+     ]
+    }
+   },
+   "service": "oim-kafka",
+   "serviceType": "kafka",
+   "version": 1
+  },
+  {
+   "description": "siem-pipeline 의 kafka source",
+   "guid": "88bd23cc-a7ce-4ff6-8670-11698551566e",
+   "id": 43,
+   "isAuditEnabled": true,
+   "isDenyAllElse": false,
+   "isEnabled": true,
+   "name": "data-prepper - SIEM 소비",
+   "policyItems": [
+    {
+     "accesses": [
+      {
+       "isAllowed": true,
+       "type": "consume"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe"
+      }
+     ],
+     "delegateAdmin": false,
+     "users": [
+      "data-prepper"
+     ]
+    }
+   ],
+   "policyPriority": 0,
+   "policyType": 0,
+   "resources": {
+    "topic": {
+     "isExcludes": false,
+     "isRecursive": false,
+     "values": [
+      "keycloak-events",
+      "falco-alerts"
+     ]
+    }
+   },
+   "service": "oim-kafka",
+   "serviceType": "kafka",
+   "version": 1
+  },
+  {
+   "description": "오프셋 커밋에 필요하다",
+   "guid": "cb7e50e2-6bfe-4e25-a9e7-e5b2fc09395f",
+   "id": 44,
+   "isAuditEnabled": true,
+   "isDenyAllElse": false,
+   "isEnabled": true,
+   "name": "data-prepper - 컨슈머 그룹",
+   "policyItems": [
+    {
+     "accesses": [
+      {
+       "isAllowed": true,
+       "type": "consume"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe"
+      }
+     ],
+     "delegateAdmin": false,
+     "users": [
+      "data-prepper"
+     ]
+    }
+   ],
+   "policyPriority": 0,
+   "policyType": 0,
+   "resources": {
+    "consumergroup": {
+     "isExcludes": false,
+     "isRecursive": false,
+     "values": [
+      "data-prepper-siem"
+     ]
+    }
+   },
+   "service": "oim-kafka",
+   "serviceType": "kafka",
+   "version": 1
+  },
+  {
+   "description": "MultiTenant 가 그룹 이름에도 edge. 를 붙인다. kafka-bridge 도 같은 경계",
+   "guid": "555b360c-ce88-41d3-a97f-b4d3db16f922",
+   "id": 45,
+   "isAuditEnabled": true,
+   "isDenyAllElse": false,
+   "isEnabled": true,
+   "name": "edge.* 컨슈머 그룹",
+   "policyItems": [
+    {
+     "accesses": [
+      {
+       "isAllowed": true,
+       "type": "consume"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe"
+      }
+     ],
+     "delegateAdmin": false,
+     "users": [
+      "edge",
+      "kafka-bridge"
+     ]
+    }
+   ],
+   "policyPriority": 0,
+   "policyType": 0,
+   "resources": {
+    "consumergroup": {
+     "isExcludes": false,
+     "isRecursive": false,
+     "values": [
+      "edge.*"
+     ]
+    }
+   },
+   "service": "oim-kafka",
+   "serviceType": "kafka",
+   "version": 1
+  },
+  {
+   "description": "런타임 경보를 쓴다. 읽는 쪽은 data-prepper",
+   "guid": "30a53847-8626-4b84-acfc-92f77ebc5a0d",
+   "id": 47,
+   "isAuditEnabled": true,
+   "isDenyAllElse": false,
+   "isEnabled": true,
+   "name": "falcosidekick - falco-alerts 생산",
+   "policyItems": [
+    {
+     "accesses": [
+      {
+       "isAllowed": true,
+       "type": "publish"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe"
+      }
+     ],
+     "delegateAdmin": false,
+     "users": [
+      "falcosidekick"
+     ]
+    }
+   ],
+   "policyPriority": 0,
+   "policyType": 0,
+   "resources": {
+    "topic": {
+     "isExcludes": false,
+     "isRecursive": false,
+     "values": [
+      "falco-alerts"
+     ]
+    }
+   },
+   "service": "oim-kafka",
+   "serviceType": "kafka",
+   "version": 1
+  },
+  {
+   "description": "오프셋 커밋에 필요하다",
+   "guid": "243a70e4-95f1-49d8-a87d-5f017fe31c9e",
+   "id": 49,
+   "isAuditEnabled": true,
+   "isDenyAllElse": false,
+   "isEnabled": true,
+   "name": "logstash - 컨슈머 그룹",
+   "policyItems": [
+    {
+     "accesses": [
+      {
+       "isAllowed": true,
+       "type": "consume"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe"
+      }
+     ],
+     "delegateAdmin": false,
+     "users": [
+      "logstash"
+     ]
+    }
+   ],
+   "policyPriority": 0,
+   "policyType": 0,
+   "resources": {
+    "consumergroup": {
+     "isExcludes": false,
+     "isRecursive": false,
+     "values": [
+      "logstash-openmeter-bridge"
+     ]
+    }
+   },
+   "service": "oim-kafka",
+   "serviceType": "kafka",
+   "version": 1
+  },
+  {
+   "description": "openmeter-sink-worker · om_balance_worker · om_billing_worker · om_notification_service",
+   "guid": "c3128ec6-ba4d-4b8e-8fcb-f15210c7e0f9",
+   "id": 50,
+   "isAuditEnabled": true,
+   "isDenyAllElse": false,
+   "isEnabled": true,
+   "name": "openmeter - 워커 그룹",
+   "policyItems": [
+    {
+     "accesses": [
+      {
+       "isAllowed": true,
+       "type": "consume"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe"
+      }
+     ],
+     "delegateAdmin": false,
+     "users": [
+      "openmeter"
+     ]
+    }
+   ],
+   "policyPriority": 0,
+   "policyType": 0,
+   "resources": {
+    "consumergroup": {
+     "isExcludes": false,
+     "isRecursive": false,
+     "values": [
+      "openmeter-*",
+      "om_*"
+     ]
+    }
+   },
+   "service": "oim-kafka",
+   "serviceType": "kafka",
+   "version": 1
+  },
+  {
+   "description": "네임스페이스마다 om_<ns>_events 를 스스로 만든다 · om_sys.* 는 워커 간 이벤트",
+   "guid": "02bf6b8f-2887-41e9-8e13-44f4e2305c0d",
+   "id": 51,
+   "isAuditEnabled": true,
+   "isDenyAllElse": false,
+   "isEnabled": true,
+   "name": "openmeter - om_* 토픽",
+   "policyItems": [
+    {
+     "accesses": [
+      {
+       "isAllowed": true,
+       "type": "publish"
+      },
+      {
+       "isAllowed": true,
+       "type": "consume"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe"
+      },
+      {
+       "isAllowed": true,
+       "type": "create"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe_configs"
+      },
+      {
+       "isAllowed": true,
+       "type": "configure"
+      }
+     ],
+     "delegateAdmin": false,
+     "users": [
+      "openmeter"
+     ]
+    }
+   ],
+   "policyPriority": 0,
+   "policyType": 0,
+   "resources": {
+    "topic": {
+     "isExcludes": false,
+     "isRecursive": false,
+     "values": [
+      "om_*"
+     ]
+    }
+   },
+   "service": "oim-kafka",
+   "serviceType": "kafka",
+   "version": 1
+  },
+  {
+   "description": "과금 이벤트 토픽(Gotcha 15·16). 한 리소스에 정책을 둘 둘 수 없어(Ranger 3010) 한 정책에 항목을 나눴다 - 이 파일이 정책을 만들고(logstash 읽기) 다음 파일이 otel 쓰기 항목을 보탠다. 파일 이름의 -1-/-2- 가 그 순서다. logstash 에 쓰기를 주지 말 것 - 과금 토픽에 실험하지 말 것(Gotcha 23)",
+   "guid": "21eab366-3502-44ee-867f-10b0619951c2",
+   "id": 52,
+   "isAuditEnabled": true,
+   "isDenyAllElse": false,
+   "isEnabled": true,
+   "name": "api-usage (과금 이벤트 - 쓰기 otel · 읽기 logstash)",
+   "policyItems": [
+    {
+     "accesses": [
+      {
+       "isAllowed": true,
+       "type": "consume"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe"
+      }
+     ],
+     "delegateAdmin": false,
+     "users": [
+      "logstash"
+     ]
+    },
+    {
+     "accesses": [
+      {
+       "isAllowed": true,
+       "type": "publish"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe"
+      }
+     ],
+     "delegateAdmin": false,
+     "users": [
+      "otel"
+     ]
+    }
+   ],
+   "policyPriority": 0,
+   "policyType": 0,
+   "resources": {
+    "topic": {
+     "isExcludes": false,
+     "isRecursive": false,
+     "values": [
+      "api-usage"
+     ]
+    }
+   },
+   "service": "oim-kafka",
+   "serviceType": "kafka",
+   "version": 2
+  },
+  {
+   "description": "Kroxylicious MultiTenant 가 붙이는 접두사 edge. 와 같은 경계 - 프록시를 우회해도 Ranger 가 같은 선을 긋는다. kafka-bridge(외부 경로를 걷은 HTTP 다리, 자체 인증 없음 SEC-206)도 쓸 곳이 정해지기 전에는 같은 경계에 둔다. 한 리소스에 정책을 둘 둘 수 없어(Ranger 3010) 둘을 한 항목에 묶었다",
+   "guid": "9450c99d-ca4e-4a9e-b1ce-64f8e002c86f",
+   "id": 54,
+   "isAuditEnabled": true,
+   "isDenyAllElse": false,
+   "isEnabled": true,
+   "name": "edge.* 토픽 (LAN 클라이언트 · HTTP 다리)",
+   "policyItems": [
+    {
+     "accesses": [
+      {
+       "isAllowed": true,
+       "type": "publish"
+      },
+      {
+       "isAllowed": true,
+       "type": "consume"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe"
+      },
+      {
+       "isAllowed": true,
+       "type": "create"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe_configs"
+      }
+     ],
+     "delegateAdmin": false,
+     "users": [
+      "edge",
+      "kafka-bridge"
+     ]
+    }
+   ],
+   "policyPriority": 0,
+   "policyType": 0,
+   "resources": {
+    "topic": {
+     "isExcludes": false,
+     "isRecursive": false,
+     "values": [
+      "edge.*"
+     ]
+    }
+   },
+   "service": "oim-kafka",
+   "serviceType": "kafka",
+   "version": 1
+  },
+  {
+   "description": "HTTP·SSE 다리는 이 토픽 하나에 갇힌다. create 는 initContainer 의 --if-not-exists",
+   "guid": "2590917e-2730-41d7-8a2e-c6aa5a109658",
+   "id": 55,
+   "isAuditEnabled": true,
+   "isDenyAllElse": false,
+   "isEnabled": true,
+   "name": "zilla - edge.events",
+   "policyItems": [
+    {
+     "accesses": [
+      {
+       "isAllowed": true,
+       "type": "publish"
+      },
+      {
+       "isAllowed": true,
+       "type": "consume"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe"
+      },
+      {
+       "isAllowed": true,
+       "type": "create"
+      },
+      {
+       "isAllowed": true,
+       "type": "describe_configs"
+      }
+     ],
+     "delegateAdmin": false,
+     "users": [
+      "zilla"
+     ]
+    }
+   ],
+   "policyPriority": 0,
+   "policyType": 0,
+   "resources": {
+    "topic": {
+     "isExcludes": false,
+     "isRecursive": false,
+     "values": [
+      "edge.events"
+     ]
+    }
+   },
+   "service": "oim-kafka",
+   "serviceType": "kafka",
+   "version": 1
+  }
+ ],
+ "policyUpdateTime": "20261103-03:00:12.871-+0000",
+ "policyVersion": 41,
+ "serviceConfig": {
+  "ranger.plugin.audit.filters": "[{'accessResult': 'DENIED', 'isAudited': true},{'resources':{'topic':{'values':['ATLAS_ENTITIES','ATLAS_HOOK','ATLAS_SPARK_HOOK']}},'users':['atlas'],'actions':['describe','publish','consume'],'isAudited':false},{'resources':{'topic':{'values':['ATLAS_HOOK']}},'users':['hive','hbase','impala','nifi'],'actions':['publish','describe'],'isAudited':false},{'resources':{'topic':{'values':['ATLAS_ENTITIES']}},'users':['rangertagsync'],'actions':['consume','describe'],'isAudited':false},{'resources':{'consumergroup':{'values':['*']}},'users':['atlas','rangertagsync'],'actions':['consume'],'isAudited':false},{'users':['kafka'],'isAudited':false},{'resources':{'topic':{'values':['__CruiseControlMetrics']}},'users':['cc_metric_reporter'],'actions':['describe','publish','consume'],'isAudited':false}]",
+  "ranger.plugins.conf.ldap.groupname.caseconversion": "none",
+  "ranger.plugins.conf.ldap.username.caseconversion": "none",
+  "ranger.plugins.conf.mapping.groupname.handler": "org.apache.ranger.ugsyncutil.transform.RegEx",
+  "ranger.plugins.conf.mapping.regex.separator": "/",
+  "ranger.plugins.conf.mapping.username.handler": "org.apache.ranger.ugsyncutil.transform.RegEx"
+ },
+ "serviceDef": {
+  "accessTypes": [
+   {
+    "category": "UPDATE",
+    "impliedGrants": [
+     "describe"
+    ],
+    "itemId": 1,
+    "label": "Publish",
+    "name": "publish"
+   },
+   {
+    "category": "READ",
+    "impliedGrants": [
+     "describe"
+    ],
+    "itemId": 2,
+    "label": "Consume",
+    "name": "consume"
+   },
+   {
+    "category": "MANAGE",
+    "impliedGrants": [
+     "describe"
+    ],
+    "itemId": 5,
+    "label": "Configure",
+    "name": "configure"
+   },
+   {
+    "category": "READ",
+    "itemId": 6,
+    "label": "Describe",
+    "name": "describe"
+   },
+   {
+    "category": "MANAGE",
+    "impliedGrants": [
+     "describe",
+     "create",
+     "describe_configs",
+     "alter_configs",
+     "alter",
+     "idempotent_write",
+     "cluster_action",
+     "delete",
+     "publish",
+     "consume",
+     "configure"
+    ],
+    "itemId": 7,
+    "label": "Kafka Admin",
+    "name": "kafka_admin"
+   },
+   {
+    "category": "CREATE",
+    "itemId": 8,
+    "label": "Create",
+    "name": "create"
+   },
+   {
+    "category": "DELETE",
+    "impliedGrants": [
+     "describe"
+    ],
+    "itemId": 9,
+    "label": "Delete",
+    "name": "delete"
+   },
+   {
+    "category": "UPDATE",
+    "itemId": 10,
+    "label": "Idempotent Write",
+    "name": "idempotent_write"
+   },
+   {
+    "category": "READ",
+    "itemId": 11,
+    "label": "Describe Configs",
+    "name": "describe_configs"
+   },
+   {
+    "category": "MANAGE",
+    "impliedGrants": [
+     "describe_configs"
+    ],
+    "itemId": 12,
+    "label": "Alter Configs",
+    "name": "alter_configs"
+   },
+   {
+    "category": "MANAGE",
+    "itemId": 13,
+    "label": "Cluster Action",
+    "name": "cluster_action"
+   },
+   {
+    "category": "MANAGE",
+    "itemId": 14,
+    "label": "Alter",
+    "name": "alter"
+   }
+  ],
+  "configs": [
+   {
+    "itemId": 1,
+    "label": "Username",
+    "mandatory": true,
+    "name": "username",
+    "type": "string"
+   },
+   {
+    "itemId": 2,
+    "label": "Password",
+    "mandatory": true,
+    "name": "password",
+    "type": "password"
+   },
+   {
+    "defaultValue": "localhost:2181",
+    "itemId": 3,
+    "label": "Zookeeper Connect String",
+    "mandatory": true,
+    "name": "zookeeper.connect",
+    "type": "string"
+   },
+   {
+    "itemId": 4,
+    "label": "Ranger Plugin SSL CName",
+    "mandatory": false,
+    "name": "commonNameForCertificate",
+    "type": "string"
+   },
+   {
+    "defaultValue": "[{'accessResult': 'DENIED', 'isAudited': true},{'resources':{'topic':{'values':['ATLAS_ENTITIES','ATLAS_HOOK','ATLAS_SPARK_HOOK']}},'users':['atlas'],'actions':['describe','publish','consume'],'isAudited':false},{'resources':{'topic':{'values':['ATLAS_HOOK']}},'users':['hive','hbase','impala','nifi'],'actions':['publish','describe'],'isAudited':false},{'resources':{'topic':{'values':['ATLAS_ENTITIES']}},'users':['rangertagsync'],'actions':['consume','describe'],'isAudited':false},{'resources':{'consumergroup':{'values':['*']}},'users':['atlas','rangertagsync'],'actions':['consume'],'isAudited':false},{'users':['kafka'],'isAudited':false},{'resources':{'topic':{'values':['__CruiseControlMetrics']}},'users':['cc_metric_reporter'],'actions':['describe','publish','consume'],'isAudited':false}]",
+    "itemId": 5,
+    "label": "Ranger Default Audit Filters",
+    "mandatory": false,
+    "name": "ranger.plugin.audit.filters",
+    "type": "string"
+   }
+  ],
+  "createTime": "20261005-15:40:34.173-+0000",
+  "dataMaskDef": {},
+  "description": "Apache Kafka",
+  "displayName": "kafka",
+  "guid": "d31a0fe7-cb2d-4ee5-8bef-8c28f1149027",
+  "id": 9,
+  "implClass": "org.apache.ranger.services.kafka.RangerServiceKafka",
+  "isEnabled": true,
+  "label": "Kafka",
+  "markerAccessTypes": [
+   {
+    "impliedGrants": [
+     "create"
+    ],
+    "itemId": 15,
+    "label": "_CREATE",
+    "name": "_CREATE"
+   },
+   {
+    "impliedGrants": [
+     "describe_configs",
+     "consume",
+     "describe"
+    ],
+    "itemId": 16,
+    "label": "_READ",
+    "name": "_READ"
+   },
+   {
+    "impliedGrants": [
+     "idempotent_write",
+     "publish",
+     "describe"
+    ],
+    "itemId": 17,
+    "label": "_UPDATE",
+    "name": "_UPDATE"
+   },
+   {
+    "impliedGrants": [
+     "describe",
+     "delete"
+    ],
+    "itemId": 18,
+    "label": "_DELETE",
+    "name": "_DELETE"
+   },
+   {
+    "impliedGrants": [
+     "describe_configs",
+     "alter_configs",
+     "idempotent_write",
+     "publish",
+     "create",
+     "consume",
+     "configure",
+     "describe",
+     "kafka_admin",
+     "delete",
+     "cluster_action",
+     "alter"
+    ],
+    "itemId": 19,
+    "label": "_MANAGE",
+    "name": "_MANAGE"
+   },
+   {
+    "impliedGrants": [
+     "describe_configs",
+     "alter_configs",
+     "idempotent_write",
+     "publish",
+     "create",
+     "consume",
+     "describe",
+     "configure",
+     "kafka_admin",
+     "delete",
+     "cluster_action",
+     "alter"
+    ],
+    "itemId": 20,
+    "label": "_ALL",
+    "name": "_ALL"
+   }
+  ],
+  "name": "kafka",
+  "options": {
+   "enableDenyAndExceptionsInPolicies": "true",
+   "enableTagBasedPolicies": "true"
+  },
+  "policyConditions": [
+   {
+    "description": "IP Address Range",
+    "evaluator": "org.apache.ranger.plugin.conditionevaluator.RangerIpMatcher",
+    "itemId": 1,
+    "label": "IP Address Range",
+    "name": "ip-range",
+    "uiHint": "{ \"isMultiValue\":true }"
+   },
+   {
+    "description": "Boolean expression",
+    "evaluator": "org.apache.ranger.plugin.conditionevaluator.RangerScriptConditionEvaluator",
+    "evaluatorOptions": {
+     "engineName": "JavaScript",
+     "ui.isMultiline": "true"
+    },
+    "itemId": 2,
+    "label": "Enter boolean expression",
+    "name": "_expression",
+    "uiHint": "{ \"isMultiline\":true }"
+   }
+  ],
+  "resources": [
+   {
+    "accessTypeRestrictions": [
+     "describe_configs",
+     "alter_configs",
+     "publish",
+     "create",
+     "consume",
+     "configure",
+     "describe",
+     "delete",
+     "alter"
+    ],
+    "description": "Topic",
+    "excludesSupported": true,
+    "isValidLeaf": true,
+    "itemId": 1,
+    "label": "Topic",
+    "level": 1,
+    "lookupSupported": true,
+    "mandatory": true,
+    "matcher": "org.apache.ranger.plugin.resourcematcher.RangerDefaultResourceMatcher",
+    "matcherOptions": {
+     "ignoreCase": "true",
+     "wildCard": "true"
+    },
+    "name": "topic",
+    "recursiveSupported": false,
+    "type": "string"
+   },
+   {
+    "accessTypeRestrictions": [
+     "publish",
+     "describe"
+    ],
+    "description": "Transactional Id",
+    "excludesSupported": true,
+    "isValidLeaf": true,
+    "itemId": 2,
+    "label": "Transactional Id",
+    "level": 1,
+    "lookupSupported": false,
+    "mandatory": true,
+    "matcher": "org.apache.ranger.plugin.resourcematcher.RangerDefaultResourceMatcher",
+    "matcherOptions": {
+     "ignoreCase": "true",
+     "wildCard": "true"
+    },
+    "name": "transactionalid",
+    "recursiveSupported": false,
+    "type": "string"
+   },
+   {
+    "accessTypeRestrictions": [
+     "describe_configs",
+     "alter_configs",
+     "idempotent_write",
+     "create",
+     "configure",
+     "describe",
+     "kafka_admin",
+     "cluster_action",
+     "alter"
+    ],
+    "description": "Cluster",
+    "excludesSupported": true,
+    "isValidLeaf": true,
+    "itemId": 3,
+    "label": "Cluster",
+    "level": 1,
+    "lookupSupported": false,
+    "mandatory": true,
+    "matcher": "org.apache.ranger.plugin.resourcematcher.RangerDefaultResourceMatcher",
+    "matcherOptions": {
+     "ignoreCase": "true",
+     "wildCard": "true"
+    },
+    "name": "cluster",
+    "recursiveSupported": false,
+    "type": "string"
+   },
+   {
+    "accessTypeRestrictions": [
+     "describe"
+    ],
+    "description": "Delegation Token",
+    "excludesSupported": true,
+    "isValidLeaf": true,
+    "itemId": 4,
+    "label": "Delegation Token",
+    "level": 1,
+    "lookupSupported": false,
+    "mandatory": true,
+    "matcher": "org.apache.ranger.plugin.resourcematcher.RangerDefaultResourceMatcher",
+    "matcherOptions": {
+     "ignoreCase": "true",
+     "wildCard": "true"
+    },
+    "name": "delegationtoken",
+    "recursiveSupported": false,
+    "type": "string"
+   },
+   {
+    "accessTypeRestrictions": [
+     "delete",
+     "consume",
+     "describe"
+    ],
+    "description": "Consumer Group",
+    "excludesSupported": true,
+    "isValidLeaf": true,
+    "itemId": 5,
+    "label": "Consumer Group",
+    "level": 1,
+    "lookupSupported": false,
+    "mandatory": true,
+    "matcher": "org.apache.ranger.plugin.resourcematcher.RangerDefaultResourceMatcher",
+    "matcherOptions": {
+     "ignoreCase": "true",
+     "wildCard": "true"
+    },
+    "name": "consumergroup",
+    "recursiveSupported": false,
+    "type": "string"
+   }
+  ],
+  "rowFilterDef": {},
+  "updateTime": "20261005-15:40:34.173-+0000",
+  "version": 1
+ },
+ "serviceId": 7,
+ "serviceName": "oim-kafka",
+ "tagPolicies": {
+  "auditMode": "audit-default",
+  "policies": [
+   {
+    "denyPolicyItems": [
+     {
+      "accesses": [
+       {
+        "isAllowed": true,
+        "type": "publish"
+       },
+       {
+        "isAllowed": true,
+        "type": "consume"
+       },
+       {
+        "isAllowed": true,
+        "type": "configure"
+       },
+       {
+        "isAllowed": true,
+        "type": "describe"
+       },
+       {
+        "isAllowed": true,
+        "type": "kafka_admin"
+       },
+       {
+        "isAllowed": true,
+        "type": "create"
+       },
+       {
+        "isAllowed": true,
+        "type": "delete"
+       },
+       {
+        "isAllowed": true,
+        "type": "idempotent_write"
+       },
+       {
+        "isAllowed": true,
+        "type": "describe_configs"
+       },
+       {
+        "isAllowed": true,
+        "type": "alter_configs"
+       },
+       {
+        "isAllowed": true,
+        "type": "cluster_action"
+       },
+       {
+        "isAllowed": true,
+        "type": "alter"
+       }
+      ],
+      "conditions": [
+       {
+        "type": "accessed-after-expiry",
+        "values": [
+         "yes"
+        ]
+       }
+      ],
+      "delegateAdmin": false,
+      "groups": [
+       "public"
+      ]
+     }
+    ],
+    "description": "Policy for data with EXPIRES_ON tag",
+    "guid": "aee081a5-4beb-43f1-abf7-f57947edba02",
+    "id": 2,
+    "isAuditEnabled": true,
+    "isDenyAllElse": false,
+    "isEnabled": true,
+    "name": "EXPIRES_ON",
+    "policyPriority": 0,
+    "policyType": 0,
+    "resources": {
+     "tag": {
+      "isExcludes": false,
+      "isRecursive": false,
+      "values": [
+       "EXPIRES_ON"
+      ]
+     }
+    },
+    "service": "tag",
+    "serviceType": "tag",
+    "version": 1
+   }
+  ],
+  "policyUpdateTime": "20261102-15:33:59.150-+0000",
+  "policyVersion": 3,
+  "serviceConfig": {
+   "ranger.plugin.audit.filters": "[ {'accessResult': 'DENIED', 'isAudited': true} ]",
+   "ranger.plugins.conf.ldap.groupname.caseconversion": "none",
+   "ranger.plugins.conf.ldap.username.caseconversion": "none",
+   "ranger.plugins.conf.mapping.groupname.handler": "org.apache.ranger.ugsyncutil.transform.RegEx",
+   "ranger.plugins.conf.mapping.regex.separator": "/",
+   "ranger.plugins.conf.mapping.username.handler": "org.apache.ranger.ugsyncutil.transform.RegEx"
+  },
+  "serviceDef": {
+   "accessTypes": [
+    {
+     "category": "UPDATE",
+     "impliedGrants": [
+      "describe"
+     ],
+     "itemId": 9010,
+     "label": "Publish",
+     "name": "publish"
+    },
+    {
+     "category": "READ",
+     "impliedGrants": [
+      "describe"
+     ],
+     "itemId": 9011,
+     "label": "Consume",
+     "name": "consume"
+    },
+    {
+     "category": "MANAGE",
+     "impliedGrants": [
+      "describe"
+     ],
+     "itemId": 9014,
+     "label": "Configure",
+     "name": "configure"
+    },
+    {
+     "category": "READ",
+     "itemId": 9015,
+     "label": "Describe",
+     "name": "describe"
+    },
+    {
+     "category": "MANAGE",
+     "impliedGrants": [
+      "describe_configs",
+      "alter_configs",
+      "idempotent_write",
+      "publish",
+      "create",
+      "consume",
+      "describe",
+      "configure",
+      "delete",
+      "cluster_action",
+      "alter"
+     ],
+     "itemId": 9016,
+     "label": "Kafka Admin",
+     "name": "kafka_admin"
+    },
+    {
+     "category": "CREATE",
+     "itemId": 9017,
+     "label": "Create",
+     "name": "create"
+    },
+    {
+     "category": "DELETE",
+     "impliedGrants": [
+      "describe"
+     ],
+     "itemId": 9018,
+     "label": "Delete",
+     "name": "delete"
+    },
+    {
+     "category": "UPDATE",
+     "itemId": 9019,
+     "label": "Idempotent Write",
+     "name": "idempotent_write"
+    },
+    {
+     "category": "READ",
+     "itemId": 9020,
+     "label": "Describe Configs",
+     "name": "describe_configs"
+    },
+    {
+     "category": "MANAGE",
+     "impliedGrants": [
+      "describe_configs"
+     ],
+     "itemId": 9021,
+     "label": "Alter Configs",
+     "name": "alter_configs"
+    },
+    {
+     "category": "MANAGE",
+     "itemId": 9022,
+     "label": "Cluster Action",
+     "name": "cluster_action"
+    },
+    {
+     "category": "MANAGE",
+     "itemId": 9023,
+     "label": "Alter",
+     "name": "alter"
+    }
+   ],
+   "configs": [
+    {
+     "defaultValue": "[ {'accessResult': 'DENIED', 'isAudited': true} ]",
+     "itemId": 1,
+     "label": "Ranger Default Audit Filters",
+     "mandatory": false,
+     "name": "ranger.plugin.audit.filters",
+     "type": "string"
+    }
+   ],
+   "contextEnrichers": [
+    {
+     "enricher": "org.apache.ranger.plugin.contextenricher.RangerTagEnricher",
+     "enricherOptions": {
+      "tagRefresherPollingInterval": "60000",
+      "tagRetrieverClassName": "org.apache.ranger.plugin.contextenricher.RangerAdminTagRetriever"
+     },
+     "itemId": 1,
+     "name": "TagEnricher"
+    }
+   ],
+   "createTime": "20261005-15:40:32.468-+0000",
+   "dataMaskDef": {
+    "maskTypes": [
+     {
+      "description": "Replace lowercase with 'x', uppercase with 'X', digits with '0'",
+      "itemId": 3004,
+      "label": "Redact",
+      "name": "hive:MASK",
+      "transformer": "mask({col})"
+     },
+     {
+      "description": "Show last 4 characters; replace rest with 'x'",
+      "itemId": 3005,
+      "label": "Partial mask: show last 4",
+      "name": "hive:MASK_SHOW_LAST_4",
+      "transformer": "mask_show_last_n({col}, 4, 'x', 'x', 'x', -1, '1')"
+     },
+     {
+      "description": "Show first 4 characters; replace rest with 'x'",
+      "itemId": 3006,
+      "label": "Partial mask: show first 4",
+      "name": "hive:MASK_SHOW_FIRST_4",
+      "transformer": "mask_show_first_n({col}, 4, 'x', 'x', 'x', -1, '1')"
+     },
+     {
+      "description": "Hash the value",
+      "itemId": 3007,
+      "label": "Hash",
+      "name": "hive:MASK_HASH",
+      "transformer": "mask_hash({col})"
+     },
+     {
+      "description": "Replace with NULL",
+      "itemId": 3008,
+      "label": "Nullify",
+      "name": "hive:MASK_NULL"
+     },
+     {
+      "description": "No masking",
+      "itemId": 3009,
+      "label": "Unmasked (retain original value)",
+      "name": "hive:MASK_NONE"
+     },
+     {
+      "description": "Date: show only year",
+      "itemId": 3015,
+      "label": "Date: show only year",
+      "name": "hive:MASK_DATE_SHOW_YEAR",
+      "transformer": "mask({col}, 'x', 'x', 'x', -1, '1', 1, 0, -1)"
+     },
+     {
+      "description": "Custom",
+      "itemId": 3016,
+      "label": "Custom",
+      "name": "hive:CUSTOM"
+     },
+     {
+      "description": "Replace lowercase with 'x', uppercase with 'X', digits with '0'",
+      "itemId": 203204,
+      "label": "Redact",
+      "name": "trino:MASK",
+      "transformer": "cast(regexp_replace(regexp_replace(regexp_replace({col},'([A-Z])', 'X'),'([a-z])','x'),'([0-9])','0') as {type})"
+     },
+     {
+      "description": "Show last 4 characters; replace rest with 'X'",
+      "itemId": 203205,
+      "label": "Partial mask: show last 4",
+      "name": "trino:MASK_SHOW_LAST_4",
+      "transformer": "cast(regexp_replace({col}, '(.*)(.{4}$)', x -> regexp_replace(x[1], '.', 'X') || x[2]) as {type})"
+     },
+     {
+      "description": "Show first 4 characters; replace rest with 'x'",
+      "itemId": 203206,
+      "label": "Partial mask: show first 4",
+      "name": "trino:MASK_SHOW_FIRST_4",
+      "transformer": "cast(regexp_replace({col}, '(^.{4})(.*)', x -> x[1] || regexp_replace(x[2], '.', 'X')) as {type})"
+     },
+     {
+      "description": "Hash the value of a varchar with sha256",
+      "itemId": 203207,
+      "label": "Hash",
+      "name": "trino:MASK_HASH",
+      "transformer": "cast(to_hex(sha256(to_utf8({col}))) as {type})"
+     },
+     {
+      "description": "Replace with NULL",
+      "itemId": 203208,
+      "label": "Nullify",
+      "name": "trino:MASK_NULL"
+     },
+     {
+      "description": "No masking",
+      "itemId": 203209,
+      "label": "Unmasked (retain original value)",
+      "name": "trino:MASK_NONE"
+     },
+     {
+      "description": "Date: show only year",
+      "itemId": 203215,
+      "label": "Date: show only year",
+      "name": "trino:MASK_DATE_SHOW_YEAR",
+      "transformer": "date_trunc('year', {col})"
+     },
+     {
+      "description": "Custom",
+      "itemId": 203216,
+      "label": "Custom",
+      "name": "trino:CUSTOM"
+     },
+     {
+      "description": "Replace lowercase with 'x', uppercase with 'X', digits with '0'",
+      "itemId": 17018,
+      "label": "Redact",
+      "name": "presto:MASK",
+      "transformer": "cast(regexp_replace(regexp_replace(regexp_replace({col},'([A-Z])', 'X'),'([a-z])','x'),'([0-9])','0') as {type})"
+     },
+     {
+      "description": "Show last 4 characters; replace rest with 'X'",
+      "itemId": 17019,
+      "label": "Partial mask: show last 4",
+      "name": "presto:MASK_SHOW_LAST_4",
+      "transformer": "cast(regexp_replace({col}, '(.*)(.{4}$)', x -> regexp_replace(x[1], '.', 'X') || x[2]) as {type})"
+     },
+     {
+      "description": "Show first 4 characters; replace rest with 'x'",
+      "itemId": 17020,
+      "label": "Partial mask: show first 4",
+      "name": "presto:MASK_SHOW_FIRST_4",
+      "transformer": "cast(regexp_replace({col}, '(^.{4})(.*)', x -> x[1] || regexp_replace(x[2], '.', 'X')) as {type})"
+     },
+     {
+      "description": "Hash the value of a varchar with sha256",
+      "itemId": 17021,
+      "label": "Hash",
+      "name": "presto:MASK_HASH",
+      "transformer": "cast(to_hex(sha256(to_utf8({col}))) as {type})"
+     },
+     {
+      "description": "Replace with NULL",
+      "itemId": 17022,
+      "label": "Nullify",
+      "name": "presto:MASK_NULL"
+     },
+     {
+      "description": "No masking",
+      "itemId": 17023,
+      "label": "Unmasked (retain original value)",
+      "name": "presto:MASK_NONE"
+     },
+     {
+      "description": "Date: show only year",
+      "itemId": 17029,
+      "label": "Date: show only year",
+      "name": "presto:MASK_DATE_SHOW_YEAR",
+      "transformer": "date_trunc('year', {col})"
+     },
+     {
+      "description": "Custom",
+      "itemId": 17030,
+      "label": "Custom",
+      "name": "presto:CUSTOM"
+     },
+     {
+      "description": "Replace lowercase with 'x', uppercase with 'X', digits with '0'",
+      "itemId": 205206,
+      "label": "Redact",
+      "name": "nestedstructure:MASK",
+      "transformer": "mask({field})"
+     },
+     {
+      "description": "Show last 4 characters; replace rest with 'x'",
+      "itemId": 205207,
+      "label": "Partial mask: show last 4",
+      "name": "nestedstructure:MASK_SHOW_LAST_4",
+      "transformer": "mask_show_last_n({field}, 4, 'x', 'x', 'x', -1, '1')"
+     },
+     {
+      "description": "Show first 4 characters; replace rest with 'x'",
+      "itemId": 205208,
+      "label": "Partial mask: show first 4",
+      "name": "nestedstructure:MASK_SHOW_FIRST_4",
+      "transformer": "mask_show_first_n({field}, 4, 'x', 'x', 'x', -1, '1')"
+     },
+     {
+      "description": "Hash the value",
+      "itemId": 205209,
+      "label": "Hash",
+      "name": "nestedstructure:MASK_HASH",
+      "transformer": "mask_hash({field})"
+     },
+     {
+      "description": "Replace with NULL",
+      "itemId": 205210,
+      "label": "Nullify",
+      "name": "nestedstructure:MASK_NULL"
+     },
+     {
+      "description": "No masking",
+      "itemId": 205211,
+      "label": "Unmasked (retain original value)",
+      "name": "nestedstructure:MASK_NONE"
+     },
+     {
+      "description": "Date: show only year",
+      "itemId": 205217,
+      "label": "Date: show only year",
+      "name": "nestedstructure:MASK_DATE_SHOW_YEAR",
+      "transformer": "mask({field}, 'x', 'x', 'x', -1, '1', 1, 0, -1)"
+     },
+     {
+      "description": "Custom",
+      "itemId": 205218,
+      "label": "Custom",
+      "name": "nestedstructure:CUSTOM"
+     }
+    ],
+    "resources": [
+     {
+      "description": "TAG",
+      "excludesSupported": false,
+      "isValidLeaf": true,
+      "itemId": 1,
+      "label": "TAG",
+      "level": 1,
+      "lookupSupported": true,
+      "mandatory": true,
+      "matcher": "org.apache.ranger.plugin.resourcematcher.RangerDefaultResourceMatcher",
+      "matcherOptions": {
+       "__accessTypeRestrictions": "[]",
+       "__isValidLeaf": "true",
+       "ignoreCase": "false",
+       "wildCard": "false"
+      },
+      "name": "tag",
+      "recursiveSupported": false,
+      "type": "string",
+      "uiHint": "{ \"singleValue\":true }"
+     }
+    ]
+   },
+   "description": "TAG Service Definition",
+   "displayName": "tag",
+   "guid": "0d047248-baff-4cf9-8e9e-d5d377284b2e",
+   "id": 100,
+   "implClass": "org.apache.ranger.services.tag.RangerServiceTag",
+   "isEnabled": true,
+   "label": "TAG",
+   "markerAccessTypes": [
+    {
+     "impliedGrants": [
+      "create"
+     ],
+     "itemId": 206276,
+     "label": "_CREATE",
+     "name": "_CREATE"
+    },
+    {
+     "impliedGrants": [
+      "describe_configs",
+      "consume",
+      "describe"
+     ],
+     "itemId": 206277,
+     "label": "_READ",
+     "name": "_READ"
+    },
+    {
+     "impliedGrants": [
+      "idempotent_write",
+      "publish",
+      "describe"
+     ],
+     "itemId": 206278,
+     "label": "_UPDATE",
+     "name": "_UPDATE"
+    },
+    {
+     "impliedGrants": [
+      "describe",
+      "delete"
+     ],
+     "itemId": 206279,
+     "label": "_DELETE",
+     "name": "_DELETE"
+    },
+    {
+     "impliedGrants": [
+      "describe_configs",
+      "alter_configs",
+      "idempotent_write",
+      "publish",
+      "create",
+      "consume",
+      "configure",
+      "describe",
+      "kafka_admin",
+      "delete",
+      "cluster_action",
+      "alter"
+     ],
+     "itemId": 206280,
+     "label": "_MANAGE",
+     "name": "_MANAGE"
+    },
+    {
+     "impliedGrants": [
+      "describe_configs",
+      "alter_configs",
+      "idempotent_write",
+      "publish",
+      "create",
+      "consume",
+      "configure",
+      "describe",
+      "kafka_admin",
+      "delete",
+      "cluster_action",
+      "alter"
+     ],
+     "itemId": 206281,
+     "label": "_ALL",
+     "name": "_ALL"
+    }
+   ],
+   "name": "tag",
+   "options": {
+    "enableDenyAndExceptionsInPolicies": "true",
+    "enableTagBasedPolicies": "true",
+    "ui.pages": "tag-based-policies"
+   },
+   "policyConditions": [
+    {
+     "description": "Accessed after expiry_date? (yes/no)",
+     "evaluator": "org.apache.ranger.plugin.conditionevaluator.RangerScriptTemplateConditionEvaluator",
+     "evaluatorOptions": {
+      "scriptTemplate": "ctx.isAccessedAfter('expiry_date');"
+     },
+     "itemId": 1,
+     "label": "Accessed after expiry_date (yes/no)?",
+     "name": "accessed-after-expiry",
+     "uiHint": "{ \"singleValue\":true }"
+    },
+    {
+     "description": "Boolean expression",
+     "evaluator": "org.apache.ranger.plugin.conditionevaluator.RangerScriptConditionEvaluator",
+     "evaluatorOptions": {
+      "engineName": "JavaScript",
+      "ui.isMultiline": "true"
+     },
+     "itemId": 2,
+     "label": "Enter boolean expression",
+     "name": "expression",
+     "uiHint": "{ \"isMultiline\":true }"
+    }
+   ],
+   "resources": [
+    {
+     "description": "TAG",
+     "excludesSupported": false,
+     "isValidLeaf": true,
+     "itemId": 1,
+     "label": "TAG",
+     "level": 1,
+     "lookupSupported": true,
+     "mandatory": true,
+     "matcher": "org.apache.ranger.plugin.resourcematcher.RangerDefaultResourceMatcher",
+     "matcherOptions": {
+      "ignoreCase": "false",
+      "wildCard": "false"
+     },
+     "name": "tag",
+     "recursiveSupported": false,
+     "type": "string",
+     "uiHint": "{ \"singleValue\":true }"
+    }
+   ],
+   "rowFilterDef": {},
+   "updateTime": "20261005-15:40:41.961-+0000",
+   "version": 23
+  },
+  "serviceId": 2,
+  "serviceName": "tag"
+ }
+}
