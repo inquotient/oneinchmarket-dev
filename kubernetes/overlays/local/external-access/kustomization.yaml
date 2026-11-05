@@ -47,5 +47,8 @@ resources:
   - requestauthentication-external.yaml
   # 인증이 없는 UI 앞의 Keycloak 로그인 — Spark Connect 세션 UI(2026-11-06).
   - oauth2-proxy-spark-ui.yaml
+  # Livy·Spark History(2026-11-06) — SA oauth2-proxy 는 spark-ui 파일에 있다.
+  - oauth2-proxy-livy.yaml
+  - oauth2-proxy-spark-history.yaml
   # 게이트웨이 JWT 필터를 api·zilla 밖의 호스트에서 끈다(생성물 — render-external-access.py).
   - jwt-scope-envoyfilter.yaml

@@ -11,7 +11,7 @@
 > 때 port-forward 가 대조군이 된다.
 
 <!-- GENERATED:counts START -->
-웹 호스트 **54**(자체 인증 29 · 인증 없음 12 · 도구용 13, 그중 백엔드가 HTTPS 인 것 5) · TCP 대상 **14**
+웹 호스트 **54**(자체 인증 31 · 인증 없음 10 · 도구용 13, 그중 백엔드가 HTTPS 인 것 5) · TCP 대상 **14**
 <!-- GENERATED:counts END -->
 
 ---
@@ -258,9 +258,9 @@ Import-Certificate -FilePath .\oim-ca.crt -CertStoreLocation Cert:\LocalMachine\
 | https://minio.oneinchmarket.local | 자체 인증 | `minio-headless:9001` | 콘솔. `pw minio-secret root-user` / `root-password` |
 | https://s3.oneinchmarket.local | 자체 인증 | `minio-headless:9000` | S3 API — `mc`·`s3cmd`·boto3. 서명 인증 |
 | https://trino.oneinchmarket.local | 자체 인증 | `trino-headless:8080` | LDAP 로그인 `data-admin`(전권)·`analyst`(조회만) / `pw ds389-secret <uid>-password` · 권한은 Ranger `oim-trino` · 웹 UI(`/ui/`) + **JDBC**(§3-b). ★ `http-server.process-forwarded=true` 가 있어야 한다 — 없으면 전부 406 이다 |
-| https://spark-history.oneinchmarket.local | **없음** | `spark-history-headless:18080` | 완료된 Spark 앱 |
+| https://spark-history.oneinchmarket.local | 자체 인증 | `oauth2-proxy-spark-history:4180` | 완료된 Spark 앱. **Keycloak 로그인 · 그룹 `platform` 만**(spark-ui 와 같다) — 앞단 oauth2-proxy |
 | https://spark-ui.oneinchmarket.local | 자체 인증 | `oauth2-proxy-spark-ui:4180` | Spark Connect 세션 UI. **Keycloak 로그인 · 그룹 `platform` 만**(`portal` / `pw keycloak-secret portal-user-password`) — 앞단 oauth2-proxy(external-access/oauth2-proxy-spark-ui.yaml). ★ 세션 UI 는 Job 을 **죽일 수 있다**(`spark.ui.killEnabled` 기본 true) |
-| https://livy.oneinchmarket.local | **없음** | `livy-headless:8998` | Spark REST 세션 |
+| https://livy.oneinchmarket.local | 자체 인증 | `oauth2-proxy-livy:4180` | Spark REST 세션. **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy. ★ 브라우저용이다 — 스크립트는 클러스터 안 `livy-headless:8998` 또는 port-forward |
 | https://hdfs.oneinchmarket.local | **없음** | `hadoop-namenode:9870` | NameNode UI. ★ 파일 조작은 Knox 의 WebHDFS 를 쓸 것 |
 | https://hbase.oneinchmarket.local | **없음** | `hbase-master:16010` | HBase Master |
 | https://hbase-rs.oneinchmarket.local | **없음** | `hbase-regionserver:16030` | RegionServer |
@@ -295,7 +295,7 @@ pw grafana-secret admin-password
 ### ★★ 인증이 없는 호스트 — 집 밖으로 내보내지 말 것
 
 <!-- GENERATED:open-list START -->
-**12 종** — `prometheus.oneinchmarket.local` · `alertmanager.oneinchmarket.local` · `pyroscope.oneinchmarket.local` · `pyrra.oneinchmarket.local` · `temporal.oneinchmarket.local` · `flink.oneinchmarket.local` · `spark-history.oneinchmarket.local` · `livy.oneinchmarket.local` · `hdfs.oneinchmarket.local` · `hbase.oneinchmarket.local` · `hbase-rs.oneinchmarket.local` · `hive.oneinchmarket.local`
+**10 종** — `prometheus.oneinchmarket.local` · `alertmanager.oneinchmarket.local` · `pyroscope.oneinchmarket.local` · `pyrra.oneinchmarket.local` · `temporal.oneinchmarket.local` · `flink.oneinchmarket.local` · `hdfs.oneinchmarket.local` · `hbase.oneinchmarket.local` · `hbase-rs.oneinchmarket.local` · `hive.oneinchmarket.local`
 <!-- GENERATED:open-list END -->
 
 이것들은 **누구든 주소를 알면 그대로 들어온다.** 그리고 이 배치에서는

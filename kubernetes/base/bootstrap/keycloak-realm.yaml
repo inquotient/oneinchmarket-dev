@@ -124,6 +124,16 @@ spec:
             - name: SPARK_UI_CLIENT_SECRET
               valueFrom:
                 secretKeyRef: {name: oauth2-proxy-secret, key: spark-ui-client-secret, optional: true}
+            - name: LIVY_URL
+              value: "http://localhost:4181"
+            - name: LIVY_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: {name: oauth2-proxy-secret, key: livy-client-secret, optional: true}
+            - name: SPARK_HISTORY_URL
+              value: "http://localhost:4182"
+            - name: SPARK_HISTORY_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: {name: oauth2-proxy-secret, key: spark-history-client-secret, optional: true}
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -337,32 +347,36 @@ spec:
               curl --connect-timeout 5 --max-time 30 -sf -X POST "${R}/groups/${GID}/role-mappings/realm" -H "$A" -H 'Content-Type: application/json' -d "$(role_json sr-admin)"
               echo "  그룹 platform -> sr-admin"
 
-              echo "[5d/6] oauth2-proxy — Spark 세션 UI 클라이언트 + groups 클레임"
+              echo "[5d/6] oauth2-proxy — 인증 없던 UI 의 클라이언트 + groups 클레임"
               # ★ oauth2-proxy 의 --allowed-group=platform 이 ID 토큰의 groups 클레임을 본다.
               #   매퍼가 없으면 로그인은 성공하고 **모두 403** 이 된다(오류는 그것뿐이다).
-              if [ -z "${SPARK_UI_CLIENT_SECRET:-}" ]; then
-                echo "  oauth2-proxy-secret 이 없다 — 건너뛴다(local 밖에서는 정상)"
-              else
-                SU_JSON=$(cat <<JSON
-              {"clientId":"oauth2-proxy-spark-ui","enabled":true,"publicClient":false,
+              # ★ 시크릿이 비어 있으면(dev·prod — oauth2-proxy 는 local 외부 접속 계층에만 있다) 건너뛴다.
+              o2p_client() {  # o2p_client <호스트 라벨> <외부 URL> <클라이언트 시크릿>
+                if [ -z "$3" ]; then
+                  echo "  oauth2-proxy-$1: 시크릿이 없다 — 건너뛴다(local 밖에서는 정상)"
+                  return 0
+                fi
+                j=$(cat <<JSON
+              {"clientId":"oauth2-proxy-$1","enabled":true,"publicClient":false,
                "standardFlowEnabled":true,"serviceAccountsEnabled":false,
                "directAccessGrantsEnabled":false,
-               "secret":"${SPARK_UI_CLIENT_SECRET}",
-               "redirectUris":["${SPARK_UI_URL}/oauth2/callback"],
-               "webOrigins":["${SPARK_UI_URL}"],
-               "attributes":{"pkce.code.challenge.method":"S256","post.logout.redirect.uris":"${SPARK_UI_URL}/*"}}
+               "secret":"$3",
+               "redirectUris":["$2/oauth2/callback"],
+               "webOrigins":["$2"],
+               "attributes":{"pkce.code.challenge.method":"S256","post.logout.redirect.uris":"$2/*"}}
               JSON
                 )
-                SUID=$(upsert_client oauth2-proxy-spark-ui "$SU_JSON")
-                if curl --connect-timeout 5 --max-time 30 -sf -H "$A" "${R}/clients/${SUID}/protocol-mappers/models" | grep -q '"name":"groups"'; then
-                  echo "  groups 매퍼 이미 있음"
-                else
-                  curl --connect-timeout 5 --max-time 30 -sf -X POST "${R}/clients/${SUID}/protocol-mappers/models" -H "$A" -H 'Content-Type: application/json' \
+                cid=$(upsert_client "oauth2-proxy-$1" "$j")
+                if curl --connect-timeout 5 --max-time 30 -sf -H "$A" "${R}/clients/${cid}/protocol-mappers/models" | grep -q '"name":"groups"'; then :; else
+                  curl --connect-timeout 5 --max-time 30 -sf -X POST "${R}/clients/${cid}/protocol-mappers/models" -H "$A" -H 'Content-Type: application/json' \
                     -d '{"name":"groups","protocol":"openid-connect","protocolMapper":"oidc-group-membership-mapper","config":{"full.path":"false","id.token.claim":"true","access.token.claim":"true","userinfo.token.claim":"true","claim.name":"groups"}}'
-                  echo "  groups 매퍼 생성"
+                  echo "  oauth2-proxy-$1: groups 매퍼 생성"
                 fi
-                echo "  oauth2-proxy-spark-ui (${SPARK_UI_URL})"
-              fi
+                echo "  oauth2-proxy-$1 ($2)"
+              }
+              o2p_client spark-ui      "${SPARK_UI_URL}"      "${SPARK_UI_CLIENT_SECRET:-}"
+              o2p_client livy          "${LIVY_URL}"          "${LIVY_CLIENT_SECRET:-}"
+              o2p_client spark-history "${SPARK_HISTORY_URL}" "${SPARK_HISTORY_CLIENT_SECRET:-}"
 
               echo "[6/6] 검증 — 발급된 토큰에 tenant 클레임이 있는가"
               AT=$(curl --connect-timeout 5 --max-time 30 -sf -X POST "${KC}/realms/${REALM}/protocol/openid-connect/token" \

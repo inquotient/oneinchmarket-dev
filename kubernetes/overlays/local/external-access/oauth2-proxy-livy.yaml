@@ -1,0 +1,127 @@
+# oauth2-proxy — Livy(livy.oneinchmarket.local) 앞의 Keycloak 로그인 (local 전용, 2026-11-06)
+#
+# ★★ 왜: Livy 는 인증 없이 **세션을 만들고 코드를 실행**하는 REST 다 — 주소만 알면 클러스터에서
+#   임의 코드를 돌릴 수 있었다(인증 없는 호스트 중 가장 위험했다).
+# ★ 브라우저 로그인만 덮는다. 스크립트·노트북 클라이언트는 클러스터 안에서 livy-headless:8998 로
+#   직접 붙거나 port-forward 를 쓴다 — Bearer 토큰 통과(--skip-jwt-bearer-tokens)는 Keycloak 토큰에
+#   audience 매퍼가 필요해 넣지 않았다.
+# ★ 4040 과 같은 방식으로 Livy 에 닿는 신원을 좁힌다(authz-external-access.yaml 의 allow-ext-livy) —
+#   oauth2-proxy 는 8998 만, Livy 가 띄운 드라이버(SA spark-driver)는 RSC 콜백을 위해 포트 무관.
+# ★ 설정의 사연은 oauth2-proxy-spark-ui.yaml 머리말과 같다(scope · CA · hostAliases · 그룹).
+apiVersion: v1
+kind: Service
+metadata:
+  name: oauth2-proxy-livy
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: livy
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: livy
+  ports:
+    - name: http
+      port: 4180
+      targetPort: 4180
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-proxy-livy
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: livy
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate: {maxSurge: 0, maxUnavailable: 1}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oauth2-proxy
+      app.kubernetes.io/instance: livy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oauth2-proxy
+        app.kubernetes.io/instance: livy
+        app.kubernetes.io/component: external-access
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: oauth2-proxy
+      automountServiceAccountToken: false
+      hostAliases:
+        - ip: "192.168.0.103"
+          hostnames: ["keycloak.oneinchmarket.local"]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:v7.12.0
+          args:
+            - --http-address=0.0.0.0:4180
+            - --provider=keycloak-oidc
+            - --oidc-issuer-url=https://keycloak.oneinchmarket.local/realms/oneinchmarket
+            - --provider-ca-file=/certs/ca.crt
+            - --client-id=oauth2-proxy-livy
+            - --redirect-url=https://livy.oneinchmarket.local/oauth2/callback
+            - --code-challenge-method=S256
+            # ★ keycloak-oidc 의 기본 scope 는 `openid email profile groups` 인데 이 realm 에는
+            #   `groups` client scope 가 없어 Keycloak 이 `invalid_scope` 로 거부한다(실측). 그룹은
+            #   scope 가 아니라 클라이언트의 groups 매퍼가 토큰에 넣으므로 scope 에서 뺀다.
+            - --scope=openid email profile
+            - --allowed-group=platform
+            - --email-domain=*
+            - --upstream=http://livy-headless:8998/
+            - --reverse-proxy=true
+            - --cookie-secure=true
+            - --cookie-name=_oim_livy
+            - --skip-provider-button=true
+            - --silence-ping-logging=true
+          env:
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: livy-client-secret}}
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: livy-cookie-secret}}
+          ports:
+            - {name: http, containerPort: 4180}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits:   {cpu: 200m, memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 20
+          volumeMounts:
+            - name: gateway-ca
+              mountPath: /certs
+              readOnly: true
+      volumes:
+        - name: gateway-ca
+          secret:
+            secretName: gateway-ca-cert
+            items:
+              - key: ca.crt
+                path: ca.crt

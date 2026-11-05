@@ -185,6 +185,10 @@ spec:
             # Spark 세션 UI 의 oauth2-proxy 콜백 — external-access/oauth2-proxy-spark-ui.yaml 의 짝이다.
             - name: SPARK_UI_URL
               value: "https://spark-ui.oneinchmarket.local"
+            - name: LIVY_URL
+              value: "https://livy.oneinchmarket.local"
+            - name: SPARK_HISTORY_URL
+              value: "https://spark-history.oneinchmarket.local"
 ---
 # Dependency-Track 프런트 — ★ 이 값은 엔트리포인트가
 #   `/static/config.json` 을 **제자리에서 고쳐** 넣는다. 그래서

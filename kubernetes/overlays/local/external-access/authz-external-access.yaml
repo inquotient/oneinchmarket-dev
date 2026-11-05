@@ -246,3 +246,63 @@ spec:
       to:
         - operation:
             hosts: ["zilla.oneinchmarket.local", "zilla.oneinchmarket.local:*"]
+---
+# Livy — oauth2-proxy(Keycloak 로그인)와 Livy 가 띄운 드라이버만 (2026-11-06).
+#   ★ 전에는 Livy 를 선택하는 ALLOW 정책이 없어 메시 안 누구나·게이트웨이가 8998 에 닿았다.
+#     HTTPRoute 를 oauth2-proxy 로 옮기는 것만으로는 게이트웨이의 직접 경로가 남는다.
+#   ★★ 드라이버 규칙에 포트를 적지 않는다 — cluster 모드 드라이버(SA spark-driver)는 Livy 의
+#     RSC 서버로 되돌아오는데 그 포트는 Livy 가 범위 안에서 고른다. 포트를 적으면 세션이
+#     기동 단계에서 끊긴다(Gotcha 9 — 포트를 빠뜨린 ALLOW 가 그 포트를 닫는다).
+#   ★ kubelet 프로브와 kubectl port-forward 는 ztunnel 을 거치지 않아 이 정책과 무관하다.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-ext-livy
+  labels:
+    app.kubernetes.io/name: allow-ext-livy
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: livy
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals: ["*/sa/oauth2-proxy"]
+      to:
+        - operation:
+            ports: ["8998"]
+    - from:
+        - source:
+            principals: ["*/sa/spark-driver"]
+---
+# Spark History — oauth2-proxy 만 (2026-11-06). 이벤트 로그는 History 가 S3 에서 스스로 읽으므로
+#   다른 수신이 없다(클러스터 안 호출자 0 — 레포 전수로 확인).
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-ext-spark-history
+  labels:
+    app.kubernetes.io/name: allow-ext-spark-history
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: spark-history
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals: ["*/sa/oauth2-proxy"]
+      to:
+        - operation:
+            ports: ["18080"]
