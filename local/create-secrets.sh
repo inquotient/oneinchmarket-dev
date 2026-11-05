@@ -126,6 +126,11 @@ fi
 #   jwt-secret 은 AKHQ 세션 쿠키 서명 키 — 이미지 기본값이 하드코딩된
 #   `pleasechangeme!...` 라 반드시 바꿔야 한다. HMAC 이라 32바이트 이상.
 mk akhq-secret "oidc-client-secret=$(gen 32)" "jwt-secret=$(gen 64)"
+# oauth2-proxy — 인증이 없는 UI 앞의 Keycloak 로그인(2026-11-06). 지금은 Spark 세션 UI 하나다.
+#   spark-ui-client-secret 은 realm 부트스트랩 [5d] 가 Keycloak 클라이언트에 심는다.
+#   ★ cookie-secret 은 **정확히 16·24·32 바이트**여야 한다(AES) — gen 32 는 hex 32자 = 32바이트.
+#     길이가 어긋나면 oauth2-proxy 가 `cookie_secret must be 16, 24, or 32 bytes` 로 기동하지 않는다.
+mk oauth2-proxy-secret "spark-ui-client-secret=$(gen 32)" "spark-ui-cookie-secret=$(gen 32)"
 # Temporal — 이력·가시성 DB 를 같은 롤로 쓴다(postgres-bootstrap 이 둘을 만든다).
 mk temporal-secret "db-password=$(gen)"
 # ★★ midPoint — 이 Secret 은 **아예 없었다**(2026-10-05에 더했다). 참조는

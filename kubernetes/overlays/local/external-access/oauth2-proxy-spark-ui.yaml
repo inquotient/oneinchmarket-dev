@@ -1,0 +1,154 @@
+# oauth2-proxy — Spark Connect 세션 UI(spark-ui.oneinchmarket.local) 앞의 Keycloak 로그인 (local 전용, 2026-11-06)
+#
+# ★★ 왜: 세션 UI(4040)에는 인증이 없고, Spark 기본값 `spark.ui.killEnabled=true` 라
+#   주소만 알면 누구나 **남의 Job·Stage 를 죽일 수 있었다**(보기 전용이 아니다).
+#   Spark 에는 OIDC 가 없으므로 앞에 역방향 프록시를 둔다(SEC-205 의 설계 그대로).
+#
+# ★ 경로: 게이트웨이 -> oauth2-proxy-spark-ui:4180 -> spark-connect-headless:4040
+#   게이트웨이가 4040 에 직접 닿던 허용은 authz-external-access.yaml 에서 **걷었다** —
+#   남겨 두면 HTTPRoute 하나만 되돌려도 로그인 없이 열린다. 4040 에 닿는 신원은
+#   이제 `*/sa/oauth2-proxy` 하나다.
+#
+# ★ 누가 들어오나: Keycloak realm `oneinchmarket` 의 **그룹 platform** 만(`--allowed-group`).
+#   세션을 죽일 수 있는 화면이라 realm 사용자 전부에게 열지 않는다. 그룹 클레임 매퍼와
+#   클라이언트는 keycloak-realm 부트스트랩 [5d] 가 만든다.
+#
+# ★★ OIDC 는 브라우저와 백엔드가 Keycloak 을 **같은 이름**으로 봐야 한다(Gotcha 69·136) —
+#   AKHQ 와 같은 처방이다: hostAliases 로 keycloak.oneinchmarket.local 을 노드 103(externalIP)에
+#   풀고, 게이트웨이 CA 만 신뢰한다(`--provider-ca-file`). ★ gateway-ca-cert 에는 CA **개인키**도
+#   있다 — items 로 ca.crt 만 투영한다.
+#
+# ★ 이름 `oauth2-proxy` 인 SA·라벨은 base 의 NetworkPolicy(allow-livy-access ·
+#   allow-spark-history-access · allow-spark-connect-access)가 이미 기다리던 이름이다.
+#   Livy·Spark History 를 같은 방식으로 덮을 때 Deployment 만 하나씩 더하면 된다
+#   (oauth2-proxy 는 업스트림을 호스트별로 고르지 못한다 — 호스트마다 하나).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: oauth2-proxy
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oauth2-proxy-spark-ui
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: spark-ui
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: spark-ui
+  ports:
+    - name: http
+      port: 4180
+      targetPort: 4180
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-proxy-spark-ui
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: spark-ui
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate: {maxSurge: 0, maxUnavailable: 1}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oauth2-proxy
+      app.kubernetes.io/instance: spark-ui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oauth2-proxy
+        app.kubernetes.io/instance: spark-ui
+        app.kubernetes.io/component: external-access
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: oauth2-proxy
+      automountServiceAccountToken: false
+      hostAliases:
+        - ip: "192.168.0.103"
+          hostnames: ["keycloak.oneinchmarket.local"]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:v7.12.0
+          args:
+            - --http-address=0.0.0.0:4180
+            - --provider=keycloak-oidc
+            - --oidc-issuer-url=https://keycloak.oneinchmarket.local/realms/oneinchmarket
+            - --provider-ca-file=/certs/ca.crt
+            - --client-id=oauth2-proxy-spark-ui
+            - --redirect-url=https://spark-ui.oneinchmarket.local/oauth2/callback
+            - --code-challenge-method=S256
+            # ★ keycloak-oidc 의 기본 scope 는 `openid email profile groups` 인데 이 realm 에는
+            #   `groups` client scope 가 없어 Keycloak 이 `invalid_scope` 로 거부한다(실측). 그룹은
+            #   scope 가 아니라 클라이언트의 groups 매퍼가 토큰에 넣으므로 scope 에서 뺀다.
+            - --scope=openid email profile
+            - --allowed-group=platform
+            - --email-domain=*
+            - --upstream=http://spark-connect-headless:4040/
+            - --reverse-proxy=true
+            - --cookie-secure=true
+            - --cookie-name=_oim_spark_ui
+            - --skip-provider-button=true
+            - --silence-ping-logging=true
+          env:
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: spark-ui-client-secret}}
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: spark-ui-cookie-secret}}
+          ports:
+            - {name: http, containerPort: 4180}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits:   {cpu: 200m, memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 20
+          volumeMounts:
+            - name: gateway-ca
+              mountPath: /certs
+              readOnly: true
+      volumes:
+        - name: gateway-ca
+          secret:
+            secretName: gateway-ca-cert
+            items:
+              - key: ca.crt
+                path: ca.crt

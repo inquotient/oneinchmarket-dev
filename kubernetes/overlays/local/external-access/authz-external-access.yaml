@@ -108,10 +108,12 @@ spec:
       app.kubernetes.io/name: spark-connect
   action: ALLOW
   rules:
-    # 세션 UI — 게이트웨이(브라우저)
+    # 세션 UI — oauth2-proxy(Keycloak 로그인)만 (2026-11-06).
+    #   ★ 게이트웨이(`*/sa/ingress-istio`)를 여기 다시 넣지 말 것 — 넣으면 HTTPRoute 하나만
+    #     되돌려도 로그인 없이 세션 UI(Job 강제 종료 가능)가 열린다(oauth2-proxy-spark-ui.yaml).
     - from:
         - source:
-            principals: ["*/sa/ingress-istio"]
+            principals: ["*/sa/oauth2-proxy"]
       to:
         - operation:
             ports: ["4040"]

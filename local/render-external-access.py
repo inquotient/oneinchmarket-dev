@@ -163,8 +163,8 @@ CATALOG = [
      "LDAP 로그인 `data-admin`(전권)·`analyst`(조회만) / `pw ds389-secret <uid>-password` · 권한은 Ranger `oim-trino` · 웹 UI(`/ui/`) + **JDBC**(§3-b). ★ `http-server.process-forwarded=true` 가 있어야 한다 — 없으면 전부 406 이다"),
     ("spark-history", "spark-history-headless", 18080, "http", OPEN,
      "완료된 Spark 앱"),
-    ("spark-ui", "spark-connect-headless", 4040, "http", OPEN,
-     "Spark Connect 세션 UI"),
+    ("spark-ui", "oauth2-proxy-spark-ui", 4180, "http", AUTH,
+     "Spark Connect 세션 UI. **Keycloak 로그인 · 그룹 `platform` 만**(`portal` / `pw keycloak-secret portal-user-password`) — 앞단 oauth2-proxy(external-access/oauth2-proxy-spark-ui.yaml). ★ 세션 UI 는 Job 을 **죽일 수 있다**(`spark.ui.killEnabled` 기본 true)"),
     ("livy", "livy-headless", 8998, "http", OPEN,
      "Spark REST 세션"),
     ("hdfs", "hadoop-namenode", 9870, "http", OPEN,
@@ -190,11 +190,12 @@ CATALOG = [
 
 # AuthorizationPolicy 가 선택하는 백엔드 — 게이트웨이 신원을 따로 허용해야 한다.
 #   실측(2026-10-11)으로 정책이 선택하는 워크로드는 12개뿐이고, 그중 HTTP 로
-#   노출하는 것이 아래 넷이다. 여기 빠뜨리면 그 호스트만 **502·리셋**이 된다.
+#   노출하는 것이 아래 셋이다. 여기 빠뜨리면 그 호스트만 **502·리셋**이 된다.
+#   ★ spark-connect 4040 은 2026-11-06 에 빠졌다 — 게이트웨이가 아니라 oauth2-proxy 가
+#     닿는다(authz-external-access.yaml 이 그 신원만 허용한다).
 AUTHZ_GUARDED = {
     ("minio-headless", 9000), ("minio-headless", 9001),
     ("opensearch-headless", 9200),
-    ("spark-connect-headless", 4040),
 }
 
 # DBeaver·전용 클라이언트용 TCP 노출 — db-gateway(nginx stream)가 중계한다.
