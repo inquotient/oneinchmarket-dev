@@ -4,9 +4,23 @@
 # JAR 을 이미지에 굽는다. --packages 로 런타임에 내려받지 않는다.
 # 근거: hive-metastore initContainer 가 기동 시 인터넷에서 JDBC 드라이버를
 #       받는 구성이 SEC-512 로 지적되어 있다. 같은 실수를 반복하지 않는다.
-FROM docker.io/apache/spark:3.5.6
+#
+# ★★ 베이스는 **Java 17 판**이어야 한다(2026-11-06). Iceberg 1.10+ 는 Java 17 로 빌드되는데
+#   `apache/spark:3.5.6` 은 Java 11 이라, spark.sql.extensions 의 Iceberg 확장을 싣는 순간
+#   `UnsupportedClassVersionError: org/apache/iceberg/spark/ExtendedParser ... class file version
+#   61.0 ... up to 55` 로 SparkSession 이 만들어지지 않았다 — Livy 세션의 첫 문장에서 드러났다.
+#   ★ 빌드는 성공하고 파드도 Ready 라(Spark Connect 는 첫 SQL 전까지 확장을 싣지 않는다) 실제로
+#   질의해야만 드러난다. 그래서 아래 가드가 JVM 메이저를 확인한다(Gotcha 43 — 바이트코드에 물을 것).
+#   python3 이 함께 든 판을 쓴다(Livy 의 PySpark · spark.pyspark.python=python3).
+FROM docker.io/apache/spark:3.5.6-scala2.12-java17-python3-ubuntu
 
 USER root
+
+# fail-closed: Iceberg 1.11 은 class 61(Java 17) 이다. 베이스를 바꿀 때 Java 11 로 되돌아가면 빌드가 멈춘다.
+RUN v=$(java -XshowSettings:properties -version 2>&1 | sed -n 's/^ *java.specification.version = //p') \
+ && echo "java.specification.version=$v" \
+ && [ "${v%%.*}" -ge 17 ] \
+ && command -v python3
 
 ARG ICEBERG_VERSION=1.11.0
 ARG SCALA_VERSION=2.12
