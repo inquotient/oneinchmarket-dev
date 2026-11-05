@@ -30,13 +30,19 @@ spec:
         - operation:
             ports: ["15002"]
     # executor → driver RPC · BlockManager
+    # ★★ 2026-11-06 실측: 이 규칙이 ns/dev · ns/prod 만 나열해 **local 의 익스큐터가 드라이버로
+    #   되돌아오지 못했다**(ztunnel `policy rejection` 114건: sa/spark-executor -> spark-connect-0:7078).
+    #   익스큐터는 뜨자마자 `Broken pipe` 로 죽고, 실패가 쌓이면 SparkContext 가 멈춰 서버가
+    #   재시작한다 — 파드는 다시 Ready 라 "가끔 죽는 서버" 로 보인다. 즉 Spark Connect 는 local 에서
+    #   분산 질의를 한 번도 하지 못했다(그 전엔 익스큐터가 `default` SA 라 역시 거부였다).
+    #   base 는 네임스페이스를 모르므로 접미 매칭을 쓴다(Gotcha 9 — 중간 `*` 는 리터럴이다).
+    #   익스큐터는 전용 SA spark-executor 로 뜬다(spark-defaults · spark-rbac.yaml).
     - from:
         - source:
             principals:
-              - "cluster.local/ns/dev/sa/spark-driver"
-              - "cluster.local/ns/dev/sa/spark-connect"
-              - "cluster.local/ns/prod/sa/spark-driver"
-              - "cluster.local/ns/prod/sa/spark-connect"
+              - "*/sa/spark-driver"
+              - "*/sa/spark-connect"
+              - "*/sa/spark-executor"
       to:
         - operation:
             ports: ["7078", "7079"]
