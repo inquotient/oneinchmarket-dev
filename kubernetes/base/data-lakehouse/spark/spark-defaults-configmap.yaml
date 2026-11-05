@@ -21,6 +21,11 @@ data:
     #   버킷 livy-recovery 는 minio-bootstrap 이 만들고 비어 있다(Livy 복구는 file:// 를 쓴다).
     #   로컬 의존이 없는 제출(ETL Job 의 s3a:// · local:// 리소스)은 이 경로를 쓰지 않는다.
     spark.kubernetes.file.upload.path               s3a://livy-recovery/uploads
+    # ★ spark-iceberg 이미지에는 `python3` 만 있고 `python` 이 없다(2026-11-06 실측). Livy 의 PySpark
+    #   인터프리터는 spark.pyspark.python → PYSPARK_PYTHON → "python" 순으로 고르므로, 이것이 없으면
+    #   세션은 idle 인데 문장마다 `Fail to start interpreter`(드라이버 로그: Cannot run program "python").
+    spark.pyspark.python                            python3
+    spark.pyspark.driver.python                     python3
     spark.kubernetes.authenticate.driver.serviceAccountName  spark-driver
     # 익스큐터 전용 SA(spark-rbac.yaml) — 없으면 `default` 로 떠서 MinIO 인가에 넣을 수 없다.
     spark.kubernetes.authenticate.executor.serviceAccountName  spark-executor
