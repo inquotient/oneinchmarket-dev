@@ -71,6 +71,13 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            # ★ 드라이버를 띄울 네임스페이스(2026-11-06). 없으면 Spark 기본값 `default` 에 파드를 만들려다
+            #   `Forbidden ... namespaces/default/pods` 로 세션이 죽는다. Livy 에는 이것을 정하는 키가
+            #   없고(LivyConf 실측) spark-defaults.conf 는 환경변수를 풀지 못하므로, Livy 가 띄우는
+            #   spark-submit 의 JVM 에 시스템 속성으로 준다 — Spark 는 `spark.` 으로 시작하는 시스템
+            #   속성을 설정으로 읽는다. Spark Connect 는 같은 값을 --conf 로 준다.
+            - name: SPARK_SUBMIT_OPTS
+              value: "-Dspark.kubernetes.namespace=$(POD_NAMESPACE)"
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:

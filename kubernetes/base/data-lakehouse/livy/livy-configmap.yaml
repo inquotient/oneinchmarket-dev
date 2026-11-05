@@ -52,8 +52,19 @@ data:
     #       auth requires livy.server.auth..class to be provided
     #   끄려면 키를 아예 두지 않아야 한다.
 
-    # ── Spark 로 전달되는 설정 (livy.spark.* → spark.*)
-    livy.spark.kubernetes.container.image                             = oneinch/spark-iceberg:latest
+    # ── Spark 로 전달되는 설정
+    # ★★★ **`livy.spark.*` 가 `spark.*` 로 전달된다는 이 절의 옛 제목은 틀렸다**(2026-11-06 실측).
+    #   Livy 가 알아보는 것은 livy.spark.master · livy.spark.deploy-mode 정도이고 나머지
+    #   `livy.spark.<키>` 는 **조용히 무시된다** — 업로드 경로를 여기 넣었더니 spark-submit 이
+    #   똑같이 `Please specify spark.kubernetes.file.upload.path` 로 죽었다. 실제로 spark-submit 이
+    #   읽는 것은 /opt/spark/conf/spark-defaults.conf(spark-config)다. 아래 키들은 그 파일과
+    #   같은 값이어야 혼동이 없다 — 바꿀 때는 spark-defaults 를 고칠 것.
+    # ★ 이미지는 노드 containerd 에 **실제로 있는 이름**이어야 한다(2026-11-06). 예전 값
+    #   `oneinch/spark-iceberg:latest` 는 docker.io 로 풀리는데 그런 이미지는 없다 — 반입본은
+    #   build-images.sh 가 넣는 FQDN · 버전 태그다(Gotcha 85 · §8-72).
+    livy.spark.kubernetes.container.image                             = gitlab-registry.local.svc.cluster.local:5050/oneinch/spark-iceberg:3.5.6
+    # ★★ 업로드 경로(spark.kubernetes.file.upload.path)는 여기가 아니라 spark-defaults.conf 에 있다
+    #   (spark-defaults-configmap.yaml) — 아래 ★★★ 참조.
     livy.spark.kubernetes.authenticate.driver.serviceAccountName      = spark-driver
     livy.spark.kubernetes.driver.podTemplateFile                      = /opt/spark/conf/driver-pod-template.yaml
     livy.spark.kubernetes.executor.podTemplateFile                    = /opt/spark/conf/executor-pod-template.yaml

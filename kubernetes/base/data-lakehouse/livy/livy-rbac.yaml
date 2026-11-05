@@ -28,9 +28,50 @@ rules:
   - apiGroups: [""]
     resources: ["services", "configmaps", "secrets"]
     verbs: ["get", "list", "watch", "create", "delete", "deletecollection"]
+  # ★ Spark 3.5 의 spark-submit 은 드라이버 Service·ConfigMap 을 **server-side apply(PATCH)** 로 만든다
+  #   (2026-11-06 실측: `Failure executing: PATCH ... services/livy-session-0-...-driver-svc` Forbidden).
+  - apiGroups: [""]
+    resources: ["services", "configmaps"]
+    verbs: ["patch"]
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
     verbs: ["get", "list", "create", "delete", "deletecollection"]
+---
+# ★★ Livy 0.9 의 앱 감시자(SparkKubernetesApp)는 드라이버 파드를 **모든 네임스페이스에서** 라벨로
+#   찾는다(`GET /api/v1/pods?labelSelector=spark-role=driver,...` — 2026-11-06 실측 Forbidden). 범위를
+#   좁히는 설정 키가 Livy 에 없다(LivyConf 의 kubernetes 키 전수 확인). 그래서 클러스터 범위
+#   **파드 읽기만** 준다 — 만들기·지우기는 위 Role(이 네임스페이스)에만 있다.
+#   subject 의 namespace 는 오버레이의 namespace 변환기가 채운다(렌더로 확인할 것).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: livy-app-monitor
+  labels:
+    app.kubernetes.io/name: livy
+    app.kubernetes.io/component: data-lakehouse
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: livy-app-monitor
+  labels:
+    app.kubernetes.io/name: livy
+    app.kubernetes.io/component: data-lakehouse
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: livy-app-monitor
+subjects:
+  - kind: ServiceAccount
+    name: livy
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

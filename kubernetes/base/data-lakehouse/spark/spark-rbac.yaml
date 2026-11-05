@@ -10,6 +10,20 @@ metadata:
     app.kubernetes.io/part-of: oneinchmarket
     app.kubernetes.io/managed-by: kustomize
 ---
+# 익스큐터 전용 신원(2026-11-06). 익스큐터는 API 를 부르지 않으므로 RBAC 도 토큰도 없다.
+#   지정하지 않으면 네임스페이스의 `default` SA 로 떠서 MinIO 의 AuthorizationPolicy 에 넣을 수
+#   없다 — 넣으면 `default` 를 쓰는 모든 것이 함께 열린다(Gotcha 10).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spark-executor
+  labels:
+    app.kubernetes.io/name: spark
+    app.kubernetes.io/component: data-lakehouse
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+automountServiceAccountToken: false
+---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -52,6 +66,10 @@ rules:
     resources: ["services", "configmaps"]
     # driver 는 종료 시 label selector 로 일괄 삭제한다 → deletecollection 필요
     verbs: ["get", "list", "watch", "create", "delete", "deletecollection"]
+  # Spark 3.5 는 Service·ConfigMap 을 server-side apply(PATCH)로 만든다(livy-rbac.yaml 과 같은 이유).
+  - apiGroups: [""]
+    resources: ["services", "configmaps"]
+    verbs: ["patch"]
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
     verbs: ["get", "list", "create", "delete", "deletecollection"]

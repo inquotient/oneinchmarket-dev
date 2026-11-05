@@ -377,6 +377,14 @@ spec:
               - "*/sa/hive-server"
               - "*/sa/spark-connect"
               - "*/sa/spark-history"
+              # ★ Livy · 그것이 띄우는 드라이버 · 익스큐터(2026-11-06). 셋 다 없어서 Livy 세션의
+              #   spark-submit 이 업로드(spark.kubernetes.file.upload.path → s3a://livy-recovery)에서
+              #   **조용히 매달렸고**, 세션은 40초 뒤 `dead` 였다. 단서는 ztunnel 의 `sa/livy -> :9000`
+              #   거부뿐이었다(Gotcha 9). 익스큐터는 전용 SA spark-executor 로 뜬다(spark-defaults) —
+              #   지정하지 않으면 `default` SA 라 여기서 허용할 수 없다(Gotcha 10).
+              - "*/sa/livy"
+              - "*/sa/spark-driver"
+              - "*/sa/spark-executor"
               # OpenBao raft 스냅샷을 MinIO 로 올린다(§8-80).
               # ★ ALLOW 정책이 minio 를 선택하므로 여기 없으면 **거부**다
               #   (Gotcha 9). 증상은 mc 가 조용히 매달리는 것이라
