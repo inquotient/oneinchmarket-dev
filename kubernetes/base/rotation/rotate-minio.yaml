@@ -5,7 +5,7 @@
 #   바뀌었다면 한꺼번에 끊겼을 것이다(Gotcha 212). 2026-11-06 에 소비자를 버킷 단위 사용자로 옮긴 뒤
 #   (minio-bootstrap · minio-users) 둘로 나눴다:
 #
-#   rotate-minio-password  소비자 사용자 6명의 비밀키(minio-users). MinIO 는 재시작하지 않는다 — 살아 있는 서버에
+#   rotate-minio-password  소비자 사용자 7명의 비밀키(minio-users). MinIO 는 재시작하지 않는다 — 살아 있는 서버에
 #                          `mc admin user add` 로 바꾸고(이미 있는 사용자는 키만 바뀌고 정책은 남는다 — 실측),
 #                          Reloader 가 소비자를 다시 띄운다. 바뀐 순간부터 재시작까지 그 소비자는 S3 에 못 붙는다.
 #   rotate-minio-root      root 비밀번호(minio-secret). root 는 기동 때만 읽히므로 OpenBao → Secret 을 바꾸고
@@ -14,7 +14,8 @@
 #
 # ★ 두 Job 모두 마지막 컨테이너가 **동기화된 k8s Secret 의 값**(소비자가 받을 값)으로 MinIO 에 다시 붙어 본다.
 #   중간에 minio-bootstrap 훅이 끼어 키를 되돌려도 여기서 드러난다.
-# ★ airflow 사용자는 여기 없다 — 키가 airflow-secret 에 있고 그 Secret 은 아직 OpenBao 원천이 아니다.
+# ★ airflow 사용자도 2026-11-07 부터 여기 있다 — 키를 airflow-secret/s3-secret-key 에서 minio-users/airflow-secret-key 로
+#   같은 값 그대로 옮겼다(airflow-secret 은 OpenBao 원천이 아니라 회전기가 볼 수 없었다).
 # ★ suspend: true — 자동 실행하지 않는다(사용자 결정, 2026-11-06). 수동 실행:
 #     kubectl -n local create job --from=cronjob/rotate-minio-password rotate-minio-manual-$(date +%s)
 #     kubectl -n local create job --from=cronjob/rotate-minio-root     rotate-minio-root-manual-$(date +%s)
@@ -131,7 +132,7 @@ spec:
                   B=/tools/bao
                   export BAO_ADDR=http://openbao.local.svc.cluster.local:8200 HOME=/tmp MC_CONFIG_DIR=/tmp/.mc
                   URL=http://minio-headless:9000
-                  USERS="trino hive spark spark-history openreplay openbao-snapshot"
+                  USERS="trino hive spark spark-history openreplay openbao-snapshot airflow"
                   sha() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
                   ev() { local v; v="K8S_$(printf '%s' "$1" | tr 'a-z-' 'A-Z_')"; printf '%s' "${!v:-}"; }
                   # mc 는 키를 인자로 받는다 — 이 파드 안의 프로세스 목록에만 잠깐 보인다.
@@ -196,6 +197,7 @@ spec:
                 - {name: K8S_SPARK_HISTORY,    valueFrom: {secretKeyRef: {name: minio-users, key: spark-history-secret-key}}}
                 - {name: K8S_OPENREPLAY,       valueFrom: {secretKeyRef: {name: minio-users, key: openreplay-secret-key}}}
                 - {name: K8S_OPENBAO_SNAPSHOT, valueFrom: {secretKeyRef: {name: minio-users, key: openbao-snapshot-secret-key}}}
+                - {name: K8S_AIRFLOW,          valueFrom: {secretKeyRef: {name: minio-users, key: airflow-secret-key}}}
               volumeMounts: [{name: tools, mountPath: /tools}]
               resources:
                 requests: {cpu: 50m, memory: 128Mi}
@@ -241,7 +243,7 @@ spec:
                   set -uo pipefail
                   export HOME=/tmp MC_CONFIG_DIR=/tmp/.mc
                   fails=0
-                  for u in trino hive spark spark-history openreplay openbao-snapshot; do
+                  for u in trino hive spark spark-history openreplay openbao-snapshot airflow; do
                     v="K8S_$(printf '%s' "$u" | tr 'a-z-' 'A-Z_')"
                     if mc alias set chk http://minio-headless:9000 "$u" "${!v}" >/dev/null 2>&1; then echo "[verify] $u ok"
                     else echo "[verify] $u: 동기화된 Secret 의 키로 인증되지 않는다" >&2; fails=$((fails+1)); fi
@@ -255,6 +257,7 @@ spec:
                 - {name: K8S_SPARK_HISTORY,    valueFrom: {secretKeyRef: {name: minio-users, key: spark-history-secret-key}}}
                 - {name: K8S_OPENREPLAY,       valueFrom: {secretKeyRef: {name: minio-users, key: openreplay-secret-key}}}
                 - {name: K8S_OPENBAO_SNAPSHOT, valueFrom: {secretKeyRef: {name: minio-users, key: openbao-snapshot-secret-key}}}
+                - {name: K8S_AIRFLOW,          valueFrom: {secretKeyRef: {name: minio-users, key: airflow-secret-key}}}
               resources:
                 requests: {cpu: 20m, memory: 64Mi}
                 limits:   {cpu: 200m, memory: 256Mi}

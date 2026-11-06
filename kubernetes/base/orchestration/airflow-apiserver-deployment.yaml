@@ -103,7 +103,7 @@ spec:
             #   짝이고, boto3 가 환경변수에서 집는다.
             - name: AWS_SECRET_ACCESS_KEY
               valueFrom:
-                secretKeyRef: { name: airflow-secret, key: s3-secret-key }
+                secretKeyRef: { name: minio-users, key: airflow-secret-key }
           # ★ 스키마가 서기 전에는 뜨지 않는다 — db-migrate 훅이 먼저 돈다.
           #   startupProbe 를 넉넉히 주어 그 사이를 견딘다.
           startupProbe:

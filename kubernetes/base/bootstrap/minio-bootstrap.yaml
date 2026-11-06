@@ -140,7 +140,7 @@ spec:
             #   만들고, Airflow 파드는 같은 Secret 에서 같은 값을 읽는다 —
             #   원천이 하나여야 회전 때 어긋나지 않는다(Gotcha 117).
             - name: AIRFLOW_S3_SECRET_KEY
-              valueFrom: { secretKeyRef: { name: airflow-secret, key: s3-secret-key } }
+              valueFrom: { secretKeyRef: { name: minio-users, key: airflow-secret-key } }
             # ★ 소비자별 사용자의 비밀키(2026-11-06) — 원천은 OpenBao oim/minio-users(ESO).
             - { name: TRINO_KEY,            valueFrom: { secretKeyRef: { name: minio-users, key: trino-secret-key } } }
             - { name: HIVE_KEY,             valueFrom: { secretKeyRef: { name: minio-users, key: hive-secret-key } } }

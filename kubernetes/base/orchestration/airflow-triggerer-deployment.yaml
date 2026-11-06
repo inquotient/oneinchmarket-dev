@@ -99,7 +99,7 @@ spec:
             #   짝이고, boto3 가 환경변수에서 집는다.
             - name: AWS_SECRET_ACCESS_KEY
               valueFrom:
-                secretKeyRef: { name: airflow-secret, key: s3-secret-key }
+                secretKeyRef: { name: minio-users, key: airflow-secret-key }
           # ★★ exec 프로브에 `timeoutSeconds` 를 주지 않으면 **기본값이 1초**다.
           #   `airflow` CLI 는 파이썬 프레임워크를 통째 임포트해
           #   실측 **3.1초**가 걸린다(`airflow version` 만 해도 2.6초).
