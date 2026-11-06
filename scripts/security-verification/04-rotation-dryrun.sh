@@ -65,6 +65,7 @@ echo "=== 1. 로테이션 CronJob 존재·가동 확인 ==="
 #   바꾸면 반영되지 않는다(LOCAL-DEPLOYMENT §9-17 에 복귀 조건이 있다).
 CRONJOBS=(
   "rotate-postgresql-password"
+  "rotate-postgresql-apps"
   "rotate-mariadb-password"
   "rotate-mongodb-password"
   "rotate-redis-password"
@@ -77,7 +78,7 @@ CRONJOBS=(
   #   그래서 ON_DEMAND 는 suspend: true 가 **정상**이고, false 면 결정과 어긋나 [FAIL] 이다.
   #   rotate-admin-passwords 는 옛 설계라 돌릴 수 없다 — 여전히 [FAIL] 이다.
 )
-ON_DEMAND=" rotate-postgresql-password rotate-mariadb-password rotate-mongodb-password rotate-redis-password rotate-minio-password rotate-minio-root "
+ON_DEMAND=" rotate-postgresql-password rotate-postgresql-apps rotate-mariadb-password rotate-mongodb-password rotate-redis-password rotate-minio-password rotate-minio-root "
 
 for cj in "${CRONJOBS[@]}"; do
   if INFO=$(kubectl get cronjob "$cj" -n "$NAMESPACE" -o go-template='{{.spec.schedule}}{{"|"}}{{if .spec.suspend}}true{{else}}false{{end}}' 2>/dev/null); then

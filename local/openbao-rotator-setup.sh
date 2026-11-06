@@ -23,10 +23,14 @@ POD="${POD:-openbao-0}"
 MOUNT="${MOUNT:-oim}"
 # 이름 <x> 는 SA rotator-<x> · 역할 rotator-<x> · KV 경로 <x>-secret 로 이어진다(paths() 가 예외를 정한다).
 # ★ 새 DB 를 더할 때는 그 CronJob(base/rotation/rotate-<x>.yaml)의 설계가 OpenBao 원천인지 먼저 볼 것.
-ROTATORS="${ROTATORS:-postgresql mariadb mongodb minio redis}"
+ROTATORS="${ROTATORS:-postgresql postgresql-apps mariadb mongodb minio redis}"
 # ★ minio 는 경로가 둘이다 — 소비자 사용자 키(minio-users)와 root(minio-secret). 두 CronJob 이 같은 SA 를 쓴다
 #   (base/rotation/rotate-minio.yaml). 사용자 로테이션은 root 로 `mc admin user add` 를 해야 하므로 root 를 읽어야 한다.
-paths() { case "$1" in minio) echo "minio-users minio-secret";; redis) echo "redis-users redis-secret";; *) echo "$1-secret";; esac; }
+# ★ postgresql-apps(2026-11-07) — 앱 롤 16개의 Secret 을 읽고 쓰고, superuser(postgresql-secret)는 ALTER ROLE 에
+#   필요해서 **읽기만** 한다(ro_paths). 목록은 base/rotation/rotate-postgresql-apps.yaml 의 TABLE 과 같아야 한다.
+PG_APPS="keycloak-secret gitlab-secret apicurio-secret hive-metastore-secret ranger-secret glitchtip-secret openreplay-secret dependency-track-secret defectdojo-secret safeline-secret openfga-secret midpoint-secret backstage-secret temporal-secret airflow-secret clickhouse-secret"
+paths() { case "$1" in minio) echo "minio-users minio-secret";; redis) echo "redis-users redis-secret";; postgresql-apps) echo "$PG_APPS";; *) echo "$1-secret";; esac; }
+ro_paths() { case "$1" in postgresql-apps) echo "postgresql-secret";; *) echo "";; esac; }
 log() { echo "[rotator] $*"; }
 
 # root 토큰을 파일로만 다룬다 — 셸 변수·프로세스 인자에 남기지 않는다(openbao-eso-setup.sh 와 같다).
@@ -52,7 +56,11 @@ for r in $ROTATORS; do
 path \"${MOUNT}/metadata/${path}\" { capabilities = [\"read\"] }
 "
   done
-  log "정책 rotator-${r} ($(paths "$r") 읽기·쓰기)"
+  for path in $(ro_paths "$r"); do
+    hcl="${hcl}path \"${MOUNT}/data/${path}\"     { capabilities = [\"read\"] }
+"
+  done
+  log "정책 rotator-${r} ($(paths "$r") 읽기·쓰기 · 읽기만: $(ro_paths "$r"))"
   # patch 는 `bao kv patch`(키 일부만 바꾼다) · update 는 put — 다른 키를 지우지 않으려고 patch 를 쓴다.
   B "cat > /tmp/p.hcl <<'EOP'
 ${hcl}EOP

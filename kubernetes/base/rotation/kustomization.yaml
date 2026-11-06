@@ -6,6 +6,7 @@ resources:
   - secret-rotator-rbac.yaml
   # Database Rotation (매월 1일, 15일)
   - rotate-postgresql.yaml
+  - rotate-postgresql-apps.yaml   # 앱 롤 16개(2026-11-07)
   - rotate-mariadb.yaml
   - rotate-mongodb.yaml
   - rotate-redis.yaml

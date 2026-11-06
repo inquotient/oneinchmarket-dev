@@ -133,6 +133,7 @@ spec:
         - podSelector: {matchLabels: {app.kubernetes.io/name: oauth2-proxy}}
         # 비밀번호 로테이터 — 자기 KV 경로만 쓰는 역할로 로그인한다(local/openbao-rotator-setup.sh).
         - podSelector: {matchLabels: {app.kubernetes.io/name: rotator-postgresql}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: rotator-postgresql-apps}}
         - podSelector: {matchLabels: {app.kubernetes.io/name: rotator-mariadb}}
         - podSelector: {matchLabels: {app.kubernetes.io/name: rotator-mongodb}}
         - podSelector: {matchLabels: {app.kubernetes.io/name: rotator-minio}}

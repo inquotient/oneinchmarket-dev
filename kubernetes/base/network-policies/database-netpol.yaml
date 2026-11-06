@@ -41,6 +41,9 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: rotator-postgresql
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: rotator-postgresql-apps
         # 6단계 — GlitchTip(web·worker)과 마이그레이션 Job.
         - podSelector:
             matchLabels:
