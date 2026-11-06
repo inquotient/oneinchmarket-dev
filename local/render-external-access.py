@@ -489,6 +489,10 @@ spec:
             # 앱 로그아웃(/oauth2/sign_out)이 Keycloak 세션까지 끝낸다 — 세션의 ID 토큰으로 서버 쪽에서
             #   end_session 을 부른다. 없으면 앱 쿠키만 지워지고 SSO 세션이 남아 비밀번호 없이 다시 들어온다.
             - --backend-logout-url=https://keycloak.{domain}/realms/oneinchmarket/protocol/openid-connect/logout?id_token_hint={{id_token}}
+            # 2분마다 refresh 토큰으로 Keycloak 세션을 다시 확인한다 — 다른 앱에서 로그아웃해 세션이 끝났으면
+            #   갱신이 거절되어 이 앱도 로그인을 다시 요구한다(없으면 쿠키 만료 168시간까지 열린다).
+            #   realm 의 access token 수명(300초)보다 짧게 둔다.
+            - --cookie-refresh=2m
 {args}          env:
             - name: OAUTH2_PROXY_CLIENT_SECRET
               valueFrom: {{secretKeyRef: {{name: oauth2-proxy-secret, key: {host}-client-secret}}}}
