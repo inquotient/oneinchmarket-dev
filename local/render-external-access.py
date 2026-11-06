@@ -57,27 +57,27 @@ CATALOG = [
     # -- 관측성 ------------------------------------------------------------
     ("grafana", "grafana-headless", 3000, "http", AUTH,
      "admin / `pw grafana-secret admin-password`"),
-    ("prometheus", "prometheus-headless", 9090, "http", OPEN,
-     "질의·규칙·타깃"),
-    ("alertmanager", "alertmanager", 9093, "http", OPEN,
-     "경보 현황. 수신자는 Logstash webhook 이다(Gotcha 33)"),
+    ("prometheus", "prometheus-headless", 9090, "http", AUTH,
+     "질의·규칙·타깃 · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P)"),
+    ("alertmanager", "alertmanager", 9093, "http", AUTH,
+     "경보 현황. 수신자는 Logstash webhook 이다(Gotcha 33) · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P)"),
     ("osd", "opensearch-dashboards", 5601, "http", AUTH,
      "admin / `pw opensearch-secret admin-password` · Dev Tools 가 가장 편하다"),
     ("loki", "loki-headless", 3100, "http", TOOL,
      "`/ready` · 평소에는 Grafana 가 소비한다"),
     ("tempo", "tempo-headless", 3200, "http", TOOL,
      "`/status` · 평소에는 Grafana 가 소비한다"),
-    ("pyroscope", "pyroscope", 4040, "http", OPEN,
-     "연속 프로파일링"),
-    ("pyrra", "pyrra", 9099, "http", OPEN,
-     "SLO·오차예산. ★ 빈 그래프의 뜻은 둘이다(Gotcha 150·190)"),
+    ("pyroscope", "pyroscope", 4040, "http", AUTH,
+     "연속 프로파일링 · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P)"),
+    ("pyrra", "pyrra", 9099, "http", AUTH,
+     "SLO·오차예산. ★ 빈 그래프의 뜻은 둘이다(Gotcha 150·190) · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P)"),
     # -- 오케스트레이션 ----------------------------------------------------
     ("airflow", "airflow-apiserver", 8080, "http", AUTH,
      "admin / `pw airflow-secret admin-password` · 과금 DAG"),
-    ("temporal", "temporal-ui-headless", 8080, "http", OPEN,
-     "워크플로 이력. 서버는 gRPC 7233 이다"),
-    ("flink", "flink-jobmanager", 8081, "http", OPEN,
-     "잡 0건. 판정은 `/overview` 의 slots-total 이다(Gotcha 164)"),
+    ("temporal", "temporal-ui-headless", 8080, "http", AUTH,
+     "워크플로 이력. 서버는 gRPC 7233 이다 · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P)"),
+    ("flink", "flink-jobmanager", 8081, "http", AUTH,
+     "잡 0건. 판정은 `/overview` 의 slots-total 이다(Gotcha 164) · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P)"),
     # -- 메시징 · 계약 -----------------------------------------------------
     ("akhq", "akhq-headless", 8080, "http", AUTH,
      "Kafka 브라우저. ★ Keycloak 로그인 — `platform` 그룹은 admin, 그 밖은 "
@@ -167,14 +167,14 @@ CATALOG = [
      "Spark Connect 세션 UI. **Keycloak 로그인 · 그룹 `platform` 만**(`portal` / `pw keycloak-secret portal-user-password`) — 앞단 oauth2-proxy(external-access/oauth2-proxy-spark-ui.yaml). ★ 세션 UI 는 Job 을 **죽일 수 있다**(`spark.ui.killEnabled` 기본 true)"),
     ("livy", "oauth2-proxy-livy", 4180, "http", AUTH,
      "Spark REST 세션. **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy. ★ 브라우저용이다 — 스크립트는 클러스터 안 `livy-headless:8998` 또는 port-forward"),
-    ("hdfs", "hadoop-namenode", 9870, "http", OPEN,
-     "NameNode UI. ★ 파일 조작은 Knox 의 WebHDFS 를 쓸 것"),
-    ("hbase", "hbase-master", 16010, "http", OPEN,
-     "HBase Master"),
-    ("hbase-rs", "hbase-regionserver", 16030, "http", OPEN,
-     "RegionServer"),
-    ("hive", "hive-server-headless", 10002, "http", OPEN,
-     "★★ **게이트웨이 경유로는 500 이다** — Jetty 가 Host 헤더의 포트로 핸들러를 고른다(§6). JDBC 는 Knox 경유(§4)"),
+    ("hdfs", "hadoop-namenode", 9870, "http", AUTH,
+     "NameNode UI. ★ 파일 조작은 Knox 의 WebHDFS 를 쓸 것 · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P)"),
+    ("hbase", "hbase-master", 16010, "http", AUTH,
+     "HBase Master · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P)"),
+    ("hbase-rs", "hbase-regionserver", 16030, "http", AUTH,
+     "RegionServer · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P)"),
+    ("hive", "hive-server-headless", 10002, "http", AUTH,
+     "HiveServer2 웹 UI · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P). ★ 예전에는 게이트웨이 경유로 500 이었다 — Jetty 가 Host 헤더의 포트로 핸들러를 고른다(§6). oauth2-proxy 가 Host 를 업스트림 이름으로 바꿔 보내 풀린다. JDBC 는 Knox 경유(§4)"),
     # -- 애플리케이션 ------------------------------------------------------
     ("app-admin", "admin-headless", 3000, "http", TOOL,
      "관리 프런트"),
@@ -186,6 +186,39 @@ CATALOG = [
      "세션 리플레이. ★ 전제 2건이 미해결이라 데이터가 비어 있다"),
     ("openreplay-api", "api-openreplay", 8080, "http", TOOL,
      "위 프런트가 부르는 API"),
+]
+
+# ★★ 인증이 없던 UI 앞의 oauth2-proxy(2026-11-06) — 호스트 -> (백엔드 파드의 name 라벨, 추가 인자).
+#   이 목록에 있으면 CATALOG 의 백엔드는 **업스트림**이 되고, 라우트는 `oauth2-proxy-<호스트>:4180` 으로
+#   간다. 이 목록에서 셋이 함께 생성된다(oauth2-proxies.yaml):
+#     ① oauth2-proxy Service·Deployment — Keycloak 로그인 · 그룹 `platform` 만
+#     ② 백엔드에 **게이트웨이 신원만 거부하는 DENY** — 라우트를 되돌려도 로그인 없이 열리지 않는다.
+#        ALLOW 로 좁히지 않는 이유: 이 백엔드들은 클러스터 안 호출자가 많다(Grafana->Prometheus·
+#        Prometheus->Alertmanager·HBase<->HDFS…). ALLOW 는 그 전부를 나열해야 하고 하나만 빠져도 끊긴다.
+#        DENY 는 선택한 워크로드의 다른 트래픽을 바꾸지 않는다.
+#   ★ 짝 둘이 이 목록과 같아야 한다 — 다르면 생성이 멈춘다(Gotcha 117):
+#     overlays/local/patches/external-urls-local.yaml 의 O2P_HOSTS (Keycloak 클라이언트를 만든다)
+#     local/create-secrets.sh 의 `<호스트>-client-secret`·`<호스트>-cookie-secret`
+#   ★ spark-ui·livy·spark-history 는 먼저 손으로 만든 파일(oauth2-proxy-*.yaml)이라 여기 없다.
+O2P = {
+    "prometheus":   ("prometheus", []),
+    "alertmanager": ("alertmanager", []),
+    "pyroscope":    ("pyroscope", []),
+    "pyrra":        ("pyrra", []),
+    "temporal":     ("temporal-ui", []),
+    "flink":        ("flink-jobmanager", []),
+    "hdfs":         ("hadoop-namenode", []),
+    "hbase":        ("hbase-master", []),
+    "hbase-rs":     ("hbase-regionserver", []),
+    # HiveServer2 의 Jetty 는 Host 헤더의 **포트**로 핸들러를 고른다(외부 이름 :443 이면 500).
+    #   업스트림 이름(hive-server-headless:10002)을 보내면 맞는다.
+    "hive":         ("hive-server", ["--pass-host-header=false"]),
+}
+O2P_FILE = os.path.join(ROOT, "kubernetes", "overlays", "local",
+                        "external-access", "oauth2-proxies.yaml")
+O2P_PEERS = [
+    os.path.join(ROOT, "kubernetes", "overlays", "local", "patches", "external-urls-local.yaml"),
+    os.path.join(ROOT, "local", "create-secrets.sh"),
 ]
 
 # AuthorizationPolicy 가 선택하는 백엔드 — 게이트웨이 신원을 따로 허용해야 한다.
@@ -285,6 +318,8 @@ ROOT_REDIRECT = {
 
 
 def route_yaml(host, svc, port, scheme, tier, note):
+    if host in O2P:
+        svc, port = "oauth2-proxy-%s" % host, 4180
     guard = ""
     if (svc, port) in AUTHZ_GUARDED:
         guard = ("  # ★ 이 백엔드는 AuthorizationPolicy 가 선택한다 — 게이트웨이\n"
@@ -356,6 +391,183 @@ def gen_routes():
     return "".join(out)
 
 
+O2P_HEADER = """# ★ 생성 파일이다 — 손으로 고치지 말 것. 원천은 local/render-external-access.py 의 O2P
+#   (사유는 그 상수의 주석). `--check` 가 뒤처짐을 1 로 알린다.
+#
+# 인증이 없던 UI 앞의 Keycloak 로그인(2026-11-06). 호스트마다 oauth2-proxy 하나 —
+#   oauth2-proxy 는 호스트별 업스트림을 고르지 못한다(livy·spark-history 와 같은 이유).
+#   설정의 사연(scope · CA · hostAliases · 그룹)은 oauth2-proxy-spark-ui.yaml 머리말에 있다.
+# ★ 백엔드마다 게이트웨이 신원(*/sa/ingress-istio)만 거부하는 DENY 가 함께 있다.
+#   판정: 쿠키 없이 그 호스트를 치면 Keycloak 으로 302, 게이트웨이를 거치지 않는 클러스터 안
+#   호출(예: Grafana->Prometheus)은 그대로 200.
+"""
+
+
+def o2p_yaml(host, upstream_svc, upstream_port, podname, extra):
+    lbl = ("    app.kubernetes.io/name: oauth2-proxy\n"
+           "    app.kubernetes.io/instance: %s\n" % host)
+    args = "".join("            - %s\n" % a for a in extra)
+    return """---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oauth2-proxy-{host}
+  labels:
+{lbl}    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: {host}
+  ports:
+    - name: http
+      port: 4180
+      targetPort: 4180
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-proxy-{host}
+  labels:
+{lbl}    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate: {{maxSurge: 0, maxUnavailable: 1}}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oauth2-proxy
+      app.kubernetes.io/instance: {host}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oauth2-proxy
+        app.kubernetes.io/instance: {host}
+        app.kubernetes.io/component: external-access
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: oauth2-proxy
+      automountServiceAccountToken: false
+      hostAliases:
+        - ip: "{node}"
+          hostnames: ["keycloak.{domain}"]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:v7.12.0
+          args:
+            - --http-address=0.0.0.0:4180
+            - --provider=keycloak-oidc
+            - --oidc-issuer-url=https://keycloak.{domain}/realms/oneinchmarket
+            - --provider-ca-file=/certs/ca.crt
+            - --client-id=oauth2-proxy-{host}
+            - --redirect-url=https://{host}.{domain}/oauth2/callback
+            - --code-challenge-method=S256
+            - --scope=openid email profile
+            - --allowed-group=platform
+            - --email-domain=*
+            - --upstream=http://{usvc}:{uport}/
+            - --reverse-proxy=true
+            - --cookie-secure=true
+            - --cookie-name=_oim_{cookie}
+            - --skip-provider-button=true
+            - --silence-ping-logging=true
+{args}          env:
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              valueFrom: {{secretKeyRef: {{name: oauth2-proxy-secret, key: {host}-client-secret}}}}
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom: {{secretKeyRef: {{name: oauth2-proxy-secret, key: {host}-cookie-secret}}}}
+          ports:
+            - {{name: http, containerPort: 4180}}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {{cpu: 10m, memory: 32Mi}}
+            limits:   {{cpu: 200m, memory: 128Mi}}
+          readinessProbe:
+            httpGet: {{path: /ping, port: 4180}}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {{path: /ping, port: 4180}}
+            periodSeconds: 20
+          volumeMounts:
+            - name: gateway-ca
+              mountPath: /certs
+              readOnly: true
+      volumes:
+        - name: gateway-ca
+          secret:
+            secretName: gateway-ca-cert
+            items:
+              - key: ca.crt
+                path: ca.crt
+---
+# 게이트웨이가 이 백엔드에 **직접** 닿지 못하게 한다 — 라우트가 oauth2-proxy 를 건너뛰는 날의 방어선.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-gateway-direct-{host}
+  labels:
+    app.kubernetes.io/name: deny-gateway-direct-{host}
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {podname}
+  action: DENY
+  rules:
+    - from:
+        - source:
+            principals: ["*/sa/ingress-istio"]
+""".format(host=host, lbl=lbl, node=NODE, domain=DOMAIN, usvc=upstream_svc,
+           uport=upstream_port, cookie=host.replace("-", "_"), args=args,
+           podname=podname)
+
+
+def gen_o2p():
+    rows = dict((r[0], r) for r in CATALOG)
+    missing = [h for h in O2P if h not in rows]
+    if missing:
+        raise SystemExit("O2P 에 있고 CATALOG 에 없다: %s" % ", ".join(missing))
+    hosts = " ".join(O2P)
+    urls, secrets = [read(p) or "" for p in O2P_PEERS]
+    if 'value: "%s"' % hosts not in urls:
+        raise SystemExit("external-urls-local.yaml 의 O2P_HOSTS 가 O2P 와 다르다 — "
+                         'value: "%s" 여야 한다' % hosts)
+    gone = [k for h in O2P for k in ("%s-client-secret=" % h, "%s-cookie-secret=" % h)
+            if k not in secrets]
+    if gone:
+        raise SystemExit("create-secrets.sh 에 없다: %s" % " ".join(gone))
+    out = [O2P_HEADER]
+    for h, (podname, extra) in O2P.items():
+        _h, svc, port, scheme, _t, _n = rows[h]
+        if scheme != "http":
+            raise SystemExit("O2P 업스트림은 http 만 — %s" % h)
+        out.append(o2p_yaml(h, svc, port, podname, extra))
+    return "".join(out)
+
+
 def gen_jwt_scope():
     """게이트웨이 JWT 필터를 JWT_GATEWAY_HOSTS 밖의 가상 호스트에서 끄는 EnvoyFilter."""
     out = ['''# 생성 파일 — 손으로 고치지 말 것. 원천은 local/render-external-access.py 의 CATALOG ·
@@ -420,8 +632,9 @@ def md_hosts():
 def md_ui_table():
     rows = ["| 호스트 | 인증 | 백엔드 | 비고 |", "|---|:-:|---|---|"]
     for host, svc, port, scheme, tier, note in CATALOG:
-        rows.append("| https://%s.%s | %s | `%s:%d`%s | %s |" % (
-            host, DOMAIN, TIER_MARK[tier], svc, port,
+        front = "`oauth2-proxy-%s` -> " % host if host in O2P else ""
+        rows.append("| https://%s.%s | %s | %s`%s:%d`%s | %s |" % (
+            host, DOMAIN, TIER_MARK[tier], front, svc, port,
             " **(https)**" if scheme == "https" else "", note))
     return "\n".join(rows)
 
@@ -529,7 +742,10 @@ def main():
     doc = fill_doc(doc_src)
 
     jwtscope = gen_jwt_scope()
+    o2p = gen_o2p()
     stale = []
+    if read(O2P_FILE) != o2p:
+        stale.append(O2P_FILE)
     if read(ROUTES) != routes:
         stale.append(ROUTES)
     if read(JWTSCOPE) != jwtscope:
@@ -550,6 +766,7 @@ def main():
 
     write(ROUTES, routes)
     write(JWTSCOPE, jwtscope)
+    write(O2P_FILE, o2p)
     write(DOC, doc)
     print("생성 완료 — %s" % md_counts())
     print("  %s" % os.path.relpath(ROUTES, ROOT))

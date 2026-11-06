@@ -11,7 +11,7 @@
 > 때 port-forward 가 대조군이 된다.
 
 <!-- GENERATED:counts START -->
-웹 호스트 **54**(자체 인증 31 · 인증 없음 10 · 도구용 13, 그중 백엔드가 HTTPS 인 것 5) · TCP 대상 **14**
+웹 호스트 **54**(자체 인증 41 · 인증 없음 0 · 도구용 13, 그중 백엔드가 HTTPS 인 것 5) · TCP 대상 **14**
 <!-- GENERATED:counts END -->
 
 ---
@@ -217,16 +217,16 @@ Import-Certificate -FilePath .\oim-ca.crt -CertStoreLocation Cert:\LocalMachine\
 | 호스트 | 인증 | 백엔드 | 비고 |
 |---|:-:|---|---|
 | https://grafana.oneinchmarket.local | 자체 인증 | `grafana-headless:3000` | admin / `pw grafana-secret admin-password` |
-| https://prometheus.oneinchmarket.local | **없음** | `prometheus-headless:9090` | 질의·규칙·타깃 |
-| https://alertmanager.oneinchmarket.local | **없음** | `alertmanager:9093` | 경보 현황. 수신자는 Logstash webhook 이다(Gotcha 33) |
+| https://prometheus.oneinchmarket.local | 자체 인증 | `oauth2-proxy-prometheus` -> `prometheus-headless:9090` | 질의·규칙·타깃 · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P) |
+| https://alertmanager.oneinchmarket.local | 자체 인증 | `oauth2-proxy-alertmanager` -> `alertmanager:9093` | 경보 현황. 수신자는 Logstash webhook 이다(Gotcha 33) · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P) |
 | https://osd.oneinchmarket.local | 자체 인증 | `opensearch-dashboards:5601` | admin / `pw opensearch-secret admin-password` · Dev Tools 가 가장 편하다 |
 | https://loki.oneinchmarket.local | 도구용 | `loki-headless:3100` | `/ready` · 평소에는 Grafana 가 소비한다 |
 | https://tempo.oneinchmarket.local | 도구용 | `tempo-headless:3200` | `/status` · 평소에는 Grafana 가 소비한다 |
-| https://pyroscope.oneinchmarket.local | **없음** | `pyroscope:4040` | 연속 프로파일링 |
-| https://pyrra.oneinchmarket.local | **없음** | `pyrra:9099` | SLO·오차예산. ★ 빈 그래프의 뜻은 둘이다(Gotcha 150·190) |
+| https://pyroscope.oneinchmarket.local | 자체 인증 | `oauth2-proxy-pyroscope` -> `pyroscope:4040` | 연속 프로파일링 · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P) |
+| https://pyrra.oneinchmarket.local | 자체 인증 | `oauth2-proxy-pyrra` -> `pyrra:9099` | SLO·오차예산. ★ 빈 그래프의 뜻은 둘이다(Gotcha 150·190) · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P) |
 | https://airflow.oneinchmarket.local | 자체 인증 | `airflow-apiserver:8080` | admin / `pw airflow-secret admin-password` · 과금 DAG |
-| https://temporal.oneinchmarket.local | **없음** | `temporal-ui-headless:8080` | 워크플로 이력. 서버는 gRPC 7233 이다 |
-| https://flink.oneinchmarket.local | **없음** | `flink-jobmanager:8081` | 잡 0건. 판정은 `/overview` 의 slots-total 이다(Gotcha 164) |
+| https://temporal.oneinchmarket.local | 자체 인증 | `oauth2-proxy-temporal` -> `temporal-ui-headless:8080` | 워크플로 이력. 서버는 gRPC 7233 이다 · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P) |
+| https://flink.oneinchmarket.local | 자체 인증 | `oauth2-proxy-flink` -> `flink-jobmanager:8081` | 잡 0건. 판정은 `/overview` 의 slots-total 이다(Gotcha 164) · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P) |
 | https://akhq.oneinchmarket.local | 자체 인증 | `akhq-headless:8080` | Kafka 브라우저. ★ Keycloak 로그인 — `platform` 그룹은 admin, 그 밖은 `edge.*` 읽기만, 익명은 아무것도 안 보인다. 연결 `edge-via-kroxylicious` 는 외부 클라이언트가 보는 그대로(§3-e) |
 | https://apicurio.oneinchmarket.local | 자체 인증 | `apicurio-ui:8080` | SPA — 브라우저가 레지스트리를 직접 부른다(§6 의 SPA 항). ★ Keycloak 로그인(공개 클라이언트 `apicurio-ui`) — `platform` 그룹은 sr-admin, 그 밖은 읽기만 |
 | https://apicurio-registry.oneinchmarket.local | 도구용 | `apicurio-registry-headless:8080` | 계약 레지스트리 API. 위 UI 의 전제다. ★ **읽기는 익명 허용 · 쓰기는 토큰 또는 client_id:secret basic**(2026-11-03) — 스키마 내용은 LAN 에 보인다 |
@@ -261,10 +261,10 @@ Import-Certificate -FilePath .\oim-ca.crt -CertStoreLocation Cert:\LocalMachine\
 | https://spark-history.oneinchmarket.local | 자체 인증 | `oauth2-proxy-spark-history:4180` | 완료된 Spark 앱. **Keycloak 로그인 · 그룹 `platform` 만**(spark-ui 와 같다) — 앞단 oauth2-proxy |
 | https://spark-ui.oneinchmarket.local | 자체 인증 | `oauth2-proxy-spark-ui:4180` | Spark Connect 세션 UI. **Keycloak 로그인 · 그룹 `platform` 만**(`portal` / `pw keycloak-secret portal-user-password`) — 앞단 oauth2-proxy(external-access/oauth2-proxy-spark-ui.yaml). ★ 세션 UI 는 Job 을 **죽일 수 있다**(`spark.ui.killEnabled` 기본 true) |
 | https://livy.oneinchmarket.local | 자체 인증 | `oauth2-proxy-livy:4180` | Spark REST 세션. **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy. ★ 브라우저용이다 — 스크립트는 클러스터 안 `livy-headless:8998` 또는 port-forward |
-| https://hdfs.oneinchmarket.local | **없음** | `hadoop-namenode:9870` | NameNode UI. ★ 파일 조작은 Knox 의 WebHDFS 를 쓸 것 |
-| https://hbase.oneinchmarket.local | **없음** | `hbase-master:16010` | HBase Master |
-| https://hbase-rs.oneinchmarket.local | **없음** | `hbase-regionserver:16030` | RegionServer |
-| https://hive.oneinchmarket.local | **없음** | `hive-server-headless:10002` | ★★ **게이트웨이 경유로는 500 이다** — Jetty 가 Host 헤더의 포트로 핸들러를 고른다(§6). JDBC 는 Knox 경유(§4) |
+| https://hdfs.oneinchmarket.local | 자체 인증 | `oauth2-proxy-hdfs` -> `hadoop-namenode:9870` | NameNode UI. ★ 파일 조작은 Knox 의 WebHDFS 를 쓸 것 · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P) |
+| https://hbase.oneinchmarket.local | 자체 인증 | `oauth2-proxy-hbase` -> `hbase-master:16010` | HBase Master · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P) |
+| https://hbase-rs.oneinchmarket.local | 자체 인증 | `oauth2-proxy-hbase-rs` -> `hbase-regionserver:16030` | RegionServer · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P) |
+| https://hive.oneinchmarket.local | 자체 인증 | `oauth2-proxy-hive` -> `hive-server-headless:10002` | HiveServer2 웹 UI · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P). ★ 예전에는 게이트웨이 경유로 500 이었다 — Jetty 가 Host 헤더의 포트로 핸들러를 고른다(§6). oauth2-proxy 가 Host 를 업스트림 이름으로 바꿔 보내 풀린다. JDBC 는 Knox 경유(§4) |
 | https://app-admin.oneinchmarket.local | 도구용 | `admin-headless:3000` | 관리 프런트 |
 | https://app-api.oneinchmarket.local | 도구용 | `cmmn-api-headless:8080` | ★ 과금 경로가 아니다(과금은 `api` 호스트 · JWT 필수). 루트는 404 이고 `/actuator/health` 가 200 이다 |
 | https://www.oneinchmarket.local | 도구용 | `nginx:80` | 정적 프런트 |
@@ -295,7 +295,7 @@ pw grafana-secret admin-password
 ### ★★ 인증이 없는 호스트 — 집 밖으로 내보내지 말 것
 
 <!-- GENERATED:open-list START -->
-**10 종** — `prometheus.oneinchmarket.local` · `alertmanager.oneinchmarket.local` · `pyroscope.oneinchmarket.local` · `pyrra.oneinchmarket.local` · `temporal.oneinchmarket.local` · `flink.oneinchmarket.local` · `hdfs.oneinchmarket.local` · `hbase.oneinchmarket.local` · `hbase-rs.oneinchmarket.local` · `hive.oneinchmarket.local`
+**0 종** — 
 <!-- GENERATED:open-list END -->
 
 이것들은 **누구든 주소를 알면 그대로 들어온다.** 그리고 이 배치에서는

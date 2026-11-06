@@ -69,7 +69,19 @@ spec:
           resources:
             requests: {cpu: 50m, memory: 64Mi}
             limits:   {cpu: 300m, memory: 256Mi}
+          # oauth2-proxy 클라이언트 시크릿(O2P_HOSTS 의 `<호스트>-client-secret`) — optional 이라
+          #   dev·prod 처럼 Secret 이 없으면 빈 디렉터리가 되고 [5d] 가 건너뛴다.
+          volumeMounts:
+            - name: o2p
+              mountPath: /o2p
+              readOnly: true
           env:
+            # ★ 인증이 없던 UI 앞 oauth2-proxy 의 클라이언트 목록(공백 구분) · 외부 URL 형식(printf %s = 호스트).
+            #   local 이 채운다(patches/external-urls-local.yaml). 원천은 render-external-access.py 의 O2P.
+            - name: O2P_HOSTS
+              value: ""
+            - name: O2P_URL_FMT
+              value: "http://%s.localhost"
             - name: KC
               value: "http://keycloak-headless:8080"
             - name: REALM
@@ -377,6 +389,12 @@ spec:
               o2p_client spark-ui      "${SPARK_UI_URL}"      "${SPARK_UI_CLIENT_SECRET:-}"
               o2p_client livy          "${LIVY_URL}"          "${LIVY_CLIENT_SECRET:-}"
               o2p_client spark-history "${SPARK_HISTORY_URL}" "${SPARK_HISTORY_CLIENT_SECRET:-}"
+              for h in ${O2P_HOSTS}; do
+                s=""
+                [ -r "/o2p/$h-client-secret" ] && s=$(cat "/o2p/$h-client-secret")
+                # shellcheck disable=SC2059 — 형식 문자열은 git 의 값이다
+                o2p_client "$h" "$(printf "$O2P_URL_FMT" "$h")" "$s"
+              done
 
               echo "[6/6] 검증 — 발급된 토큰에 tenant 클레임이 있는가"
               AT=$(curl --connect-timeout 5 --max-time 30 -sf -X POST "${KC}/realms/${REALM}/protocol/openid-connect/token" \
@@ -390,3 +408,8 @@ spec:
               echo "$P" | tr '_-' '/+' | base64 -d 2>/dev/null | tr ',' '\n' | grep -E '"tenant"|"iss"' \
                 || { echo "★ tenant 클레임이 없다 — 매퍼가 적용되지 않았다" >&2; exit 1; }
               echo "=== realm 부트스트랩 완료 ==="
+      volumes:
+        - name: o2p
+          secret:
+            secretName: oauth2-proxy-secret
+            optional: true

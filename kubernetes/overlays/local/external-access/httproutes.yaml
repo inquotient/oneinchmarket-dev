@@ -75,7 +75,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "8"
     # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
-    oneinchmarket.local/auth-tier: "open"
+    oneinchmarket.local/auth-tier: "auth"
 spec:
   parentRefs:
     - group: gateway.networking.k8s.io
@@ -92,8 +92,8 @@ spec:
       backendRefs:
         - group: ""
           kind: Service
-          name: prometheus-headless
-          port: 9090
+          name: oauth2-proxy-prometheus
+          port: 4180
           weight: 1
 ---
 apiVersion: gateway.networking.k8s.io/v1
@@ -108,7 +108,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "8"
     # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
-    oneinchmarket.local/auth-tier: "open"
+    oneinchmarket.local/auth-tier: "auth"
 spec:
   parentRefs:
     - group: gateway.networking.k8s.io
@@ -125,8 +125,8 @@ spec:
       backendRefs:
         - group: ""
           kind: Service
-          name: alertmanager
-          port: 9093
+          name: oauth2-proxy-alertmanager
+          port: 4180
           weight: 1
 ---
 apiVersion: gateway.networking.k8s.io/v1
@@ -240,7 +240,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "8"
     # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
-    oneinchmarket.local/auth-tier: "open"
+    oneinchmarket.local/auth-tier: "auth"
 spec:
   parentRefs:
     - group: gateway.networking.k8s.io
@@ -257,8 +257,8 @@ spec:
       backendRefs:
         - group: ""
           kind: Service
-          name: pyroscope
-          port: 4040
+          name: oauth2-proxy-pyroscope
+          port: 4180
           weight: 1
 ---
 apiVersion: gateway.networking.k8s.io/v1
@@ -273,7 +273,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "8"
     # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
-    oneinchmarket.local/auth-tier: "open"
+    oneinchmarket.local/auth-tier: "auth"
 spec:
   parentRefs:
     - group: gateway.networking.k8s.io
@@ -290,8 +290,8 @@ spec:
       backendRefs:
         - group: ""
           kind: Service
-          name: pyrra
-          port: 9099
+          name: oauth2-proxy-pyrra
+          port: 4180
           weight: 1
 ---
 apiVersion: gateway.networking.k8s.io/v1
@@ -339,7 +339,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "8"
     # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
-    oneinchmarket.local/auth-tier: "open"
+    oneinchmarket.local/auth-tier: "auth"
 spec:
   parentRefs:
     - group: gateway.networking.k8s.io
@@ -356,8 +356,8 @@ spec:
       backendRefs:
         - group: ""
           kind: Service
-          name: temporal-ui-headless
-          port: 8080
+          name: oauth2-proxy-temporal
+          port: 4180
           weight: 1
 ---
 apiVersion: gateway.networking.k8s.io/v1
@@ -372,7 +372,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "8"
     # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
-    oneinchmarket.local/auth-tier: "open"
+    oneinchmarket.local/auth-tier: "auth"
 spec:
   parentRefs:
     - group: gateway.networking.k8s.io
@@ -389,8 +389,8 @@ spec:
       backendRefs:
         - group: ""
           kind: Service
-          name: flink-jobmanager
-          port: 8081
+          name: oauth2-proxy-flink
+          port: 4180
           weight: 1
 ---
 apiVersion: gateway.networking.k8s.io/v1
@@ -1558,7 +1558,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "8"
     # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
-    oneinchmarket.local/auth-tier: "open"
+    oneinchmarket.local/auth-tier: "auth"
 spec:
   parentRefs:
     - group: gateway.networking.k8s.io
@@ -1575,8 +1575,8 @@ spec:
       backendRefs:
         - group: ""
           kind: Service
-          name: hadoop-namenode
-          port: 9870
+          name: oauth2-proxy-hdfs
+          port: 4180
           weight: 1
 ---
 apiVersion: gateway.networking.k8s.io/v1
@@ -1591,7 +1591,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "8"
     # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
-    oneinchmarket.local/auth-tier: "open"
+    oneinchmarket.local/auth-tier: "auth"
 spec:
   parentRefs:
     - group: gateway.networking.k8s.io
@@ -1608,8 +1608,8 @@ spec:
       backendRefs:
         - group: ""
           kind: Service
-          name: hbase-master
-          port: 16010
+          name: oauth2-proxy-hbase
+          port: 4180
           weight: 1
 ---
 apiVersion: gateway.networking.k8s.io/v1
@@ -1624,7 +1624,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "8"
     # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
-    oneinchmarket.local/auth-tier: "open"
+    oneinchmarket.local/auth-tier: "auth"
 spec:
   parentRefs:
     - group: gateway.networking.k8s.io
@@ -1641,8 +1641,8 @@ spec:
       backendRefs:
         - group: ""
           kind: Service
-          name: hbase-regionserver
-          port: 16030
+          name: oauth2-proxy-hbase-rs
+          port: 4180
           weight: 1
 ---
 apiVersion: gateway.networking.k8s.io/v1
@@ -1657,7 +1657,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "8"
     # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
-    oneinchmarket.local/auth-tier: "open"
+    oneinchmarket.local/auth-tier: "auth"
 spec:
   parentRefs:
     - group: gateway.networking.k8s.io
@@ -1674,8 +1674,8 @@ spec:
       backendRefs:
         - group: ""
           kind: Service
-          name: hive-server-headless
-          port: 10002
+          name: oauth2-proxy-hive
+          port: 4180
           weight: 1
 ---
 apiVersion: gateway.networking.k8s.io/v1

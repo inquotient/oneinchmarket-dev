@@ -1,0 +1,1380 @@
+# ★ 생성 파일이다 — 손으로 고치지 말 것. 원천은 local/render-external-access.py 의 O2P
+#   (사유는 그 상수의 주석). `--check` 가 뒤처짐을 1 로 알린다.
+#
+# 인증이 없던 UI 앞의 Keycloak 로그인(2026-11-06). 호스트마다 oauth2-proxy 하나 —
+#   oauth2-proxy 는 호스트별 업스트림을 고르지 못한다(livy·spark-history 와 같은 이유).
+#   설정의 사연(scope · CA · hostAliases · 그룹)은 oauth2-proxy-spark-ui.yaml 머리말에 있다.
+# ★ 백엔드마다 게이트웨이 신원(*/sa/ingress-istio)만 거부하는 DENY 가 함께 있다.
+#   판정: 쿠키 없이 그 호스트를 치면 Keycloak 으로 302, 게이트웨이를 거치지 않는 클러스터 안
+#   호출(예: Grafana->Prometheus)은 그대로 200.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oauth2-proxy-prometheus
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: prometheus
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: prometheus
+  ports:
+    - name: http
+      port: 4180
+      targetPort: 4180
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-proxy-prometheus
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: prometheus
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate: {maxSurge: 0, maxUnavailable: 1}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oauth2-proxy
+      app.kubernetes.io/instance: prometheus
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oauth2-proxy
+        app.kubernetes.io/instance: prometheus
+        app.kubernetes.io/component: external-access
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: oauth2-proxy
+      automountServiceAccountToken: false
+      hostAliases:
+        - ip: "192.168.0.103"
+          hostnames: ["keycloak.oneinchmarket.local"]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:v7.12.0
+          args:
+            - --http-address=0.0.0.0:4180
+            - --provider=keycloak-oidc
+            - --oidc-issuer-url=https://keycloak.oneinchmarket.local/realms/oneinchmarket
+            - --provider-ca-file=/certs/ca.crt
+            - --client-id=oauth2-proxy-prometheus
+            - --redirect-url=https://prometheus.oneinchmarket.local/oauth2/callback
+            - --code-challenge-method=S256
+            - --scope=openid email profile
+            - --allowed-group=platform
+            - --email-domain=*
+            - --upstream=http://prometheus-headless:9090/
+            - --reverse-proxy=true
+            - --cookie-secure=true
+            - --cookie-name=_oim_prometheus
+            - --skip-provider-button=true
+            - --silence-ping-logging=true
+          env:
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: prometheus-client-secret}}
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: prometheus-cookie-secret}}
+          ports:
+            - {name: http, containerPort: 4180}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits:   {cpu: 200m, memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 20
+          volumeMounts:
+            - name: gateway-ca
+              mountPath: /certs
+              readOnly: true
+      volumes:
+        - name: gateway-ca
+          secret:
+            secretName: gateway-ca-cert
+            items:
+              - key: ca.crt
+                path: ca.crt
+---
+# 게이트웨이가 이 백엔드에 **직접** 닿지 못하게 한다 — 라우트가 oauth2-proxy 를 건너뛰는 날의 방어선.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-gateway-direct-prometheus
+  labels:
+    app.kubernetes.io/name: deny-gateway-direct-prometheus
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+  action: DENY
+  rules:
+    - from:
+        - source:
+            principals: ["*/sa/ingress-istio"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oauth2-proxy-alertmanager
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: alertmanager
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: alertmanager
+  ports:
+    - name: http
+      port: 4180
+      targetPort: 4180
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-proxy-alertmanager
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: alertmanager
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate: {maxSurge: 0, maxUnavailable: 1}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oauth2-proxy
+      app.kubernetes.io/instance: alertmanager
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oauth2-proxy
+        app.kubernetes.io/instance: alertmanager
+        app.kubernetes.io/component: external-access
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: oauth2-proxy
+      automountServiceAccountToken: false
+      hostAliases:
+        - ip: "192.168.0.103"
+          hostnames: ["keycloak.oneinchmarket.local"]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:v7.12.0
+          args:
+            - --http-address=0.0.0.0:4180
+            - --provider=keycloak-oidc
+            - --oidc-issuer-url=https://keycloak.oneinchmarket.local/realms/oneinchmarket
+            - --provider-ca-file=/certs/ca.crt
+            - --client-id=oauth2-proxy-alertmanager
+            - --redirect-url=https://alertmanager.oneinchmarket.local/oauth2/callback
+            - --code-challenge-method=S256
+            - --scope=openid email profile
+            - --allowed-group=platform
+            - --email-domain=*
+            - --upstream=http://alertmanager:9093/
+            - --reverse-proxy=true
+            - --cookie-secure=true
+            - --cookie-name=_oim_alertmanager
+            - --skip-provider-button=true
+            - --silence-ping-logging=true
+          env:
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: alertmanager-client-secret}}
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: alertmanager-cookie-secret}}
+          ports:
+            - {name: http, containerPort: 4180}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits:   {cpu: 200m, memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 20
+          volumeMounts:
+            - name: gateway-ca
+              mountPath: /certs
+              readOnly: true
+      volumes:
+        - name: gateway-ca
+          secret:
+            secretName: gateway-ca-cert
+            items:
+              - key: ca.crt
+                path: ca.crt
+---
+# 게이트웨이가 이 백엔드에 **직접** 닿지 못하게 한다 — 라우트가 oauth2-proxy 를 건너뛰는 날의 방어선.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-gateway-direct-alertmanager
+  labels:
+    app.kubernetes.io/name: deny-gateway-direct-alertmanager
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: alertmanager
+  action: DENY
+  rules:
+    - from:
+        - source:
+            principals: ["*/sa/ingress-istio"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oauth2-proxy-pyroscope
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: pyroscope
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: pyroscope
+  ports:
+    - name: http
+      port: 4180
+      targetPort: 4180
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-proxy-pyroscope
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: pyroscope
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate: {maxSurge: 0, maxUnavailable: 1}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oauth2-proxy
+      app.kubernetes.io/instance: pyroscope
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oauth2-proxy
+        app.kubernetes.io/instance: pyroscope
+        app.kubernetes.io/component: external-access
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: oauth2-proxy
+      automountServiceAccountToken: false
+      hostAliases:
+        - ip: "192.168.0.103"
+          hostnames: ["keycloak.oneinchmarket.local"]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:v7.12.0
+          args:
+            - --http-address=0.0.0.0:4180
+            - --provider=keycloak-oidc
+            - --oidc-issuer-url=https://keycloak.oneinchmarket.local/realms/oneinchmarket
+            - --provider-ca-file=/certs/ca.crt
+            - --client-id=oauth2-proxy-pyroscope
+            - --redirect-url=https://pyroscope.oneinchmarket.local/oauth2/callback
+            - --code-challenge-method=S256
+            - --scope=openid email profile
+            - --allowed-group=platform
+            - --email-domain=*
+            - --upstream=http://pyroscope:4040/
+            - --reverse-proxy=true
+            - --cookie-secure=true
+            - --cookie-name=_oim_pyroscope
+            - --skip-provider-button=true
+            - --silence-ping-logging=true
+          env:
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: pyroscope-client-secret}}
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: pyroscope-cookie-secret}}
+          ports:
+            - {name: http, containerPort: 4180}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits:   {cpu: 200m, memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 20
+          volumeMounts:
+            - name: gateway-ca
+              mountPath: /certs
+              readOnly: true
+      volumes:
+        - name: gateway-ca
+          secret:
+            secretName: gateway-ca-cert
+            items:
+              - key: ca.crt
+                path: ca.crt
+---
+# 게이트웨이가 이 백엔드에 **직접** 닿지 못하게 한다 — 라우트가 oauth2-proxy 를 건너뛰는 날의 방어선.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-gateway-direct-pyroscope
+  labels:
+    app.kubernetes.io/name: deny-gateway-direct-pyroscope
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pyroscope
+  action: DENY
+  rules:
+    - from:
+        - source:
+            principals: ["*/sa/ingress-istio"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oauth2-proxy-pyrra
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: pyrra
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: pyrra
+  ports:
+    - name: http
+      port: 4180
+      targetPort: 4180
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-proxy-pyrra
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: pyrra
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate: {maxSurge: 0, maxUnavailable: 1}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oauth2-proxy
+      app.kubernetes.io/instance: pyrra
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oauth2-proxy
+        app.kubernetes.io/instance: pyrra
+        app.kubernetes.io/component: external-access
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: oauth2-proxy
+      automountServiceAccountToken: false
+      hostAliases:
+        - ip: "192.168.0.103"
+          hostnames: ["keycloak.oneinchmarket.local"]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:v7.12.0
+          args:
+            - --http-address=0.0.0.0:4180
+            - --provider=keycloak-oidc
+            - --oidc-issuer-url=https://keycloak.oneinchmarket.local/realms/oneinchmarket
+            - --provider-ca-file=/certs/ca.crt
+            - --client-id=oauth2-proxy-pyrra
+            - --redirect-url=https://pyrra.oneinchmarket.local/oauth2/callback
+            - --code-challenge-method=S256
+            - --scope=openid email profile
+            - --allowed-group=platform
+            - --email-domain=*
+            - --upstream=http://pyrra:9099/
+            - --reverse-proxy=true
+            - --cookie-secure=true
+            - --cookie-name=_oim_pyrra
+            - --skip-provider-button=true
+            - --silence-ping-logging=true
+          env:
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: pyrra-client-secret}}
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: pyrra-cookie-secret}}
+          ports:
+            - {name: http, containerPort: 4180}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits:   {cpu: 200m, memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 20
+          volumeMounts:
+            - name: gateway-ca
+              mountPath: /certs
+              readOnly: true
+      volumes:
+        - name: gateway-ca
+          secret:
+            secretName: gateway-ca-cert
+            items:
+              - key: ca.crt
+                path: ca.crt
+---
+# 게이트웨이가 이 백엔드에 **직접** 닿지 못하게 한다 — 라우트가 oauth2-proxy 를 건너뛰는 날의 방어선.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-gateway-direct-pyrra
+  labels:
+    app.kubernetes.io/name: deny-gateway-direct-pyrra
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pyrra
+  action: DENY
+  rules:
+    - from:
+        - source:
+            principals: ["*/sa/ingress-istio"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oauth2-proxy-temporal
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: temporal
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: temporal
+  ports:
+    - name: http
+      port: 4180
+      targetPort: 4180
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-proxy-temporal
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: temporal
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate: {maxSurge: 0, maxUnavailable: 1}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oauth2-proxy
+      app.kubernetes.io/instance: temporal
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oauth2-proxy
+        app.kubernetes.io/instance: temporal
+        app.kubernetes.io/component: external-access
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: oauth2-proxy
+      automountServiceAccountToken: false
+      hostAliases:
+        - ip: "192.168.0.103"
+          hostnames: ["keycloak.oneinchmarket.local"]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:v7.12.0
+          args:
+            - --http-address=0.0.0.0:4180
+            - --provider=keycloak-oidc
+            - --oidc-issuer-url=https://keycloak.oneinchmarket.local/realms/oneinchmarket
+            - --provider-ca-file=/certs/ca.crt
+            - --client-id=oauth2-proxy-temporal
+            - --redirect-url=https://temporal.oneinchmarket.local/oauth2/callback
+            - --code-challenge-method=S256
+            - --scope=openid email profile
+            - --allowed-group=platform
+            - --email-domain=*
+            - --upstream=http://temporal-ui-headless:8080/
+            - --reverse-proxy=true
+            - --cookie-secure=true
+            - --cookie-name=_oim_temporal
+            - --skip-provider-button=true
+            - --silence-ping-logging=true
+          env:
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: temporal-client-secret}}
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: temporal-cookie-secret}}
+          ports:
+            - {name: http, containerPort: 4180}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits:   {cpu: 200m, memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 20
+          volumeMounts:
+            - name: gateway-ca
+              mountPath: /certs
+              readOnly: true
+      volumes:
+        - name: gateway-ca
+          secret:
+            secretName: gateway-ca-cert
+            items:
+              - key: ca.crt
+                path: ca.crt
+---
+# 게이트웨이가 이 백엔드에 **직접** 닿지 못하게 한다 — 라우트가 oauth2-proxy 를 건너뛰는 날의 방어선.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-gateway-direct-temporal
+  labels:
+    app.kubernetes.io/name: deny-gateway-direct-temporal
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: temporal-ui
+  action: DENY
+  rules:
+    - from:
+        - source:
+            principals: ["*/sa/ingress-istio"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oauth2-proxy-flink
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: flink
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: flink
+  ports:
+    - name: http
+      port: 4180
+      targetPort: 4180
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-proxy-flink
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: flink
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate: {maxSurge: 0, maxUnavailable: 1}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oauth2-proxy
+      app.kubernetes.io/instance: flink
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oauth2-proxy
+        app.kubernetes.io/instance: flink
+        app.kubernetes.io/component: external-access
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: oauth2-proxy
+      automountServiceAccountToken: false
+      hostAliases:
+        - ip: "192.168.0.103"
+          hostnames: ["keycloak.oneinchmarket.local"]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:v7.12.0
+          args:
+            - --http-address=0.0.0.0:4180
+            - --provider=keycloak-oidc
+            - --oidc-issuer-url=https://keycloak.oneinchmarket.local/realms/oneinchmarket
+            - --provider-ca-file=/certs/ca.crt
+            - --client-id=oauth2-proxy-flink
+            - --redirect-url=https://flink.oneinchmarket.local/oauth2/callback
+            - --code-challenge-method=S256
+            - --scope=openid email profile
+            - --allowed-group=platform
+            - --email-domain=*
+            - --upstream=http://flink-jobmanager:8081/
+            - --reverse-proxy=true
+            - --cookie-secure=true
+            - --cookie-name=_oim_flink
+            - --skip-provider-button=true
+            - --silence-ping-logging=true
+          env:
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: flink-client-secret}}
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: flink-cookie-secret}}
+          ports:
+            - {name: http, containerPort: 4180}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits:   {cpu: 200m, memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 20
+          volumeMounts:
+            - name: gateway-ca
+              mountPath: /certs
+              readOnly: true
+      volumes:
+        - name: gateway-ca
+          secret:
+            secretName: gateway-ca-cert
+            items:
+              - key: ca.crt
+                path: ca.crt
+---
+# 게이트웨이가 이 백엔드에 **직접** 닿지 못하게 한다 — 라우트가 oauth2-proxy 를 건너뛰는 날의 방어선.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-gateway-direct-flink
+  labels:
+    app.kubernetes.io/name: deny-gateway-direct-flink
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: flink-jobmanager
+  action: DENY
+  rules:
+    - from:
+        - source:
+            principals: ["*/sa/ingress-istio"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oauth2-proxy-hdfs
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: hdfs
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: hdfs
+  ports:
+    - name: http
+      port: 4180
+      targetPort: 4180
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-proxy-hdfs
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: hdfs
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate: {maxSurge: 0, maxUnavailable: 1}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oauth2-proxy
+      app.kubernetes.io/instance: hdfs
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oauth2-proxy
+        app.kubernetes.io/instance: hdfs
+        app.kubernetes.io/component: external-access
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: oauth2-proxy
+      automountServiceAccountToken: false
+      hostAliases:
+        - ip: "192.168.0.103"
+          hostnames: ["keycloak.oneinchmarket.local"]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:v7.12.0
+          args:
+            - --http-address=0.0.0.0:4180
+            - --provider=keycloak-oidc
+            - --oidc-issuer-url=https://keycloak.oneinchmarket.local/realms/oneinchmarket
+            - --provider-ca-file=/certs/ca.crt
+            - --client-id=oauth2-proxy-hdfs
+            - --redirect-url=https://hdfs.oneinchmarket.local/oauth2/callback
+            - --code-challenge-method=S256
+            - --scope=openid email profile
+            - --allowed-group=platform
+            - --email-domain=*
+            - --upstream=http://hadoop-namenode:9870/
+            - --reverse-proxy=true
+            - --cookie-secure=true
+            - --cookie-name=_oim_hdfs
+            - --skip-provider-button=true
+            - --silence-ping-logging=true
+          env:
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: hdfs-client-secret}}
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: hdfs-cookie-secret}}
+          ports:
+            - {name: http, containerPort: 4180}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits:   {cpu: 200m, memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 20
+          volumeMounts:
+            - name: gateway-ca
+              mountPath: /certs
+              readOnly: true
+      volumes:
+        - name: gateway-ca
+          secret:
+            secretName: gateway-ca-cert
+            items:
+              - key: ca.crt
+                path: ca.crt
+---
+# 게이트웨이가 이 백엔드에 **직접** 닿지 못하게 한다 — 라우트가 oauth2-proxy 를 건너뛰는 날의 방어선.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-gateway-direct-hdfs
+  labels:
+    app.kubernetes.io/name: deny-gateway-direct-hdfs
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hadoop-namenode
+  action: DENY
+  rules:
+    - from:
+        - source:
+            principals: ["*/sa/ingress-istio"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oauth2-proxy-hbase
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: hbase
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: hbase
+  ports:
+    - name: http
+      port: 4180
+      targetPort: 4180
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-proxy-hbase
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: hbase
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate: {maxSurge: 0, maxUnavailable: 1}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oauth2-proxy
+      app.kubernetes.io/instance: hbase
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oauth2-proxy
+        app.kubernetes.io/instance: hbase
+        app.kubernetes.io/component: external-access
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: oauth2-proxy
+      automountServiceAccountToken: false
+      hostAliases:
+        - ip: "192.168.0.103"
+          hostnames: ["keycloak.oneinchmarket.local"]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:v7.12.0
+          args:
+            - --http-address=0.0.0.0:4180
+            - --provider=keycloak-oidc
+            - --oidc-issuer-url=https://keycloak.oneinchmarket.local/realms/oneinchmarket
+            - --provider-ca-file=/certs/ca.crt
+            - --client-id=oauth2-proxy-hbase
+            - --redirect-url=https://hbase.oneinchmarket.local/oauth2/callback
+            - --code-challenge-method=S256
+            - --scope=openid email profile
+            - --allowed-group=platform
+            - --email-domain=*
+            - --upstream=http://hbase-master:16010/
+            - --reverse-proxy=true
+            - --cookie-secure=true
+            - --cookie-name=_oim_hbase
+            - --skip-provider-button=true
+            - --silence-ping-logging=true
+          env:
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: hbase-client-secret}}
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: hbase-cookie-secret}}
+          ports:
+            - {name: http, containerPort: 4180}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits:   {cpu: 200m, memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 20
+          volumeMounts:
+            - name: gateway-ca
+              mountPath: /certs
+              readOnly: true
+      volumes:
+        - name: gateway-ca
+          secret:
+            secretName: gateway-ca-cert
+            items:
+              - key: ca.crt
+                path: ca.crt
+---
+# 게이트웨이가 이 백엔드에 **직접** 닿지 못하게 한다 — 라우트가 oauth2-proxy 를 건너뛰는 날의 방어선.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-gateway-direct-hbase
+  labels:
+    app.kubernetes.io/name: deny-gateway-direct-hbase
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hbase-master
+  action: DENY
+  rules:
+    - from:
+        - source:
+            principals: ["*/sa/ingress-istio"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oauth2-proxy-hbase-rs
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: hbase-rs
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: hbase-rs
+  ports:
+    - name: http
+      port: 4180
+      targetPort: 4180
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-proxy-hbase-rs
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: hbase-rs
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate: {maxSurge: 0, maxUnavailable: 1}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oauth2-proxy
+      app.kubernetes.io/instance: hbase-rs
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oauth2-proxy
+        app.kubernetes.io/instance: hbase-rs
+        app.kubernetes.io/component: external-access
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: oauth2-proxy
+      automountServiceAccountToken: false
+      hostAliases:
+        - ip: "192.168.0.103"
+          hostnames: ["keycloak.oneinchmarket.local"]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:v7.12.0
+          args:
+            - --http-address=0.0.0.0:4180
+            - --provider=keycloak-oidc
+            - --oidc-issuer-url=https://keycloak.oneinchmarket.local/realms/oneinchmarket
+            - --provider-ca-file=/certs/ca.crt
+            - --client-id=oauth2-proxy-hbase-rs
+            - --redirect-url=https://hbase-rs.oneinchmarket.local/oauth2/callback
+            - --code-challenge-method=S256
+            - --scope=openid email profile
+            - --allowed-group=platform
+            - --email-domain=*
+            - --upstream=http://hbase-regionserver:16030/
+            - --reverse-proxy=true
+            - --cookie-secure=true
+            - --cookie-name=_oim_hbase_rs
+            - --skip-provider-button=true
+            - --silence-ping-logging=true
+          env:
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: hbase-rs-client-secret}}
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: hbase-rs-cookie-secret}}
+          ports:
+            - {name: http, containerPort: 4180}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits:   {cpu: 200m, memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 20
+          volumeMounts:
+            - name: gateway-ca
+              mountPath: /certs
+              readOnly: true
+      volumes:
+        - name: gateway-ca
+          secret:
+            secretName: gateway-ca-cert
+            items:
+              - key: ca.crt
+                path: ca.crt
+---
+# 게이트웨이가 이 백엔드에 **직접** 닿지 못하게 한다 — 라우트가 oauth2-proxy 를 건너뛰는 날의 방어선.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-gateway-direct-hbase-rs
+  labels:
+    app.kubernetes.io/name: deny-gateway-direct-hbase-rs
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hbase-regionserver
+  action: DENY
+  rules:
+    - from:
+        - source:
+            principals: ["*/sa/ingress-istio"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oauth2-proxy-hive
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: hive
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: hive
+  ports:
+    - name: http
+      port: 4180
+      targetPort: 4180
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-proxy-hive
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: hive
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate: {maxSurge: 0, maxUnavailable: 1}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oauth2-proxy
+      app.kubernetes.io/instance: hive
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oauth2-proxy
+        app.kubernetes.io/instance: hive
+        app.kubernetes.io/component: external-access
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: oauth2-proxy
+      automountServiceAccountToken: false
+      hostAliases:
+        - ip: "192.168.0.103"
+          hostnames: ["keycloak.oneinchmarket.local"]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:v7.12.0
+          args:
+            - --http-address=0.0.0.0:4180
+            - --provider=keycloak-oidc
+            - --oidc-issuer-url=https://keycloak.oneinchmarket.local/realms/oneinchmarket
+            - --provider-ca-file=/certs/ca.crt
+            - --client-id=oauth2-proxy-hive
+            - --redirect-url=https://hive.oneinchmarket.local/oauth2/callback
+            - --code-challenge-method=S256
+            - --scope=openid email profile
+            - --allowed-group=platform
+            - --email-domain=*
+            - --upstream=http://hive-server-headless:10002/
+            - --reverse-proxy=true
+            - --cookie-secure=true
+            - --cookie-name=_oim_hive
+            - --skip-provider-button=true
+            - --silence-ping-logging=true
+            - --pass-host-header=false
+          env:
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: hive-client-secret}}
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: hive-cookie-secret}}
+          ports:
+            - {name: http, containerPort: 4180}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits:   {cpu: 200m, memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 20
+          volumeMounts:
+            - name: gateway-ca
+              mountPath: /certs
+              readOnly: true
+      volumes:
+        - name: gateway-ca
+          secret:
+            secretName: gateway-ca-cert
+            items:
+              - key: ca.crt
+                path: ca.crt
+---
+# 게이트웨이가 이 백엔드에 **직접** 닿지 못하게 한다 — 라우트가 oauth2-proxy 를 건너뛰는 날의 방어선.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-gateway-direct-hive
+  labels:
+    app.kubernetes.io/name: deny-gateway-direct-hive
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hive-server
+  action: DENY
+  rules:
+    - from:
+        - source:
+            principals: ["*/sa/ingress-istio"]

@@ -50,5 +50,7 @@ resources:
   # Livy·Spark History(2026-11-06) — SA oauth2-proxy 는 spark-ui 파일에 있다.
   - oauth2-proxy-livy.yaml
   - oauth2-proxy-spark-history.yaml
+  # 인증이 없던 UI 열 곳(2026-11-06) — 생성물(render-external-access.py 의 O2P).
+  - oauth2-proxies.yaml
   # 게이트웨이 JWT 필터를 api·zilla 밖의 호스트에서 끈다(생성물 — render-external-access.py).
   - jwt-scope-envoyfilter.yaml

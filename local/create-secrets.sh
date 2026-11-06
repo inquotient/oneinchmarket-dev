@@ -139,7 +139,18 @@ mk akhq-secret "oidc-client-secret=$(gen 32)" "jwt-secret=$(gen 64)"
 #     길이가 어긋나면 oauth2-proxy 가 `cookie_secret must be 16, 24, or 32 bytes` 로 기동하지 않는다.
 mk oauth2-proxy-secret "spark-ui-client-secret=$(gen 32)"      "spark-ui-cookie-secret=$(gen 32)" \
                       "livy-client-secret=$(gen 32)"          "livy-cookie-secret=$(gen 32)" \
-                      "spark-history-client-secret=$(gen 32)" "spark-history-cookie-secret=$(gen 32)"
+                      "spark-history-client-secret=$(gen 32)" "spark-history-cookie-secret=$(gen 32)" \
+                      "prometheus-client-secret=$(gen 32)"    "prometheus-cookie-secret=$(gen 32)" \
+                      "alertmanager-client-secret=$(gen 32)"  "alertmanager-cookie-secret=$(gen 32)" \
+                      "pyroscope-client-secret=$(gen 32)"     "pyroscope-cookie-secret=$(gen 32)" \
+                      "pyrra-client-secret=$(gen 32)"         "pyrra-cookie-secret=$(gen 32)" \
+                      "temporal-client-secret=$(gen 32)"      "temporal-cookie-secret=$(gen 32)" \
+                      "flink-client-secret=$(gen 32)"         "flink-cookie-secret=$(gen 32)" \
+                      "hdfs-client-secret=$(gen 32)"          "hdfs-cookie-secret=$(gen 32)" \
+                      "hbase-client-secret=$(gen 32)"         "hbase-cookie-secret=$(gen 32)" \
+                      "hbase-rs-client-secret=$(gen 32)"      "hbase-rs-cookie-secret=$(gen 32)" \
+                      "hive-client-secret=$(gen 32)"          "hive-cookie-secret=$(gen 32)"
+# ★ 위 목록 뒤 열 호스트는 render-external-access.py 의 O2P 와 같아야 한다 — 다르면 그 생성기가 멈춘다.
 # Temporal — 이력·가시성 DB 를 같은 롤로 쓴다(postgres-bootstrap 이 둘을 만든다).
 mk temporal-secret "db-password=$(gen)"
 # ★★ midPoint — 이 Secret 은 **아예 없었다**(2026-10-05에 더했다). 참조는
