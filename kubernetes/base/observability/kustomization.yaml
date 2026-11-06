@@ -35,6 +35,7 @@ resources:
   - loki/loki-headless.yaml
   - loki/loki-configmap.yaml
   - loki/loki-statefulset.yaml
+  - loki/loki-authz.yaml
   # Tempo - 트레이스 (OTLP 수집)
   - tempo/tempo-headless.yaml
   - tempo/tempo-configmap.yaml

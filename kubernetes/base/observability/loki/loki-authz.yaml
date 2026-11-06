@@ -1,0 +1,30 @@
+# Loki(3100)에 게이트웨이 신원이 닿지 못하게 한다 (2026-11-07).
+#
+# ★ 왜: 3100 한 포트가 조회(/loki/api/v1/query*)와 쓰기(/loki/api/v1/push)를 함께 받고
+#   Loki 에는 인증이 없다. 외부 라우트(loki.oneinchmarket.local)는 render-external-access.py 의
+#   CLOSED 로 닫았는데, 그것만으로는 누가 HTTPRoute 를 되살리는 순간 다시 열린다.
+#   이 정책이 있으면 라우트가 돌아와도 게이트웨이 경유 요청은 거부된다.
+#
+# ★ ALLOW 가 아니라 DENY 인 이유: ALLOW 로 좁히면 호출자 전부(Grafana · otel-gateway ·
+#   Prometheus 스크레이프 · 그 밖)를 나열해야 하고, 하나만 빠져도 그 경로가 끊긴다(Gotcha 9).
+#   DENY 는 게이트웨이 하나만 막고 나머지 트래픽을 바꾸지 않는다(Gotcha 213 ② 와 같은 판단).
+#
+# 판정: 게이트웨이 -> Loki 는 리셋/503, Grafana -> loki-headless:3100/ready 는 그대로 ready.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-gateway-direct-loki
+  labels:
+    app.kubernetes.io/name: deny-gateway-direct-loki
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: loki
+  action: DENY
+  rules:
+    - from:
+        - source:
+            principals: ["*/sa/ingress-istio"]
