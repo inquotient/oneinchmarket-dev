@@ -72,10 +72,12 @@ CRONJOBS=(
   "rotate-minio-root"
   "rotate-admin-passwords"
   # ★ rotation-git-sync 는 2026-11-06 에 지웠다 — 원천이 OpenBao 가 되어 Secret 을 git 에 둘 이유가 없다.
-  # ★★ 전부 suspend 다(2026-11-06). PostgreSQL·MariaDB·MongoDB·MinIO 는 OpenBao 원천으로 다시 썼지만
-  #   **자동 실행하지 않기로 결정했다**(사람이 수동으로 돌린다 — Gotcha 212). redis·admin 은 옛 설계라 멈췄다.
-  #   여기서 [FAIL] 로 나오는 것이 정직하다: 정해진 주기로 돌지 않는다.
+  # ★★ 주기 로테이션이 아니라 **필요할 때 실행**한다(사용자 결정, 2026-11-06 — Gotcha 212).
+  #   CronJob 은 수동 실행용 틀이다: kubectl create job --from=cronjob/<이름> <이름>-manual-$(date +%s)
+  #   그래서 ON_DEMAND 는 suspend: true 가 **정상**이고, false 면 결정과 어긋나 [FAIL] 이다.
+  #   rotate-admin-passwords 는 옛 설계라 돌릴 수 없다 — 여전히 [FAIL] 이다.
 )
+ON_DEMAND=" rotate-postgresql-password rotate-mariadb-password rotate-mongodb-password rotate-redis-password rotate-minio-password rotate-minio-root "
 
 for cj in "${CRONJOBS[@]}"; do
   if INFO=$(kubectl get cronjob "$cj" -n "$NAMESPACE" -o go-template='{{.spec.schedule}}{{"|"}}{{if .spec.suspend}}true{{else}}false{{end}}' 2>/dev/null); then
@@ -83,12 +85,22 @@ for cj in "${CRONJOBS[@]}"; do
     SUSPEND="${INFO##*|}"
     # ★★ 존재만 보던 것이 결함이었다 — suspend 가 true 인 로테이션 CronJob 은
     #   조용한 비-로테이션이다. 오브젝트는 있고 아무 일도 하지 않는다.
-    if [ "$SUSPEND" = true ]; then
-      printf "${RED}[FAIL]${NC} %-35s suspend: true — 존재하지만 돌지 않는다\n" "$cj"
-      FAILED=$((FAILED + 1))
-    else
-      printf "${GREEN}[OK]${NC}   %-35s schedule: %s\n" "$cj" "$SCHEDULE"
-    fi
+    case "$ON_DEMAND" in
+      *" $cj "*)
+        if [ "$SUSPEND" = true ]; then
+          printf "${GREEN}[OK]${NC}   %-35s 필요할 때 수동 실행(suspend: true)\n" "$cj"
+        else
+          printf "${RED}[FAIL]${NC} %-35s suspend: false — 자동 실행하지 않기로 했다(schedule: %s)\n" "$cj" "$SCHEDULE"
+          FAILED=$((FAILED + 1))
+        fi ;;
+      *)
+        if [ "$SUSPEND" = true ]; then
+          printf "${RED}[FAIL]${NC} %-35s suspend: true — 존재하지만 돌지 않는다\n" "$cj"
+          FAILED=$((FAILED + 1))
+        else
+          printf "${GREEN}[OK]${NC}   %-35s schedule: %s\n" "$cj" "$SCHEDULE"
+        fi ;;
+    esac
   else
     printf "${RED}[FAIL]${NC} %-35s 없다\n" "$cj"
     FAILED=$((FAILED + 1))
