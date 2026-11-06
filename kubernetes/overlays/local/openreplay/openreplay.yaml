@@ -858,13 +858,13 @@ spec:
         - name: S3_KEY
           valueFrom:
             secretKeyRef:
-              name: minio-secret
-              key: root-user
+              name: minio-users
+              key: openreplay-access-key
         - name: S3_SECRET
           valueFrom:
             secretKeyRef:
-              name: minio-secret
-              key: root-password
+              name: minio-users
+              key: openreplay-secret-key
         - name: AWS_DEFAULT_REGION
           value: us-east-1
         - name: EMAIL_HOST
@@ -1002,13 +1002,13 @@ spec:
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
-              name: minio-secret
-              key: root-user
+              name: minio-users
+              key: openreplay-access-key
         - name: AWS_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: minio-secret
-              key: root-password
+              name: minio-users
+              key: openreplay-secret-key
         - name: AWS_ENDPOINT
           value: http://minio-headless.local.svc.cluster.local:9000
         - name: AWS_REGION
@@ -1138,13 +1138,13 @@ spec:
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
-              name: minio-secret
-              key: root-user
+              name: minio-users
+              key: openreplay-access-key
         - name: AWS_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: minio-secret
-              key: root-password
+              name: minio-users
+              key: openreplay-secret-key
         - name: BUCKET_NAME
           value: sessions-assets
         - name: LICENSE_KEY
@@ -1340,13 +1340,13 @@ spec:
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
-              name: minio-secret
-              key: root-user
+              name: minio-users
+              key: openreplay-access-key
         - name: AWS_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: minio-secret
-              key: root-password
+              name: minio-users
+              key: openreplay-secret-key
         - name: AWS_ENDPOINT
           value: http://minio-headless.local.svc.cluster.local:9000
         - name: AWS_REGION
@@ -1542,13 +1542,13 @@ spec:
         - name: S3_KEY
           valueFrom:
             secretKeyRef:
-              name: minio-secret
-              key: root-user
+              name: minio-users
+              key: openreplay-access-key
         - name: S3_SECRET
           valueFrom:
             secretKeyRef:
-              name: minio-secret
-              key: root-password
+              name: minio-users
+              key: openreplay-secret-key
         - name: AWS_DEFAULT_REGION
           value: us-east-1
         - name: sessions_region
@@ -2131,13 +2131,13 @@ spec:
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
-              name: minio-secret
-              key: root-user
+              name: minio-users
+              key: openreplay-access-key
         - name: AWS_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: minio-secret
-              key: root-password
+              name: minio-users
+              key: openreplay-secret-key
         - name: AWS_REGION
           value: us-east-1
         - name: AWS_ENDPOINT
@@ -2266,13 +2266,13 @@ spec:
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
-              name: minio-secret
-              key: root-user
+              name: minio-users
+              key: openreplay-access-key
         - name: AWS_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: minio-secret
-              key: root-password
+              name: minio-users
+              key: openreplay-secret-key
         - name: AWS_ENDPOINT
           value: http://minio-headless.local.svc.cluster.local:9000
         - name: AWS_REGION
@@ -2401,13 +2401,13 @@ spec:
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
-              name: minio-secret
-              key: root-user
+              name: minio-users
+              key: openreplay-access-key
         - name: AWS_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: minio-secret
-              key: root-password
+              name: minio-users
+              key: openreplay-secret-key
         - name: AWS_ENDPOINT
           value: http://minio-headless.local.svc.cluster.local:9000
         - name: AWS_REGION
@@ -2627,13 +2627,13 @@ spec:
         - name: S3_KEY
           valueFrom:
             secretKeyRef:
-              name: minio-secret
-              key: root-user
+              name: minio-users
+              key: openreplay-access-key
         - name: S3_SECRET
           valueFrom:
             secretKeyRef:
-              name: minio-secret
-              key: root-password
+              name: minio-users
+              key: openreplay-secret-key
         - name: AWS_REGION
           value: us-east-1
         - name: LICENSE_KEY
@@ -2738,13 +2738,13 @@ spec:
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
-              name: minio-secret
-              key: root-user
+              name: minio-users
+              key: openreplay-access-key
         - name: AWS_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: minio-secret
-              key: root-password
+              name: minio-users
+              key: openreplay-secret-key
         - name: BUCKET_NAME
           value: spots
         - name: AWS_REGION
@@ -2876,13 +2876,13 @@ spec:
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
-              name: minio-secret
-              key: root-user
+              name: minio-users
+              key: openreplay-access-key
         - name: AWS_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: minio-secret
-              key: root-password
+              name: minio-users
+              key: openreplay-secret-key
         - name: AWS_ENDPOINT
           value: http://minio-headless.local.svc.cluster.local:9000
         - name: AWS_REGION

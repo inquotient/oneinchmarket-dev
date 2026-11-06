@@ -55,7 +55,8 @@ data:
     spark.hadoop.fs.s3a.connection.ssl.enabled      false
     # SimpleAWSCredentialsProvider 는 fs.s3a.access.key 만 읽고 환경변수는 보지 않는다.
     # ConfigMap 은 Secret 값을 보간할 수 없으므로 환경변수 기반 provider 를 쓴다.
-    #   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY 는 각 워크로드가 minio-secret 에서 주입한다.
+    #   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY 는 각 워크로드가 minio-users 의 `spark` 사용자로 주입한다(Spark History 는 `spark-history`).
+    #   root 가 아니다(2026-11-06) — 버킷 warehouse·spark-events·livy-recovery 만 읽고 쓴다.
     spark.hadoop.fs.s3a.aws.credentials.provider    com.amazonaws.auth.EnvironmentVariableCredentialsProvider
 
     # ── 이벤트 로그 (History Server가 읽는다)
@@ -101,9 +102,9 @@ data:
           #   실패한다. Livy·Connect 와 같은 키를 쓴다.
           env:
             - name: AWS_ACCESS_KEY_ID
-              valueFrom: {secretKeyRef: {name: minio-secret, key: root-user}}
+              valueFrom: {secretKeyRef: {name: minio-users, key: spark-access-key}}
             - name: AWS_SECRET_ACCESS_KEY
-              valueFrom: {secretKeyRef: {name: minio-secret, key: root-password}}
+              valueFrom: {secretKeyRef: {name: minio-users, key: spark-secret-key}}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -140,9 +141,9 @@ data:
           #   실패한다. Livy·Connect 와 같은 키를 쓴다.
           env:
             - name: AWS_ACCESS_KEY_ID
-              valueFrom: {secretKeyRef: {name: minio-secret, key: root-user}}
+              valueFrom: {secretKeyRef: {name: minio-users, key: spark-access-key}}
             - name: AWS_SECRET_ACCESS_KEY
-              valueFrom: {secretKeyRef: {name: minio-secret, key: root-password}}
+              valueFrom: {secretKeyRef: {name: minio-users, key: spark-secret-key}}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

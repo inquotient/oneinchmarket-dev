@@ -66,13 +66,13 @@ spec:
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: minio-secret
-                  key: root-user
+                  name: minio-users
+                  key: spark-history-access-key
             - name: AWS_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: minio-secret
-                  key: root-password
+                  name: minio-users
+                  key: spark-history-secret-key
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

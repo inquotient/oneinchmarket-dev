@@ -30,7 +30,7 @@ commonAnnotations:
   argocd.argoproj.io/sync-wave: "7"
 
 # ★★ reloader 어노테이션을 여기서 붙인다 — 생성 파일을 고치면 다음
-#   렌더에 지워진다. 이 워크로드들은 redis-secret·minio-secret 을 참조하는데
+#   렌더에 지워진다. 이 워크로드들은 redis-secret·minio-users 을 참조하는데
 #   상류 차트가 어노테이션을 붙이지 않아 **로테이션 된 뒤에도 옛 자격을**
 #   든 채 남는다(§8-96). 로테이션 CronJob 은 DB 비밀번호와 Secret 을 둘 다
 #   바꾸므로, 재시작하지 않으면 그 순간부터 붙지 못한다.

@@ -96,8 +96,9 @@ spec:
                 - |
                   set -eu
                   # MinIO 는 HTTP 다 — https:// 로 부르면 실패한다(§ minio-bootstrap 주석).
-                  until mc alias set oim http://minio-headless:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null 2>&1; do sleep 3; done
-                  mc mb --ignore-existing oim/openbao-snapshots
+                  # ★ root 가 아니라 전용 사용자다(2026-11-06) — openbao-snapshots 버킷만 읽고 쓴다. 버킷은 minio-bootstrap 이
+                  #   만든다(이 사용자에게는 생성 권한이 없다).
+                  until mc alias set oim http://minio-headless:9000 "$MINIO_USER" "$MINIO_KEY" >/dev/null 2>&1; do sleep 3; done
                   TS="$(date -u +%Y%m%dT%H%M%SZ)"
                   mc cp /snap/openbao.snap "oim/openbao-snapshots/openbao-${TS}.snap"
                   # ★ 보존: 30일. 이것이 없으면 6시간마다 쌓여 디스크를 먹는다.
@@ -105,10 +106,10 @@ spec:
                   echo "[openbao-snapshot] 업로드 완료 openbao-${TS}.snap"
                   mc ls oim/openbao-snapshots/ | tail -3
               env:
-                - name: MINIO_ROOT_USER
-                  valueFrom: {secretKeyRef: {name: minio-secret, key: root-user}}
-                - name: MINIO_ROOT_PASSWORD
-                  valueFrom: {secretKeyRef: {name: minio-secret, key: root-password}}
+                - name: MINIO_USER
+                  valueFrom: {secretKeyRef: {name: minio-users, key: openbao-snapshot-access-key}}
+                - name: MINIO_KEY
+                  valueFrom: {secretKeyRef: {name: minio-users, key: openbao-snapshot-secret-key}}
                 - {name: MC_CONFIG_DIR, value: /tmp/mc}
               securityContext:
                 allowPrivilegeEscalation: false

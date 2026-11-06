@@ -31,8 +31,8 @@ INJECT = {
     "REDIS_STRING":      [("redis_password", "redis-secret",      "redis-password")],
     "CLICKHOUSE_STRING": [("CLICKHOUSE_USERNAME", None, None),
                           ("CLICKHOUSE_PASSWORD", "clickhouse-secret", "password")],
-    "AWS_ENDPOINT":      [("AWS_ACCESS_KEY_ID",     "minio-secret", "root-user"),
-                          ("AWS_SECRET_ACCESS_KEY", "minio-secret", "root-password")],
+    "AWS_ENDPOINT":      [("AWS_ACCESS_KEY_ID",     "minio-users", "openreplay-access-key"),
+                          ("AWS_SECRET_ACCESS_KEY", "minio-users", "openreplay-secret-key")],
 }
 
 # ★ 마이그레이션 Job 의 버전 검사 상한을 18 로 올린다.
@@ -88,9 +88,9 @@ def fix_container(c):
                 names.add(var)
         # 차트가 빈 문자열로 둔 S3 자격증명을 Secret 으로 채운다
         elif n == "AWS_ACCESS_KEY_ID" and not e.get("value"):
-            e.pop("value", None); e["valueFrom"] = {"secretKeyRef": {"name": "minio-secret", "key": "root-user"}}
+            e.pop("value", None); e["valueFrom"] = {"secretKeyRef": {"name": "minio-users", "key": "openreplay-access-key"}}
         elif n == "AWS_SECRET_ACCESS_KEY" and not e.get("value"):
-            e.pop("value", None); e["valueFrom"] = {"secretKeyRef": {"name": "minio-secret", "key": "root-password"}}
+            e.pop("value", None); e["valueFrom"] = {"secretKeyRef": {"name": "minio-users", "key": "openreplay-secret-key"}}
     # ★ *_STRING 이 없는 컨테이너도 pg_password 등을 직접 쓴다(chalice 계열).
     #   트리거에 의존하지 말고 **이름 기준으로 무조건** 우리 Secret 을 가리키게 한다.
     FORCE = {
@@ -101,8 +101,8 @@ def fix_container(c):
         "redis_password":        ("redis-secret",      "redis-password"),
         "CH_PASSWORD":           ("clickhouse-secret", "password"),
         "ch_password":           ("clickhouse-secret", "password"),
-        "S3_KEY":                ("minio-secret",      "root-user"),
-        "S3_SECRET":             ("minio-secret",      "root-password"),
+        "S3_KEY":                ("minio-users",       "openreplay-access-key"),
+        "S3_SECRET":             ("minio-users",       "openreplay-secret-key"),
         # 마이그레이션 Job 의 initContainer·컨테이너가 쓰는 이름.
         # 차트 Secret 의 값은 미치환 "{{ randAlphaNum 20}}" 라 인증이 실패한다.
         "PGPASSWORD":            ("openreplay-secret", "db-password"),

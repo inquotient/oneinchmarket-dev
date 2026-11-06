@@ -86,13 +86,13 @@ spec:
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: minio-secret
-                  key: root-user
+                  name: minio-users
+                  key: hive-access-key
             - name: AWS_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: minio-secret
-                  key: root-password
+                  name: minio-users
+                  key: hive-secret-key
             # ★ S3A 클래스패스.
             #   hadoop-aws 와 AWS SDK 는 share/hadoop/tools/lib 에 있고 이 경로는
             #   Hadoop 기본 클래스패스에 없다. 넣지 않으면 s3a:// 경로를 해석하는
