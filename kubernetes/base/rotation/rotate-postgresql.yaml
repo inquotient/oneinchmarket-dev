@@ -112,8 +112,11 @@ spec:
             seccompProfile:
               type: RuntimeDefault
           volumes:
+            # ★ 디스크 emptyDir 이다 — medium: Memory(tmpfs)에 쓴 페이지는 **쓴 컨테이너의 메모리 limit 에
+            #   계산된다.** bao 바이너리가 limit 128Mi 보다 커서 tools 가 OOMKilled(137)였다(2026-11-06 실측).
+            #   여기 들어가는 것은 공개 바이너리와 해시뿐이라 메모리에 둘 이유가 없다.
             - name: tools
-              emptyDir: {medium: Memory, sizeLimit: 256Mi}
+              emptyDir: {sizeLimit: 512Mi}
           initContainers:
             - name: tools
               image: docker.io/openbao/openbao:2.4.1
