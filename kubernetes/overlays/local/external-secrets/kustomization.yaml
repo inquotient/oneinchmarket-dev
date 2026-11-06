@@ -35,6 +35,7 @@ resources:
   - gravitee-secret.yaml
   - mariadb-secret.yaml
   - minio-secret.yaml
+  - minio-users.yaml
   - mongodb-secret.yaml
   - openfga-secret.yaml
   - openreplay-secret.yaml

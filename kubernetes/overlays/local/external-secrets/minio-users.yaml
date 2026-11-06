@@ -1,0 +1,24 @@
+# minio-users — MinIO 소비자별 사용자의 자격(2026-11-06). 원천은 OpenBao `oim/minio-users`.
+# ★ creationPolicy: Merge — ESO 나 OpenBao 가 내려가도 워크로드가 계속 돈다.
+# ★ 키를 바꾸는 것은 로테이션 Job(base/rotation/rotate-minio.yaml)뿐이다 — 그 Job 이 OpenBao 에 쓰고
+#   이 ExternalSecret 을 강제 동기화한다.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: minio-users
+  labels:
+    app.kubernetes.io/name: minio-users
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: openbao
+    kind: ClusterSecretStore
+  target:
+    name: minio-users
+    creationPolicy: Merge
+  dataFrom:
+    - extract:
+        key: minio-users

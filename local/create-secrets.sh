@@ -185,6 +185,18 @@ mk shardingsphere-secret "proxy-password=$(gen)"
 mk proxysql-secret "admin-password=$(gen)" "monitor-password=$(gen)"
 mk minio-secret       "root-user=oimadmin"           "root-password=$MINIO_PW" \
                       "minio-access-key=oimadmin"    "minio-secret-key=$MINIO_PW"
+# MinIO 소비자별 사용자(2026-11-06). root 는 MinIO 자신·minio-bootstrap·로테이터만 쓴다.
+#   minio-bootstrap 이 이 키들로 사용자를 만들고 버킷 정책을 붙인다 — 이름(<u>-access-key)과
+#   비밀키(<u>-secret-key)를 한 Secret 에 두어 소비자는 secretKeyRef 만 바꾸면 된다.
+# ★ minio-secret 과 따로 둔 이유 — 사용자 키를 회전해도 MinIO 자신이 재시작하지 않게(Reloader).
+# ★ airflow 는 예전부터 airflow-secret/s3-secret-key 를 쓴다(여기 없다).
+mk minio-users \
+   "trino-access-key=trino"                       "trino-secret-key=$(gen 32)" \
+   "hive-access-key=hive"                         "hive-secret-key=$(gen 32)" \
+   "spark-access-key=spark"                       "spark-secret-key=$(gen 32)" \
+   "spark-history-access-key=spark-history"       "spark-history-secret-key=$(gen 32)" \
+   "openreplay-access-key=openreplay"             "openreplay-secret-key=$(gen 32)" \
+   "openbao-snapshot-access-key=openbao-snapshot" "openbao-snapshot-secret-key=$(gen 32)"
 
 # ── PostgreSQL 을 공유하는 소비자들. 각자 다른 비밀번호를 갖는다.
 #    postgres-bootstrap Job 이 이 Secret 들을 읽어 같은 값으로 롤을 만든다.
