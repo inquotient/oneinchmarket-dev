@@ -194,6 +194,10 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: openmeter
+        # 비밀번호 로테이터(Gotcha 212) — allow-database-access 6379 에도 같은 신원이 있다.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: rotator-redis
       ports:
         - protocol: TCP
           port: 6379

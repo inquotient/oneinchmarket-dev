@@ -136,6 +136,7 @@ spec:
         - podSelector: {matchLabels: {app.kubernetes.io/name: rotator-mariadb}}
         - podSelector: {matchLabels: {app.kubernetes.io/name: rotator-mongodb}}
         - podSelector: {matchLabels: {app.kubernetes.io/name: rotator-minio}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: rotator-redis}}
       ports: [{protocol: TCP, port: 8200}]
     # ★ External Secrets Operator 는 **다른 네임스페이스**에서 붙는다.
     #   podSelector 로는 표현할 수 없고 namespaceSelector 여야 한다.

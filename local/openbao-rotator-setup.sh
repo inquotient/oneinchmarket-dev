@@ -23,10 +23,10 @@ POD="${POD:-openbao-0}"
 MOUNT="${MOUNT:-oim}"
 # 이름 <x> 는 SA rotator-<x> · 역할 rotator-<x> · KV 경로 <x>-secret 로 이어진다(paths() 가 예외를 정한다).
 # ★ 새 DB 를 더할 때는 그 CronJob(base/rotation/rotate-<x>.yaml)의 설계가 OpenBao 원천인지 먼저 볼 것.
-ROTATORS="${ROTATORS:-postgresql mariadb mongodb minio}"
+ROTATORS="${ROTATORS:-postgresql mariadb mongodb minio redis}"
 # ★ minio 는 경로가 둘이다 — 소비자 사용자 키(minio-users)와 root(minio-secret). 두 CronJob 이 같은 SA 를 쓴다
 #   (base/rotation/rotate-minio.yaml). 사용자 로테이션은 root 로 `mc admin user add` 를 해야 하므로 root 를 읽어야 한다.
-paths() { case "$1" in minio) echo "minio-users minio-secret";; *) echo "$1-secret";; esac; }
+paths() { case "$1" in minio) echo "minio-users minio-secret";; redis) echo "redis-users redis-secret";; *) echo "$1-secret";; esac; }
 log() { echo "[rotator] $*"; }
 
 # root 토큰을 파일로만 다룬다 — 셸 변수·프로세스 인자에 남기지 않는다(openbao-eso-setup.sh 와 같다).

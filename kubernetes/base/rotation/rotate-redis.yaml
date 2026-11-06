@@ -1,3 +1,69 @@
+# Redis 비밀번호 로테이션 — **OpenBao 가 원천 · 무중단** (2026-11-06 재설계, 본보기는 rotate-postgresql.yaml)
+#
+# ★★ 옛 판은 `redis-0..5.redis-headless` 여섯 곳에 `CONFIG SET requirepass` 를 걸고(`|| true` 로 실패를 삼켰다 —
+#   local 은 1 레플리카다) k8s Secret 을 직접 patch 했다. 그 Secret 은 ESO 가 1시간마다 OpenBao 값으로 덮으므로
+#   한 시간 안에 앱과 Redis 가 갈렸을 것이다. 그리고 소비자 29곳이 모두 그 비밀번호 하나를 썼다(Gotcha 212).
+#   2026-11-06 에 소비자를 ACL 사용자 7명으로 옮긴 뒤(redis-statefulset 의 render-acl · redis-users) 다시 썼다.
+#
+# ★★ 무중단이다 — Redis ACL 은 사용자 하나에 비밀번호를 여럿 둘 수 있다(실측). 그래서
+#   ① 새 값을 **더하고**(옛 값도 통한다) ② OpenBao·Secret 을 갱신해 Reloader 가 소비자를 새 값으로 다시 띄우게 하고
+#   ③ 유예 뒤에 옛 값을 **해시로** 지운다(`!<sha256>` — 이 단계에는 옛 평문이 없다). 옛 값을 지워도 이미 인증한
+#   연결은 끊기지 않는다(실측). Redis 는 재시작하지 않는다 — 다음 기동 때 render-acl 이 같은 Secret 에서 렌더한다.
+# ★ default(관리자 — 로테이터·사람·render-acl)도 같은 방식으로 함께 돈다. 프로브는 인증하지 않는다.
+# ★ 값은 redis-cli 의 인자로 넘기지 않는다 — 인증은 REDISCLI_AUTH, ACL 명령은 stdin 이다.
+#   판정은 종료 코드가 아니라 출력으로 한다 — 인증 실패에도 redis-cli 는 0 을 낸다(실측).
+# ★ 사용자를 더할 때는 이 파일의 USERS · redis-statefulset 의 render-acl · redis-users Secret 을 함께 고칠 것.
+#
+# ★ suspend: true — 자동 실행하지 않는다(사용자 결정, 2026-11-06). 수동 실행:
+#     kubectl -n local create job --from=cronjob/rotate-redis-password rotate-redis-manual-$(date +%s)
+# ★ 전제: ROTATORS="redis" local/openbao-rotator-setup.sh · 메시(allow-database-access 6379) ·
+#   NetworkPolicy(allow-redis-access · allow-openbao-access)에 이 SA/라벨.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rotator-redis
+  labels:
+    app.kubernetes.io/name: rotator-redis
+    app.kubernetes.io/component: rotation
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: rotator-redis
+  labels:
+    app.kubernetes.io/name: rotator-redis
+    app.kubernetes.io/component: rotation
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["redis-users", "redis-secret"]
+    verbs: ["get"]
+  - apiGroups: ["external-secrets.io"]
+    resources: ["externalsecrets"]
+    resourceNames: ["redis-users", "redis-secret"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rotator-redis
+  labels:
+    app.kubernetes.io/name: rotator-redis
+    app.kubernetes.io/component: rotation
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: rotator-redis
+subjects:
+  - kind: ServiceAccount
+    name: rotator-redis
+---
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -9,25 +75,25 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
 spec:
   schedule: "15 3 1,15 * *"
-  # ★★ 2026-11-06 에 멈췄다 — 이 판은 k8s Secret 을 직접 patch 하는 옛 설계다. 그 Secret 은 ESO 가
-  #   OpenBao 에서 1시간마다 덮어쓰므로 성공해도 옛 값으로 돌아가 앱과 DB 가 갈린다(Gotcha 212).
-  #   OpenBao 원천으로 다시 쓰기 전에는 깨우지 말 것 — 본보기는 rotate-postgresql.yaml.
   suspend: true
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
-      backoffLimit: 3
+      backoffLimit: 0
+      activeDeadlineSeconds: 900
+      ttlSecondsAfterFinished: 604800
       template:
         metadata:
           labels:
-            app.kubernetes.io/name: rotate-redis-password
+            app.kubernetes.io/name: rotator-redis
             app.kubernetes.io/component: rotation
             app.kubernetes.io/part-of: oneinchmarket
+            app.kubernetes.io/managed-by: kustomize
         spec:
-          serviceAccountName: secret-rotator
-          restartPolicy: OnFailure
+          serviceAccountName: rotator-redis
+          restartPolicy: Never
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000
@@ -35,49 +101,192 @@ spec:
             runAsNonRoot: true
             seccompProfile:
               type: RuntimeDefault
-          containers:
-            - name: rotate-redis
-              # bitnami/redis-cluster 저장소는 태그가 비었다(Bitnami 무료 카탈로그 축소).
-              # 워크로드와 다른 이미지를 쓰던 것도 문서가 지적한 결함이므로 함께 정리한다.
+          volumes:
+            - name: tools
+              emptyDir: {sizeLimit: 512Mi}
+          initContainers:
+            - name: tools
+              image: docker.io/openbao/openbao:2.4.1
+              command: ["/bin/sh", "-c", "cp /bin/bao /tools/bao && /tools/bao version"]
+              volumeMounts: [{name: tools, mountPath: /tools}]
+              resources:
+                requests: {cpu: 20m, memory: 32Mi}
+                limits:   {cpu: 200m, memory: 128Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
+            - name: rotate
               image: docker.io/library/redis:8.10.1
               command:
                 - /bin/bash
                 - -c
                 - |
                   set -euo pipefail
+                  B=/tools/bao
+                  export BAO_ADDR=http://openbao.local.svc.cluster.local:8200 HOME=/tmp
+                  H=redis-headless
+                  USERS="gitlab cmmn-api ratelimit openmeter glitchtip openreplay defectdojo"
+                  sha() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
+                  ev() { local v; v="K8S_$(printf '%s' "$1" | tr 'a-z-' 'A-Z_')"; printf '%s' "${!v:-}"; }
+                  # ping_as <사용자> <비밀번호> — 출력이 PONG 인지로 본다(인증 실패에도 rc 는 0 이다).
+                  ping_as() { [ "$(REDISCLI_AUTH="$2" redis-cli -h $H --no-auth-warning --user "$1" PING 2>&1)" = PONG ]; }
+                  # acl <명령> — 관리자로, 명령은 stdin 으로(값이 인자에 남지 않는다). 출력이 OK 여야 한다.
+                  acl() { [ "$(printf '%s\n' "$1" | REDISCLI_AUTH="$ADM_OLD" redis-cli -h $H --no-auth-warning 2>&1)" = OK ]; }
+                  gen() { head -c 48 /dev/urandom | base64 | tr -d '=+/\n' | cut -c1-32; }
 
-                  echo "[1/3] Generating new password..."
-                  NEW_PASSWORD=$(head -c 32 /dev/urandom | base64 | tr -d '=+/' | head -c 24)
+                  echo "[1/6] OpenBao 로그인 (rotator-redis)"
+                  BAO_TOKEN=$($B write -field=token auth/kubernetes/login role=rotator-redis \
+                    jwt=@/var/run/secrets/kubernetes.io/serviceaccount/token)
+                  export BAO_TOKEN
 
-                  echo "[2/3] Updating Redis password on all cluster nodes..."
-                  for i in $(seq 0 5); do
-                    redis-cli -h redis-${i}.redis-headless -a "${CURRENT_PASSWORD}" \
-                      CONFIG SET requirepass "${NEW_PASSWORD}" || true
-                    redis-cli -h redis-${i}.redis-headless -a "${NEW_PASSWORD}" \
-                      CONFIG SET masterauth "${NEW_PASSWORD}" || true
+                  echo "[2/6] 원천 일치 확인 (OpenBao = k8s Secret · default + ${USERS// /·})"
+                  declare -A OLD NEW
+                  ADM_OLD=$($B kv get -mount=oim -field=redis-password redis-secret)
+                  [ -n "$ADM_OLD" ] && [ "$ADM_OLD" = "$K8S_DEFAULT" ] \
+                    || { echo "default: OpenBao 와 k8s Secret 이 다르다(또는 비었다) — ESO 동기화부터 볼 것" >&2; exit 1; }
+                  for u in $USERS; do
+                    OLD[$u]=$($B kv get -mount=oim -field="$u-password" redis-users)
+                    [ -n "${OLD[$u]}" ] || { echo "$u: OpenBao 값이 비었다" >&2; exit 1; }
+                    [ "${OLD[$u]}" = "$(ev "$u")" ] || { echo "$u: OpenBao 와 k8s Secret 이 다르다 — ESO 동기화부터 볼 것" >&2; exit 1; }
                   done
 
-                  echo "[3/3] Patching Kubernetes secret..."
-                  ENCODED_PASSWORD=$(echo -n "${NEW_PASSWORD}" | base64)
-                  kubectl patch secret redis-secret \
-                    -p "{\"data\":{\"redis-password\":\"${ENCODED_PASSWORD}\"}}"
+                  echo "[3/6] 현재 값으로 인증 확인 → 새 값을 **더한다**(옛 값도 계속 통한다)"
+                  ping_as default "$ADM_OLD" || { echo "default: 현재 값으로 인증되지 않는다 — 멈춘다" >&2; exit 1; }
+                  for u in $USERS; do ping_as "$u" "${OLD[$u]}" || { echo "$u: 현재 값으로 인증되지 않는다 — 멈춘다" >&2; exit 1; }; done
+                  ADDED=""
+                  rollback() {
+                    echo "[rollback] 더한 새 값을 지운다:${ADDED:- 없음}" >&2
+                    for u in $ADDED; do
+                      if [ "$u" = default ]; then n="$ADM_NEW"; else n="${NEW[$u]}"; fi
+                      acl "ACL SETUSER $u <$n" || echo "[rollback] $u 실패 — 사람이 볼 것" >&2
+                    done
+                  }
+                  ADM_NEW=$(gen); [ "${#ADM_NEW}" -ge 24 ] || { echo "생성한 값이 짧다" >&2; exit 1; }
+                  acl "ACL SETUSER default >$ADM_NEW" || { echo "default: 추가 실패" >&2; exit 1; }
+                  ADDED="default"
+                  for u in $USERS; do
+                    NEW[$u]=$(gen); [ "${#NEW[$u]}" -ge 24 ] || { echo "생성한 값이 짧다" >&2; rollback; exit 1; }
+                    acl "ACL SETUSER $u >${NEW[$u]}" || { echo "$u: 추가 실패" >&2; rollback; exit 1; }
+                    ADDED="$ADDED $u"
+                  done
 
-                  echo "Redis password rotation completed."
+                  echo "[4/6] 새 값으로 인증 확인"
+                  ping_as default "$ADM_NEW" || { echo "default: 새 값으로 인증되지 않는다" >&2; rollback; exit 1; }
+                  for u in $USERS; do ping_as "$u" "${NEW[$u]}" || { echo "$u: 새 값으로 인증되지 않는다" >&2; rollback; exit 1; }; done
+
+                  echo "[5/6] OpenBao 에 기록 (redis-users 7키 → redis-secret)"
+                  J="{"; for u in $USERS; do J="$J\"$u-password\":\"${NEW[$u]}\","; done; J="${J%,}}"
+                  if ! printf '%s' "$J" | $B kv patch -mount=oim redis-users - >/dev/null; then rollback; exit 1; fi
+                  for u in $USERS; do
+                    [ "$($B kv get -mount=oim -field="$u-password" redis-users)" = "${NEW[$u]}" ] \
+                      || { echo "$u: OpenBao 되읽기가 다르다" >&2; rollback; exit 1; }
+                  done
+                  undo_users() {
+                    J="{"; for u in $USERS; do J="$J\"$u-password\":\"${OLD[$u]}\","; done; J="${J%,}}"
+                    printf '%s' "$J" | $B kv patch -mount=oim redis-users - >/dev/null || echo "[rollback] OpenBao redis-users 되돌리기 실패 — 사람이 볼 것" >&2
+                  }
+                  if ! printf '{"redis-password":"%s"}' "$ADM_NEW" | $B kv patch -mount=oim redis-secret - >/dev/null \
+                     || [ "$($B kv get -mount=oim -field=redis-password redis-secret)" != "$ADM_NEW" ]; then
+                    echo "default: OpenBao 기록 실패 — 둘 다 되돌린다" >&2; undo_users; rollback; exit 1
+                  fi
+
+                  echo "[6/6] 다음 단계에 해시만 넘긴다(새 값 → 동기화 확인용 · 옛 값 → 지우기용)"
+                  : > /tools/expected; : > /tools/old
+                  printf '%s %s %s\n' redis-secret redis-password "$(sha "$ADM_NEW")" >> /tools/expected
+                  printf '%s %s\n' default "$(sha "$ADM_OLD")" >> /tools/old
+                  for u in $USERS; do
+                    printf '%s %s %s\n' redis-users "$u-password" "$(sha "${NEW[$u]}")" >> /tools/expected
+                    printf '%s %s\n' "$u" "$(sha "${OLD[$u]}")" >> /tools/old
+                  done
+                  echo "Redis(새 값 추가) · OpenBao 갱신 완료 — 옛 값은 마지막 단계에서 지운다"
               env:
-                - name: CURRENT_PASSWORD
-                  valueFrom:
-                    secretKeyRef:
-                      name: redis-secret
-                      key: redis-password
+                - {name: K8S_DEFAULT,    valueFrom: {secretKeyRef: {name: redis-secret, key: redis-password}}}
+                - {name: K8S_GITLAB,     valueFrom: {secretKeyRef: {name: redis-users, key: gitlab-password}}}
+                - {name: K8S_CMMN_API,   valueFrom: {secretKeyRef: {name: redis-users, key: cmmn-api-password}}}
+                - {name: K8S_RATELIMIT,  valueFrom: {secretKeyRef: {name: redis-users, key: ratelimit-password}}}
+                - {name: K8S_OPENMETER,  valueFrom: {secretKeyRef: {name: redis-users, key: openmeter-password}}}
+                - {name: K8S_GLITCHTIP,  valueFrom: {secretKeyRef: {name: redis-users, key: glitchtip-password}}}
+                - {name: K8S_OPENREPLAY, valueFrom: {secretKeyRef: {name: redis-users, key: openreplay-password}}}
+                - {name: K8S_DEFECTDOJO, valueFrom: {secretKeyRef: {name: redis-users, key: defectdojo-password}}}
+              volumeMounts: [{name: tools, mountPath: /tools}]
               resources:
-                requests:
-                  cpu: 50m
-                  memory: 64Mi
-                limits:
-                  cpu: 200m
-                  memory: 256Mi
+                requests: {cpu: 50m, memory: 64Mi}
+                limits:   {cpu: 500m, memory: 256Mi}
               securityContext:
                 allowPrivilegeEscalation: false
-                capabilities:
-                  drop:
-                    - ALL
+                capabilities: {drop: ["ALL"]}
+            - name: sync
+              image: docker.io/alpine/kubectl:1.36.4
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  h() { kubectl get secret "$1" -o go-template="{{index .data \"$2\" | base64decode}}" | sha256sum | cut -d' ' -f1; }
+                  echo "[sync] ExternalSecret 강제 동기화 (redis-users · redis-secret)"
+                  kubectl annotate externalsecret redis-users  force-sync="$(date +%s)" --overwrite >/dev/null
+                  kubectl annotate externalsecret redis-secret force-sync="$(date +%s)" --overwrite >/dev/null
+                  i=0
+                  while [ $i -lt 60 ]; do
+                    bad=0
+                    while read -r s k want; do [ "$(h "$s" "$k")" = "$want" ] || bad=1; done < /tools/expected
+                    if [ $bad -eq 0 ]; then echo "[sync] k8s Secret 갱신 확인 — Reloader 가 소비자를 재시작한다"; exit 0; fi
+                    i=$((i+1)); sleep 3
+                  done
+                  echo "[sync] 180초 안에 k8s Secret 이 따라오지 않았다 — Redis 는 옛 값·새 값 둘 다 받는 상태다. ESO 를 볼 것" >&2
+                  exit 1
+              volumeMounts: [{name: tools, mountPath: /tools, readOnly: true}]
+              resources:
+                requests: {cpu: 20m, memory: 32Mi}
+                limits:   {cpu: 200m, memory: 128Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
+          containers:
+            # ★ env 는 앞의 컨테이너들이 끝난 뒤 생성될 때 Secret 에서 읽힌다 — 소비자가 받을 값이다.
+            - name: finalize
+              image: docker.io/library/redis:8.10.1
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -uo pipefail
+                  H=redis-headless
+                  ping_as() { [ "$(REDISCLI_AUTH="$2" redis-cli -h $H --no-auth-warning --user "$1" PING 2>&1)" = PONG ]; }
+                  fails=0
+                  ping_as default "$K8S_DEFAULT" || { echo "[finalize] default: 동기화된 Secret 의 값으로 인증되지 않는다" >&2; fails=$((fails+1)); }
+                  while read -r u _; do
+                    [ "$u" = default ] && continue
+                    v="K8S_$(printf '%s' "$u" | tr 'a-z-' 'A-Z_')"
+                    ping_as "$u" "${!v}" || { echo "[finalize] $u: 동기화된 Secret 의 값으로 인증되지 않는다" >&2; fails=$((fails+1)); }
+                  done < /tools/old
+                  # 소비자가 받을 값이 통하지 않으면 옛 값을 지우지 않는다 — 지우면 그 소비자가 끊긴다.
+                  [ $fails -eq 0 ] || { echo "[finalize] $fails 건 — 옛 값을 남겨 둔다(둘 다 통하는 상태). 사람이 볼 것" >&2; exit 1; }
+                  echo "[finalize] 소비자가 받을 값으로 전부 인증된다 — Reloader 가 소비자를 굴리도록 ${GRACE}초 기다린다"
+                  sleep "$GRACE"
+                  for_rm=0
+                  while read -r u oh; do
+                    r=$(printf 'ACL SETUSER %s !%s\n' "$u" "$oh" | REDISCLI_AUTH="$K8S_DEFAULT" redis-cli -h $H --no-auth-warning 2>&1)
+                    if [ "$r" = OK ]; then echo "[finalize] $u: 옛 값 제거"; else echo "[finalize] $u: 옛 값 제거 실패 — $r" >&2; for_rm=$((for_rm+1)); fi
+                  done < /tools/old
+                  [ $for_rm -eq 0 ] || exit 1
+                  echo "[finalize] 완료 — 사용자마다 비밀번호 하나(새 값)만 남았다"
+              env:
+                - {name: GRACE, value: "120"}
+                - {name: K8S_DEFAULT,    valueFrom: {secretKeyRef: {name: redis-secret, key: redis-password}}}
+                - {name: K8S_GITLAB,     valueFrom: {secretKeyRef: {name: redis-users, key: gitlab-password}}}
+                - {name: K8S_CMMN_API,   valueFrom: {secretKeyRef: {name: redis-users, key: cmmn-api-password}}}
+                - {name: K8S_RATELIMIT,  valueFrom: {secretKeyRef: {name: redis-users, key: ratelimit-password}}}
+                - {name: K8S_OPENMETER,  valueFrom: {secretKeyRef: {name: redis-users, key: openmeter-password}}}
+                - {name: K8S_GLITCHTIP,  valueFrom: {secretKeyRef: {name: redis-users, key: glitchtip-password}}}
+                - {name: K8S_OPENREPLAY, valueFrom: {secretKeyRef: {name: redis-users, key: openreplay-password}}}
+                - {name: K8S_DEFECTDOJO, valueFrom: {secretKeyRef: {name: redis-users, key: defectdojo-password}}}
+              volumeMounts: [{name: tools, mountPath: /tools, readOnly: true}]
+              resources:
+                requests: {cpu: 20m, memory: 32Mi}
+                limits:   {cpu: 200m, memory: 128Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: {drop: ["ALL"]}

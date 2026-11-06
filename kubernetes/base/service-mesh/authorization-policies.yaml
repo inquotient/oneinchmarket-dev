@@ -199,6 +199,9 @@ spec:
               #   `connection reset by peer` 로 CrashLoop 한다 —
               #   Redis 자격이나 주소를 의심하게 되는 증상이다(Gotcha 9).
               - "*/sa/ratelimit"
+              # 비밀번호 로테이터(Gotcha 212) — default 로 ACL 을 바꾸고 각 사용자로 다시 붙어 본다.
+              #   NetworkPolicy allow-redis-access 에도 같은 신원이 있다.
+              - "*/sa/rotator-redis"
       to:
         - operation:
             ports: ["6379"]
