@@ -9,6 +9,7 @@ resources:
   - rotate-postgresql-apps.yaml   # 앱 롤 16개(2026-11-07)
   - rotate-mariadb.yaml
   - rotate-mongodb.yaml
+  - rotate-db-apps.yaml           # MariaDB·MongoDB 앱 사용자(2026-11-07)
   - rotate-redis.yaml
   # Infrastructure Rotation
   - rotate-minio.yaml

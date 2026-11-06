@@ -41,11 +41,11 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["secrets"]
-    resourceNames: ["mariadb-secret"]
+    resourceNames: ["mariadb-secret", "cmmn-api-secret", "proxysql-secret"]   # 뒤 둘은 rotate-mariadb-apps(rotate-db-apps.yaml)
     verbs: ["get"]
   - apiGroups: ["external-secrets.io"]
     resources: ["externalsecrets"]
-    resourceNames: ["mariadb-secret"]
+    resourceNames: ["mariadb-secret", "cmmn-api-secret", "proxysql-secret"]   # 뒤 둘은 rotate-mariadb-apps(rotate-db-apps.yaml)
     verbs: ["get", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

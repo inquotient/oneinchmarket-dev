@@ -1,0 +1,360 @@
+# MariaDB · MongoDB **앱 사용자** 비밀번호 로테이션 — OpenBao 가 원천 (2026-11-07)
+#   본보기는 rotate-postgresql-apps.yaml(같은 순서·같은 실패 처리)이다.
+#
+# ★ SA 는 새로 만들지 않는다 — rotate-mariadb-password · rotate-mongodb-password 의 SA(rotator-mariadb ·
+#   rotator-mongodb)를 쓴다. 그 둘은 이미 superuser 경로를 읽고 쓰고, 메시·NetworkPolicy 에 들어 있다.
+#   앱 사용자 Secret 을 위해 그 Role 의 resourceNames 와 OpenBao 정책 경로(openbao-rotator-setup.sh 의 paths())를 넓혔다.
+#   (rotate-minio-password · rotate-minio-root 가 SA 하나를 나눠 쓰는 것과 같은 모양이다.)
+#
+# 대상
+#   MariaDB  cmmn-api,cmmn   cmmn-api-secret/db-password   ★ 'cmmn-api' 가 앱이 실제로 쓰는 계정이다(mariadb-bootstrap 머리말).
+#                                                           'cmmn' 은 같은 값으로 두는 옛 계정이라 함께 바꾼다
+#            debezium        mariadb-secret/debezium-password   kafka-connect 가 파일(secret 볼륨)로 읽는다
+#            proxysql-monitor proxysql-secret/monitor-password
+#   MongoDB  gravitee        gravitee-secret/db-password
+#
+# ★ 순서: 사전 검사(전부) → 사용자마다 변경 → 새 값 접속 확인 → OpenBao patch → 되읽기 → [sync] 가 강제 동기화.
+#   실패하면 그 사용자를 되돌리고 멈춘다. 앞의 사용자는 동기화된다.
+# ★ 창: 변경부터 Reloader 재시작까지 그 앱의 **새 연결**이 실패한다. debezium 은 kafka-connect 가 재시작해야
+#   커넥터가 새 값을 다시 읽는다(DirectoryConfigProvider 는 태스크 시작 때 푼다).
+# ★ mariadb-bootstrap · mongodb-bootstrap(Sync 훅)은 Secret 값으로 비밀번호를 다시 쓴다 — 동기화 중에는 돌리지 말 것.
+# ★ YAML 앵커로 sync 컨테이너를 공유하지 않는다 — 앵커는 `---` 를 넘지 못한다(Gotcha 139). 두 벌을 같게 둘 것.
+# ★ suspend: true — 수동 실행만(사용자 결정, 2026-11-06):
+#     kubectl -n local create job --from=cronjob/rotate-mariadb-apps rotate-mariadb-apps-manual-$(date +%s)
+#     kubectl -n local create job --from=cronjob/rotate-mongodb-apps rotate-mongodb-apps-manual-$(date +%s)
+#   고를 때는 rotate-postgresql-apps.yaml 머리말의 `kubectl set env --local -c rotate ONLY=...` 를 그대로 쓴다.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: rotate-mariadb-apps
+  labels:
+    app.kubernetes.io/name: rotate-mariadb-apps
+    app.kubernetes.io/component: rotation
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  schedule: "45 3 1 * *"
+  suspend: true
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 900
+      ttlSecondsAfterFinished: 604800
+      template:
+        metadata:
+          labels:
+            # ★ rotator-mariadb 라벨 — NetworkPolicy(MariaDB · OpenBao)가 이 라벨로 연다.
+            app.kubernetes.io/name: rotator-mariadb
+            app.kubernetes.io/component: rotation
+            app.kubernetes.io/part-of: oneinchmarket
+            app.kubernetes.io/managed-by: kustomize
+        spec:
+          serviceAccountName: rotator-mariadb
+          restartPolicy: Never
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          volumes:
+            - name: tools
+              emptyDir: {sizeLimit: 512Mi}
+          initContainers:
+            - name: tools
+              image: docker.io/openbao/openbao:2.4.1
+              command: ["/bin/sh", "-c", "cp /bin/bao /tools/bao && /tools/bao version"]
+              volumeMounts: [{name: tools, mountPath: /tools}]
+              resources:
+                requests: {cpu: 20m, memory: 32Mi}
+                limits:   {cpu: 200m, memory: 128Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
+            - name: rotate
+              image: docker.io/library/mariadb:12.3.3
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -euo pipefail
+                  B=/tools/bao
+                  export BAO_ADDR=http://openbao.local.svc.cluster.local:8200 HOME=/tmp
+                  # 사용자(첫째가 확인용, 쉼표로 함께 바꿀 계정) · 접속 확인 DB(- 는 없음) · Secret · 키
+                  TABLE="cmmn-api,cmmn cmmn cmmn-api-secret db-password
+                  debezium - mariadb-secret debezium-password
+                  proxysql-monitor - proxysql-secret monitor-password"
+                  sha() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
+                  ev()  { local v; v="K8S_$(printf '%s' "$1" | tr 'a-z-' 'A-Z_')"; printf '%s' "${!v:-}"; }
+                  kv()  { $B kv get -mount=oim -field="$2" "$1"; }
+                  gen() { head -c 48 /dev/urandom | base64 | tr -d '=+/\n' | cut -c1-32; }
+                  # 값은 MYSQL_PWD(환경)와 stdin 으로만 — 프로세스 인자에 남기지 않는다.
+                  conn() { local db=(); [ "$3" = - ] || db=(-D "$3")
+                           [ "$(MYSQL_PWD="$2" mariadb -h mariadb-headless -u "$1" "${db[@]}" -N -B -e 'select 1' 2>/dev/null || true)" = 1 ]; }
+                  alter() { local u; for u in ${1//,/ }; do printf "ALTER USER IF EXISTS '%s'@'%%' IDENTIFIED BY '%s';\n" "$u" "$2"; done \
+                              | MYSQL_PWD="$ROOT" mariadb -h mariadb-headless -u root -N -B; }
+
+                  SEL=""
+                  while read -r u d s k; do
+                    [ -n "$u" ] || continue; p=${u%%,*}
+                    if [ -z "${ONLY:-}" ] || [[ " $ONLY " == *" $p "* ]]; then SEL="$SEL$u $d $s $k"$'\n'; fi
+                  done <<< "$TABLE"
+                  for o in ${ONLY:-}; do grep -qE "^$o[ ,]" <<< "$SEL" || { echo "ONLY 의 '$o' 는 대상 표에 없다" >&2; exit 1; }; done
+                  [ -n "$SEL" ] || { echo "대상이 없다" >&2; exit 1; }
+
+                  echo "[1/5] OpenBao 로그인 (rotator-mariadb)"
+                  BAO_TOKEN=$($B write -field=token auth/kubernetes/login role=rotator-mariadb \
+                    jwt=@/var/run/secrets/kubernetes.io/serviceaccount/token)
+                  export BAO_TOKEN
+                  ROOT=$(kv mariadb-secret root-password)
+                  conn root "$ROOT" - || { echo "root 로 접속할 수 없다" >&2; exit 1; }
+
+                  echo "[2/5] 사전 검사 — 아무것도 바꾸기 전에 대상 전부"
+                  declare -A OLD; bad=0
+                  while read -r u d s k; do
+                    [ -n "$u" ] || continue; p=${u%%,*}
+                    OLD[$p]=$(kv "$s" "$k" || true)
+                    if [ -z "${OLD[$p]}" ]; then echo "  $p: OpenBao $s/$k 가 비었다" >&2; bad=1; continue; fi
+                    [ "${OLD[$p]}" = "$(ev "$p")" ] || { echo "  $p: OpenBao 와 k8s Secret 이 다르다 — ESO 동기화부터 볼 것" >&2; bad=1; continue; }
+                    conn "$p" "${OLD[$p]}" "$d" || { echo "  $p: 현재 값으로 접속할 수 없다" >&2; bad=1; continue; }
+                    echo "  $p ok"
+                  done <<< "$SEL"
+                  [ $bad -eq 0 ] || { echo "사전 검사 실패 — 아무것도 바꾸지 않았다" >&2; exit 1; }
+
+                  echo "[3/5] 사용자마다 변경"
+                  : > /tools/expected; rm -f /tools/failed
+                  while read -r u d s k; do
+                    [ -n "$u" ] || continue; p=${u%%,*}; o=${OLD[$p]}; n=$(gen)
+                    [ "${#n}" -ge 24 ] || { echo "$p" > /tools/failed; break; }
+                    if ! alter "$u" "$n"; then echo "$p" > /tools/failed; echo "  $p: ALTER 실패" >&2; alter "$u" "$o" || true; break; fi
+                    if ! conn "$p" "$n" "$d"; then
+                      alter "$u" "$o" || echo "  $p: [rollback] 실패 — 사람이 볼 것" >&2
+                      echo "$p" > /tools/failed; echo "  $p: 새 값으로 접속 실패 — 되돌렸다" >&2; break
+                    fi
+                    if ! printf '{"%s":"%s"}' "$k" "$n" | $B kv patch -mount=oim "$s" - >/dev/null || [ "$(kv "$s" "$k")" != "$n" ]; then
+                      alter "$u" "$o" || echo "  $p: [rollback] DB 되돌리기 실패 — 사람이 볼 것" >&2
+                      printf '{"%s":"%s"}' "$k" "$o" | $B kv patch -mount=oim "$s" - >/dev/null || true
+                      echo "$p" > /tools/failed; echo "  $p: OpenBao 기록 실패 — 되돌렸다" >&2; break
+                    fi
+                    printf '%s %s %s\n' "$s" "$k" "$(sha "$n")" >> /tools/expected
+                    echo "  $p 변경 완료 (${u//,/·})"
+                  done <<< "$SEL"
+                  echo "[4/5] 다음 단계에 해시만 넘긴다 ($(wc -l < /tools/expected) 키)"
+                  [ -f /tools/failed ] && echo "[5/5] 실패: $(cat /tools/failed)" >&2
+                  exit 0
+              env:
+                - {name: K8S_CMMN_API,         valueFrom: {secretKeyRef: {name: cmmn-api-secret, key: db-password}}}
+                - {name: K8S_DEBEZIUM,         valueFrom: {secretKeyRef: {name: mariadb-secret,  key: debezium-password}}}
+                - {name: K8S_PROXYSQL_MONITOR, valueFrom: {secretKeyRef: {name: proxysql-secret, key: monitor-password}}}
+                - {name: ONLY, value: ""}
+              volumeMounts: [{name: tools, mountPath: /tools}]
+              resources:
+                requests: {cpu: 50m, memory: 64Mi}
+                limits:   {cpu: 300m, memory: 256Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: {drop: ["ALL"]}
+          containers:
+            - name: sync
+              image: docker.io/alpine/kubectl:1.36.4
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  h() { kubectl get secret "$1" -o go-template="{{index .data \"$2\" | base64decode}}" | sha256sum | cut -d' ' -f1; }
+                  if [ -s /tools/expected ]; then
+                    for s in $(cut -d' ' -f1 /tools/expected | sort -u); do
+                      echo "[sync] $s 강제 동기화"
+                      kubectl annotate externalsecret "$s" force-sync="$(date +%s)" --overwrite >/dev/null
+                    done
+                    fails=0
+                    while read -r s k want; do
+                      i=0
+                      while [ "$(h "$s" "$k")" != "$want" ]; do i=$((i+1)); [ $i -lt 60 ] || break; sleep 3; done
+                      if [ "$(h "$s" "$k")" = "$want" ]; then echo "[sync] $s/$k ok"
+                      else echo "[sync] $s/$k 가 180초 안에 따라오지 않았다 — DB·OpenBao 는 새 값이다. ESO 를 볼 것" >&2; fails=$((fails+1)); fi
+                    done < /tools/expected
+                    [ $fails -eq 0 ] || exit 1
+                    echo "[sync] k8s Secret 갱신 확인 — Reloader 가 소비자를 재시작한다"
+                  fi
+                  if [ -f /tools/failed ]; then echo "[sync] $(cat /tools/failed) 에서 멈췄다 — 그와 뒤의 대상은 바뀌지 않았다" >&2; exit 1; fi
+              volumeMounts: [{name: tools, mountPath: /tools, readOnly: true}]
+              resources:
+                requests: {cpu: 20m, memory: 32Mi}
+                limits:   {cpu: 200m, memory: 128Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: rotate-mongodb-apps
+  labels:
+    app.kubernetes.io/name: rotate-mongodb-apps
+    app.kubernetes.io/component: rotation
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  schedule: "50 3 1 * *"
+  suspend: true
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 900
+      ttlSecondsAfterFinished: 604800
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: rotator-mongodb
+            app.kubernetes.io/component: rotation
+            app.kubernetes.io/part-of: oneinchmarket
+            app.kubernetes.io/managed-by: kustomize
+        spec:
+          serviceAccountName: rotator-mongodb
+          restartPolicy: Never
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          volumes:
+            - name: tools
+              emptyDir: {sizeLimit: 512Mi}
+          initContainers:
+            - name: tools
+              image: docker.io/openbao/openbao:2.4.1
+              command: ["/bin/sh", "-c", "cp /bin/bao /tools/bao && /tools/bao version"]
+              volumeMounts: [{name: tools, mountPath: /tools}]
+              resources:
+                requests: {cpu: 20m, memory: 32Mi}
+                limits:   {cpu: 200m, memory: 128Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
+            - name: rotate
+              image: docker.io/percona/percona-server-mongodb:8.0.29-13
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -euo pipefail
+                  B=/tools/bao
+                  export BAO_ADDR=http://openbao.local.svc.cluster.local:8200 HOME=/tmp
+                  # 사용자 · 인증 DB · Secret · 키
+                  TABLE="gravitee gravitee gravitee-secret db-password"
+                  sha() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
+                  ev()  { local v; v="K8S_$(printf '%s' "$1" | tr 'a-z-' 'A-Z_')"; printf '%s' "${!v:-}"; }
+                  kv()  { $B kv get -mount=oim -field="$2" "$1"; }
+                  gen() { head -c 48 /dev/urandom | base64 | tr -d '=+/\n' | cut -c1-32; }
+                  URI="mongodb://mongodb-headless:27017/admin?directConnection=true"
+                  # 값은 환경변수(process.env)로만 — mongosh 인자에 남기지 않는다(rotate-mongodb.yaml 과 같다).
+                  conn() { [ "$(MS_PW="$2" mongosh "$URI" --quiet --norc --eval \
+                             "if(!db.getSiblingDB('$3').auth('$1',process.env.MS_PW).ok)quit(3); print(db.getSiblingDB('$3').runCommand({ping:1}).ok)" 2>/dev/null | tail -n1 || true)" = 1 ]; }
+                  chpw() { [ "$(MS_PW="$ROOT" MS_NEW="$3" mongosh "$URI" --quiet --norc --eval \
+                             "if(!db.getSiblingDB('admin').auth('mongoadmin',process.env.MS_PW).ok)quit(3); db.getSiblingDB('$2').updateUser('$1',{pwd:process.env.MS_NEW}); print('ok')" | tail -n1)" = ok ]; }
+
+                  SEL=""
+                  while read -r u d s k; do
+                    [ -n "$u" ] || continue
+                    if [ -z "${ONLY:-}" ] || [[ " $ONLY " == *" $u "* ]]; then SEL="$SEL$u $d $s $k"$'\n'; fi
+                  done <<< "$TABLE"
+                  for o in ${ONLY:-}; do grep -q "^$o " <<< "$SEL" || { echo "ONLY 의 '$o' 는 대상 표에 없다" >&2; exit 1; }; done
+                  [ -n "$SEL" ] || { echo "대상이 없다" >&2; exit 1; }
+
+                  echo "[1/5] OpenBao 로그인 (rotator-mongodb)"
+                  BAO_TOKEN=$($B write -field=token auth/kubernetes/login role=rotator-mongodb \
+                    jwt=@/var/run/secrets/kubernetes.io/serviceaccount/token)
+                  export BAO_TOKEN
+                  ROOT=$(kv mongodb-secret root-password)
+                  conn mongoadmin "$ROOT" admin || { echo "mongoadmin 으로 접속할 수 없다" >&2; exit 1; }
+
+                  echo "[2/5] 사전 검사 — 아무것도 바꾸기 전에 대상 전부"
+                  declare -A OLD; bad=0
+                  while read -r u d s k; do
+                    [ -n "$u" ] || continue
+                    OLD[$u]=$(kv "$s" "$k" || true)
+                    if [ -z "${OLD[$u]}" ]; then echo "  $u: OpenBao $s/$k 가 비었다" >&2; bad=1; continue; fi
+                    [ "${OLD[$u]}" = "$(ev "$u")" ] || { echo "  $u: OpenBao 와 k8s Secret 이 다르다 — ESO 동기화부터 볼 것" >&2; bad=1; continue; }
+                    conn "$u" "${OLD[$u]}" "$d" || { echo "  $u: 현재 값으로 $d 에 인증되지 않는다" >&2; bad=1; continue; }
+                    echo "  $u ok"
+                  done <<< "$SEL"
+                  [ $bad -eq 0 ] || { echo "사전 검사 실패 — 아무것도 바꾸지 않았다" >&2; exit 1; }
+
+                  echo "[3/5] 사용자마다 변경"
+                  : > /tools/expected; rm -f /tools/failed
+                  while read -r u d s k; do
+                    [ -n "$u" ] || continue; o=${OLD[$u]}; n=$(gen)
+                    [ "${#n}" -ge 24 ] || { echo "$u" > /tools/failed; break; }
+                    if ! chpw "$u" "$d" "$n"; then echo "$u" > /tools/failed; echo "  $u: 변경 실패" >&2; break; fi
+                    if ! conn "$u" "$n" "$d"; then
+                      chpw "$u" "$d" "$o" || echo "  $u: [rollback] 실패 — 사람이 볼 것" >&2
+                      echo "$u" > /tools/failed; echo "  $u: 새 값으로 인증 실패 — 되돌렸다" >&2; break
+                    fi
+                    if ! printf '{"%s":"%s"}' "$k" "$n" | $B kv patch -mount=oim "$s" - >/dev/null || [ "$(kv "$s" "$k")" != "$n" ]; then
+                      chpw "$u" "$d" "$o" || echo "  $u: [rollback] DB 되돌리기 실패 — 사람이 볼 것" >&2
+                      printf '{"%s":"%s"}' "$k" "$o" | $B kv patch -mount=oim "$s" - >/dev/null || true
+                      echo "$u" > /tools/failed; echo "  $u: OpenBao 기록 실패 — 되돌렸다" >&2; break
+                    fi
+                    printf '%s %s %s\n' "$s" "$k" "$(sha "$n")" >> /tools/expected
+                    echo "  $u 변경 완료"
+                  done <<< "$SEL"
+                  echo "[4/5] 다음 단계에 해시만 넘긴다 ($(wc -l < /tools/expected) 키)"
+                  [ -f /tools/failed ] && echo "[5/5] 실패: $(cat /tools/failed)" >&2
+                  exit 0
+              env:
+                - {name: K8S_GRAVITEE, valueFrom: {secretKeyRef: {name: gravitee-secret, key: db-password}}}
+                - {name: ONLY, value: ""}
+              volumeMounts: [{name: tools, mountPath: /tools}]
+              resources:
+                requests: {cpu: 50m, memory: 128Mi}
+                limits:   {cpu: 500m, memory: 512Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: {drop: ["ALL"]}
+          containers:
+            - name: sync
+              image: docker.io/alpine/kubectl:1.36.4
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  h() { kubectl get secret "$1" -o go-template="{{index .data \"$2\" | base64decode}}" | sha256sum | cut -d' ' -f1; }
+                  if [ -s /tools/expected ]; then
+                    for s in $(cut -d' ' -f1 /tools/expected | sort -u); do
+                      echo "[sync] $s 강제 동기화"
+                      kubectl annotate externalsecret "$s" force-sync="$(date +%s)" --overwrite >/dev/null
+                    done
+                    fails=0
+                    while read -r s k want; do
+                      i=0
+                      while [ "$(h "$s" "$k")" != "$want" ]; do i=$((i+1)); [ $i -lt 60 ] || break; sleep 3; done
+                      if [ "$(h "$s" "$k")" = "$want" ]; then echo "[sync] $s/$k ok"
+                      else echo "[sync] $s/$k 가 180초 안에 따라오지 않았다 — DB·OpenBao 는 새 값이다. ESO 를 볼 것" >&2; fails=$((fails+1)); fi
+                    done < /tools/expected
+                    [ $fails -eq 0 ] || exit 1
+                    echo "[sync] k8s Secret 갱신 확인 — Reloader 가 소비자를 재시작한다"
+                  fi
+                  if [ -f /tools/failed ]; then echo "[sync] $(cat /tools/failed) 에서 멈췄다 — 그와 뒤의 대상은 바뀌지 않았다" >&2; exit 1; fi
+              volumeMounts: [{name: tools, mountPath: /tools, readOnly: true}]
+              resources:
+                requests: {cpu: 20m, memory: 32Mi}
+                limits:   {cpu: 200m, memory: 128Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}

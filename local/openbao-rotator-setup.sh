@@ -29,7 +29,7 @@ ROTATORS="${ROTATORS:-postgresql postgresql-apps mariadb mongodb minio redis}"
 # ★ postgresql-apps(2026-11-07) — 앱 롤 16개의 Secret 을 읽고 쓰고, superuser(postgresql-secret)는 ALTER ROLE 에
 #   필요해서 **읽기만** 한다(ro_paths). 목록은 base/rotation/rotate-postgresql-apps.yaml 의 TABLE 과 같아야 한다.
 PG_APPS="keycloak-secret gitlab-secret apicurio-secret hive-metastore-secret ranger-secret glitchtip-secret openreplay-secret dependency-track-secret defectdojo-secret safeline-secret openfga-secret midpoint-secret backstage-secret temporal-secret airflow-secret clickhouse-secret"
-paths() { case "$1" in minio) echo "minio-users minio-secret";; redis) echo "redis-users redis-secret";; postgresql-apps) echo "$PG_APPS";; *) echo "$1-secret";; esac; }
+paths() { case "$1" in minio) echo "minio-users minio-secret";; redis) echo "redis-users redis-secret";; postgresql-apps) echo "$PG_APPS";; mariadb) echo "mariadb-secret cmmn-api-secret proxysql-secret";; mongodb) echo "mongodb-secret gravitee-secret";; *) echo "$1-secret";; esac; }
 ro_paths() { case "$1" in postgresql-apps) echo "postgresql-secret";; *) echo "";; esac; }
 log() { echo "[rotator] $*"; }
 
