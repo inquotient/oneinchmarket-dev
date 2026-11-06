@@ -1,0 +1,65 @@
+# chalice 가 자기 외부 주소(SITE_URL)로 HTTPS 요청을 보낼 수 있게 한다 (local 전용, 2026-11-07).
+#
+# ★ 왜: 가입 화면의 "Installation Status" 가 SSL 항목에서 실패해 Create Account 가 비활성이었다
+#   (UI 에는 "Error while fetching data" / "SSL Certificate health-check failed").
+#   chalicelib/core/health.py 의 __check_SSL 은 requests.get(SITE_URL, verify=True) 를 보낸다.
+#   셋이 다 맞아야 통과한다:
+#     ① 주소 — SITE_URL 이 https://openreplay.local(존재하지 않는 이름)이었다.
+#        생성물과 local/openreplay-values.yaml 의 domainName 을 함께 고쳤다.
+#     ② 이름 해석 — 파드 안에서 *.oneinchmarket.local 은 풀리지 않는다 -> hostAliases 로
+#        externalIP(노드 103)에 푼다(AKHQ·Backstage 와 같은 처방).
+#     ③ 신뢰 — 게이트웨이 인증서는 클러스터 CA 가 발급한다. requests 는 certifi 묶음만 믿으므로
+#        initContainer 가 certifi 묶음 + 게이트웨이 CA 를 합쳐 REQUESTS_CA_BUNDLE 로 준다.
+#        certifi 를 **대체**하지 않고 **덧붙인다** — 대체하면 바깥 HTTPS(통합 기능)가 깨진다.
+#        ★ Secret 에 CA 개인키(tls.key)도 있다 — items 로 ca.crt 만 투영한다.
+# ★ 판정: 가입 화면의 SSL 이 초록 · chalice 로그에 `health failed: SSL Certificate` 가 없다.
+# ★ 이미지 태그는 생성물(openreplay.yaml)의 chalice 이미지와 같아야 한다 — 생성기가 버전을 올리면
+#   이 파일도 함께 고칠 것(Gotcha 117).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chalice-openreplay
+  namespace: local
+spec:
+  template:
+    spec:
+      hostAliases:
+        - ip: "192.168.0.103"
+          hostnames: ["openreplay.oneinchmarket.local"]
+      initContainers:
+        - name: ca-bundle
+          image: public.ecr.aws/p1t3u8a3/chalice:v1.27.22
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              src=$(python3 -c 'import certifi; print(certifi.where())')
+              cat "$src" /gateway-ca/ca.crt > /ca-bundle/bundle.pem
+              grep -q 'BEGIN CERTIFICATE' /gateway-ca/ca.crt
+              test "$(grep -c 'BEGIN CERTIFICATE' /ca-bundle/bundle.pem)" -gt "$(grep -c 'BEGIN CERTIFICATE' "$src")"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 10m, memory: 64Mi }
+            limits: { cpu: 200m, memory: 128Mi }
+          volumeMounts:
+            - { name: gateway-ca, mountPath: /gateway-ca, readOnly: true }
+            - { name: ca-bundle, mountPath: /ca-bundle }
+      containers:
+        - name: chalice
+          env:
+            - name: REQUESTS_CA_BUNDLE
+              value: /ca-bundle/bundle.pem
+          volumeMounts:
+            - { name: ca-bundle, mountPath: /ca-bundle, readOnly: true }
+      volumes:
+        - name: gateway-ca
+          secret:
+            secretName: gateway-ca-cert
+            items:
+              - { key: ca.crt, path: ca.crt }
+        - name: ca-bundle
+          emptyDir: { sizeLimit: 2Mi }

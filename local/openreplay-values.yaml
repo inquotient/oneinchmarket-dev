@@ -8,7 +8,9 @@
 #   특히 initContainer 는 호스트명을 셸 스크립트에 갖고 있어 파드 env 를
 #   후처리해도 고쳐지지 않는다. 템플릿 입력을 바꿔야 한다.
 global:
-  domainName: "openreplay.local"
+  # 외부 주소와 같아야 한다 — chalice 의 SSL 점검이 SITE_URL(https://<domainName>)로 실제 요청을
+  #   보내고, 실패하면 가입 화면의 Create Account 가 비활성이다(2026-11-07).
+  domainName: "openreplay.oneinchmarket.local"
   postgresql:
     postgresqlHost: "postgresql-headless.local.svc.cluster.local"
     postgresqlPort: "5432"

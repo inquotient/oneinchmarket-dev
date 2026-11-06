@@ -852,7 +852,7 @@ spec:
               name: openreplay-secret
               key: db-password
         - name: SITE_URL
-          value: https://openreplay.local
+          value: https://openreplay.oneinchmarket.local
         - name: S3_HOST
           value: http://minio-headless.local.svc.cluster.local:9000
         - name: S3_KEY
@@ -1162,7 +1162,7 @@ spec:
         - name: KAFKA_USE_SSL
           value: 'false'
         - name: ASSETS_ORIGIN
-          value: https://openreplay.local/sessions-assets
+          value: https://openreplay.oneinchmarket.local/sessions-assets
         - name: REDIS_STRING
           value: redis://openreplay:$(redis_password)@redis-headless.local.svc.cluster.local:6379/4
         ports:
@@ -1536,7 +1536,7 @@ spec:
               name: openreplay-secret
               key: db-password
         - name: SITE_URL
-          value: https://openreplay.local
+          value: https://openreplay.oneinchmarket.local
         - name: S3_HOST
           value: http://minio-headless.local.svc.cluster.local:9000
         - name: S3_KEY
@@ -1938,7 +1938,7 @@ spec:
         imagePullPolicy: IfNotPresent
         env:
         - name: TRACKER_HOST
-          value: https://openreplay.local/script
+          value: https://openreplay.oneinchmarket.local/script
         - name: HTTP_PORT
           value: '80'
         ports:
@@ -2538,7 +2538,7 @@ spec:
         - name: KAFKA_USE_SSL
           value: 'false'
         - name: ASSETS_ORIGIN
-          value: https://openreplay.local/sessions-assets
+          value: https://openreplay.oneinchmarket.local/sessions-assets
         - name: pg_password
           valueFrom:
             secretKeyRef:
@@ -2643,7 +2643,7 @@ spec:
               key: license-key
               optional: true
         - name: ASSETS_ORIGIN
-          value: https://openreplay.local/sessions-assets
+          value: https://openreplay.oneinchmarket.local/sessions-assets
         ports:
         - name: metrics
           containerPort: 8888
