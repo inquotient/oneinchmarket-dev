@@ -1802,6 +1802,172 @@ spec:
     - matches:
         - path:
             type: PathPrefix
+            value: /api
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: chalice-openreplay
+          port: 8000
+          weight: 1
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /v2/api
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: api-openreplay
+          port: 8080
+          weight: 1
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /ws-assist
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: assist-openreplay
+          port: 9001
+          weight: 1
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /ingest/v1/web/images
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: canvases-openreplay
+          port: 8080
+          weight: 1
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /ingest/v1/mobile/images
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /v1/mobile/images
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: images-openreplay
+          port: 8080
+          weight: 1
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /ingest
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: http-openreplay
+          port: 8080
+          weight: 1
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /spot
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: spot-openreplay
+          port: 8080
+          weight: 1
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /mobs
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: minio-headless
+          port: 9000
+          weight: 1
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /sessions-assets
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: minio-headless
+          port: 9000
+          weight: 1
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /static
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: minio-headless
+          port: 9000
+          weight: 1
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /sourcemaps
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: minio-headless
+          port: 9000
+          weight: 1
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /records
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: minio-headless
+          port: 9000
+          weight: 1
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /spots
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: minio-headless
+          port: 9000
+          weight: 1
+    - matches:
+        - path:
+            type: PathPrefix
             value: /
       backendRefs:
         - group: ""

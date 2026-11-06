@@ -317,6 +317,57 @@ ROOT_REDIRECT = {
 }
 
 
+# 한 호스트 안에서 경로마다 백엔드가 다른 앱 — (경로 접두, 서비스, 포트, 바꿔 넣을 접두 | None).
+#   ★ openreplay: 차트는 이 분배를 nginx Ingress(`nginx.org/location-snippets` 의 rewrite)로 하는데,
+#     그 Ingress 는 컨트롤러가 없어 지웠다(Gotcha 7·58). 그래서 프런트만 닿고 `/api/...` 가 SPA 의
+#     index.html(200)을 받아 UI 가 "Error while fetching data" 였다(2026-11-06). 값은 v1.27 차트의
+#     Ingress 를 렌더해 옮겼다 — rewrite `^/api/(.*)$ /$1` 는 ReplacePrefixMatch "/" 와 같다.
+#   Gateway API 는 가장 긴 접두가 이기므로 순서와 무관하다(/ingest/v1/web/images 가 /ingest 를 이긴다).
+PATH_ROUTES = {
+    "openreplay": [
+        ("/api", "chalice-openreplay", 8000, "/"),
+        ("/v2/api", "api-openreplay", 8080, "/"),
+        ("/ws-assist", "assist-openreplay", 9001, "/"),
+        ("/ingest/v1/web/images", "canvases-openreplay", 8080, None),
+        ("/ingest/v1/mobile/images", "images-openreplay", 8080, "/v1/mobile/images"),
+        ("/ingest", "http-openreplay", 8080, "/"),
+        ("/spot", "spot-openreplay", 8080, "/"),
+        # 리플레이 파일(mobs 등)은 버킷 경로 그대로 MinIO 로 간다 — 차트의 minio Ingress 와 같다.
+        ("/mobs", "minio-headless", 9000, None),
+        ("/sessions-assets", "minio-headless", 9000, None),
+        ("/static", "minio-headless", 9000, None),
+        ("/sourcemaps", "minio-headless", 9000, None),
+        ("/records", "minio-headless", 9000, None),
+        ("/spots", "minio-headless", 9000, None),
+    ],
+}
+
+
+def path_rules(host):
+    out = []
+    for prefix, svc, port, replace in PATH_ROUTES.get(host, []):
+        rw = ""
+        if replace is not None:
+            rw = ("      filters:\n"
+                  "        - type: URLRewrite\n"
+                  "          urlRewrite:\n"
+                  "            path:\n"
+                  "              type: ReplacePrefixMatch\n"
+                  "              replacePrefixMatch: %s\n") % replace
+        out.append("    - matches:\n"
+                   "        - path:\n"
+                   "            type: PathPrefix\n"
+                   "            value: %s\n"
+                   "%s"
+                   "      backendRefs:\n"
+                   "        - group: \"\"\n"
+                   "          kind: Service\n"
+                   "          name: %s\n"
+                   "          port: %d\n"
+                   "          weight: 1\n" % (prefix, rw, svc, port))
+    return "".join(out)
+
+
 def route_yaml(host, svc, port, scheme, tier, note):
     if host in O2P:
         svc, port = "oauth2-proxy-%s" % host, 4180
@@ -343,6 +394,8 @@ def route_yaml(host, svc, port, scheme, tier, note):
     if scheme == "https":
         tls = ("  # ★ 백엔드가 HTTPS 다 — destinationrules.yaml 의 TLS\n"
                "  #   오리지네이션과 짝이다. 한쪽만 있으면 502 다.\n")
+    # 경로별 백엔드(PATH_ROUTES) — 기본 `/` 규칙보다 긴 접두라 먼저 매칭된다
+    redirect += path_rules(host)
     return """---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
