@@ -83,6 +83,13 @@ mk postgresql-secret  "postgresql-password=$PG"      "postgres-password=$PG"
 mk mariadb-secret     "root-password=$MARIA_ROOT"    "mariadb-root-password=$MARIA_ROOT" "app-password=$MARIA_APP" "debezium-password=$(gen)"
 mk mongodb-secret     "root-password=$MONGO"         "mongodb-root-password=$MONGO"
 mk redis-secret       "redis-password=$REDIS"
+# Redis 소비자별 ACL 사용자(2026-11-06). redis-password 는 default 사용자(관리자 — 프로브·로테이터·사람)다.
+#   Redis 의 initContainer 가 이 값들의 sha256 해시로 ACL 을 렌더한다(평문은 디스크에 남지 않는다).
+# ★ 사용자 이름은 키 이름에서 `-password` 를 뗀 것이다 — 매니페스트에 이름이 그대로 적혀 있다.
+mk redis-users \
+   "gitlab-password=$(gen)"     "cmmn-api-password=$(gen)"   "ratelimit-password=$(gen)" \
+   "openmeter-password=$(gen)"  "glitchtip-password=$(gen)"  "openreplay-password=$(gen)" \
+   "defectdojo-password=$(gen)"
 # Kafka SASL (2026-11-03). broker-password 는 브로커 자신(PLAIN, 컨트롤러·
 # 브로커 간)이고 나머지는 워크로드별 SCRAM-SHA-512 사용자다 — 키 이름에서
 # `-password` 를 뗀 것이 곧 Kafka 사용자 이름이자 Ranger 사용자 이름이다.

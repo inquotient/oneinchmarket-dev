@@ -8,7 +8,10 @@ metadata:
     app.kubernetes.io/part-of: oneinchmarket
     app.kubernetes.io/managed-by: kustomize
   annotations:
-    reloader.stakater.com/auto: "true"
+    # ★ Reloader 를 일부러 붙이지 않는다(2026-11-06). 비밀번호 로테이션은 살아 있는 Redis 에서 ACL 로 바꾸고
+    #   (새 값을 더한 뒤 옛 값을 지운다 — 이미 맺은 연결은 끊기지 않는다), 다음 기동 때 render-acl 이 같은
+    #   Secret 에서 다시 렌더한다. Secret 이 바뀔 때마다 재시작하면 소비자 29곳이 한꺼번에 끊긴다.
+    oneinchmarket.io/reloader-exempt: "ACL 을 살아 있는 서버에서 바꾼다 — base/rotation/rotate-redis.yaml"
 spec:
   serviceName: redis-headless
   replicas: 6
@@ -30,19 +33,66 @@ spec:
         fsGroup: 999
         seccompProfile:
           type: RuntimeDefault
+      volumes:
+        - name: conf
+          emptyDir: {sizeLimit: 1Mi}
+      initContainers:
+        # ★ ACL 사용자를 Secret 에서 렌더한다(2026-11-06). 비밀번호는 sha256 해시(`#…`)로만 쓴다 — 평문이
+        #   디스크·프로세스 인자에 남지 않는다(예전 --requirepass 는 ps 에 보였다).
+        #   default 는 관리자(프로브는 인증하지 않는다 · 로테이터 · 사람), 나머지는 소비자별이다.
+        # ★ 권한: 소비자는 `+@all -@admin -flushall -flushdb` — CONFIG·ACL·DEBUG·SHUTDOWN 과 전체 삭제를 막는다
+        #   (Redis 에는 과금 중복제거 키가 있다 — FLUSHALL 은 과다 청구다). DB 번호로는 가를 수 없다(Redis ACL 에
+        #   DB 단위 권한이 없다). 실측: INFO·CLIENT SETINFO·EVAL·SELECT 는 통과 · CONFIG·FLUSHALL 은 NOPERM.
+        # ★ 사용자를 더할 때는 여기 USERS · redis-users Secret · 로테이터의 USERS 를 함께 고칠 것.
+        - name: render-acl
+          image: docker.io/library/redis:8.10.1
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -euo pipefail
+              USERS="gitlab cmmn-api ratelimit openmeter glitchtip openreplay defectdojo"
+              h() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
+              [ -n "${REDIS_PASSWORD:-}" ] || { echo "[render-acl] default 비밀번호가 비었다" >&2; exit 1; }
+              {
+                echo "user default on #$(h "$REDIS_PASSWORD") ~* &* +@all"
+                for u in $USERS; do
+                  v="PW_$(printf '%s' "$u" | tr 'a-z-' 'A-Z_')"
+                  [ -n "${!v:-}" ] || { echo "[render-acl] $u 비밀번호($v)가 비었다" >&2; exit 1; }
+                  echo "user $u on #$(h "${!v}") ~* &* +@all -@admin -flushall -flushdb"
+                done
+                echo "appendonly yes"
+                echo "dir /data"
+              } > /conf/redis.conf
+              n=$(grep -c '^user ' /conf/redis.conf)
+              [ "$n" -eq 8 ] || { echo "[render-acl] 사용자 $n 건 — 8 이어야 한다" >&2; exit 1; }
+              echo "[render-acl] 사용자 $n 건 렌더"
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom: {secretKeyRef: {name: redis-secret, key: redis-password}}
+            - {name: PW_GITLAB,     valueFrom: {secretKeyRef: {name: redis-users, key: gitlab-password}}}
+            - {name: PW_CMMN_API,   valueFrom: {secretKeyRef: {name: redis-users, key: cmmn-api-password}}}
+            - {name: PW_RATELIMIT,  valueFrom: {secretKeyRef: {name: redis-users, key: ratelimit-password}}}
+            - {name: PW_OPENMETER,  valueFrom: {secretKeyRef: {name: redis-users, key: openmeter-password}}}
+            - {name: PW_GLITCHTIP,  valueFrom: {secretKeyRef: {name: redis-users, key: glitchtip-password}}}
+            - {name: PW_OPENREPLAY, valueFrom: {secretKeyRef: {name: redis-users, key: openreplay-password}}}
+            - {name: PW_DEFECTDOJO, valueFrom: {secretKeyRef: {name: redis-users, key: defectdojo-password}}}
+          volumeMounts: [{name: conf, mountPath: /conf}]
+          # requests==limits — local 의 Redis 는 Guaranteed 다(overlays/local/patches/qos-guaranteed.yaml).
+          #   initContainer 가 그 조건을 깨면 파드 QoS 가 Burstable 로 떨어진다.
+          resources:
+            requests: {cpu: 100m, memory: 64Mi}
+            limits:   {cpu: 100m, memory: 64Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
       containers:
         - name: redis
-          # 공식 이미지. REDIS_PASSWORD 환경변수를 읽지 않으므로
-          # --requirepass 로 넘긴다. 데이터 경로는 /data 다.
+          # 공식 이미지. 설정(ACL·appendonly·dir)은 render-acl 이 /conf/redis.conf 로 만든다 — 데이터 경로는 /data 다.
           image: docker.io/library/redis:8.10.1
           command: ["redis-server"]
-          args:
-            - --requirepass
-            - $(REDIS_PASSWORD)
-            - --appendonly
-            - "yes"
-            - --dir
-            - /data
+          args: ["/conf/redis.conf"]
           ports:
             - containerPort: 6379
               name: redis
@@ -50,6 +100,8 @@ spec:
             - containerPort: 16379
               name: redis-bus
               protocol: TCP
+          # ★ REDIS_PASSWORD 는 더 쓰지 않지만 env 에서 빼지 않는다 — 서버측 적용은 지운 env 를 살아 있는
+          #   오브젝트에 남긴다(Gotcha 146). 남은 참조가 이 Secret 을 가리키는 편이 덜 놀랍다.
           env:
             - name: REDIS_PASSWORD
               valueFrom:
@@ -73,27 +125,25 @@ spec:
               port: redis
             failureThreshold: 30
             periodSeconds: 10
+          # ★ 프로브는 인증하지 않는다(2026-11-06) — 비밀번호를 회전하면 컨테이너 env 의 옛 값으로 프로브가 실패해
+          #   Redis 가 재시작했을 것이다. 인증 없는 PING 은 살아 있으면 PONG 또는 NOAUTH 를, 죽었으면 연결 거부를
+          #   낸다(실측: rc 는 둘 다 0 이라 출력으로 가른다). 예전 `-a $(REDIS_PASSWORD)` 는 비밀번호가 ps 에 보였다.
           livenessProbe:
             exec:
-              command:
-                - redis-cli
-                - -a
-                - $(REDIS_PASSWORD)
-                - ping
+              command: ["sh", "-c", "redis-cli ping 2>&1 | grep -qE '^(PONG|NOAUTH)'"]
             periodSeconds: 10
             timeoutSeconds: 5
           readinessProbe:
             exec:
-              command:
-                - redis-cli
-                - -a
-                - $(REDIS_PASSWORD)
-                - ping
+              command: ["sh", "-c", "redis-cli ping 2>&1 | grep -qE '^(PONG|NOAUTH)'"]
             periodSeconds: 10
             timeoutSeconds: 5
           volumeMounts:
             - name: data
               mountPath: /data
+            - name: conf
+              mountPath: /conf
+              readOnly: true
   volumeClaimTemplates:
     - metadata:
         name: data

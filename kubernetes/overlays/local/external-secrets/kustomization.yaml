@@ -43,6 +43,7 @@ resources:
   - proxysql-secret.yaml
   - ranger-secret.yaml
   - redis-secret.yaml
+  - redis-users.yaml
   - safeline-secret.yaml
   - shardingsphere-secret.yaml
   - wazuh-secret.yaml

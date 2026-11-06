@@ -104,7 +104,9 @@ SECRETS=(
   "mariadb-secret"
   "mongodb-secret"
   "redis-secret"
+  "redis-users"      # 소비자별 ACL 사용자(2026-11-06)
   "minio-secret"
+  "minio-users"      # 소비자별 버킷 사용자(2026-11-06)
   "keycloak-secret"
   "gitlab-secret"
 )
@@ -150,7 +152,8 @@ else
   ROT_JSON=$(printf '%s\n' "${SECRETS[@]}" | jq -R . | jq -sc .)
   COV=$(kubectl get deployments,statefulsets -n "$NAMESPACE" -o json 2>/dev/null | jq -r --argjson rot "$ROT_JSON" '
     .items[]
-    | (.metadata.annotations["reloader.stakater.com/auto"] // "-") as $a
+    | (if .metadata.annotations["oneinchmarket.io/reloader-exempt"] then "exempt"
+       else (.metadata.annotations["reloader.stakater.com/auto"] // "-") end) as $a
     | ([ (.spec.template.spec.volumes // [])[] | .secret.secretName // empty ]
        + [ (.spec.template.spec.containers // [])[], (.spec.template.spec.initContainers // [])[] | (.env // [])[] | .valueFrom.secretKeyRef.name // empty ]
        + [ (.spec.template.spec.containers // [])[], (.spec.template.spec.initContainers // [])[] | (.envFrom // [])[] | .secretRef.name // empty ]
@@ -165,15 +168,22 @@ else
     TOTAL_WL=$(kubectl get deployments,statefulsets -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l | tr -d ' ')
     NREF=$(printf '%s\n' "$COV" | grep -c . || true)
     NYES=$(printf '%s\n' "$COV" | awk -F'\t' '$3=="true"' | grep -c . || true)
-    NNO=$((NREF - NYES))
+    # ★ 의도적 제외 — oneinchmarket.io/reloader-exempt 에 사유를 적은 것(2026-11-06, Redis: ACL 을 살아 있는
+    #   서버에서 바꾸므로 Secret 이 바뀔 때 재시작하면 오히려 소비자가 한꺼번에 끊긴다). 사유는 매니페스트에 있다.
+    NEX=$(printf '%s\n' "$COV" | awk -F'\t' '$3=="exempt"' | grep -c . || true)
+    NNO=$((NREF - NYES - NEX))
     printf "  워크로드 %s개 중 로테이션 Secret 을 참조하는 것 %s개\n" "$TOTAL_WL" "$NREF"
     printf "${GREEN}[OK]${NC}   최상위 reloader.stakater.com/auto 가 true — %s개\n" "$NYES"
+    if [ "$NEX" -gt 0 ]; then
+      printf "${GREEN}[OK]${NC}   의도적 제외(oneinchmarket.io/reloader-exempt) — %s개\n" "$NEX"
+      printf '%s\n' "$COV" | awk -F'\t' '$3=="exempt" {printf "         %-34s (%s)\n", $2, $4}'
+    fi
     if [ "$NNO" -gt 0 ]; then
       # ★ 실패로 세지 않는다. 상류 차트가 붙이지 않는 경우가 있어 빨간불이
       #   상수가 되면 사람이 배경으로 읽는다(Gotcha 73·90). 숫자로 보고한다 —
       #   비밀번호가 바뀌어도 이 워크로드는 모른다.
       printf "${YELLOW}[WARN]${NC} 어노테이션 없음 — %s개 (비밀번호가 바뀌어도 재시작하지 않는다)\n" "$NNO"
-      printf '%s\n' "$COV" | awk -F'\t' '$3!="true" {printf "         %-34s (%s)\n", $2, $4}'
+      printf '%s\n' "$COV" | awk -F'\t' '$3!="true" && $3!="exempt" {printf "         %-34s (%s)\n", $2, $4}'
       WARNED=$((WARNED + NNO))
     fi
   fi
