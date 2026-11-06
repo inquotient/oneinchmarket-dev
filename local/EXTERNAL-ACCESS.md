@@ -268,7 +268,7 @@ Import-Certificate -FilePath .\oim-ca.crt -CertStoreLocation Cert:\LocalMachine\
 | https://app-admin.oneinchmarket.local | 도구용 | `admin-headless:3000` | 관리 프런트 |
 | https://app-api.oneinchmarket.local | 도구용 | `cmmn-api-headless:8080` | ★ 과금 경로가 아니다(과금은 `api` 호스트 · JWT 필수). 루트는 404 이고 `/actuator/health` 가 200 이다 |
 | https://www.oneinchmarket.local | 도구용 | `nginx:80` | 정적 프런트 |
-| https://openreplay.oneinchmarket.local | 자체 인증 | `frontend-openreplay:8080` | 세션 리플레이. ★ 전제 2건이 미해결이라 데이터가 비어 있다 |
+| https://openreplay.oneinchmarket.local | 자체 인증 | `frontend-openreplay:8080` | 세션 리플레이. 경로별 백엔드(`/api`->chalice 등 14개)는 PATH_ROUTES 가 나눈다 — 차트의 Ingress 대신이다. 첫 접속은 가입 화면(계정 0개). ★ 전제 2건이 미해결이라 데이터가 비어 있다 |
 | https://openreplay-api.oneinchmarket.local | 도구용 | `api-openreplay:8080` | 위 프런트가 부르는 API |
 <!-- GENERATED:ui-table END -->
 
