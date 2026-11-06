@@ -1,3 +1,65 @@
+# MongoDB 관리자(mongoadmin) 비밀번호 로테이션 — **OpenBao 가 원천** (2026-11-06 재설계, 본보기는 rotate-postgresql.yaml)
+#
+# ★★ 옛 판은 `root` 로 붙고(그런 사용자는 없다 — 관리자는 MONGO_INITDB_ROOT_USERNAME=mongoadmin 이다)
+#   `appuser`(역시 없다)를 바꾸려 했으며 `mongodb-password` 라는 아무도 읽지 않는 키에 썼다(Gotcha 212).
+#   실측 admin DB 사용자는 `mongoadmin`(root 역할) 하나다. 앱 사용자(gravitee 등)는 각자의 DB·Secret 에 있다.
+#
+# ★ 소비자(살아 있는 오브젝트 전수, 2026-11-06): mongodb StatefulSet(MONGO_INITDB_ROOT_PASSWORD — 초기화 때만
+#   쓰인다) · mongodb-bootstrap 훅(root-password). 두 별칭 키(root-password · mongodb-root-password)를 함께 갱신한다.
+#   readiness 는 인증 없는 ping 이라 비밀번호와 무관하다.
+# ★ 비밀번호를 mongosh 인자로 넘기지 않는다 — 인증 없이 붙어 스크립트 안에서 `process.env` 로 auth 한다.
+# ★ 클라이언트 8.0.29-13 · 서버 7.0.43-23(local) — mongosh 8 은 7.0 서버를 지원한다(overlays/local/patches/mongodb-local.yaml).
+#
+# ★ suspend: true — 수동 실행:
+#     kubectl -n local create job --from=cronjob/rotate-mongodb-password rotate-mongodb-manual-$(date +%s)
+# ★ 전제: ROTATORS="mongodb" local/openbao-rotator-setup.sh · 메시(allow-database-access 27017) ·
+#   NetworkPolicy(allow-mongodb-access · allow-openbao-access)에 이 SA/라벨.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rotator-mongodb
+  labels:
+    app.kubernetes.io/name: rotator-mongodb
+    app.kubernetes.io/component: rotation
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: rotator-mongodb
+  labels:
+    app.kubernetes.io/name: rotator-mongodb
+    app.kubernetes.io/component: rotation
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["mongodb-secret"]
+    verbs: ["get"]
+  - apiGroups: ["external-secrets.io"]
+    resources: ["externalsecrets"]
+    resourceNames: ["mongodb-secret"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rotator-mongodb
+  labels:
+    app.kubernetes.io/name: rotator-mongodb
+    app.kubernetes.io/component: rotation
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: rotator-mongodb
+subjects:
+  - kind: ServiceAccount
+    name: rotator-mongodb
+---
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -9,25 +71,25 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
 spec:
   schedule: "10 3 1,15 * *"
-  # ★★ 2026-11-06 에 멈췄다 — 이 판은 k8s Secret 을 직접 patch 하는 옛 설계다. 그 Secret 은 ESO 가
-  #   OpenBao 에서 1시간마다 덮어쓰므로 성공해도 옛 값으로 돌아가 앱과 DB 가 갈린다(Gotcha 212).
-  #   OpenBao 원천으로 다시 쓰기 전에는 깨우지 말 것 — 본보기는 rotate-postgresql.yaml.
   suspend: true
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
-      backoffLimit: 3
+      backoffLimit: 0
+      activeDeadlineSeconds: 900
+      ttlSecondsAfterFinished: 604800
       template:
         metadata:
           labels:
-            app.kubernetes.io/name: rotate-mongodb-password
+            app.kubernetes.io/name: rotator-mongodb
             app.kubernetes.io/component: rotation
             app.kubernetes.io/part-of: oneinchmarket
+            app.kubernetes.io/managed-by: kustomize
         spec:
-          serviceAccountName: secret-rotator
-          restartPolicy: OnFailure
+          serviceAccountName: rotator-mongodb
+          restartPolicy: Never
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000
@@ -35,44 +97,110 @@ spec:
             runAsNonRoot: true
             seccompProfile:
               type: RuntimeDefault
-          containers:
-            - name: rotate-mongodb
+          volumes:
+            - name: tools
+              emptyDir: {sizeLimit: 512Mi}
+          initContainers:
+            - name: tools
+              image: docker.io/openbao/openbao:2.4.1
+              command: ["/bin/sh", "-c", "cp /bin/bao /tools/bao && /tools/bao version"]
+              volumeMounts: [{name: tools, mountPath: /tools}]
+              resources:
+                requests: {cpu: 20m, memory: 32Mi}
+                limits:   {cpu: 200m, memory: 128Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
+            - name: rotate
               image: docker.io/percona/percona-server-mongodb:8.0.29-13
               command:
                 - /bin/bash
                 - -c
                 - |
                   set -euo pipefail
+                  B=/tools/bao
+                  export BAO_ADDR=http://openbao.local.svc.cluster.local:8200 HOME=/tmp
+                  sha() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
+                  URI="mongodb://mongodb-headless:27017/admin?directConnection=true"
+                  # ms <접속 비밀번호> <JS> — 값은 환경변수로만, 인자에 남기지 않는다. 출력 마지막 줄만 본다.
+                  ms() { MS_PW="$1" mongosh "$URI" --quiet --norc --eval \
+                    "if(!db.getSiblingDB('admin').auth('mongoadmin',process.env.MS_PW).ok)quit(3); $2" | tail -n1; }
 
-                  echo "[1/3] Generating new password..."
-                  NEW_PASSWORD=$(head -c 32 /dev/urandom | base64 | tr -d '=+/' | head -c 24)
+                  echo "[1/6] OpenBao 로그인 (rotator-mongodb)"
+                  BAO_TOKEN=$($B write -field=token auth/kubernetes/login role=rotator-mongodb \
+                    jwt=@/var/run/secrets/kubernetes.io/serviceaccount/token)
+                  export BAO_TOKEN
 
-                  echo "[2/3] Updating MongoDB password..."
-                  mongosh "mongodb://mongodb-0.mongodb-headless:27017" \
-                    -u root -p "${CURRENT_PASSWORD}" --authenticationDatabase admin \
-                    --eval "db.changeUserPassword('appuser', '${NEW_PASSWORD}')"
+                  echo "[2/6] 원천 일치 확인 (OpenBao 두 키 = k8s Secret)"
+                  OLD=$($B kv get -mount=oim -field=root-password mongodb-secret)
+                  ALIAS=$($B kv get -mount=oim -field=mongodb-root-password mongodb-secret)
+                  [ -n "$OLD" ] || { echo "OpenBao 값이 비었다" >&2; exit 1; }
+                  [ "$OLD" = "$ALIAS" ] || { echo "OpenBao 의 두 별칭 키가 다르다 — 멈춘다" >&2; exit 1; }
+                  [ "$OLD" = "$K8S_CURRENT" ] || { echo "OpenBao 와 k8s Secret 이 다르다 — ESO 동기화부터 볼 것" >&2; exit 1; }
 
-                  echo "[3/3] Patching Kubernetes secret..."
-                  ENCODED_PASSWORD=$(echo -n "${NEW_PASSWORD}" | base64)
-                  kubectl patch secret mongodb-secret \
-                    -p "{\"data\":{\"mongodb-password\":\"${ENCODED_PASSWORD}\"}}"
+                  echo "[3/6] 현재 값으로 접속 확인 → 새 값으로 변경"
+                  [ "$(ms "$OLD" "print(db.adminCommand({ping:1}).ok)")" = 1 ] || { echo "현재 값으로 접속할 수 없다" >&2; exit 1; }
+                  NEW=$(head -c 48 /dev/urandom | base64 | tr -d '=+/\n' | cut -c1-32)
+                  [ "${#NEW}" -ge 24 ] || { echo "생성한 값이 짧다" >&2; exit 1; }
+                  chpw() {  # chpw <접속 비밀번호> <바꿀 비밀번호>
+                    MS_NEW="$2" ms "$1" "db.getSiblingDB('admin').changeUserPassword('mongoadmin',process.env.MS_NEW); print('ok')"
+                  }
+                  [ "$(chpw "$OLD" "$NEW")" = ok ] || { echo "변경 실패" >&2; exit 1; }
 
-                  echo "MongoDB password rotation completed."
+                  rollback() {
+                    echo "[rollback] DB 를 옛 값으로 되돌린다" >&2
+                    chpw "$NEW" "$OLD" >/dev/null || echo "[rollback] 실패 — 사람이 볼 것" >&2
+                  }
+
+                  echo "[4/6] 새 값으로 접속 확인"
+                  if [ "$(ms "$NEW" "print(db.adminCommand({ping:1}).ok)" 2>/dev/null || true)" != 1 ]; then rollback; exit 1; fi
+
+                  echo "[5/6] OpenBao 에 기록 (두 별칭 키를 함께)"
+                  if ! printf '{"root-password":"%s","mongodb-root-password":"%s"}' "$NEW" "$NEW" \
+                       | $B kv patch -mount=oim mongodb-secret - >/dev/null; then rollback; exit 1; fi
+                  [ "$($B kv get -mount=oim -field=root-password mongodb-secret)" = "$NEW" ] \
+                    || { echo "OpenBao 되읽기가 다르다" >&2; rollback; exit 1; }
+
+                  echo "[6/6] 다음 단계에 해시만 넘긴다"
+                  sha "$NEW" > /tools/expected.sha
+                  echo "DB · OpenBao 갱신 완료"
               env:
-                - name: CURRENT_PASSWORD
-                  valueFrom:
-                    secretKeyRef:
-                      name: mongodb-secret
-                      key: mongodb-root-password
+                - name: K8S_CURRENT
+                  valueFrom: {secretKeyRef: {name: mongodb-secret, key: root-password}}
+              volumeMounts: [{name: tools, mountPath: /tools}]
               resources:
-                requests:
-                  cpu: 50m
-                  memory: 64Mi
-                limits:
-                  cpu: 200m
-                  memory: 256Mi
+                requests: {cpu: 50m, memory: 128Mi}
+                limits:   {cpu: 500m, memory: 512Mi}
               securityContext:
                 allowPrivilegeEscalation: false
-                capabilities:
-                  drop:
-                    - ALL
+                capabilities: {drop: ["ALL"]}
+          containers:
+            - name: sync
+              image: docker.io/alpine/kubectl:1.36.4
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  want=$(cat /tools/expected.sha)
+                  h() { kubectl get secret mongodb-secret -o go-template="{{index .data \"$1\" | base64decode}}" | sha256sum | cut -d' ' -f1; }
+                  echo "[sync] ExternalSecret 강제 동기화"
+                  kubectl annotate externalsecret mongodb-secret force-sync="$(date +%s)" --overwrite >/dev/null
+                  i=0
+                  while [ $i -lt 60 ]; do
+                    if [ "$(h root-password)" = "$want" ] && [ "$(h mongodb-root-password)" = "$want" ]; then
+                      echo "[sync] k8s Secret 갱신 확인 — Reloader 가 소비자를 재시작한다"; exit 0
+                    fi
+                    i=$((i+1)); sleep 3
+                  done
+                  echo "[sync] 180초 안에 k8s Secret 이 따라오지 않았다 — DB·OpenBao 는 새 값이다. ESO 상태를 볼 것" >&2
+                  exit 1
+              volumeMounts: [{name: tools, mountPath: /tools, readOnly: true}]
+              resources:
+                requests: {cpu: 20m, memory: 32Mi}
+                limits:   {cpu: 200m, memory: 128Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}

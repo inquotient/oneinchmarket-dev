@@ -1,3 +1,70 @@
+# MariaDB root 비밀번호 로테이션 — **OpenBao 가 원천** (2026-11-06 재설계, 본보기는 rotate-postgresql.yaml)
+#
+# ★★ 옛 판은 `cmmn` 앱 사용자를 바꾸고 `mariadb-password` 라는 **아무도 읽지 않는 키**에 썼다 —
+#   소비자가 읽는 자격은 그 키가 아니다. 게다가 이미지에 kubectl 이 없고, Secret 은 ESO 가 덮어쓴다(Gotcha 212).
+#   이 판은 root 하나만 바꾼다. 앱 사용자(cmmn·cmmn-api·debezium·proxysql-monitor)는 소비자가 각자라
+#   소비자별로 따로 설계해야 한다.
+#
+# ★ root 계정이 **둘**이다 — `root@localhost` · `root@%`(실측 mysql.user). 하나만 바꾸면 소켓·TCP 중 한쪽이
+#   옛 값으로 남는다. 둘을 한 문장으로 함께 바꾸고, 모양이 다르면 멈춘다.
+# ★ 소비자(살아 있는 오브젝트 전수, 2026-11-06): mariadb StatefulSet(MARIADB_ROOT_PASSWORD — 초기화 때만
+#   쓰인다) · mariadb-bootstrap 훅(root-password). 두 별칭 키(root-password · mariadb-root-password)를 함께 갱신한다.
+# ★ mariadb 의 readiness 는 root 가 아니라 이미지의 healthcheck 사용자(healthcheck.sh)를 쓴다 — 그렇지 않으면
+#   ALTER 와 Reloader 재시작 사이에 DB 가 NotReady 로 빠진다(ESO 가 늦으면 최대 한 시간).
+#
+# 순서는 rotate-postgresql.yaml 과 같다: 로그인 → 원천 일치 → 현재 값 확인 → ALTER → 새 값 확인(실패 시 되돌림)
+#   → OpenBao patch(실패 시 되돌림) → 해시만 넘김 → ESO 강제 동기화 → k8s Secret 해시 확인.
+#
+# ★ suspend: true — 수동 실행:
+#     kubectl -n local create job --from=cronjob/rotate-mariadb-password rotate-mariadb-manual-$(date +%s)
+# ★ 전제: ROTATORS="mariadb" local/openbao-rotator-setup.sh · 메시(allow-database-access 3306) ·
+#   NetworkPolicy(allow-mariadb-access · allow-openbao-access)에 이 SA/라벨.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rotator-mariadb
+  labels:
+    app.kubernetes.io/name: rotator-mariadb
+    app.kubernetes.io/component: rotation
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: rotator-mariadb
+  labels:
+    app.kubernetes.io/name: rotator-mariadb
+    app.kubernetes.io/component: rotation
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["mariadb-secret"]
+    verbs: ["get"]
+  - apiGroups: ["external-secrets.io"]
+    resources: ["externalsecrets"]
+    resourceNames: ["mariadb-secret"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rotator-mariadb
+  labels:
+    app.kubernetes.io/name: rotator-mariadb
+    app.kubernetes.io/component: rotation
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: rotator-mariadb
+subjects:
+  - kind: ServiceAccount
+    name: rotator-mariadb
+---
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -9,25 +76,25 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
 spec:
   schedule: "5 3 1,15 * *"
-  # ★★ 2026-11-06 에 멈췄다 — 이 판은 k8s Secret 을 직접 patch 하는 옛 설계다. 그 Secret 은 ESO 가
-  #   OpenBao 에서 1시간마다 덮어쓰므로 성공해도 옛 값으로 돌아가 앱과 DB 가 갈린다(Gotcha 212).
-  #   OpenBao 원천으로 다시 쓰기 전에는 깨우지 말 것 — 본보기는 rotate-postgresql.yaml.
   suspend: true
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
-      backoffLimit: 3
+      backoffLimit: 0
+      activeDeadlineSeconds: 900
+      ttlSecondsAfterFinished: 604800
       template:
         metadata:
           labels:
-            app.kubernetes.io/name: rotate-mariadb-password
+            app.kubernetes.io/name: rotator-mariadb
             app.kubernetes.io/component: rotation
             app.kubernetes.io/part-of: oneinchmarket
+            app.kubernetes.io/managed-by: kustomize
         spec:
-          serviceAccountName: secret-rotator
-          restartPolicy: OnFailure
+          serviceAccountName: rotator-mariadb
+          restartPolicy: Never
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000
@@ -35,45 +102,111 @@ spec:
             runAsNonRoot: true
             seccompProfile:
               type: RuntimeDefault
-          containers:
-            - name: rotate-mariadb
+          volumes:
+            # 디스크 emptyDir — tmpfs 는 쓴 컨테이너의 limit 에 계산된다(rotate-postgresql.yaml 의 OOM).
+            - name: tools
+              emptyDir: {sizeLimit: 512Mi}
+          initContainers:
+            - name: tools
+              image: docker.io/openbao/openbao:2.4.1
+              command: ["/bin/sh", "-c", "cp /bin/bao /tools/bao && /tools/bao version"]
+              volumeMounts: [{name: tools, mountPath: /tools}]
+              resources:
+                requests: {cpu: 20m, memory: 32Mi}
+                limits:   {cpu: 200m, memory: 128Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
+            - name: rotate
               image: docker.io/library/mariadb:12.3.3
               command:
                 - /bin/bash
                 - -c
                 - |
                   set -euo pipefail
+                  B=/tools/bao
+                  export BAO_ADDR=http://openbao.local.svc.cluster.local:8200 HOME=/tmp
+                  sha() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
+                  # 접속 비밀번호는 MYSQL_PWD(환경)로, 바꿀 값은 stdin 으로 — 프로세스 인자에 남기지 않는다.
+                  my() { MYSQL_PWD="$1" mariadb -h mariadb-headless -u root -N -B "${@:2}"; }
+                  alter() {  # alter <접속 비밀번호> <바꿀 비밀번호>
+                    printf "ALTER USER 'root'@'localhost' IDENTIFIED BY '%s', 'root'@'%%' IDENTIFIED BY '%s';\n" "$2" "$2" | my "$1"
+                  }
 
-                  echo "[1/3] Generating new password..."
-                  NEW_PASSWORD=$(head -c 32 /dev/urandom | base64 | tr -d '=+/' | head -c 24)
+                  echo "[1/6] OpenBao 로그인 (rotator-mariadb)"
+                  BAO_TOKEN=$($B write -field=token auth/kubernetes/login role=rotator-mariadb \
+                    jwt=@/var/run/secrets/kubernetes.io/serviceaccount/token)
+                  export BAO_TOKEN
 
-                  echo "[2/3] Updating MariaDB password..."
-                  MYSQL_PWD="${CURRENT_PASSWORD}" mariadb \
-                    -h mariadb-headless \
-                    -u root \
-                    -e "ALTER USER 'cmmn'@'%' IDENTIFIED BY '${NEW_PASSWORD}';"
+                  echo "[2/6] 원천 일치 확인 (OpenBao 두 키 = k8s Secret)"
+                  OLD=$($B kv get -mount=oim -field=root-password mariadb-secret)
+                  ALIAS=$($B kv get -mount=oim -field=mariadb-root-password mariadb-secret)
+                  [ -n "$OLD" ] || { echo "OpenBao 값이 비었다" >&2; exit 1; }
+                  [ "$OLD" = "$ALIAS" ] || { echo "OpenBao 의 두 별칭 키가 다르다 — 멈춘다" >&2; exit 1; }
+                  [ "$OLD" = "$K8S_CURRENT" ] || { echo "OpenBao 와 k8s Secret 이 다르다 — ESO 동기화부터 볼 것" >&2; exit 1; }
 
-                  echo "[3/3] Patching Kubernetes secret..."
-                  ENCODED_PASSWORD=$(echo -n "${NEW_PASSWORD}" | base64)
-                  kubectl patch secret mariadb-secret \
-                    -p "{\"data\":{\"mariadb-password\":\"${ENCODED_PASSWORD}\"}}"
+                  echo "[3/6] 현재 값으로 접속 확인 → 새 값으로 변경"
+                  [ "$(my "$OLD" -e 'select 1')" = 1 ] || { echo "현재 값으로 접속할 수 없다" >&2; exit 1; }
+                  [ "$(my "$OLD" -e "select count(*) from mysql.user where user='root' and host in ('localhost','%')")" = 2 ] \
+                    || { echo "root 계정 모양이 예상(localhost·%)과 다르다 — 멈춘다" >&2; exit 1; }
+                  NEW=$(head -c 48 /dev/urandom | base64 | tr -d '=+/\n' | cut -c1-32)
+                  [ "${#NEW}" -ge 24 ] || { echo "생성한 값이 짧다" >&2; exit 1; }
+                  alter "$OLD" "$NEW"
 
-                  echo "MariaDB password rotation completed."
+                  rollback() {
+                    echo "[rollback] DB 를 옛 값으로 되돌린다" >&2
+                    alter "$NEW" "$OLD" || alter "$OLD" "$OLD" || echo "[rollback] 실패 — 사람이 볼 것" >&2
+                  }
+
+                  echo "[4/6] 새 값으로 접속 확인"
+                  if [ "$(my "$NEW" -e 'select 1' 2>/dev/null || true)" != 1 ]; then rollback; exit 1; fi
+
+                  echo "[5/6] OpenBao 에 기록 (두 별칭 키를 함께)"
+                  if ! printf '{"root-password":"%s","mariadb-root-password":"%s"}' "$NEW" "$NEW" \
+                       | $B kv patch -mount=oim mariadb-secret - >/dev/null; then rollback; exit 1; fi
+                  [ "$($B kv get -mount=oim -field=root-password mariadb-secret)" = "$NEW" ] \
+                    || { echo "OpenBao 되읽기가 다르다" >&2; rollback; exit 1; }
+
+                  echo "[6/6] 다음 단계에 해시만 넘긴다"
+                  sha "$NEW" > /tools/expected.sha
+                  echo "DB · OpenBao 갱신 완료"
               env:
-                - name: CURRENT_PASSWORD
-                  valueFrom:
-                    secretKeyRef:
-                      name: mariadb-secret
-                      key: mariadb-root-password
+                - name: K8S_CURRENT
+                  valueFrom: {secretKeyRef: {name: mariadb-secret, key: root-password}}
+              volumeMounts: [{name: tools, mountPath: /tools}]
               resources:
-                requests:
-                  cpu: 50m
-                  memory: 64Mi
-                limits:
-                  cpu: 200m
-                  memory: 256Mi
+                requests: {cpu: 50m, memory: 64Mi}
+                limits:   {cpu: 300m, memory: 256Mi}
               securityContext:
                 allowPrivilegeEscalation: false
-                capabilities:
-                  drop:
-                    - ALL
+                capabilities: {drop: ["ALL"]}
+          containers:
+            - name: sync
+              image: docker.io/alpine/kubectl:1.36.4
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  want=$(cat /tools/expected.sha)
+                  h() { kubectl get secret mariadb-secret -o go-template="{{index .data \"$1\" | base64decode}}" | sha256sum | cut -d' ' -f1; }
+                  echo "[sync] ExternalSecret 강제 동기화"
+                  kubectl annotate externalsecret mariadb-secret force-sync="$(date +%s)" --overwrite >/dev/null
+                  i=0
+                  while [ $i -lt 60 ]; do
+                    if [ "$(h root-password)" = "$want" ] && [ "$(h mariadb-root-password)" = "$want" ]; then
+                      echo "[sync] k8s Secret 갱신 확인 — Reloader 가 소비자를 재시작한다"; exit 0
+                    fi
+                    i=$((i+1)); sleep 3
+                  done
+                  echo "[sync] 180초 안에 k8s Secret 이 따라오지 않았다 — DB·OpenBao 는 새 값이다. ESO 상태를 볼 것" >&2
+                  exit 1
+              volumeMounts: [{name: tools, mountPath: /tools, readOnly: true}]
+              resources:
+                requests: {cpu: 20m, memory: 32Mi}
+                limits:   {cpu: 200m, memory: 128Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}

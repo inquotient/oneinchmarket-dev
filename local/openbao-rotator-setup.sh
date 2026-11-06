@@ -23,7 +23,7 @@ POD="${POD:-openbao-0}"
 MOUNT="${MOUNT:-oim}"
 # 이름 <x> 는 SA rotator-<x> · 역할 rotator-<x> · KV 경로 <x>-secret 로 이어진다.
 # ★ 새 DB 를 더할 때는 그 CronJob(base/rotation/rotate-<x>.yaml)의 설계가 OpenBao 원천인지 먼저 볼 것.
-ROTATORS="${ROTATORS:-postgresql}"
+ROTATORS="${ROTATORS:-postgresql mariadb mongodb}"
 log() { echo "[rotator] $*"; }
 
 # root 토큰을 파일로만 다룬다 — 셸 변수·프로세스 인자에 남기지 않는다(openbao-eso-setup.sh 와 같다).

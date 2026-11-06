@@ -80,8 +80,10 @@ spec:
               command:
                 - /bin/sh
                 - -c
-                # 공식 MariaDB 11+ 는 mysqladmin 을 mariadb-admin 으로 바꿨다.
-                - mariadb-admin ping -h 127.0.0.1 -u root -p"${MARIADB_ROOT_PASSWORD}"
+                # ★ root 비밀번호를 쓰지 않는다(2026-11-06) — 로테이션이 root 를 바꾸면 Reloader 가 파드를
+                #   다시 띄우기 전까지 이 프로브가 옛 값으로 실패해 DB 가 NotReady 로 빠졌다(ESO 가 늦으면 한 시간).
+                #   이미지의 healthcheck.sh 는 초기화 때 만든 전용 사용자(datadir 의 .my-healthcheck.cnf)로 본다.
+                - healthcheck.sh --connect --innodb_initialized
             periodSeconds: 10
             timeoutSeconds: 5
           volumeMounts:

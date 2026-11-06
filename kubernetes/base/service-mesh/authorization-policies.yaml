@@ -145,6 +145,9 @@ spec:
               #   6033(ProxySQL)·5432·27017 에는 넣지 않는다. ALLOW 정책은
               #   포트별로 갈리므로 넓히면 그만큼 권한이 늘어난다(Gotcha 9).
               - "*/sa/kafka-connect"
+              # 비밀번호 로테이터(root) — OpenBao 원천(base/rotation/rotate-mariadb.yaml, Gotcha 212).
+              #   3306 에만 넣는다 — ProxySQL(6033)을 거치지 않는다.
+              - "*/sa/rotator-mariadb"
       to:
         - operation:
             ports: ["3306"]
@@ -172,6 +175,8 @@ spec:
               - "*/sa/gravitee"
               # ★ 전용 사용자를 만드는 Job — 빠지면 무한 대기다.
               - "*/sa/mongodb-bootstrap"
+              # 비밀번호 로테이터(mongoadmin) — OpenBao 원천(base/rotation/rotate-mongodb.yaml, Gotcha 212).
+              - "*/sa/rotator-mongodb"
       to:
         - operation:
             ports: ["27017"]
