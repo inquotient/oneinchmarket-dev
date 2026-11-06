@@ -28,6 +28,9 @@ data:
     # ACL 사용자(2026-11-06). 기본 속성 파일에 선언은 없지만 공통 헬퍼(RedisHelper::Base#redis_username)가
     #   node_attr['redis_username'] 을 읽어 Rails·Workhorse·KAS 의 URL 에 넣는다.
     gitlab_rails['redis_username'] = 'gitlab'
+    # ★ Workhorse 는 Rails 의 URL 을 쓰면서도 사용자 이름은 자기 속성에서만 읽는다(gitlab_workhorse.rb).
+    #   이것이 없으면 config.toml 에 Username 이 빠져 default 로 붙는다(실측: 그 연결만 default 였다).
+    gitlab_workhorse['redis_username'] = 'gitlab'
     gitlab_rails['redis_password'] = ENV['REDIS_PASSWORD']
 
     puma['worker_processes'] = 0
