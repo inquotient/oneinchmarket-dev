@@ -63,8 +63,7 @@ CATALOG = [
      "경보 현황. 수신자는 Logstash webhook 이다(Gotcha 33) · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P)"),
     ("osd", "opensearch-dashboards", 5601, "http", AUTH,
      "admin / `pw opensearch-secret admin-password` · Dev Tools 가 가장 편하다"),
-    ("loki", "loki-headless", 3100, "http", TOOL,
-     "`/ready` · 평소에는 Grafana 가 소비한다"),
+    # ★ loki 는 외부에 열지 않는다 — 사유와 대안은 CLOSED(아래).
     ("tempo", "tempo-headless", 3200, "http", TOOL,
      "`/status` · 평소에는 Grafana 가 소비한다"),
     ("pyroscope", "pyroscope", 4040, "http", AUTH,
@@ -177,8 +176,7 @@ CATALOG = [
     # -- 애플리케이션 ------------------------------------------------------
     ("app-admin", "admin-headless", 3000, "http", TOOL,
      "관리 프런트"),
-    ("app-api", "cmmn-api-headless", 8080, "http", TOOL,
-     "★ 과금 경로가 아니다(과금은 `api` 호스트 · JWT 필수). 루트는 404 이고 `/actuator/health` 가 200 이다"),
+    # ★ app-api 는 외부에 열지 않는다 — 사유와 대안은 CLOSED(아래).
     ("www", "nginx", 80, "http", TOOL,
      "정적 프런트"),
     ("openreplay", "frontend-openreplay", 8080, "http", AUTH,
@@ -729,6 +727,15 @@ CLOSED = [
      "할 수 있었다. 화면이 없는 JSON API 라 브라우저 로그인(oauth2-proxy)으로 덮어도 얻는 것이 없다. "
      "8083 은 `kafka-connect-rest-authz` 가 부트스트랩·AKHQ·워커 신원에만 연다 — 라우트를 되살려도 거부된다",
      "**AKHQ** — `https://akhq.%s` 의 Connect 메뉴(Keycloak 로그인 · `platform` 그룹만 connector-admin). 스크립트는 port-forward"),
+    ("app-api", "2026-11-07",
+     "`cmmn-api` 에 게이트웨이 뒤에서 바로 닿는 길이었다. 정식 입구 `api` 호스트가 거치는 JWT 검사 · SafeLine WAF · "
+     "과금 계량 · 레이트 리밋을 **전부 건너뛰어**, LAN 의 누구나 계량되지 않고 WAF 없이 업무 API 를 부를 수 있었다",
+     "`https://api.%s`(JWT 필수 · WAF · 계량) · 관리형은 `/managed`(Gravitee). 진단은 port-forward(ACCESS.md)"),
+    ("loki", "2026-11-07",
+     "3100 하나가 조회와 쓰기(`/loki/api/v1/push`)를 함께 받고 자체 인증이 없어, LAN 의 누구나 모든 파드의 로그를 "
+     "읽고 **가짜 로그를 넣을** 수 있었다(사고 조사 증거를 흐린다). 소비자(Grafana·otel-gateway)는 `loki-headless` 로 "
+     "클러스터 안에서 붙으므로 외부 경로가 필요 없다",
+     "**Grafana** — `https://grafana.%s` 의 Explore(데이터 소스 Loki)"),
     ("ranger-solr", "2026-11-03",
      "`solr` 와 같은 백엔드의 다른 이름(Ranger Admin 설정이 이 이름을 쓴다). 사유도 같다",
      "위 `solr` 행과 같다 — Knox"),

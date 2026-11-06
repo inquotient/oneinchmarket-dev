@@ -11,7 +11,7 @@
 > 때 port-forward 가 대조군이 된다.
 
 <!-- GENERATED:counts START -->
-웹 호스트 **53**(자체 인증 41 · 인증 없음 0 · 도구용 12, 그중 백엔드가 HTTPS 인 것 5) · TCP 대상 **14**
+웹 호스트 **51**(자체 인증 41 · 인증 없음 0 · 도구용 10, 그중 백엔드가 HTTPS 인 것 5) · TCP 대상 **14**
 <!-- GENERATED:counts END -->
 
 ---
@@ -136,7 +136,6 @@ nslookup grafana.oneinchmarket.local 192.168.0.103
 192.168.0.103 prometheus.oneinchmarket.local
 192.168.0.103 alertmanager.oneinchmarket.local
 192.168.0.103 osd.oneinchmarket.local
-192.168.0.103 loki.oneinchmarket.local
 192.168.0.103 tempo.oneinchmarket.local
 192.168.0.103 pyroscope.oneinchmarket.local
 192.168.0.103 pyrra.oneinchmarket.local
@@ -181,7 +180,6 @@ nslookup grafana.oneinchmarket.local 192.168.0.103
 192.168.0.103 hbase-rs.oneinchmarket.local
 192.168.0.103 hive.oneinchmarket.local
 192.168.0.103 app-admin.oneinchmarket.local
-192.168.0.103 app-api.oneinchmarket.local
 192.168.0.103 www.oneinchmarket.local
 192.168.0.103 openreplay.oneinchmarket.local
 192.168.0.103 openreplay-api.oneinchmarket.local
@@ -219,7 +217,6 @@ Import-Certificate -FilePath .\oim-ca.crt -CertStoreLocation Cert:\LocalMachine\
 | https://prometheus.oneinchmarket.local | 자체 인증 | `oauth2-proxy-prometheus` -> `prometheus-headless:9090` | 질의·규칙·타깃 · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P) |
 | https://alertmanager.oneinchmarket.local | 자체 인증 | `oauth2-proxy-alertmanager` -> `alertmanager:9093` | 경보 현황. 수신자는 Logstash webhook 이다(Gotcha 33) · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P) |
 | https://osd.oneinchmarket.local | 자체 인증 | `opensearch-dashboards:5601` | admin / `pw opensearch-secret admin-password` · Dev Tools 가 가장 편하다 |
-| https://loki.oneinchmarket.local | 도구용 | `loki-headless:3100` | `/ready` · 평소에는 Grafana 가 소비한다 |
 | https://tempo.oneinchmarket.local | 도구용 | `tempo-headless:3200` | `/status` · 평소에는 Grafana 가 소비한다 |
 | https://pyroscope.oneinchmarket.local | 자체 인증 | `oauth2-proxy-pyroscope` -> `pyroscope:4040` | 연속 프로파일링 · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P) |
 | https://pyrra.oneinchmarket.local | 자체 인증 | `oauth2-proxy-pyrra` -> `pyrra:9099` | SLO·오차예산. ★ 빈 그래프의 뜻은 둘이다(Gotcha 150·190) · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P) |
@@ -264,7 +261,6 @@ Import-Certificate -FilePath .\oim-ca.crt -CertStoreLocation Cert:\LocalMachine\
 | https://hbase-rs.oneinchmarket.local | 자체 인증 | `oauth2-proxy-hbase-rs` -> `hbase-regionserver:16030` | RegionServer · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P) |
 | https://hive.oneinchmarket.local | 자체 인증 | `oauth2-proxy-hive` -> `hive-server-headless:10002` | HiveServer2 웹 UI · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P). ★ 예전에는 게이트웨이 경유로 500 이었다 — Jetty 가 Host 헤더의 포트로 핸들러를 고른다(§6). oauth2-proxy 가 Host 를 업스트림 이름으로 바꿔 보내 풀린다. JDBC 는 Knox 경유(§4) |
 | https://app-admin.oneinchmarket.local | 도구용 | `admin-headless:3000` | 관리 프런트 |
-| https://app-api.oneinchmarket.local | 도구용 | `cmmn-api-headless:8080` | ★ 과금 경로가 아니다(과금은 `api` 호스트 · JWT 필수). 루트는 404 이고 `/actuator/health` 가 200 이다 |
 | https://www.oneinchmarket.local | 도구용 | `nginx:80` | 정적 프런트 |
 | https://openreplay.oneinchmarket.local | 자체 인증 | `frontend-openreplay:8080` | 세션 리플레이. 경로별 백엔드(`/api`->chalice 등 14개)는 PATH_ROUTES 가 나눈다 — 차트의 Ingress 대신이다. 첫 접속은 가입 화면(계정 0개). ★ 전제 2건이 미해결이라 데이터가 비어 있다 |
 | https://openreplay-api.oneinchmarket.local | 도구용 | `api-openreplay:8080` | 위 프런트가 부르는 API |
@@ -277,6 +273,7 @@ Import-Certificate -FilePath .\oim-ca.crt -CertStoreLocation Cert:\LocalMachine\
 `knox /gateway/oim/webhdfs/v1/?op=LISTSTATUS` 401(인증 요구 — 정상) ·
 `openmeter /api/v1/meters` 200. **`hive` 하나만 500** 이고 그것은 §6 에 적은
 Jetty 제약이다. 즉 **55/56 이 쓸 수 있는 상태**다.
+(그 뒤 닫은 호스트 — kafka-connect·app-api·loki 등 — 는 아래 "열지 않는 호스트" 표에 있다.)
 
 > ★ 루트가 404 인 것을 결함으로 읽지 말 것 — 여러 앱의 `/` 는 입구가 아니다.
 > **Envoy 자신의 404 와 가르는 값은 `content-length: 0` 이다**(Gotcha 185).
@@ -299,8 +296,8 @@ pw grafana-secret admin-password
 여기 이름이 올라오면 그 호스트는 **누구든 주소를 알면 그대로 들어온다.**
 새 UI 를 더할 때 인증이 없으면 `OPEN` 으로 두지 말고 생성기의 `O2P` 에 넣을 것 —
 oauth2-proxy·Keycloak 클라이언트·게이트웨이 직접 접근 거부(DENY)가 함께 생긴다.
-★ **도구용 호스트는 여전히 로그인 없이 닿는 것이 있다**(loki · tempo · app-* ·
-www 등 — 위 표의 비고. kafka-connect REST 는 2026-11-06 에 닫았다 — 아래 표). 브라우저 로그인으로 덮으면 그것을
+★ **도구용 호스트는 여전히 로그인 없이 닿는 것이 있다**(tempo · app-admin · www ·
+openreplay-api — 위 표의 비고. kafka-connect REST 는 2026-11-06 에, app-api·loki 는 2026-11-07 에 닫았다 — 아래 표). 브라우저 로그인으로 덮으면 그것을
 부르는 클라이언트가 깨지므로 따로 다룬다.
 그리고 이 배치에서는 **출발지를 L3 로 좁힐 수 없다** — `externalIPs` 는 Cilium 의 eBPF 가 처리해
 호스트의 iptables INPUT 이 그 트래픽을 보지 못하고, `ipBlock` CIDR 로는 node
@@ -330,6 +327,8 @@ www 등 — 위 표의 비고. kafka-connect REST 는 2026-11-06 에 닫았다 �
 | ~~`openmeter.oneinchmarket.local`~~ | 2026-11-03 | OSS 판은 자체 인증이 없어 `POST /api/v1/events` 로 어떤 테넌트 명의로든 사용량을 위조할 수 있었고, 고객·구독·인보이스 변경 API 도 열려 있었다. UI 가 없어(루트 404) 브라우저로 얻는 것도 없다 | 조회는 Grafana(ClickHouse `openmeter` DB) 또는 port-forward(ACCESS.md) |
 | ~~`solr.oneinchmarket.local`~~ | 2026-11-03 | Ranger 감사 색인이다. Solr 에는 자체 인증이 없고 `solr-authz.yaml`(AuthorizationPolicy)이 메시 신원으로 지키는데, 게이트웨이 신원은 그 목록에 없다 — 경로를 되살려도 **503** 이다 | **Knox** — `https://knox.oneinchmarket.local/gateway/oim/solr/`(DS389 로그인 · data-admin 만 · Solr 의 Ranger `oim-solr` 가 **읽기만** 준다, §4) |
 | ~~`kafka-connect.oneinchmarket.local`~~ | 2026-11-06 | 커넥터를 만들고·지우고·설정을 바꾸는 관리 REST 인데 자체 인증이 없어 LAN 의 누구나 `POST /connectors` 를 할 수 있었다. 화면이 없는 JSON API 라 브라우저 로그인(oauth2-proxy)으로 덮어도 얻는 것이 없다. 8083 은 `kafka-connect-rest-authz` 가 부트스트랩·AKHQ·워커 신원에만 연다 — 라우트를 되살려도 거부된다 | **AKHQ** — `https://akhq.oneinchmarket.local` 의 Connect 메뉴(Keycloak 로그인 · `platform` 그룹만 connector-admin). 스크립트는 port-forward |
+| ~~`app-api.oneinchmarket.local`~~ | 2026-11-07 | `cmmn-api` 에 게이트웨이 뒤에서 바로 닿는 길이었다. 정식 입구 `api` 호스트가 거치는 JWT 검사 · SafeLine WAF · 과금 계량 · 레이트 리밋을 **전부 건너뛰어**, LAN 의 누구나 계량되지 않고 WAF 없이 업무 API 를 부를 수 있었다 | `https://api.oneinchmarket.local`(JWT 필수 · WAF · 계량) · 관리형은 `/managed`(Gravitee). 진단은 port-forward(ACCESS.md) |
+| ~~`loki.oneinchmarket.local`~~ | 2026-11-07 | 3100 하나가 조회와 쓰기(`/loki/api/v1/push`)를 함께 받고 자체 인증이 없어, LAN 의 누구나 모든 파드의 로그를 읽고 **가짜 로그를 넣을** 수 있었다(사고 조사 증거를 흐린다). 소비자(Grafana·otel-gateway)는 `loki-headless` 로 클러스터 안에서 붙으므로 외부 경로가 필요 없다 | **Grafana** — `https://grafana.oneinchmarket.local` 의 Explore(데이터 소스 Loki) |
 | ~~`ranger-solr.oneinchmarket.local`~~ | 2026-11-03 | `solr` 와 같은 백엔드의 다른 이름(Ranger Admin 설정이 이 이름을 쓴다). 사유도 같다 | 위 `solr` 행과 같다 — Knox |
 <!-- GENERATED:closed-table END -->
 
