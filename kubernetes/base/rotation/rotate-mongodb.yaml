@@ -9,6 +9,10 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
 spec:
   schedule: "10 3 1,15 * *"
+  # ★★ 2026-11-06 에 멈췄다 — 이 판은 k8s Secret 을 직접 patch 하는 옛 설계다. 그 Secret 은 ESO 가
+  #   OpenBao 에서 1시간마다 덮어쓰므로 성공해도 옛 값으로 돌아가 앱과 DB 가 갈린다(Gotcha 212).
+  #   OpenBao 원천으로 다시 쓰기 전에는 깨우지 말 것 — 본보기는 rotate-postgresql.yaml.
+  suspend: true
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3

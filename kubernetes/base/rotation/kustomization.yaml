@@ -13,8 +13,9 @@ resources:
   - rotate-minio.yaml
   # Admin Rotation (90일 주기)
   - rotate-admin.yaml
-  # Git Sync (로테이션 30분 후)
-  - rotation-git-sync.yaml
+  # ★ rotation-git-sync 는 2026-11-06 에 지웠다 — 로테이션된 Secret 을 SOPS 로 싸서 git 에 push 하던 Job 이다.
+  #   원천이 OpenBao 가 되어 비밀값을 git 에 둘 이유가 없고, 대상(gitlab.oneinchmarket.co.kr · v2 · age 키)이
+  #   이 클러스터와 무관해 한 번도 성공하지 않았다(Gotcha 212).
 
 commonAnnotations:
   argocd.argoproj.io/sync-wave: "8"

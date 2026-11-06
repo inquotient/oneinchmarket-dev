@@ -37,6 +37,10 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: ranger-admin
+        # 비밀번호 로테이터(Gotcha 212) — allow-database-access 5432 에도 같은 신원이 있다.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: rotator-postgresql
         # 6단계 — GlitchTip(web·worker)과 마이그레이션 Job.
         - podSelector:
             matchLabels:

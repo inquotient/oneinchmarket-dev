@@ -70,7 +70,9 @@ CRONJOBS=(
   "rotate-redis-password"
   "rotate-minio-password"
   "rotate-admin-passwords"
-  "rotation-git-sync"
+  # ★ rotation-git-sync 는 2026-11-06 에 지웠다 — 원천이 OpenBao 가 되어 Secret 을 git 에 둘 이유가 없다.
+  # ★★ 같은 날 postgresql 을 뺀 다섯이 **의도적으로** suspend 됐다(옛 설계 — Gotcha 212). 여기서 [FAIL] 로
+  #   나오는 것이 정직하다: 로테이션이 실제로 돌지 않는다. OpenBao 원천으로 다시 쓴 뒤 깨울 것.
 )
 
 for cj in "${CRONJOBS[@]}"; do
