@@ -103,6 +103,11 @@ spec:
       kind: "*"
     - group: external-secrets.io
       kind: "*"
+    # ★ CiliumNetworkPolicy 하나만(2026-11-07) — 노드(host·remote-node 신원)에서 오는 트래픽은 NetworkPolicy 의
+    #   ipBlock 으로 매칭되지 않는다(Gotcha 187·197). 그 신원을 허용할 수단이 `fromEntities` 뿐이다.
+    #   그룹 전체(*)를 열지 않는다 — Cilium 의 다른 종류(전역 정책·노드 설정)는 이 레포가 쓰지 않는다.
+    - group: cilium.io
+      kind: CiliumNetworkPolicy
     # ★★ 아래 둘이 빠져 있어 실측으로 **87건이 Unknown** 이었다:
     #   NetworkPolicy 64 · Ingress 12(networking.k8s.io) ·
     #   Certificate 6 · Issuer 4(cert-manager.io).

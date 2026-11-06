@@ -44,6 +44,8 @@ resources:
   - kafka-edge
   # Knox 의 Ranger 플러그인 설정 — patches/knox-local.yaml 의 짝(새 리소스라 여기 둔다).
   - knox-ranger-config.yaml
+  # 노드 -> GitLab 레지스트리(80·5050) — build-images.sh 의 push 경로(2026-11-07, CiliumNetworkPolicy).
+  - gitlab-registry-from-nodes.yaml
   # Kafka SASL_SSL 리스너(9095)의 인증서 — OpenMeter 의 Sarama 드라이버가 SASL 을
   # SASL_SSL 에서만 켜기 때문이다(kafka-tls.yaml 머리말, 2026-11-03).
   - kafka-tls.yaml
