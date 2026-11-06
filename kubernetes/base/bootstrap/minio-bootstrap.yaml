@@ -153,6 +153,8 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: { drop: ["ALL"] }
+          # ★ 128Mi 에서 OOMKilled(137) 였다(2026-11-06) — 사용자 7명을 돌며 mc 를 30여 번 부르자 넘었다.
+          #   Sync 훅이라 끝나지 않으면 동기화가 wave 3 에서 선다.
           resources:
-            requests: { cpu: 100m, memory: 64Mi }
-            limits:   { cpu: 500m, memory: 128Mi }
+            requests: { cpu: 100m, memory: 128Mi }
+            limits:   { cpu: 500m, memory: 512Mi }
