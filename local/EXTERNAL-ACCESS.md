@@ -295,11 +295,16 @@ pw grafana-secret admin-password
 ### ★★ 인증이 없는 호스트 — 집 밖으로 내보내지 말 것
 
 <!-- GENERATED:open-list START -->
-**0 종** — 
+**0 종** — 2026-11-06 부터 없다. 남아 있던 열 곳은 oauth2-proxy + Keycloak 로그인(그룹 `platform`)으로 덮었다(O2P · Gotcha 213)
 <!-- GENERATED:open-list END -->
 
-이것들은 **누구든 주소를 알면 그대로 들어온다.** 그리고 이 배치에서는
-**출발지를 L3 로 좁힐 수 없다** — `externalIPs` 는 Cilium 의 eBPF 가 처리해
+여기 이름이 올라오면 그 호스트는 **누구든 주소를 알면 그대로 들어온다.**
+새 UI 를 더할 때 인증이 없으면 `OPEN` 으로 두지 말고 생성기의 `O2P` 에 넣을 것 —
+oauth2-proxy·Keycloak 클라이언트·게이트웨이 직접 접근 거부(DENY)가 함께 생긴다.
+★ **도구용 호스트는 여전히 로그인 없이 닿는 것이 있다**(kafka-connect REST ·
+loki · tempo · app-* · www 등 — 위 표의 비고). 브라우저 로그인으로 덮으면 그것을
+부르는 클라이언트가 깨지므로 따로 다룬다.
+그리고 이 배치에서는 **출발지를 L3 로 좁힐 수 없다** — `externalIPs` 는 Cilium 의 eBPF 가 처리해
 호스트의 iptables INPUT 이 그 트래픽을 보지 못하고, `ipBlock` CIDR 로는 node
 신원이 매칭되지 않는다(Gotcha 187·197). 그러므로:
 
@@ -309,11 +314,11 @@ pw grafana-secret admin-password
   `loadBalancerSourceRanges` 가 필요하고, 그것은 **Cilium 전역 설정 변경**이라
   모든 오버라이드를 다시 줘야 한다(Gotcha 141·168).
 
-> ★ 컴포넌트별로 인증을 덧씌우는 것(oauth2-proxy 를 Istio `ext_authz` 로)은
-> **하지 않았다.** 그러려면 `meshConfig.extensionProviders` 를 고쳐야 하는데
+> ★ 덧씌운 방식은 **호스트마다 oauth2-proxy 를 리버스 프록시로 앞에 두는 것**이다 —
+> Istio `ext_authz` 가 아니다. 그것은 `meshConfig.extensionProviders` 를 고쳐야 하는데
 > 그 자리는 **과금 계량의 액세스 로그 공급자**가 쓰고 있고,
 > `istioctl install` 이 그것을 지운 적이 있다(Gotcha 158 — 트래픽은 정상인데
-> 청구만 사라졌다). 과금 경로를 건드리는 변경이라 지시를 받아야 한다.
+> 청구만 사라졌다). 리버스 프록시 방식은 meshConfig 를 건드리지 않는다.
 
 ### ★★ 일부러 열지 않는 호스트 — "접속되지 않는다" 의 답
 

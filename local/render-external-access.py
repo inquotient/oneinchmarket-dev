@@ -642,6 +642,9 @@ def md_ui_table():
 def md_open_list():
     names = ["`%s.%s`" % (h, DOMAIN) for h, _s, _p, _sc, t, _n in CATALOG
              if t == OPEN]
+    if not names:
+        return ("**0 종** — 2026-11-06 부터 없다. 남아 있던 열 곳은 oauth2-proxy + Keycloak 로그인"
+                "(그룹 `platform`)으로 덮었다(O2P · Gotcha 213)")
     return "**%d 종** — %s" % (len(names), " · ".join(names))
 
 
