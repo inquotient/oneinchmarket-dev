@@ -413,6 +413,21 @@ spec:
               #   한다 — 한쪽만 고치면 ztunnel 이 조용히 끊는다.
               - "*/sa/airflow"
               - "*/sa/airflow-scheduler"
+              # OpenReplay — MinIO 사용자 `openreplay`(자기 버킷 6개만, minio-bootstrap)로 붙는 11종(2026-11-06).
+              #   그 전에는 여기 없어서 자격과 무관하게 S3 에 닿지 못했다. 이름을 하나씩 적는다 —
+              #   `*-openreplay` 접미 매칭은 S3 를 쓰지 않는 frontend·db·ender 등까지 연다.
+              #   NetworkPolicy allow-minio-access 에도 같은 워크로드가 있다.
+              - "*/sa/alerts-openreplay"
+              - "*/sa/api-openreplay"
+              - "*/sa/assets-openreplay"
+              - "*/sa/canvases-openreplay"
+              - "*/sa/chalice-openreplay"
+              - "*/sa/http-openreplay"
+              - "*/sa/images-openreplay"
+              - "*/sa/integrations-openreplay"
+              - "*/sa/sourcemapreader-openreplay"
+              - "*/sa/spot-openreplay"
+              - "*/sa/storage-openreplay"
       to:
         - operation:
             ports: ["9000", "9001"]

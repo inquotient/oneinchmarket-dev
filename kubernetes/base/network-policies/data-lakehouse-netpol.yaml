@@ -36,6 +36,12 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: rotator-minio
+        # OpenReplay — 자기 버킷 6개만 쓰는 MinIO 사용자 `openreplay`(2026-11-06).
+        #   서비스마다 name 라벨이 달라 instance 로 고른다(database-netpol 과 같다).
+        #   실제 통제는 allow-datalakehouse-access 의 SA 11종이다(ambient, Gotcha 13).
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: openreplay
       ports:
         - protocol: TCP
           port: 9000
