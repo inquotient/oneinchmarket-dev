@@ -83,6 +83,9 @@ config:
       #   `NOAUTH Authentication required` 로 실패한다 — 중복 제거 단계라
       #   이벤트가 아예 들어가지 못한다(§8-58).
       password: __REDIS_PASSWORD__
+      # ACL 사용자(2026-11-06) — default 가 아니라 자기 이름으로 붙는다(바이너리에 dedupe.config.username 이 있다).
+      #   비밀번호는 redis-users/openmeter-password 다(render-openmeter.py 의 SECRET_*_REDIS).
+      username: openmeter
       database: 0
       expiration: 768h
 

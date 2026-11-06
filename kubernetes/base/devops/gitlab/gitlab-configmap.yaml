@@ -25,6 +25,9 @@ data:
     redis['enable'] = false
     gitlab_rails['redis_host'] = 'redis-headless'
     gitlab_rails['redis_port'] = 6379
+    # ACL 사용자(2026-11-06). 기본 속성 파일에 선언은 없지만 공통 헬퍼(RedisHelper::Base#redis_username)가
+    #   node_attr['redis_username'] 을 읽어 Rails·Workhorse·KAS 의 URL 에 넣는다.
+    gitlab_rails['redis_username'] = 'gitlab'
     gitlab_rails['redis_password'] = ENV['REDIS_PASSWORD']
 
     puma['worker_processes'] = 0

@@ -61,14 +61,14 @@ spec:
                 secretKeyRef: { name: glitchtip-secret, key: db-password }
             - name: REDIS_PASSWORD
               valueFrom:
-                secretKeyRef: { name: redis-secret, key: redis-password }
+                secretKeyRef: { name: redis-users, key: glitchtip-password }
             - name: SECRET_KEY
               valueFrom:
                 secretKeyRef: { name: glitchtip-secret, key: secret-key }
             - name: DATABASE_URL
               value: postgres://glitchtip:$(GLITCHTIP_DB_PASSWORD)@postgresql-headless:5432/glitchtip
             - name: VALKEY_URL
-              value: redis://:$(REDIS_PASSWORD)@redis-headless:6379/3
+              value: redis://glitchtip:$(REDIS_PASSWORD)@redis-headless:6379/3
           envFrom:
             - configMapRef:
                 name: glitchtip-config

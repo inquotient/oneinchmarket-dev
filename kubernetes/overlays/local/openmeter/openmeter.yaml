@@ -33,7 +33,7 @@ data:
   config.yaml: "aggregation:\n  clickhouse:\n    address: clickhouse-headless:9000\n\
     \    database: openmeter\n    password: __CLICKHOUSE_PASSWORD__\n    username:\
     \ openmeter\ndedupe:\n  config:\n    address: redis-headless:6379\n    database:\
-    \ 0\n    expiration: 768h\n    password: __REDIS_PASSWORD__\n  driver: redis\n\
+    \ 0\n    expiration: 768h\n    password: __REDIS_PASSWORD__\n    username: openmeter\n  driver: redis\n\
     \  enabled: true\ningest:\n  kafka:\n    broker: kafka-headless:9095\n    securityProtocol: SASL_SSL\n    saslMechanisms: SCRAM-SHA-512\n    saslUsername: openmeter\n    saslPassword: __KAFKA_PASSWORD__\nmeters:\n\
     - aggregation: COUNT\n  description: API 호출 수 (과금 기준)\n  eventType: io.oneinchmarket.api.request.v1\n\
     \  groupBy:\n    method: $.method\n    route: $.route\n    status: $.status\n\
@@ -190,8 +190,8 @@ spec:
         - name: REDIS_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: redis-secret
-              key: redis-password
+              name: redis-users
+              key: openmeter-password
         - name: KAFKA_PASSWORD
           valueFrom:
             secretKeyRef:
@@ -332,8 +332,8 @@ spec:
         - name: REDIS_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: redis-secret
-              key: redis-password
+              name: redis-users
+              key: openmeter-password
         - name: KAFKA_PASSWORD
           valueFrom:
             secretKeyRef:
@@ -474,8 +474,8 @@ spec:
         - name: REDIS_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: redis-secret
-              key: redis-password
+              name: redis-users
+              key: openmeter-password
         - name: KAFKA_PASSWORD
           valueFrom:
             secretKeyRef:
@@ -616,8 +616,8 @@ spec:
         - name: REDIS_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: redis-secret
-              key: redis-password
+              name: redis-users
+              key: openmeter-password
         - name: KAFKA_PASSWORD
           valueFrom:
             secretKeyRef:
@@ -758,8 +758,8 @@ spec:
         - name: REDIS_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: redis-secret
-              key: redis-password
+              name: redis-users
+              key: openmeter-password
         - name: KAFKA_PASSWORD
           valueFrom:
             secretKeyRef:
@@ -912,8 +912,8 @@ spec:
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: redis-secret
-                  key: redis-password
+                  name: redis-users
+                  key: openmeter-password
             - name: KAFKA_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -1066,8 +1066,8 @@ spec:
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: redis-secret
-                  key: redis-password
+                  name: redis-users
+                  key: openmeter-password
             - name: KAFKA_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -1220,8 +1220,8 @@ spec:
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: redis-secret
-                  key: redis-password
+                  name: redis-users
+                  key: openmeter-password
             - name: KAFKA_PASSWORD
               valueFrom:
                 secretKeyRef:

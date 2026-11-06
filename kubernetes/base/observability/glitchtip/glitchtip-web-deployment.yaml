@@ -62,7 +62,7 @@ spec:
                 secretKeyRef: { name: glitchtip-secret, key: db-password }
             - name: REDIS_PASSWORD
               valueFrom:
-                secretKeyRef: { name: redis-secret, key: redis-password }
+                secretKeyRef: { name: redis-users, key: glitchtip-password }
             - name: SECRET_KEY
               valueFrom:
                 secretKeyRef: { name: glitchtip-secret, key: secret-key }
@@ -74,7 +74,7 @@ spec:
             #   DB 인덱스 3 — GitLab 등 다른 소비자와 키 공간을 나눈다.
             #   ADR-038(전용 Redis 분리)은 ⓓ 채택으로 불필요해졌다.
             - name: VALKEY_URL
-              value: redis://:$(REDIS_PASSWORD)@redis-headless:6379/3
+              value: redis://glitchtip:$(REDIS_PASSWORD)@redis-headless:6379/3
           envFrom:
             - configMapRef:
                 name: glitchtip-config

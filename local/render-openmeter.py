@@ -43,10 +43,10 @@ INIT_IMAGE = "busybox:1.36"
 SECRET_NAME = "clickhouse-secret"
 SECRET_KEY = "openmeter-password"
 SECRET_KEY_PG = "openmeter-pg-password"
-SECRET_NAME_REDIS = "redis-secret"
-SECRET_KEY_REDIS = "redis-password"
-SECRET_NAME_REDIS = "redis-secret"
-SECRET_KEY_REDIS = "redis-password"
+SECRET_NAME_REDIS = "redis-users"
+SECRET_KEY_REDIS = "openmeter-password"
+SECRET_NAME_REDIS = "redis-users"
+SECRET_KEY_REDIS = "openmeter-password"
 
 
 def inject_secret_substitution(spec):

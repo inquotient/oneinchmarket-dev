@@ -18,7 +18,7 @@ def secret_env(name, sec, key):
 # 그 VAR 는 Secret 에서 온다 — 렌더 산출물에 평문이 남지 않는다.
 REWRITE = {
     "POSTGRES_STRING":   f"postgres://openreplay:$(pg_password)@postgresql-headless.{NS}:5432/openreplay",
-    "REDIS_STRING":      f"redis://:$(redis_password)@redis-headless.{NS}:6379/4",
+    "REDIS_STRING":      f"redis://openreplay:$(redis_password)@redis-headless.{NS}:6379/4",
     # ★ DB 이름을 붙이면 안 된다. Go 클라이언트가 net.SplitHostPort 로 자르면서
     #   포트가 "9000/openreplay" 가 되어 `unknown port` 로 죽는다.
     #   DB·사용자·비밀번호는 ch_db·CH_USERNAME·CH_PASSWORD 로 따로 넘긴다.
@@ -28,7 +28,7 @@ REWRITE = {
 }
 INJECT = {
     "POSTGRES_STRING":   [("pg_password",    "openreplay-secret", "db-password")],
-    "REDIS_STRING":      [("redis_password", "redis-secret",      "redis-password")],
+    "REDIS_STRING":      [("redis_password", "redis-users",       "openreplay-password")],
     "CLICKHOUSE_STRING": [("CLICKHOUSE_USERNAME", None, None),
                           ("CLICKHOUSE_PASSWORD", "clickhouse-secret", "password")],
     "AWS_ENDPOINT":      [("AWS_ACCESS_KEY_ID",     "minio-users", "openreplay-access-key"),
@@ -98,7 +98,7 @@ def fix_container(c):
         "POSTGRES_PASSWORD":     ("openreplay-secret", "db-password"),
         "ch_password":           ("clickhouse-secret", "password"),
         "CLICKHOUSE_PASSWORD":   ("clickhouse-secret", "password"),
-        "redis_password":        ("redis-secret",      "redis-password"),
+        "redis_password":        ("redis-users",       "openreplay-password"),
         "CH_PASSWORD":           ("clickhouse-secret", "password"),
         "ch_password":           ("clickhouse-secret", "password"),
         "S3_KEY":                ("minio-users",       "openreplay-access-key"),

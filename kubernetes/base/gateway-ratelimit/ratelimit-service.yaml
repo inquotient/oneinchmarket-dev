@@ -95,11 +95,14 @@ spec:
             - { name: USE_STATSD, value: "false" }
             - { name: REDIS_SOCKET_TYPE, value: "tcp" }
             - { name: REDIS_URL, value: "redis-headless.local.svc.cluster.local:6379" }
-            - name: REDIS_AUTH
+            # ACL 사용자(2026-11-06). REDIS_AUTH 가 `사용자:비밀번호` 면 radix 의 DialAuthUser 로 붙는다
+            #   (이미지 80b15778 바이너리에서 확인). 비밀번호는 앞의 변수에서 $(…) 로 끌어온다.
+            - name: RL_REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: redis-secret
-                  key: redis-password
+                  name: redis-users
+                  key: ratelimit-password
+            - { name: REDIS_AUTH, value: "ratelimit:$(RL_REDIS_PASSWORD)" }
             - { name: GRPC_PORT, value: "8081" }
             - { name: PORT, value: "8080" }
           ports:

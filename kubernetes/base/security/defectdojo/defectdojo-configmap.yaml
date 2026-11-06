@@ -23,6 +23,8 @@ data:
   DD_DATABASE_USER: "defectdojo"
   DD_CELERY_BROKER_SCHEME: "redis"
   DD_CELERY_BROKER_HOST: "redis-headless"
+  # ACL 사용자(2026-11-06) — settings.dist.py 의 generate_url 이 scheme://user:password@host 로 만든다.
+  DD_CELERY_BROKER_USER: "defectdojo"
   DD_CELERY_BROKER_PORT: "6379"
   # ★ 인덱스 5 — 0 기본 · 3 GlitchTip · 4 OpenReplay 가 이미 쓴다.
   DD_CELERY_BROKER_PATH: "/5"

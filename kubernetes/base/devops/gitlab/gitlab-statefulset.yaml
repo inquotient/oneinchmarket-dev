@@ -67,8 +67,8 @@ spec:
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: redis-secret
-                  key: redis-password
+                  name: redis-users
+                  key: gitlab-password
           resources:
             requests:
               cpu: 500m

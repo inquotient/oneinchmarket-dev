@@ -47,7 +47,7 @@ spec:
             - name: DD_CREDENTIAL_AES_256_KEY
               valueFrom: { secretKeyRef: { name: defectdojo-secret, key: credential-aes-256-key } }
             - name: DD_CELERY_BROKER_PASSWORD
-              valueFrom: { secretKeyRef: { name: redis-secret, key: redis-password } }
+              valueFrom: { secretKeyRef: { name: redis-users, key: defectdojo-password } }
           envFrom:
             - configMapRef:
                 name: defectdojo-config
@@ -134,7 +134,7 @@ spec:
             - name: DD_CREDENTIAL_AES_256_KEY
               valueFrom: { secretKeyRef: { name: defectdojo-secret, key: credential-aes-256-key } }
             - name: DD_CELERY_BROKER_PASSWORD
-              valueFrom: { secretKeyRef: { name: redis-secret, key: redis-password } }
+              valueFrom: { secretKeyRef: { name: redis-users, key: defectdojo-password } }
           envFrom:
             - configMapRef:
                 name: defectdojo-config

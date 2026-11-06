@@ -54,11 +54,14 @@ spec:
               value: "redis-headless"
             - name: SPRING_DATA_REDIS_PORT
               value: "6379"
+            # ACL 사용자(2026-11-06) — default 가 아니라 자기 이름으로 붙는다. Spring Boot 3.1 이 읽는다.
+            - name: SPRING_DATA_REDIS_USERNAME
+              value: "cmmn-api"
             - name: SPRING_DATA_REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: redis-secret
-                  key: redis-password
+                  name: redis-users
+                  key: cmmn-api-password
             # ★ spring.kafka.bootstrap-servers 는 이 앱에서 무시된다.
             #   application-kafka.yml 의 kafka-dev 프로파일이
             #   spring.kafka.consumer.bootstrap-servers 와
