@@ -1,0 +1,26 @@
+# Tempo(3200 조회 · 4317 OTLP 수신)에 게이트웨이 신원이 닿지 못하게 한다 (2026-11-07).
+#
+# ★ 왜: Tempo 에는 인증이 없다 — 모든 트레이스(요청 경로·속성·내부 서비스 이름)를 누구나 조회한다.
+#   외부 라우트(tempo.oneinchmarket.local)는 render-external-access.py 의 CLOSED 로 닫았는데,
+#   그것만으로는 HTTPRoute 를 되살리는 순간 다시 열린다. 이 정책이 있으면 게이트웨이 경유는 거부된다.
+# ★ DENY 인 이유는 loki-authz.yaml 과 같다 — 호출자(Grafana · otel-gateway · 스크레이프)를 나열하지 않고
+#   게이트웨이 하나만 막는다(Gotcha 9 · 213 ②).
+# 판정: 게이트웨이 -> Tempo 503, Grafana -> tempo-headless:3200/ready 는 그대로 ready.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-gateway-direct-tempo
+  labels:
+    app.kubernetes.io/name: deny-gateway-direct-tempo
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tempo
+  action: DENY
+  rules:
+    - from:
+        - source:
+            principals: ["*/sa/ingress-istio"]

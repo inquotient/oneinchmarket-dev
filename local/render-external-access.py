@@ -64,8 +64,7 @@ CATALOG = [
     ("osd", "opensearch-dashboards", 5601, "http", AUTH,
      "admin / `pw opensearch-secret admin-password` · Dev Tools 가 가장 편하다"),
     # ★ loki 는 외부에 열지 않는다 — 사유와 대안은 CLOSED(아래).
-    ("tempo", "tempo-headless", 3200, "http", TOOL,
-     "`/status` · 평소에는 Grafana 가 소비한다"),
+    # ★ tempo 는 외부에 열지 않는다 — 사유와 대안은 CLOSED(아래).
     ("pyroscope", "pyroscope", 4040, "http", AUTH,
      "연속 프로파일링 · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P)"),
     ("pyrra", "pyrra", 9099, "http", AUTH,
@@ -181,8 +180,7 @@ CATALOG = [
      "정적 프런트"),
     ("openreplay", "frontend-openreplay", 8080, "http", AUTH,
      "세션 리플레이. 경로별 백엔드(`/api`->chalice 등 14개)는 PATH_ROUTES 가 나눈다 — 차트의 Ingress 대신이다. 첫 접속은 가입 화면(계정 0개). ★ 전제 2건이 미해결이라 데이터가 비어 있다"),
-    ("openreplay-api", "api-openreplay", 8080, "http", TOOL,
-     "위 프런트가 부르는 API"),
+    # ★ openreplay-api 는 외부에 열지 않는다 — 사유와 대안은 CLOSED(아래).
 ]
 
 # ★★ 인증이 없던 UI 앞의 oauth2-proxy(2026-11-06) — 호스트 -> (백엔드 파드의 name 라벨, 추가 인자).
@@ -736,6 +734,15 @@ CLOSED = [
      "읽고 **가짜 로그를 넣을** 수 있었다(사고 조사 증거를 흐린다). 소비자(Grafana·otel-gateway)는 `loki-headless` 로 "
      "클러스터 안에서 붙으므로 외부 경로가 필요 없다",
      "**Grafana** — `https://grafana.%s` 의 Explore(데이터 소스 Loki)"),
+    ("tempo", "2026-11-07",
+     "자체 인증이 없어 LAN 의 누구나 모든 트레이스(요청 경로·헤더 속성·내부 서비스 이름)를 조회할 수 있었다. "
+     "소비자(Grafana·otel-gateway)는 `tempo-headless` 로 클러스터 안에서 붙고, 백엔드에 게이트웨이 신원 DENY "
+     "(`deny-gateway-direct-tempo`)가 있어 라우트를 되살려도 거부된다",
+     "**Grafana** — `https://grafana.%s` 의 Explore(데이터 소스 Tempo)"),
+    ("openreplay-api", "2026-11-07",
+     "`api-openreplay` 에 닿는 두 번째 이름이었다. 화면은 같은 출처의 `openreplay` 호스트 `/v2/api` 로 부르므로 "
+     "(PATH_ROUTES) 이 이름을 쓰는 곳이 없다 — 쓰이지 않는 입구만 하나 더 열려 있었다",
+     "`https://openreplay.%s/v2/api`"),
     ("ranger-solr", "2026-11-03",
      "`solr` 와 같은 백엔드의 다른 이름(Ranger Admin 설정이 이 이름을 쓴다). 사유도 같다",
      "위 `solr` 행과 같다 — Knox"),
