@@ -12,14 +12,27 @@ data:
     <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
     <configuration>
       <!-- Metastore warehouse location -->
+      <!-- ★★ 관리형(managed)과 외부(external) 위치는 **달라야 한다**(2026-11-06 실측). Hive 4 는 외부 테이블이
+           관리형 warehouse 안에 있으면 `An external table's location should not be located within managed
+           warehouse directory` 로 커밋을 거부한다 — 둘을 같은 s3a://warehouse/tables 로 두었다가 Iceberg 의
+           CREATE TABLE 이 CommitStateUnknownException 으로 끝났다. Iceberg 테이블은 외부 테이블이고 Spark·Trino·
+           default DB 가 이미 tables 를 쓰므로 **외부를 tables 로 두고 관리형을 managed 로 뗐다**(이 시점 테이블 0개라
+           옮길 것이 없었다). 관리형은 HiveServer2 의 비-Iceberg 테이블만 쓴다. -->
       <property>
         <name>hive.metastore.warehouse.dir</name>
-        <value>s3a://warehouse/tables</value>
+        <value>s3a://warehouse/managed</value>
+      </property>
+      <property>
+        <name>metastore.warehouse.dir</name>
+        <value>s3a://warehouse/managed</value>
       </property>
       <!-- ★ 외부 테이블 기본 위치(2026-11-06). Iceberg 테이블은 외부 테이블로 만들어지는데 이것이 비어 있으면
            REST 카탈로그의 CREATE TABLE 이 `NullPointerException: Warehouse location is not set:
            hive.metastore.warehouse.external.dir` 로 실패한다(네임스페이스 단계는 통과한다).
-           독립 메타스토어는 metastore.* 를 읽으므로 두 이름을 함께 둔다(아래 notification.api.auth 와 같은 이유). -->
+           독립 메타스토어는 metastore.* 를 읽으므로 두 이름을 함께 둔다(아래 notification.api.auth 와 같은 이유).
+           ★ 같은 이름의 디렉터리가 S3 에 이미 있으면 create_database 가 `Unable to create database managed
+           directory` 로 실패하고, 네임스페이스를 지워도 디렉터리는 남는다 — **지운 이름으로 다시 만들 수 없다**.
+           다시 쓰려면 그 디렉터리를 S3 에서 먼저 지울 것. -->
       <property>
         <name>metastore.warehouse.external.dir</name>
         <value>s3a://warehouse/tables</value>

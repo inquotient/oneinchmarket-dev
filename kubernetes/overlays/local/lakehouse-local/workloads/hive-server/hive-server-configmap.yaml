@@ -10,7 +10,7 @@ data:
   # ─────────────────────────────────────────────────────────────────────
   # HiveServer2 는 메타스토어와 **다중 파일시스템**을 동시에 쓴다.
   #   fs.defaultFS       = hdfs://hadoop-namenode:8020  (기본 FS · scratch)
-  #   warehouse.dir      = s3a://warehouse/tables       (기본 웨어하우스)
+  #   warehouse.dir      = s3a://warehouse/managed      (관리형 · 외부/Iceberg 는 tables)
   # 두 스킴의 구현체가 한 클래스패스에 공존한다:
   #   hadoop-hdfs-client-3.3.6.jar  ·  tools/lib/hadoop-aws-3.3.6.jar
   # 따라서 `LOCATION 'hdfs://...'` 와 `LOCATION 's3a://...'` 를 테이블마다
@@ -25,8 +25,14 @@ data:
         <name>hive.metastore.uris</name>
         <value>thrift://hive-metastore-headless:9083</value>
       </property>
+      <!-- 관리형 warehouse — 메타스토어(hive-metastore-configmap.yaml)와 같아야 한다. Hive 4 는 외부 테이블
+           (Iceberg)이 관리형 안에 있는 것을 거부하므로 2026-11-06 에 tables(외부) 와 managed(관리형)로 갈랐다. -->
       <property>
         <name>hive.metastore.warehouse.dir</name>
+        <value>s3a://warehouse/managed</value>
+      </property>
+      <property>
+        <name>hive.metastore.warehouse.external.dir</name>
         <value>s3a://warehouse/tables</value>
       </property>
       <property>
