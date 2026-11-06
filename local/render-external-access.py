@@ -90,8 +90,7 @@ CATALOG = [
      "계약 레지스트리 API. 위 UI 의 전제다. ★ **읽기는 익명 허용 · 쓰기는 토큰 또는 "
      "client_id:secret basic**(2026-11-03) — 스키마 내용은 LAN 에 보인다"),
     # ★ kafka-bridge 는 외부에 열지 않는다 — 사유와 대안은 CLOSED(아래).
-    ("kafka-connect", "kafka-connect-headless", 8083, "http", TOOL,
-     "커넥터 REST. `GET /connectors`"),
+    # ★ kafka-connect 는 외부에 열지 않는다 — 사유와 대안은 CLOSED(아래).
     ("zilla", "zilla", 7114, "http", TOOL,
      "HTTP·SSE <-> Kafka `edge.events` (`POST`·`GET /events` · `GET /sse/events`). "
      "★ Keycloak realm JWT 필수(게이트웨이 DENY)"),
@@ -725,6 +724,11 @@ CLOSED = [
      "Ranger 감사 색인이다. Solr 에는 자체 인증이 없고 `solr-authz.yaml`(AuthorizationPolicy)이 "
      "메시 신원으로 지키는데, 게이트웨이 신원은 그 목록에 없다 — 경로를 되살려도 **503** 이다",
      "**Knox** — `https://knox.%s/gateway/oim/solr/`(DS389 로그인 · data-admin 만 · Solr 의 Ranger `oim-solr` 가 **읽기만** 준다, §4)"),
+    ("kafka-connect", "2026-11-06",
+     "커넥터를 만들고·지우고·설정을 바꾸는 관리 REST 인데 자체 인증이 없어 LAN 의 누구나 `POST /connectors` 를 "
+     "할 수 있었다. 화면이 없는 JSON API 라 브라우저 로그인(oauth2-proxy)으로 덮어도 얻는 것이 없다. "
+     "8083 은 `kafka-connect-rest-authz` 가 부트스트랩·AKHQ·워커 신원에만 연다 — 라우트를 되살려도 거부된다",
+     "**AKHQ** — `https://akhq.%s` 의 Connect 메뉴(Keycloak 로그인 · `platform` 그룹만 connector-admin). 스크립트는 port-forward"),
     ("ranger-solr", "2026-11-03",
      "`solr` 와 같은 백엔드의 다른 이름(Ranger Admin 설정이 이 이름을 쓴다). 사유도 같다",
      "위 `solr` 행과 같다 — Knox"),

@@ -18,3 +18,7 @@ data:
             sasl.jaas.config: 'org.apache.kafka.common.security.scram.ScramLoginModule required username="akhq" password="${KAFKA_PASSWORD}";'
           schema-registry:
             url: "http://apicurio-registry-headless:8080/apis/ccompat/v7"
+          # Kafka Connect REST — kafka-connect-rest-authz 가 akhq 신원을 허용한다.
+          connect:
+            - name: connect
+              url: "http://kafka-connect-headless:8083"

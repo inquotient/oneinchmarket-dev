@@ -13,6 +13,8 @@ resources:
   - kafka-connect-configmap.yaml
   - kafka-connect-headless.yaml
   - kafka-connect-deployment.yaml
+  # REST 8083 에 닿는 신원(부트스트랩·AKHQ·워커)만 허용 — 2026-11-06
+  - kafka-connect-authz.yaml
 
 commonAnnotations:
   argocd.argoproj.io/sync-wave: "3"

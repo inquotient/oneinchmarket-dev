@@ -1,0 +1,42 @@
+# Kafka Connect REST(8083)에 닿는 신원을 좁힌다 (2026-11-06).
+#
+# ★ 왜: 이 REST 는 커넥터를 만들고·지우고·설정을 바꾸는 **관리 API** 이고 자체 인증이 없다.
+#   NetworkPolicy(allow-kafka-connect-access)는 8083 을 부트스트랩 Job 에만 열지만, ambient 에서는
+#   트래픽이 HBONE(15008)으로 흘러 그 규칙을 타지 않는다(Gotcha 13) — 메시 안 누구나 닿았다.
+#   실제 인가는 ztunnel 의 AuthorizationPolicy 가 한다.
+#
+# 허용하는 신원 (레포 전수로 호출자는 이것뿐이다)
+#   kafka-connect-bootstrap  커넥터 등록 Sync 훅(base/bootstrap/kafka-connect-connectors.yaml)
+#   akhq                     사람이 커넥터를 보고 관리하는 UI — Keycloak 로그인 뒤 `platform` 그룹만
+#                            connector-admin(overlays/local/patches/akhq-local.yaml)
+#   kafka-connect            워커 자신 — 워커를 2개 이상으로 늘리면 요청을 리더로 넘긴다
+#
+# ★ 외부 라우트(kafka-connect.oneinchmarket.local)는 닫았다 — render-external-access.py 의 CLOSED.
+#   게이트웨이 신원은 여기 없으므로 라우트를 되살려도 거부된다.
+# ★ 이 ALLOW 가 워크로드를 선택하는 순간 나머지는 전부 거부된다(Gotcha 9). 새 호출자를 더할 때는
+#   그 SA 를 여기 먼저 넣을 것 — 빠뜨리면 증상은 연결 리셋이고 단서는 ztunnel 의
+#   `allow policies exist, but none allowed` 다.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: kafka-connect-rest-authz
+  labels:
+    app.kubernetes.io/name: kafka-connect-rest-authz
+    app.kubernetes.io/component: kafka-connect
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafka-connect
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - "*/sa/kafka-connect-bootstrap"
+              - "*/sa/akhq"
+              - "*/sa/kafka-connect"
+      to:
+        - operation:
+            ports: ["8083"]

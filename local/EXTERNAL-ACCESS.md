@@ -11,7 +11,7 @@
 > 때 port-forward 가 대조군이 된다.
 
 <!-- GENERATED:counts START -->
-웹 호스트 **54**(자체 인증 41 · 인증 없음 0 · 도구용 13, 그중 백엔드가 HTTPS 인 것 5) · TCP 대상 **14**
+웹 호스트 **53**(자체 인증 41 · 인증 없음 0 · 도구용 12, 그중 백엔드가 HTTPS 인 것 5) · TCP 대상 **14**
 <!-- GENERATED:counts END -->
 
 ---
@@ -146,7 +146,6 @@ nslookup grafana.oneinchmarket.local 192.168.0.103
 192.168.0.103 akhq.oneinchmarket.local
 192.168.0.103 apicurio.oneinchmarket.local
 192.168.0.103 apicurio-registry.oneinchmarket.local
-192.168.0.103 kafka-connect.oneinchmarket.local
 192.168.0.103 zilla.oneinchmarket.local
 192.168.0.103 backstage.oneinchmarket.local
 192.168.0.103 gravitee-console.oneinchmarket.local
@@ -230,7 +229,6 @@ Import-Certificate -FilePath .\oim-ca.crt -CertStoreLocation Cert:\LocalMachine\
 | https://akhq.oneinchmarket.local | 자체 인증 | `akhq-headless:8080` | Kafka 브라우저. ★ Keycloak 로그인 — `platform` 그룹은 admin, 그 밖은 `edge.*` 읽기만, 익명은 아무것도 안 보인다. 연결 `edge-via-kroxylicious` 는 외부 클라이언트가 보는 그대로(§3-e) |
 | https://apicurio.oneinchmarket.local | 자체 인증 | `apicurio-ui:8080` | SPA — 브라우저가 레지스트리를 직접 부른다(§6 의 SPA 항). ★ Keycloak 로그인(공개 클라이언트 `apicurio-ui`) — `platform` 그룹은 sr-admin, 그 밖은 읽기만 |
 | https://apicurio-registry.oneinchmarket.local | 도구용 | `apicurio-registry-headless:8080` | 계약 레지스트리 API. 위 UI 의 전제다. ★ **읽기는 익명 허용 · 쓰기는 토큰 또는 client_id:secret basic**(2026-11-03) — 스키마 내용은 LAN 에 보인다 |
-| https://kafka-connect.oneinchmarket.local | 도구용 | `kafka-connect-headless:8083` | 커넥터 REST. `GET /connectors` |
 | https://zilla.oneinchmarket.local | 도구용 | `zilla:7114` | HTTP·SSE <-> Kafka `edge.events` (`POST`·`GET /events` · `GET /sse/events`). ★ Keycloak realm JWT 필수(게이트웨이 DENY) |
 | https://backstage.oneinchmarket.local | 자체 인증 | `backstage-headless:7007` | Keycloak OIDC. `portal` / `pw keycloak-secret portal-user-password` |
 | https://gravitee-console.oneinchmarket.local | 자체 인증 | `gravitee-console-headless:8080` | admin / `pw gravitee-secret admin-password` · SPA(§6) |
@@ -301,8 +299,8 @@ pw grafana-secret admin-password
 여기 이름이 올라오면 그 호스트는 **누구든 주소를 알면 그대로 들어온다.**
 새 UI 를 더할 때 인증이 없으면 `OPEN` 으로 두지 말고 생성기의 `O2P` 에 넣을 것 —
 oauth2-proxy·Keycloak 클라이언트·게이트웨이 직접 접근 거부(DENY)가 함께 생긴다.
-★ **도구용 호스트는 여전히 로그인 없이 닿는 것이 있다**(kafka-connect REST ·
-loki · tempo · app-* · www 등 — 위 표의 비고). 브라우저 로그인으로 덮으면 그것을
+★ **도구용 호스트는 여전히 로그인 없이 닿는 것이 있다**(loki · tempo · app-* ·
+www 등 — 위 표의 비고. kafka-connect REST 는 2026-11-06 에 닫았다 — 아래 표). 브라우저 로그인으로 덮으면 그것을
 부르는 클라이언트가 깨지므로 따로 다룬다.
 그리고 이 배치에서는 **출발지를 L3 로 좁힐 수 없다** — `externalIPs` 는 Cilium 의 eBPF 가 처리해
 호스트의 iptables INPUT 이 그 트래픽을 보지 못하고, `ipBlock` CIDR 로는 node
@@ -331,10 +329,11 @@ loki · tempo · app-* · www 등 — 위 표의 비고). 브라우저 로그인
 | ~~`kafka-bridge.oneinchmarket.local`~~ | 2026-11-02 | 자체 인증이 없어(SEC-206) LAN 의 누구나 과금 토픽에 쓸 수 있었다. JWT 만 요구하는 것으로도 부족하다 — 고객 테넌트의 client_credentials 토큰도 같은 realm 이라 남에게 청구를 떠넘길 수 있다(ADR-035) | 외부 HTTP->Kafka 는 `zilla.oneinchmarket.local`(`edge.events` 하나에 갇힌다, §3-e) |
 | ~~`openmeter.oneinchmarket.local`~~ | 2026-11-03 | OSS 판은 자체 인증이 없어 `POST /api/v1/events` 로 어떤 테넌트 명의로든 사용량을 위조할 수 있었고, 고객·구독·인보이스 변경 API 도 열려 있었다. UI 가 없어(루트 404) 브라우저로 얻는 것도 없다 | 조회는 Grafana(ClickHouse `openmeter` DB) 또는 port-forward(ACCESS.md) |
 | ~~`solr.oneinchmarket.local`~~ | 2026-11-03 | Ranger 감사 색인이다. Solr 에는 자체 인증이 없고 `solr-authz.yaml`(AuthorizationPolicy)이 메시 신원으로 지키는데, 게이트웨이 신원은 그 목록에 없다 — 경로를 되살려도 **503** 이다 | **Knox** — `https://knox.oneinchmarket.local/gateway/oim/solr/`(DS389 로그인 · data-admin 만 · Solr 의 Ranger `oim-solr` 가 **읽기만** 준다, §4) |
+| ~~`kafka-connect.oneinchmarket.local`~~ | 2026-11-06 | 커넥터를 만들고·지우고·설정을 바꾸는 관리 REST 인데 자체 인증이 없어 LAN 의 누구나 `POST /connectors` 를 할 수 있었다. 화면이 없는 JSON API 라 브라우저 로그인(oauth2-proxy)으로 덮어도 얻는 것이 없다. 8083 은 `kafka-connect-rest-authz` 가 부트스트랩·AKHQ·워커 신원에만 연다 — 라우트를 되살려도 거부된다 | **AKHQ** — `https://akhq.oneinchmarket.local` 의 Connect 메뉴(Keycloak 로그인 · `platform` 그룹만 connector-admin). 스크립트는 port-forward |
 | ~~`ranger-solr.oneinchmarket.local`~~ | 2026-11-03 | `solr` 와 같은 백엔드의 다른 이름(Ranger Admin 설정이 이 이름을 쓴다). 사유도 같다 | 위 `solr` 행과 같다 — Knox |
 <!-- GENERATED:closed-table END -->
 
-> ★ 되살리기 전에 사유를 볼 것 — 넷 다 **인증이 없는 쓰기·조회 경로**가 LAN 에
+> ★ 되살리기 전에 사유를 볼 것 — 다섯 다 **인증이 없는 쓰기·조회 경로**가 LAN 에
 > 열리던 자리다. 원천은 `local/render-external-access.py` 의 `CLOSED` 이고, 같은
 > 이름이 `CATALOG` 에 다시 들어가면 생성이 멈춘다.
 

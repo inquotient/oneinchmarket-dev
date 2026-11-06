@@ -94,6 +94,11 @@ data:
             sasl.jaas.config: 'org.apache.kafka.common.security.scram.ScramLoginModule required username="akhq" password="${KAFKA_PASSWORD}";'
           schema-registry:
             url: "http://apicurio-registry-headless:8080/apis/ccompat/v7"
+          # Kafka Connect REST — 사람이 커넥터를 다루는 유일한 입구다(2026-11-06). 외부 라우트는 닫았고
+          #   8083 은 kafka-connect-rest-authz 가 akhq·부트스트랩·워커 신원에만 연다.
+          connect:
+            - name: connect
+              url: "http://kafka-connect-headless:8083"
         edge-via-kroxylicious:
           properties:
             bootstrap.servers: "192.168.0.103:30992"
