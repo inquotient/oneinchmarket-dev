@@ -72,35 +72,35 @@ spec:
               echo "[hdfs-bootstrap] NameNode 대기"
               until hdfs dfs -ls "$NN/" >/dev/null 2>&1; do sleep 5; done
 
-              mk() {  # mk <경로> <소유자> <모드>
-                hdfs dfs -mkdir -p "$NN$1" 2>&1 | grep -v "^$" || true
-                hdfs dfs -chown "$2:supergroup" "$NN$1"
-                hdfs dfs -chmod "$3" "$NN$1"
-                echo "  $1  ->  $2  $3"
-              }
-
+              # ★ hdfs dfs 는 호출마다 JVM 을 새로 띄운다 — 2026-11-06 실측으로
+              #   limit 500m 에서 한 번에 10~15초였고, 디렉터리마다 세 번씩
+              #   부르던 옛 판은 5분 14초가 걸렸다. 그래서 명령마다 경로를
+              #   묶어 한 번만 부른다(mkdir·chown·chmod·stat 는 경로를 여럿 받는다).
+              #   디렉터리:
+              #     /hbase      hbase  755   HBase rootdir
+              #     /warehouse  hive   755   Hive 가 HDFS 를 쓸 때의 위치(TODO-33)
+              #     /tmp        hadoop 1777  스티키. 여러 사용자가 공유한다
+              #     /user       hadoop 755
+              #     /user/hive  hive   755   Tez 가 세션마다 hive-exec jar 를 올린다
+              #       (hive.user.install.directory(기본 /user) + 사용자명). 없으면
+              #       Hive 가 /user 에 mkdir 하다 Permission denied 로 TezTask 가 죽는다
               echo "[hdfs-bootstrap] 디렉터리"
-              mk /hbase     hbase  755   # HBase rootdir
-              mk /warehouse hive   755   # Hive 가 HDFS 를 쓸 때의 위치(TODO-33)
-              mk /tmp       hadoop 1777  # 스티키. 여러 사용자가 공유한다
-              mk /user      hadoop 755
-              # ★ Tez 는 세션마다 hive-exec jar 를 HDFS 에 올린다.
-              #   위치는 hive.user.install.directory(기본 /user) + 사용자명 이다.
-              #   /user/hive 가 없으면 Hive 가 /user 에 mkdir 을 시도하고
-              #   Permission denied 로 TezTask 가 return code 1 로 죽는다.
-              mk /user/hive hive   755
+              hdfs dfs -mkdir -p "$NN/hbase" "$NN/warehouse" "$NN/tmp" "$NN/user/hive" || exit 1
+              hdfs dfs -chown hbase:supergroup  "$NN/hbase" || exit 1
+              hdfs dfs -chown hive:supergroup   "$NN/warehouse" "$NN/user/hive" || exit 1
+              hdfs dfs -chown hadoop:supergroup "$NN/tmp" "$NN/user" || exit 1
+              hdfs dfs -chmod 755  "$NN/hbase" "$NN/warehouse" "$NN/user" "$NN/user/hive" || exit 1
+              hdfs dfs -chmod 1777 "$NN/tmp" || exit 1
 
               echo "[hdfs-bootstrap] 검증"
-              hdfs dfs -ls "$NN/"
-              # 소유자가 어긋나면 실패로 끝낸다 — 조용한 성공을 만들지 않는다.
-              for want in "/hbase:hbase" "/warehouse:hive" "/user/hive:hive"; do
-                p="${want%%:*}"; u="${want##*:}"
-                got=$(hdfs dfs -stat "%u" "$NN$p" 2>/dev/null)
-                if [ "$got" != "$u" ]; then
-                  echo "[hdfs-bootstrap] 실패 — $p 소유자가 $got (기대: $u)"
-                  exit 1
-                fi
-              done
+              # 소유자·모드가 어긋나면 실패로 끝낸다 — 조용한 성공을 만들지 않는다.
+              got=$(hdfs dfs -stat "%n %u %a" "$NN/hbase" "$NN/warehouse" "$NN/tmp" "$NN/user" "$NN/user/hive" 2>/dev/null)
+              echo "$got"
+              want=$(printf '%s\n' "hbase hbase 755" "warehouse hive 755" "tmp hadoop 1777" "user hadoop 755" "hive hive 755")
+              if [ "$got" != "$want" ]; then
+                echo "[hdfs-bootstrap] 실패 — 기대와 다르다"
+                exit 1
+              fi
               echo "[hdfs-bootstrap] 완료"
           env:
             - { name: HADOOP_CONF_DIR, value: /opt/hadoop/etc/hadoop }
@@ -110,7 +110,9 @@ spec:
               drop: ["ALL"]
           resources:
             requests: { cpu: 50m, memory: 256Mi }
-            limits:   { cpu: 500m, memory: 512Mi }
+            # cpu limit 은 JVM 기동 시간이다 — 같은 hdfs CLI 가 500m 에서 10~11초,
+            #   2000m 에서 2.5초였다(2026-11-06 실측). requests 는 그대로라 예약은 늘지 않는다.
+            limits:   { cpu: 2000m, memory: 512Mi }
           volumeMounts:
             - { name: config, mountPath: /opt/hadoop/etc/hadoop/core-site.xml, subPath: core-site.xml }
             - { name: config, mountPath: /opt/hadoop/etc/hadoop/hdfs-site.xml, subPath: hdfs-site.xml }
