@@ -76,4 +76,21 @@ data:
         <name>metastore.expression.proxy</name>
         <value>org.apache.hadoop.hive.metastore.DefaultPartitionExpressionProxy</value>
       </property>
+      <!-- ★★ Iceberg REST 카탈로그(HMS 내장, 2026-11-06) — http://hive-metastore-headless:9001/iceberg
+           왜: Spark 3.5 에 내장된 Hive 2.3 메타스토어 클라이언트는 옛 Thrift 메서드(get_table)를 부르는데
+           Hive 4 HMS 에는 그것이 없어 Spark 의 Iceberg(type=hive)가 테이블 단계에서
+           `Invalid method name: 'get_table'` 로 실패했다(네임스페이스 단계는 통과해서 반쯤 되는 것처럼 보인다).
+           REST 는 같은 HMS 를 백엔드로 쓰므로 Trino(thrift 9083)와 **같은 테이블**을 본다.
+           키·기본값은 hive-standalone-metastore-common-4.2.1.jar 의 MetastoreConf 에서 읽었다 —
+           포트 기본값은 음수(꺼짐), 인증 기본값은 oauth2 다.
+           ★ auth=none 은 thrift 9083 과 같은 수준이다(HMS 에는 메시 인가 정책이 없어 클러스터 안
+             누구나 9083 에 닿는다). 좁히려면 둘을 함께 좁힐 것 — 하나만 막으면 다른 문으로 들어온다. -->
+      <property>
+        <name>metastore.catalog.servlet.port</name>
+        <value>9001</value>
+      </property>
+      <property>
+        <name>metastore.catalog.servlet.auth</name>
+        <value>none</value>
+      </property>
     </configuration>

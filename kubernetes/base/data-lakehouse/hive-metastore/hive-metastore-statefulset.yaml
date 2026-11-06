@@ -58,6 +58,9 @@ spec:
             - containerPort: 9083
               name: thrift
               protocol: TCP
+            - containerPort: 9001
+              name: iceberg-rest
+              protocol: TCP
           env:
             - name: DB_PASSWORD
               valueFrom:

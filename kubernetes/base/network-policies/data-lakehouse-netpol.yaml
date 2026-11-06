@@ -59,6 +59,9 @@ spec:
       ports:
         - protocol: TCP
           port: 9083
+        # Iceberg REST 카탈로그(HMS 내장, 2026-11-06) — Spark 의 iceberg 카탈로그(type=rest)
+        - protocol: TCP
+          port: 9001
 ---
 # Spark Connect — gRPC. 인증은 Istio AuthorizationPolicy 가 담당하고
 # NetworkPolicy 는 네임스페이스 내부로 도달 범위를 좁히는 역할만 한다.

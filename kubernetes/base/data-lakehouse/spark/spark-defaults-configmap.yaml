@@ -35,8 +35,12 @@ data:
     # ── Iceberg 카탈로그 (Trino와 동일한 Hive Metastore·warehouse를 가리킨다)
     spark.sql.extensions                            org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
     spark.sql.catalog.iceberg                       org.apache.iceberg.spark.SparkCatalog
-    spark.sql.catalog.iceberg.type                  hive
-    spark.sql.catalog.iceberg.uri                   thrift://hive-metastore-headless:9083
+    # ★★ type=rest — HMS 내장 Iceberg REST 카탈로그(2026-11-06). type=hive 는 Spark 3.5 의 Hive 2.3 클라이언트가
+    #   옛 Thrift 메서드(get_table)를 불러 Hive 4 HMS 에서 테이블 단계마다 `Invalid method name: 'get_table'` 였다
+    #   (네임스페이스 생성·조회는 통과해서 반쯤 되는 것처럼 보였다). REST 의 백엔드가 같은 HMS 라 Trino 와 테이블을
+    #   공유한다. 서블릿 설정은 hive-metastore-configmap.yaml 에 있다.
+    spark.sql.catalog.iceberg.type                  rest
+    spark.sql.catalog.iceberg.uri                   http://hive-metastore-headless:9001/iceberg
     spark.sql.catalog.iceberg.warehouse             s3a://warehouse/tables
     spark.sql.catalog.iceberg.io-impl               org.apache.iceberg.aws.s3.S3FileIO
     spark.sql.catalog.iceberg.s3.endpoint           http://minio-headless:9000

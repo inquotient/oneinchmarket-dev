@@ -14,5 +14,10 @@ spec:
       targetPort: thrift
       protocol: TCP
       name: thrift
+    # Iceberg REST 카탈로그(HMS 내장) — Spark 의 iceberg 카탈로그가 type=rest 로 쓴다(configmap 참조).
+    - port: 9001
+      targetPort: iceberg-rest
+      protocol: TCP
+      name: http-iceberg-rest
   selector:
     app.kubernetes.io/name: hive-metastore
