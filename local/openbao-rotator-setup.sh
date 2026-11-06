@@ -21,9 +21,12 @@ trap 'echo "[rotator][ERROR] line $LINENO: $BASH_COMMAND" >&2' ERR
 NS="${NS:-local}"
 POD="${POD:-openbao-0}"
 MOUNT="${MOUNT:-oim}"
-# 이름 <x> 는 SA rotator-<x> · 역할 rotator-<x> · KV 경로 <x>-secret 로 이어진다.
+# 이름 <x> 는 SA rotator-<x> · 역할 rotator-<x> · KV 경로 <x>-secret 로 이어진다(paths() 가 예외를 정한다).
 # ★ 새 DB 를 더할 때는 그 CronJob(base/rotation/rotate-<x>.yaml)의 설계가 OpenBao 원천인지 먼저 볼 것.
-ROTATORS="${ROTATORS:-postgresql mariadb mongodb}"
+ROTATORS="${ROTATORS:-postgresql mariadb mongodb minio}"
+# ★ minio 는 경로가 둘이다 — 소비자 사용자 키(minio-users)와 root(minio-secret). 두 CronJob 이 같은 SA 를 쓴다
+#   (base/rotation/rotate-minio.yaml). 사용자 로테이션은 root 로 `mc admin user add` 를 해야 하므로 root 를 읽어야 한다.
+paths() { case "$1" in minio) echo "minio-users minio-secret";; *) echo "$1-secret";; esac; }
 log() { echo "[rotator] $*"; }
 
 # root 토큰을 파일로만 다룬다 — 셸 변수·프로세스 인자에 남기지 않는다(openbao-eso-setup.sh 와 같다).
@@ -43,13 +46,16 @@ B "bao auth list -format=json | grep -q '\"kubernetes/\"'" \
 
 for r in $ROTATORS; do
   case "$r" in *[!a-z0-9-]*) echo "이름이 이상하다: $r" >&2; exit 1;; esac
-  path="${r}-secret"
-  log "정책 rotator-${r} (${MOUNT}/data/${path} 읽기·쓰기)"
+  hcl=""
+  for path in $(paths "$r"); do
+    hcl="${hcl}path \"${MOUNT}/data/${path}\"     { capabilities = [\"read\", \"update\", \"patch\"] }
+path \"${MOUNT}/metadata/${path}\" { capabilities = [\"read\"] }
+"
+  done
+  log "정책 rotator-${r} ($(paths "$r") 읽기·쓰기)"
   # patch 는 `bao kv patch`(키 일부만 바꾼다) · update 는 put — 다른 키를 지우지 않으려고 patch 를 쓴다.
   B "cat > /tmp/p.hcl <<'EOP'
-path \"${MOUNT}/data/${path}\"     { capabilities = [\"read\", \"update\", \"patch\"] }
-path \"${MOUNT}/metadata/${path}\" { capabilities = [\"read\"] }
-EOP
+${hcl}EOP
 bao policy write rotator-${r} /tmp/p.hcl && rm -f /tmp/p.hcl" >/dev/null
 
   log "  역할 rotator-${r} (${NS}/rotator-${r})"
@@ -61,5 +67,10 @@ bao policy write rotator-${r} /tmp/p.hcl && rm -f /tmp/p.hcl" >/dev/null
 
   # 되읽어 확인한다 — 쓴 것과 다르면 멈춘다(Gotcha 86).
   B "bao read -format=json auth/kubernetes/role/rotator-${r}" \
-    | python3 -c "import json,sys;d=json.load(sys.stdin)['data'];assert d['bound_service_account_names']==['rotator-${r}'],d;assert 'rotator-${r}' in d['token_policies'],d;print('  확인 ok')"
+    | python3 -c "import json,sys;d=json.load(sys.stdin)['data'];assert d['bound_service_account_names']==['rotator-${r}'],d;assert 'rotator-${r}' in d['token_policies'],d;print('  역할 확인 ok')"
+  pol=$(B "bao policy read rotator-${r}")
+  for path in $(paths "$r"); do
+    case "$pol" in *"${MOUNT}/data/${path}\""*) ;; *) echo "정책 rotator-${r} 에 ${path} 가 없다" >&2; exit 1;; esac
+  done
+  log "  정책 확인 ok ($(paths "$r"))"
 done

@@ -32,6 +32,10 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: airflow
+        # 자격 로테이터(Gotcha 212) — allow-datalakehouse-access 9000 에도 같은 신원이 있다.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: rotator-minio
       ports:
         - protocol: TCP
           port: 9000

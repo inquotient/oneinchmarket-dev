@@ -1,3 +1,72 @@
+# MinIO 자격 로테이션 — **OpenBao 가 원천** (2026-11-06 재설계, 본보기는 rotate-postgresql.yaml)
+#
+# ★★ 옛 판은 root 를 `mc admin user svcacct edit` 로 바꾸려 했다 — root 는 서비스 계정이 아니라 기동 환경변수라
+#   그 명령으로 바뀌지 않고, 주소도 https 였다(MinIO 는 HTTP 다). 그리고 소비자 19곳이 전부 root 를 쓰고 있어
+#   바뀌었다면 한꺼번에 끊겼을 것이다(Gotcha 212). 2026-11-06 에 소비자를 버킷 단위 사용자로 옮긴 뒤
+#   (minio-bootstrap · minio-users) 둘로 나눴다:
+#
+#   rotate-minio-password  소비자 사용자 6명의 비밀키(minio-users). MinIO 는 재시작하지 않는다 — 살아 있는 서버에
+#                          `mc admin user add` 로 바꾸고(이미 있는 사용자는 키만 바뀌고 정책은 남는다 — 실측),
+#                          Reloader 가 소비자를 다시 띄운다. 바뀐 순간부터 재시작까지 그 소비자는 S3 에 못 붙는다.
+#   rotate-minio-root      root 비밀번호(minio-secret). root 는 기동 때만 읽히므로 OpenBao → Secret 을 바꾸고
+#                          Reloader 가 MinIO 를 다시 띄워야 적용된다 — 그동안 **모든 S3 소비자가 끊긴다.**
+#                          사용자·정책은 재시작 뒤에도 남는다(실측: root 교체 재시작 후 사용자 키로 ls 성공 · 옛 root 거부).
+#
+# ★ 두 Job 모두 마지막 컨테이너가 **동기화된 k8s Secret 의 값**(소비자가 받을 값)으로 MinIO 에 다시 붙어 본다.
+#   중간에 minio-bootstrap 훅이 끼어 키를 되돌려도 여기서 드러난다.
+# ★ airflow 사용자는 여기 없다 — 키가 airflow-secret 에 있고 그 Secret 은 아직 OpenBao 원천이 아니다.
+# ★ suspend: true — 자동 실행하지 않는다(사용자 결정, 2026-11-06). 수동 실행:
+#     kubectl -n local create job --from=cronjob/rotate-minio-password rotate-minio-manual-$(date +%s)
+#     kubectl -n local create job --from=cronjob/rotate-minio-root     rotate-minio-root-manual-$(date +%s)
+# ★ 전제: ROTATORS="minio" local/openbao-rotator-setup.sh · 메시(allow-datalakehouse-access 9000) ·
+#   NetworkPolicy(allow-minio-access · allow-openbao-access)에 이 SA/라벨.
+# ★ 이미지는 quay.io 자격이 필요하다(quay-pull-secret, local/quay-pull-secret.sh — Gotcha 176).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rotator-minio
+  labels:
+    app.kubernetes.io/name: rotator-minio
+    app.kubernetes.io/component: rotation
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: rotator-minio
+  labels:
+    app.kubernetes.io/name: rotator-minio
+    app.kubernetes.io/component: rotation
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["minio-users", "minio-secret"]
+    verbs: ["get"]
+  - apiGroups: ["external-secrets.io"]
+    resources: ["externalsecrets"]
+    resourceNames: ["minio-users", "minio-secret"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rotator-minio
+  labels:
+    app.kubernetes.io/name: rotator-minio
+    app.kubernetes.io/component: rotation
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: rotator-minio
+subjects:
+  - kind: ServiceAccount
+    name: rotator-minio
+---
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -8,36 +77,27 @@ metadata:
     app.kubernetes.io/part-of: oneinchmarket
     app.kubernetes.io/managed-by: kustomize
 spec:
-  schedule: "15 3 1,15 * *"
-  # ★★ 2026-11-06 에 멈췄다 — 이 판은 k8s Secret 을 직접 patch 하는 옛 설계다. 그 Secret 은 ESO 가
-  #   OpenBao 에서 1시간마다 덮어쓰므로 성공해도 옛 값으로 돌아가 앱과 DB 가 갈린다(Gotcha 212).
-  #   OpenBao 원천으로 다시 쓰기 전에는 깨우지 말 것 — 본보기는 rotate-postgresql.yaml.
+  schedule: "20 3 1,15 * *"
   suspend: true
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
-      backoffLimit: 3
+      backoffLimit: 0
+      activeDeadlineSeconds: 900
+      ttlSecondsAfterFinished: 604800
       template:
         metadata:
           labels:
-            app.kubernetes.io/name: rotate-minio-password
+            app.kubernetes.io/name: rotator-minio
             app.kubernetes.io/component: rotation
             app.kubernetes.io/part-of: oneinchmarket
+            app.kubernetes.io/managed-by: kustomize
         spec:
-          serviceAccountName: secret-rotator
-          # ★★★ quay.io 자격 (2026-10-05). MinIO 는 2026-09-11 에 Docker Hub
-          #   에서 **저장소째 삭제**됐고(실측: `object not found`) quay.io 는
-          #   2026-09-24 부터 익명 pull 을 막는다(실측: manifest HEAD 가 401,
-          #   404 가 아니다 — 즉 자격이 있으면 받아진다).
-          #   mirror.gcr.io·public.ecr.aws 에도 없다.
-          # ★ 이 Secret 은 **이 레포가 만들지 못한다** — quay 로봇 토큰이다.
-          #   `local/quay-pull-secret.sh` 가 넣는다. 레포 밖 원천 목록은
-          #   LOCAL-DEPLOYMENT §25-00.
-          imagePullSecrets:
-            - name: quay-pull-secret
-          restartPolicy: OnFailure
+          serviceAccountName: rotator-minio
+          restartPolicy: Never
+          imagePullSecrets: [{name: quay-pull-secret}]
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000
@@ -45,50 +105,323 @@ spec:
             runAsNonRoot: true
             seccompProfile:
               type: RuntimeDefault
-          containers:
-            - name: rotate-minio
-              image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+          volumes:
+            - name: tools
+              emptyDir: {sizeLimit: 512Mi}
+          initContainers:
+            - name: tools
+              image: docker.io/openbao/openbao:2.4.1
+              command: ["/bin/sh", "-c", "cp /bin/bao /tools/bao && /tools/bao version"]
+              volumeMounts: [{name: tools, mountPath: /tools}]
+              resources:
+                requests: {cpu: 20m, memory: 32Mi}
+                limits:   {cpu: 200m, memory: 128Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
+            - name: rotate
+              # mc 이미지에는 grep·sha256sum 이 없다 — 서버 이미지에 mc·bash·coreutils 가 함께 있다(실측).
+              image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -euo pipefail
+                  B=/tools/bao
+                  export BAO_ADDR=http://openbao.local.svc.cluster.local:8200 HOME=/tmp MC_CONFIG_DIR=/tmp/.mc
+                  URL=http://minio-headless:9000
+                  USERS="trino hive spark spark-history openreplay openbao-snapshot"
+                  sha() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
+                  ev() { local v; v="K8S_$(printf '%s' "$1" | tr 'a-z-' 'A-Z_')"; printf '%s' "${!v:-}"; }
+                  # mc 는 키를 인자로 받는다 — 이 파드 안의 프로세스 목록에만 잠깐 보인다.
+                  ok() { mc alias set chk "$URL" "$1" "$2" >/dev/null 2>&1; }
+
+                  echo "[1/6] OpenBao 로그인 (rotator-minio)"
+                  BAO_TOKEN=$($B write -field=token auth/kubernetes/login role=rotator-minio \
+                    jwt=@/var/run/secrets/kubernetes.io/serviceaccount/token)
+                  export BAO_TOKEN
+
+                  echo "[2/6] 원천 일치 확인 (OpenBao = k8s Secret, 사용자 ${USERS// /·})"
+                  declare -A OLD NEW
+                  for u in $USERS; do
+                    OLD[$u]=$($B kv get -mount=oim -field="$u-secret-key" minio-users)
+                    [ "$($B kv get -mount=oim -field="$u-access-key" minio-users)" = "$u" ] \
+                      || { echo "$u: OpenBao 의 access-key 가 사용자 이름과 다르다 — 멈춘다" >&2; exit 1; }
+                    [ -n "${OLD[$u]}" ] || { echo "$u: OpenBao 값이 비었다" >&2; exit 1; }
+                    [ "${OLD[$u]}" = "$(ev "$u")" ] || { echo "$u: OpenBao 와 k8s Secret 이 다르다 — ESO 동기화부터 볼 것" >&2; exit 1; }
+                  done
+                  ROOT_USER=$($B kv get -mount=oim -field=root-user minio-secret)
+                  ROOT_PW=$($B kv get -mount=oim -field=root-password minio-secret)
+                  mc alias set oim "$URL" "$ROOT_USER" "$ROOT_PW" >/dev/null \
+                    || { echo "OpenBao 의 root 로 MinIO 에 붙지 못한다" >&2; exit 1; }
+
+                  echo "[3/6] 현재 키로 인증 확인 → 새 키로 변경"
+                  for u in $USERS; do ok "$u" "${OLD[$u]}" || { echo "$u: 현재 키로 인증되지 않는다 — 멈춘다" >&2; exit 1; }; done
+                  CHANGED=""
+                  rollback() {
+                    echo "[rollback] 바꾼 사용자를 옛 키로 되돌린다:${CHANGED:- 없음}" >&2
+                    for u in $CHANGED; do mc admin user add oim "$u" "${OLD[$u]}" >/dev/null || echo "[rollback] $u 실패 — 사람이 볼 것" >&2; done
+                  }
+                  for u in $USERS; do
+                    NEW[$u]=$(head -c 48 /dev/urandom | base64 | tr -d '=+/\n' | cut -c1-32)
+                    [ "${#NEW[$u]}" -ge 24 ] || { echo "생성한 값이 짧다" >&2; rollback; exit 1; }
+                    mc admin user add oim "$u" "${NEW[$u]}" >/dev/null || { echo "$u: 변경 실패" >&2; rollback; exit 1; }
+                    CHANGED="$CHANGED $u"
+                  done
+
+                  echo "[4/6] 새 키로 인증 확인 (정책이 남았는지도)"
+                  for u in $USERS; do
+                    if ! ok "$u" "${NEW[$u]}"; then echo "$u: 새 키로 인증되지 않는다" >&2; rollback; exit 1; fi
+                    case "$(mc admin user info oim "$u" 2>/dev/null)" in *"PolicyName: "*-rw*) ;; *) echo "$u: 정책이 사라졌다" >&2; rollback; exit 1;; esac
+                  done
+
+                  echo "[5/6] OpenBao 에 기록 (여섯 키를 한 번에)"
+                  J="{"; for u in $USERS; do J="$J\"$u-secret-key\":\"${NEW[$u]}\","; done; J="${J%,}}"
+                  if ! printf '%s' "$J" | $B kv patch -mount=oim minio-users - >/dev/null; then rollback; exit 1; fi
+                  for u in $USERS; do
+                    [ "$($B kv get -mount=oim -field="$u-secret-key" minio-users)" = "${NEW[$u]}" ] \
+                      || { echo "$u: OpenBao 되읽기가 다르다" >&2; rollback; exit 1; }
+                  done
+
+                  echo "[6/6] 다음 단계에 해시만 넘긴다"
+                  : > /tools/expected
+                  for u in $USERS; do printf '%s %s\n' "$u-secret-key" "$(sha "${NEW[$u]}")" >> /tools/expected; done
+                  mc alias remove chk >/dev/null 2>&1 || true
+                  echo "MinIO · OpenBao 갱신 완료"
+              env:
+                - {name: K8S_TRINO,            valueFrom: {secretKeyRef: {name: minio-users, key: trino-secret-key}}}
+                - {name: K8S_HIVE,             valueFrom: {secretKeyRef: {name: minio-users, key: hive-secret-key}}}
+                - {name: K8S_SPARK,            valueFrom: {secretKeyRef: {name: minio-users, key: spark-secret-key}}}
+                - {name: K8S_SPARK_HISTORY,    valueFrom: {secretKeyRef: {name: minio-users, key: spark-history-secret-key}}}
+                - {name: K8S_OPENREPLAY,       valueFrom: {secretKeyRef: {name: minio-users, key: openreplay-secret-key}}}
+                - {name: K8S_OPENBAO_SNAPSHOT, valueFrom: {secretKeyRef: {name: minio-users, key: openbao-snapshot-secret-key}}}
+              volumeMounts: [{name: tools, mountPath: /tools}]
+              resources:
+                requests: {cpu: 50m, memory: 128Mi}
+                limits:   {cpu: 500m, memory: 512Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: {drop: ["ALL"]}
+            - name: sync
+              image: docker.io/alpine/kubectl:1.36.4
               command:
                 - /bin/sh
                 - -c
                 - |
                   set -eu
-
-                  echo "[1/3] Generating new secret key..."
-                  NEW_SECRET=$(head -c 32 /dev/urandom | base64 | tr -d '=+/' | head -c 32)
-
-                  echo "[2/3] Updating MinIO credentials..."
-                  mc alias set myminio https://minio-headless:9000 \
-                    "${MINIO_ACCESS_KEY}" "${CURRENT_SECRET}" --insecure
-                  mc admin user svcacct edit myminio "${MINIO_ACCESS_KEY}" \
-                    --secret-key "${NEW_SECRET}" --insecure
-
-                  echo "[3/3] Patching Kubernetes secret..."
-                  ENCODED_SECRET=$(echo -n "${NEW_SECRET}" | base64)
-                  kubectl patch secret minio-secret \
-                    -p "{\"data\":{\"minio-secret-key\":\"${ENCODED_SECRET}\"}}"
-
-                  echo "MinIO password rotation completed."
-              env:
-                - name: MINIO_ACCESS_KEY
-                  valueFrom:
-                    secretKeyRef:
-                      name: minio-secret
-                      key: minio-access-key
-                - name: CURRENT_SECRET
-                  valueFrom:
-                    secretKeyRef:
-                      name: minio-secret
-                      key: minio-secret-key
+                  h() { kubectl get secret minio-users -o go-template="{{index .data \"$1\" | base64decode}}" | sha256sum | cut -d' ' -f1; }
+                  echo "[sync] ExternalSecret 강제 동기화"
+                  kubectl annotate externalsecret minio-users force-sync="$(date +%s)" --overwrite >/dev/null
+                  i=0
+                  while [ $i -lt 60 ]; do
+                    bad=0
+                    while read -r k want; do [ "$(h "$k")" = "$want" ] || bad=1; done < /tools/expected
+                    if [ $bad -eq 0 ]; then echo "[sync] k8s Secret 갱신 확인 — Reloader 가 소비자를 재시작한다"; exit 0; fi
+                    i=$((i+1)); sleep 3
+                  done
+                  echo "[sync] 180초 안에 k8s Secret 이 따라오지 않았다 — MinIO·OpenBao 는 새 값이다. ESO 상태를 볼 것" >&2
+                  exit 1
+              volumeMounts: [{name: tools, mountPath: /tools, readOnly: true}]
               resources:
-                requests:
-                  cpu: 50m
-                  memory: 64Mi
-                limits:
-                  cpu: 200m
-                  memory: 256Mi
+                requests: {cpu: 20m, memory: 32Mi}
+                limits:   {cpu: 200m, memory: 128Mi}
               securityContext:
                 allowPrivilegeEscalation: false
-                capabilities:
-                  drop:
-                    - ALL
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
+          containers:
+            # ★ 이 컨테이너의 env 는 앞의 컨테이너들이 **끝난 뒤** 생성될 때 Secret 에서 읽힌다 — 소비자가 받을 값이다.
+            - name: verify
+              image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -uo pipefail
+                  export HOME=/tmp MC_CONFIG_DIR=/tmp/.mc
+                  fails=0
+                  for u in trino hive spark spark-history openreplay openbao-snapshot; do
+                    v="K8S_$(printf '%s' "$u" | tr 'a-z-' 'A-Z_')"
+                    if mc alias set chk http://minio-headless:9000 "$u" "${!v}" >/dev/null 2>&1; then echo "[verify] $u ok"
+                    else echo "[verify] $u: 동기화된 Secret 의 키로 인증되지 않는다" >&2; fails=$((fails+1)); fi
+                  done
+                  [ $fails -eq 0 ] || { echo "[verify] $fails 건 — MinIO 와 Secret 이 갈렸다. minio-bootstrap 훅이 끼어들었는지 볼 것" >&2; exit 1; }
+                  echo "[verify] 소비자가 받을 값으로 전부 인증된다"
+              env:
+                - {name: K8S_TRINO,            valueFrom: {secretKeyRef: {name: minio-users, key: trino-secret-key}}}
+                - {name: K8S_HIVE,             valueFrom: {secretKeyRef: {name: minio-users, key: hive-secret-key}}}
+                - {name: K8S_SPARK,            valueFrom: {secretKeyRef: {name: minio-users, key: spark-secret-key}}}
+                - {name: K8S_SPARK_HISTORY,    valueFrom: {secretKeyRef: {name: minio-users, key: spark-history-secret-key}}}
+                - {name: K8S_OPENREPLAY,       valueFrom: {secretKeyRef: {name: minio-users, key: openreplay-secret-key}}}
+                - {name: K8S_OPENBAO_SNAPSHOT, valueFrom: {secretKeyRef: {name: minio-users, key: openbao-snapshot-secret-key}}}
+              resources:
+                requests: {cpu: 20m, memory: 64Mi}
+                limits:   {cpu: 200m, memory: 256Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: {drop: ["ALL"]}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: rotate-minio-root
+  labels:
+    app.kubernetes.io/name: rotate-minio-root
+    app.kubernetes.io/component: rotation
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  schedule: "25 3 1 */3 *"
+  suspend: true
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 900
+      ttlSecondsAfterFinished: 604800
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: rotator-minio
+            app.kubernetes.io/component: rotation
+            app.kubernetes.io/part-of: oneinchmarket
+            app.kubernetes.io/managed-by: kustomize
+        spec:
+          serviceAccountName: rotator-minio
+          restartPolicy: Never
+          imagePullSecrets: [{name: quay-pull-secret}]
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          volumes:
+            - name: tools
+              emptyDir: {sizeLimit: 512Mi}
+          initContainers:
+            - name: tools
+              image: docker.io/openbao/openbao:2.4.1
+              command: ["/bin/sh", "-c", "cp /bin/bao /tools/bao && /tools/bao version"]
+              volumeMounts: [{name: tools, mountPath: /tools}]
+              resources:
+                requests: {cpu: 20m, memory: 32Mi}
+                limits:   {cpu: 200m, memory: 128Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
+            - name: rotate
+              image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -euo pipefail
+                  B=/tools/bao
+                  export BAO_ADDR=http://openbao.local.svc.cluster.local:8200 HOME=/tmp MC_CONFIG_DIR=/tmp/.mc
+                  sha() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
+
+                  echo "[1/5] OpenBao 로그인 (rotator-minio)"
+                  BAO_TOKEN=$($B write -field=token auth/kubernetes/login role=rotator-minio \
+                    jwt=@/var/run/secrets/kubernetes.io/serviceaccount/token)
+                  export BAO_TOKEN
+
+                  echo "[2/5] 원천 일치 확인 (OpenBao 두 별칭 키 = k8s Secret)"
+                  RUSER=$($B kv get -mount=oim -field=root-user minio-secret)
+                  OLD=$($B kv get -mount=oim -field=root-password minio-secret)
+                  ALIAS=$($B kv get -mount=oim -field=minio-secret-key minio-secret)
+                  [ -n "$OLD" ] || { echo "OpenBao 값이 비었다" >&2; exit 1; }
+                  [ "$OLD" = "$ALIAS" ] || { echo "OpenBao 의 두 별칭 키가 다르다 — 멈춘다" >&2; exit 1; }
+                  [ "$OLD" = "$K8S_CURRENT" ] || { echo "OpenBao 와 k8s Secret 이 다르다 — ESO 동기화부터 볼 것" >&2; exit 1; }
+
+                  echo "[3/5] 현재 root 로 접속 확인"
+                  mc alias set oim http://minio-headless:9000 "$RUSER" "$OLD" >/dev/null \
+                    || { echo "현재 root 로 붙지 못한다 — 멈춘다" >&2; exit 1; }
+
+                  # ★ root 는 MinIO 가 기동할 때만 읽는다 — 살아 있는 서버에서 바꿀 수 없다. 그래서 여기서는
+                  #   OpenBao 만 바꾸고, Secret 이 따라오면 Reloader 가 MinIO 를 다시 띄워 적용한다.
+                  echo "[4/5] OpenBao 에 기록 (두 별칭 키를 함께)"
+                  NEW=$(head -c 48 /dev/urandom | base64 | tr -d '=+/\n' | cut -c1-32)
+                  [ "${#NEW}" -ge 24 ] || { echo "생성한 값이 짧다" >&2; exit 1; }
+                  printf '{"root-password":"%s","minio-secret-key":"%s"}' "$NEW" "$NEW" \
+                    | $B kv patch -mount=oim minio-secret - >/dev/null
+                  if [ "$($B kv get -mount=oim -field=root-password minio-secret)" != "$NEW" ]; then
+                    echo "OpenBao 되읽기가 다르다 — 옛 값으로 되돌린다" >&2
+                    printf '{"root-password":"%s","minio-secret-key":"%s"}' "$OLD" "$OLD" | $B kv patch -mount=oim minio-secret - >/dev/null
+                    exit 1
+                  fi
+
+                  echo "[5/5] 다음 단계에 해시만 넘긴다"
+                  sha "$NEW" > /tools/expected.sha
+                  echo "OpenBao 갱신 완료 — MinIO 는 재시작 뒤에 새 값을 쓴다"
+              env:
+                - name: K8S_CURRENT
+                  valueFrom: {secretKeyRef: {name: minio-secret, key: root-password}}
+              volumeMounts: [{name: tools, mountPath: /tools}]
+              resources:
+                requests: {cpu: 50m, memory: 128Mi}
+                limits:   {cpu: 500m, memory: 512Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: {drop: ["ALL"]}
+            - name: sync
+              image: docker.io/alpine/kubectl:1.36.4
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  want=$(cat /tools/expected.sha)
+                  h() { kubectl get secret minio-secret -o go-template="{{index .data \"$1\" | base64decode}}" | sha256sum | cut -d' ' -f1; }
+                  echo "[sync] ExternalSecret 강제 동기화"
+                  kubectl annotate externalsecret minio-secret force-sync="$(date +%s)" --overwrite >/dev/null
+                  i=0
+                  while [ $i -lt 60 ]; do
+                    if [ "$(h root-password)" = "$want" ] && [ "$(h minio-secret-key)" = "$want" ]; then
+                      echo "[sync] k8s Secret 갱신 확인 — Reloader 가 MinIO 를 재시작한다"; exit 0
+                    fi
+                    i=$((i+1)); sleep 3
+                  done
+                  echo "[sync] 180초 안에 k8s Secret 이 따라오지 않았다 — OpenBao 는 새 값이다. ESO 상태를 볼 것" >&2
+                  exit 1
+              volumeMounts: [{name: tools, mountPath: /tools, readOnly: true}]
+              resources:
+                requests: {cpu: 20m, memory: 32Mi}
+                limits:   {cpu: 200m, memory: 128Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
+          containers:
+            # ★ env 는 동기화가 끝난 뒤의 Secret 값이다. MinIO 가 다시 떠서 그 값을 받아들일 때까지 기다린다.
+            - name: verify
+              image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -uo pipefail
+                  export HOME=/tmp MC_CONFIG_DIR=/tmp/.mc
+                  for i in $(seq 1 100); do
+                    if mc alias set chk http://minio-headless:9000 "$ROOT_USER" "$ROOT_PW" >/dev/null 2>&1; then
+                      echo "[verify] MinIO 가 새 root 를 받아들인다 (${i}회째)"; exit 0
+                    fi
+                    sleep 3
+                  done
+                  echo "[verify] 300초 안에 MinIO 가 새 root 를 받지 않았다 — Reloader 가 minio 를 재시작했는지 볼 것." >&2
+                  echo "[verify] 되돌리려면 OpenBao oim/minio-secret 의 두 키를 옛 값으로(그 KV 의 이전 버전에 있다)." >&2
+                  exit 1
+              env:
+                - {name: ROOT_USER, valueFrom: {secretKeyRef: {name: minio-secret, key: root-user}}}
+                - {name: ROOT_PW,   valueFrom: {secretKeyRef: {name: minio-secret, key: root-password}}}
+              resources:
+                requests: {cpu: 20m, memory: 64Mi}
+                limits:   {cpu: 200m, memory: 256Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: {drop: ["ALL"]}
