@@ -113,18 +113,9 @@ spec:
         - name: otel-gateway
           resources:
             limits: {memory: 384Mi}
----
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: livy
-spec:
-  template:
-    spec:
-      containers:
-        - name: livy
-          resources:
-            limits: {memory: 1Gi}
+# ★ livy 는 2026-11-07 에 이 목록에서 뺐다(base 의 2Gi 로 돌아간다). 1Gi 는 Livy 가 세션을
+#   띄우지 않던 시절의 유휴 403Mi 기준이었고, cluster 모드 세션은 같은 컨테이너에 spark-submit
+#   JVM 을 하나씩 더 띄운다 — 1Gi 에서 OOMKilled(137)로 세션이 dead 였다(livy-statefulset.yaml).
 ---
 apiVersion: apps/v1
 kind: StatefulSet
