@@ -16,6 +16,18 @@ data:
         <name>hive.metastore.warehouse.dir</name>
         <value>s3a://warehouse/tables</value>
       </property>
+      <!-- ★ 외부 테이블 기본 위치(2026-11-06). Iceberg 테이블은 외부 테이블로 만들어지는데 이것이 비어 있으면
+           REST 카탈로그의 CREATE TABLE 이 `NullPointerException: Warehouse location is not set:
+           hive.metastore.warehouse.external.dir` 로 실패한다(네임스페이스 단계는 통과한다).
+           독립 메타스토어는 metastore.* 를 읽으므로 두 이름을 함께 둔다(아래 notification.api.auth 와 같은 이유). -->
+      <property>
+        <name>metastore.warehouse.external.dir</name>
+        <value>s3a://warehouse/tables</value>
+      </property>
+      <property>
+        <name>hive.metastore.warehouse.external.dir</name>
+        <value>s3a://warehouse/tables</value>
+      </property>
 
       <!-- S3A filesystem configuration -->
       <property>
