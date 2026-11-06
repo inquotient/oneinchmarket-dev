@@ -177,7 +177,7 @@ spec:
                     case "$(mc admin user info oim "$u" 2>/dev/null)" in *"PolicyName: "*-rw*) ;; *) echo "$u: 정책이 사라졌다" >&2; rollback; exit 1;; esac
                   done
 
-                  echo "[5/6] OpenBao 에 기록 (여섯 키를 한 번에)"
+                  echo "[5/6] OpenBao 에 기록 (사용자 키 전부를 한 번에)"
                   J="{"; for u in $USERS; do J="$J\"$u-secret-key\":\"${NEW[$u]}\","; done; J="${J%,}}"
                   if ! printf '%s' "$J" | $B kv patch -mount=oim minio-users - >/dev/null; then rollback; exit 1; fi
                   for u in $USERS; do
