@@ -13,7 +13,7 @@ export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/config}"
 #   테스트한다(상류 compatibility 문서 실측, 2026-10-04). 이 값을 내리면
 #   CNI 가 지원 밖으로 나가고 증상은 "노드가 Ready 가 안 된다" 로 뭉뚱그려져
 #   원인이 멀어진다. ★ 추측하지 말고 상류 문서를 읽어서 정할 것.
-CILIUM_VERSION="${CILIUM_VERSION:-1.20.2}"
+CILIUM_VERSION="${CILIUM_VERSION:-1.20.4}"
 
 # ★★★ k8sServiceHost — 2026-10-04 에 `127.0.0.1` 에서 **서버 노드 IP** 로
 #   고쳤다. 그 값은 **단일 노드 전제**였고, 에이전트를 조인하는 순간 깨진다.
@@ -92,6 +92,14 @@ if ! kubectl get ds -n kube-system cilium >/dev/null 2>&1; then
     --set hubble.ui.frontend.resources.limits.memory=96Mi
 else
   log "Cilium 이미 설치됨 — 건너뜀"
+  # ★★★ 판을 올릴 때(2026-11-07 1.20.2 -> 1.20.4 실측) — `cilium upgrade --reuse-values` 를 쓰지 말 것. 두 겹으로 틀린다:
+  #   ① k8sServiceHost 를 **자동 감지해 127.0.0.1 로 덮는다**(사용자 값에 192.168.0.103 이 있어도) — 에이전트 노드에는
+  #      6443 이 없어 cilium 이 NotReady 가 된다(Gotcha 168 이 다시 났다)
+  #   ② 이전 릴리스의 **계산된 값 전체**를 이어받아 차트만 새 판이고 **이미지는 옛 판 다이제스트**로 남는다
+  #   처방 — helm 으로 직접, **사용자 값만** 넘긴다(재사용도 자동 감지도 없다):
+  #     helm get values cilium -n kube-system -o yaml > /tmp/cilium-user.yaml
+  #     helm upgrade cilium cilium/cilium --version <새 판> -n kube-system -f /tmp/cilium-user.yaml
+  #   판정은 helm 의 CHART 칸이 아니라 `kubectl -n kube-system get ds cilium` 의 이미지와 KUBERNETES_SERVICE_HOST env 다.
 fi
 log "Cilium 준비 대기"
 cilium status --wait --wait-duration 5m

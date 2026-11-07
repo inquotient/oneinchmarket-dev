@@ -11,7 +11,10 @@ export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/config}"
 #   1.24 -> k8s 1.28~1.31 · 1.29 -> 1.31~1.35 · 1.30·1.31 -> **1.32~1.36**
 #   즉 이 값을 올릴 때는 bootstrap-wsl-k3s.sh 의 K3S_VERSION 도 함께 봐야 한다.
 #   1.31 은 k8s 1.32 미만에서 돌지 않는다.
-ISTIO_VERSION="${ISTIO_VERSION:-1.31.0}"
+ISTIO_VERSION="${ISTIO_VERSION:-1.31.4}"
+# ★ 판을 올린 뒤 세 가지를 반드시 할 것(2026-11-07 1.31.0 -> 1.31.4 실측 — 업그레이드 직후 계량 공급자가 0 이었다):
+#   local/configure-istio-usage-logging.sh(Gotcha 158) · rollout restart ds/istio-cni-node(Gotcha 50) · local/set-operator-requests.sh(Gotcha 80)
+#   istioctl 은 이 스크립트가 "없을 때만" 설치하므로 새 판은 /tmp 에 받아 그 바이너리로 install 할 것.
 KYVERNO_VERSION="${KYVERNO_VERSION:-v1.13.2}"
 CERT_MANAGER_VERSION="${CERT_MANAGER_VERSION:-v1.16.2}"
 # 4단계(security-min)
