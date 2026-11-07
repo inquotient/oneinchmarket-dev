@@ -15,7 +15,11 @@ ISTIO_VERSION="${ISTIO_VERSION:-1.31.4}"
 # ★ 판을 올린 뒤 세 가지를 반드시 할 것(2026-11-07 1.31.0 -> 1.31.4 실측 — 업그레이드 직후 계량 공급자가 0 이었다):
 #   local/configure-istio-usage-logging.sh(Gotcha 158) · rollout restart ds/istio-cni-node(Gotcha 50) · local/set-operator-requests.sh(Gotcha 80)
 #   istioctl 은 이 스크립트가 "없을 때만" 설치하므로 새 판은 /tmp 에 받아 그 바이너리로 install 할 것.
-KYVERNO_VERSION="${KYVERNO_VERSION:-v1.13.2}"
+KYVERNO_VERSION="${KYVERNO_VERSION:-v1.19.2}"
+# ★ 2026-11-07 에 1.13.2 -> 1.19.2 를 **마이너 하나씩** 올렸다(1.14.5·1.15.3·1.16.4·1.17.2·1.18.2) — 단계마다 정책 7개 Ready ·
+#   어드미션 dry-run 확인. 1.19 는 `kyverno.io/v1 ClusterPolicy` 가 **지원 중단 예정**이라고 경고한다 —
+#   CEL 정책(ValidatingPolicy·MutatingPolicy, policies.kyverno.io)으로 옮겨야 다음 큰 판을 탈 수 있다. 지금은 동작한다.
+#   ★ trivy-scanjob-containerd-namespace(mutate)는 **Pod** 에 주입한다 — 확인은 Job 템플릿이 아니라 스캔 파드의 env 로 할 것.
 CERT_MANAGER_VERSION="${CERT_MANAGER_VERSION:-v1.21.3}"
 # ★ 2026-11-07 에 1.16.2 -> 1.21.3 을 **마이너 하나씩** 올렸다(1.17.4·1.18.6·1.19.6·1.20.5) — 단계마다 Ready·webhook dry-run 확인.
 #   1.18 부터 privateKey.rotationPolicy 기본값이 Always 다 — CA 넷에는 Never 를 명시해 두었다(매니페스트).
