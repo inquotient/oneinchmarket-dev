@@ -103,7 +103,7 @@ spec:
           initContainers:
             - name: tools
               image: docker.io/openbao/openbao:2.7.2
-              command: ["/bin/sh", "-c", "cp /bin/bao /tools/bao && /tools/bao version"]
+              command: ["/bin/sh", "-c", "cp \"$(command -v bao)\" /tools/bao && /tools/bao version"]  # 2.7 부터 /usr/bin/bao(2.4 는 /bin/bao) — 경로를 박지 않는다
               volumeMounts: [{name: tools, mountPath: /tools}]
               resources:
                 requests: {cpu: 20m, memory: 32Mi}
