@@ -16,7 +16,9 @@ ISTIO_VERSION="${ISTIO_VERSION:-1.31.4}"
 #   local/configure-istio-usage-logging.sh(Gotcha 158) · rollout restart ds/istio-cni-node(Gotcha 50) · local/set-operator-requests.sh(Gotcha 80)
 #   istioctl 은 이 스크립트가 "없을 때만" 설치하므로 새 판은 /tmp 에 받아 그 바이너리로 install 할 것.
 KYVERNO_VERSION="${KYVERNO_VERSION:-v1.13.2}"
-CERT_MANAGER_VERSION="${CERT_MANAGER_VERSION:-v1.16.2}"
+CERT_MANAGER_VERSION="${CERT_MANAGER_VERSION:-v1.21.3}"
+# ★ 2026-11-07 에 1.16.2 -> 1.21.3 을 **마이너 하나씩** 올렸다(1.17.4·1.18.6·1.19.6·1.20.5) — 단계마다 Ready·webhook dry-run 확인.
+#   1.18 부터 privateKey.rotationPolicy 기본값이 Always 다 — CA 넷에는 Never 를 명시해 두었다(매니페스트).
 # 4단계(security-min)
 TETRAGON_VERSION="${TETRAGON_VERSION:-1.7.1}"
 TRIVY_OPERATOR_VERSION="${TRIVY_OPERATOR_VERSION:-v0.36.1}"
