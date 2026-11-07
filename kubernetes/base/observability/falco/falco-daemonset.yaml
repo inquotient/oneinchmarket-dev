@@ -73,7 +73,7 @@ spec:
           operator: Exists
       containers:
         - name: falco
-          image: docker.io/falcosecurity/falco:0.44.1-debian
+          image: docker.io/falcosecurity/falco:0.45.2-debian
           args:
             - /usr/bin/falco
             - -o
