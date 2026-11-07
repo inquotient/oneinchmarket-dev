@@ -140,6 +140,33 @@ spec:
     app.kubernetes.io/name: safeline
     app.kubernetes.io/instance: fvm
 ---
+# detector 가 이 이름으로 luigi 에 웹 로그(공격 기록)를 보낸다 — /detector/snserver.yml 의
+#   `web_log: http://safeline-luigi/api/log/envelop`(compose container_name: safeline-luigi).
+# ★★ 이 Service 가 **처음부터 없었다**(2026-11-07 에 더했다). compose 에서는 그 이름이 컨테이너 네트워크에서
+#   저절로 풀리지만 파드로 나누면서 mgt·fvm 만 Service 를 받았다. 그래서 detector 가
+#   `failed to send web log: client error (Connect)` 를 4분에 500건 넘게 냈고, 공격 기록이 luigi·관리 화면에
+#   한 건도 가지 않았다 — 차단은 되는데 기록만 없었다. luigi 는 80 을 듣는다(실측 /proc/net/tcp).
+apiVersion: v1
+kind: Service
+metadata:
+  name: safeline-luigi
+  labels:
+    app.kubernetes.io/name: safeline
+    app.kubernetes.io/instance: luigi
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+spec:
+  type: ClusterIP
+  publishNotReadyAddresses: true
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: safeline
+    app.kubernetes.io/instance: luigi
+---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

@@ -28,3 +28,27 @@ spec:
       to:
         - operation:
             ports: ["80"]
+---
+# luigi 의 80(웹 로그 수신 /api/log/envelop)도 SafeLine 자신만 — 열려 있으면 메시 안 누구나 공격 기록을 위조해 넣는다.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-safeline-luigi
+  labels:
+    app.kubernetes.io/name: deny-safeline-luigi
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: safeline
+      app.kubernetes.io/instance: luigi
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals: ["*/sa/safeline"]
+      to:
+        - operation:
+            ports: ["80"]
