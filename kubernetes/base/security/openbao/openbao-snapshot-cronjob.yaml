@@ -8,7 +8,7 @@
 #   통째로 복사" 뿐인데, RWO 볼륨은 쓰는 중에 다른 파드가 마운트할 수 없어
 #   온라인 백업이 성립하지 않는다. §8-80 에서 raft 로 바꾼 이유다.
 #
-# ★ 왜 두 컨테이너인가 — openbao 이미지에는 `mc` 가 없고 minio/mc 에는 `bao` 가
+# ★ 왜 두 컨테이너인가 — openbao 이미지에는 S3 클라이언트가 없고 aws-cli 에는 `bao` 가
 #   없다. initContainer 가 스냅샷을 뜨고 본 컨테이너가 올린다. emptyDir 로 넘긴다.
 #
 # ★★ 스냅샷에는 **봉인된 데이터 전체**가 들어 있다. 복호화하려면 unseal 키가
@@ -43,16 +43,8 @@ spec:
         spec:
           restartPolicy: OnFailure
           serviceAccountName: openbao-snapshot
-          # ★★★ quay.io 자격 (2026-10-05). MinIO 는 2026-09-11 에 Docker Hub
-          #   에서 **저장소째 삭제**됐고(실측: `object not found`) quay.io 는
-          #   2026-09-24 부터 익명 pull 을 막는다(실측: manifest HEAD 가 401,
-          #   404 가 아니다 — 즉 자격이 있으면 받아진다).
-          #   mirror.gcr.io·public.ecr.aws 에도 없다.
-          # ★ 이 Secret 은 **이 레포가 만들지 못한다** — quay 로봇 토큰이다.
-          #   `local/quay-pull-secret.sh` 가 넣는다. 레포 밖 원천 목록은
-          #   LOCAL-DEPLOYMENT §25-00.
-          imagePullSecrets:
-            - name: quay-pull-secret
+          # ★ quay 자격이 더는 필요 없다(2026-11-07) — S3 클라이언트를 quay.io/minio/mc 에서
+          #   docker.io/amazon/aws-cli 로 바꿨다(익명 pull). quay-pull-secret 을 쓰는 곳은 이제 0 이다.
           priorityClassName: batch-low
           securityContext:
             runAsNonRoot: true
@@ -90,27 +82,38 @@ spec:
                 - {name: snap, mountPath: /snap}
           containers:
             - name: upload
-              image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
-              command: ["/bin/sh", "-c"]
+              image: docker.io/amazon/aws-cli:2.27.50
+              command: ["/bin/bash", "-c"]
               args:
                 - |
-                  set -eu
-                  # MinIO 는 HTTP 다 — https:// 로 부르면 실패한다(§ minio-bootstrap 주석).
+                  set -euo pipefail
+                  export HOME=/tmp AWS_DEFAULT_REGION=us-east-1 AWS_ACCESS_KEY_ID="$MINIO_USER" AWS_SECRET_ACCESS_KEY="$MINIO_KEY"
+                  E=http://minio-headless:9000
+                  # 엔진은 SeaweedFS(2026-11-07), 이름은 minio-headless 그대로. HTTP 다.
                   # ★ root 가 아니라 전용 사용자다(2026-11-06) — openbao-snapshots 버킷만 읽고 쓴다. 버킷은 minio-bootstrap 이
                   #   만든다(이 사용자에게는 생성 권한이 없다).
-                  until mc alias set oim http://minio-headless:9000 "$MINIO_USER" "$MINIO_KEY" >/dev/null 2>&1; do sleep 3; done
+                  until aws --endpoint-url "$E" s3api list-objects-v2 --bucket openbao-snapshots --max-keys 1 >/dev/null 2>&1; do sleep 3; done
                   TS="$(date -u +%Y%m%dT%H%M%SZ)"
-                  mc cp /snap/openbao.snap "oim/openbao-snapshots/openbao-${TS}.snap"
+                  aws --endpoint-url "$E" s3 cp --only-show-errors /snap/openbao.snap "s3://openbao-snapshots/openbao-${TS}.snap"
                   # ★ 보존: 30일. 이것이 없으면 6시간마다 쌓여 디스크를 먹는다.
-                  mc rm --recursive --force --older-than 30d oim/openbao-snapshots/ || true
-                  echo "[openbao-snapshot] 업로드 완료 openbao-${TS}.snap"
-                  mc ls oim/openbao-snapshots/ | tail -3
+                  #   aws-cli 에는 mc 의 --older-than 이 없다 — LastModified(ISO 8601, 사전순 = 시간순)로 고른다.
+                  #   ★ 방금 올린 것은 지우지 않는다 — 시계가 틀어져도 최신 하나는 남는다.
+                  CUT="$(date -u -d '30 days ago' +%Y-%m-%dT%H:%M:%S)"
+                  old=$(aws --endpoint-url "$E" s3api list-objects-v2 --bucket openbao-snapshots \
+                          --query "Contents[?LastModified<'${CUT}'].Key" --output text)
+                  n=0
+                  for k in $old; do
+                    [ "$k" = None ] && continue
+                    [ "$k" = "openbao-${TS}.snap" ] && continue
+                    aws --endpoint-url "$E" s3api delete-object --bucket openbao-snapshots --key "$k" >/dev/null && n=$((n+1))
+                  done
+                  echo "[openbao-snapshot] 업로드 완료 openbao-${TS}.snap · 30일 넘은 것 ${n}개 정리"
+                  aws --endpoint-url "$E" s3 ls s3://openbao-snapshots/ | tail -3
               env:
                 - name: MINIO_USER
                   valueFrom: {secretKeyRef: {name: minio-users, key: openbao-snapshot-access-key}}
                 - name: MINIO_KEY
                   valueFrom: {secretKeyRef: {name: minio-users, key: openbao-snapshot-secret-key}}
-                - {name: MC_CONFIG_DIR, value: /tmp/mc}
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true

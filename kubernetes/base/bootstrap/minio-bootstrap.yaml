@@ -43,16 +43,8 @@ spec:
       #   깨진 것이고, **평소에 돌지 않는 Job 이라 재실행할 때 비로소**
       #   드러났다(Gotcha 19 가 적은 그대로다).
       serviceAccountName: minio-bootstrap
-      # ★★★ quay.io 자격 (2026-10-05). MinIO 는 2026-09-11 에 Docker Hub
-      #   에서 **저장소째 삭제**됐고(실측: `object not found`) quay.io 는
-      #   2026-09-24 부터 익명 pull 을 막는다(실측: manifest HEAD 가 401,
-      #   404 가 아니다 — 즉 자격이 있으면 받아진다).
-      #   mirror.gcr.io·public.ecr.aws 에도 없다.
-      # ★ 이 Secret 은 **이 레포가 만들지 못한다** — quay 로봇 토큰이다.
-      #   `local/quay-pull-secret.sh` 가 넣는다. 레포 밖 원천 목록은
-      #   LOCAL-DEPLOYMENT §25-00.
-      imagePullSecrets:
-        - name: quay-pull-secret
+      # ★ quay 자격이 더는 필요 없다(2026-11-07) — S3 클라이언트를 quay.io/minio/mc 에서
+      #   docker.io/amazon/aws-cli 로 바꿨다(익명 pull). quay-pull-secret 을 쓰는 곳은 이제 0 이다.
       restartPolicy: OnFailure
       priorityClassName: batch-low
       securityContext:
@@ -63,52 +55,56 @@ spec:
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: bootstrap
-          image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
-          command: ["/bin/sh", "-c"]
+          image: docker.io/amazon/aws-cli:2.27.50
+          command: ["/bin/bash", "-c"]
           args:
             - |
-              set -eu
-              echo "[minio-bootstrap] S3(SeaweedFS) 대기"
+              set -uo pipefail
+              export HOME=/tmp AWS_DEFAULT_REGION=us-east-1
+              E=http://minio-headless:9000
               # 이름은 minio-headless 그대로다 — 엔진은 SeaweedFS(2026-11-07). HTTP 다.
-              until mc alias set oim http://minio-headless:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null 2>&1; do sleep 3; done
+              # 키는 인자가 아니라 환경변수로 넘긴다(프로세스 목록에 남지 않는다).
+              as() { local k="$1" s="$2"; shift 2; AWS_ACCESS_KEY_ID="$k" AWS_SECRET_ACCESS_KEY="$s" aws --endpoint-url "$E" "$@"; }
+              root() { as "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" "$@"; }
+              echo "[minio-bootstrap] S3(SeaweedFS) 대기"
+              until root s3api list-buckets >/dev/null 2>&1; do sleep 3; done
               # openbao-snapshots·OpenReplay 버킷도 여기서 만든다 — 소비자 사용자에게는 버킷 생성 권한이 없다(2026-11-06).
               for b in warehouse spark-events livy-recovery airflow-logs openbao-snapshots \
                        mobs sessions-assets records sourcemaps uxtesting-records spots; do
-                mc mb --ignore-existing "oim/$b"
-                echo "[minio-bootstrap] bucket $b"
+                if root s3api head-bucket --bucket "$b" >/dev/null 2>&1; then echo "[minio-bootstrap] bucket $b (있음)"
+                else root s3api create-bucket --bucket "$b" >/dev/null || { echo "[minio-bootstrap] bucket $b 생성 실패" >&2; exit 1; }
+                     echo "[minio-bootstrap] bucket $b (생성)"; fi
               done
               # Spark 는 버킷 루트를 이벤트 로그 경로로 받지 못한다 — 경로 성분이
               # 없어 SparkContext.scala:631 에서 path must be absolute 가 난다.
               # 프리픽스가 실재해야 History Server 의 getFileStatus 도 통과한다.
-              echo placeholder | mc pipe oim/spark-events/events/.keep
-              echo placeholder | mc pipe oim/warehouse/tables/.keep
+              echo placeholder > /tmp/keep
+              root s3 cp --only-show-errors /tmp/keep s3://spark-events/events/.keep || exit 1
+              root s3 cp --only-show-errors /tmp/keep s3://warehouse/tables/.keep || exit 1
               # ── 소비자별 사용자 ─────────────────────────────
               # ★★★ root 자격을 소비자에게 주지 않는다. Airflow 가 첫 사례였다 — LocalExecutor 는 DAG 코드를
               #   scheduler 파드 안에서 실행하므로 root 면 아무 DAG 이나 warehouse 를 지울 수 있다(Gotcha 27).
-              # ★★ 2026-11-07 부터 사용자·버킷 권한은 SeaweedFS 가 기동 때 읽는 -s3.config 다 — 그 파드의 initContainer 가
+              # ★★ 사용자·버킷 권한은 SeaweedFS 가 기동 때 읽는 -s3.config 다 — 그 파드의 initContainer 가
               #   minio-users 에서 렌더한다(base/data-lakehouse/seaweedfs). 이 Job 은 만들지 않고 **확인만** 한다:
-              #   Secret 의 키로 자기 버킷이 열리고, 남의 버킷은 닫혀 있는지. MinIO 때의 `mc admin user/policy` 는 없다.
-              # ★ 이 이미지에는 grep 이 없다 — 판정은 셸 내장으로 한다(Gotcha 56·109).
+              #   Secret 의 키로 자기 버킷이 열리고, 남의 버킷은 닫혀 있는지.
               fails=0
               for spec in trino:warehouse:TRINO_KEY hive:warehouse:HIVE_KEY spark:livy-recovery:SPARK_KEY \
                           spark-history:spark-events:SPARK_HISTORY_KEY openreplay:mobs:OPENREPLAY_KEY \
                           openbao-snapshot:openbao-snapshots:OPENBAO_SNAPSHOT_KEY airflow:airflow-logs:AIRFLOW_S3_SECRET_KEY; do
                 u=${spec%%:*}; rest=${spec#*:}; b=${rest%%:*}; v=${rest#*:}
-                eval "k=\${$v:-}"
+                k=${!v:-}
                 [ -n "$k" ] || { echo "[minio-bootstrap] $u: 비밀키($v)가 비었다" >&2; fails=$((fails+1)); continue; }
-                mc alias set chk http://minio-headless:9000 "$u" "$k" >/dev/null 2>&1 || true
-                mc ls "chk/$b" >/dev/null 2>&1 \
+                as "$u" "$k" s3api list-objects-v2 --bucket "$b" --max-keys 1 >/dev/null 2>&1 \
                   || { echo "[minio-bootstrap] $u: Secret 의 키로 $b 가 열리지 않는다" >&2; fails=$((fails+1)); continue; }
                 # 음성 대조군 — 남의 버킷(openbao-snapshots, 주인은 openbao-snapshot)이 열리면 권한이 새고 있다.
-                if [ "$u" != openbao-snapshot ] && mc ls chk/openbao-snapshots >/dev/null 2>&1; then
+                if [ "$u" != openbao-snapshot ] && as "$u" "$k" s3api list-objects-v2 --bucket openbao-snapshots --max-keys 1 >/dev/null 2>&1; then
                   echo "[minio-bootstrap] $u: 남의 버킷 openbao-snapshots 가 열린다 — 권한이 넓다" >&2; fails=$((fails+1)); continue
                 fi
                 echo "[minio-bootstrap] user $u -> $b 확인"
               done
-              mc alias remove chk >/dev/null 2>&1 || true
               [ "$fails" -eq 0 ] || { echo "[minio-bootstrap] 사용자 $fails 건 실패" >&2; exit 1; }
 
-              mc ls oim
+              root s3 ls
               echo "[minio-bootstrap] 완료"
           env:
             - name: MINIO_ROOT_USER
@@ -127,12 +123,10 @@ spec:
             - { name: SPARK_HISTORY_KEY,    valueFrom: { secretKeyRef: { name: minio-users, key: spark-history-secret-key } } }
             - { name: OPENREPLAY_KEY,       valueFrom: { secretKeyRef: { name: minio-users, key: openreplay-secret-key } } }
             - { name: OPENBAO_SNAPSHOT_KEY, valueFrom: { secretKeyRef: { name: minio-users, key: openbao-snapshot-secret-key } } }
-            - name: MC_CONFIG_DIR
-              value: /tmp/.mc
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: { drop: ["ALL"] }
-          # ★ 128Mi 에서 OOMKilled(137) 였다(2026-11-06) — 사용자 7명을 돌며 mc 를 30여 번 부르자 넘었다.
+          # ★ 128Mi 에서 OOMKilled(137) 였다(2026-11-06, mc 시절) — aws-cli(파이썬)는 한 번에 더 크므로 512Mi 를 유지한다.
           #   Sync 훅이라 끝나지 않으면 동기화가 wave 3 에서 선다.
           resources:
             requests: { cpu: 100m, memory: 128Mi }
