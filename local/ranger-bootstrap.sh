@@ -92,7 +92,21 @@ want=json.load(open(sys.argv[1]))["configs"]; have=json.load(open(sys.argv[2])).
 print(" ".join(k for k,v in want.items() if k!="password" and have.get(k)!=v))
 PY
 )
-    if [ -n "$diff" ]; then log "$name: 있다 — 단 git 과 다른 설정: $diff (바꾸지 않는다)"
+    if [ -n "$diff" ] && [ "${SYNC_CONFIGS:-0}" = 1 ] && [ "$CHECK" = 0 ]; then
+      # ★ SYNC_CONFIGS=1 일 때만(2026-11-07) — git 의 configs 를 이미 있는 서비스에 덮는다. password 는 건드리지 않는다
+      #   (Admin 이 가려서 돌려주므로 현재 값 그대로 다시 보낸다). 한 번에 PUT 한 번 — 반복 로그인이 아니다(Gotcha 11).
+      python3 - "$f" "$tmp/cur.json" > "$tmp/put.json" <<'PY'
+import json,sys
+want=json.load(open(sys.argv[1])); cur=json.load(open(sys.argv[2]))
+for k,v in want["configs"].items():
+    if k!="password": cur.setdefault("configs",{})[k]=v
+print(json.dumps(cur))
+PY
+      sid=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["id"])' "$tmp/cur.json")
+      code=$("${C[@]}" -o "$tmp/upd.json" -w '%{http_code}' -X PUT -H 'Content-Type: application/json' --data @"$tmp/put.json" "$B/service/$sid")
+      [ "$code" = "200" ] || { echo "[ranger] $name 설정 갱신이 $code 다: $(head -c 300 "$tmp/upd.json")" >&2; exit 1; }
+      log "$name: 설정을 git 으로 맞췄다: $diff"
+    elif [ -n "$diff" ]; then log "$name: 있다 — 단 git 과 다른 설정: $diff (바꾸지 않는다 — 맞추려면 SYNC_CONFIGS=1)"
     else log "$name: 있다"; fi
     continue
   fi

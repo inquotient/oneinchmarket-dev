@@ -1,11 +1,12 @@
 {
   "name": "oim-kafka",
   "type": "kafka",
-  "description": "Kafka(SASL/SCRAM) - overlays/local/patches/kafka-local.yaml 의 ranger-kafka-config 에 있는 ranger.plugin.kafka.service.name 과 같아야 한다. username 은 브로커 자신(PLAIN 정적 사용자 kafka)이라 기본 정책 전권을 받는다 - 컨트롤러·브로커 간 요청(CLUSTER_ACTION)이 그것으로 통과한다",
+  "description": "Kafka(SASL/SCRAM) - overlays/local/patches/kafka-local.yaml 의 ranger-kafka-config 에 있는 ranger.plugin.kafka.service.name 과 같아야 한다. username 은 브로커 자신(PLAIN 정적 사용자 kafka)이라 기본 정책 전권을 받는다 - 컨트롤러·브로커 간 요청(CLUSTER_ACTION)이 그것으로 통과한다 / ranger.plugin.audit.filters(2026-11-07): 허용된 consume·describe·describe_configs·idempotent_write 와 거부된 describe(클라이언트 메타데이터 요청이 허용되지 않은 토픽을 걸러내는 것 — 무해)는 감사하지 않는다. 그대로면 fetch 마다 한 건씩 하루 400만 건 가까이 Solr 로 간다(실측 10시간 177만). 거부(위 describe 제외)와 허용된 publish·create·delete·alter·cluster_action 은 남는다. 필터는 위에서부터 처음 맞는 것이 정한다",
   "isEnabled": true,
   "configs": {
     "username": "kafka",
     "password": "__LOOKUP_NOT_USED__",
-    "zookeeper.connect": "__KRAFT_NO_ZOOKEEPER__"
+    "zookeeper.connect": "__KRAFT_NO_ZOOKEEPER__",
+    "ranger.plugin.audit.filters": "[{'accessResult':'DENIED','accessTypes':['describe'],'isAudited':false},{'accessResult':'DENIED','isAudited':true},{'accessResult':'ALLOWED','accessTypes':['consume','describe','describe_configs','idempotent_write'],'isAudited':false}]"
   }
 }
