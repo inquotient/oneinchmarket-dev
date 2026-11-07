@@ -325,6 +325,9 @@ HEADER = """# ★ 생성 파일이다 — 손으로 고치지 말 것.
 #   Exact 매치라 /gateway/... 같은 다른 경로는 그대로 백엔드로 간다.
 ROOT_REDIRECT = {
     "knox": "/gateway/homepage/home/",
+    # ★ seaweedfs-volume: volume 서버는 `/` 를 파일 ID 요청으로 읽어 **400 Bad Request** 다(2026-11-07 실측).
+    #   화면은 /ui/index.html 에만 있다 — 그래서 호스트만 열면 "접속되지 않는다" 로 보인다.
+    "seaweedfs-volume": "/ui/index.html",
 }
 
 
