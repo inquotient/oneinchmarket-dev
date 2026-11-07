@@ -219,6 +219,8 @@ spec:
               # ★★ clickhouse-bootstrap — openmeter 사용자·DB 를 만드는 Job.
               #   이 줄이 없으면 Job 이 오류 없이 **무한 대기**한다(Gotcha 19).
               - "*/sa/clickhouse-bootstrap"
+              # 비밀번호 로테이터(Gotcha 220). NetworkPolicy allow-clickhouse-access 에도 같은 신원이 있다.
+              - "*/sa/rotator-clickhouse"
       to:
         - operation:
             ports: ["8123", "9000"]

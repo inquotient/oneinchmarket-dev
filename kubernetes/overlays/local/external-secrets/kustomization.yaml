@@ -17,6 +17,7 @@ resources:
   - apicurio-secret.yaml
   - caldera-secret.yaml
   - clickhouse-secret.yaml
+  - clickhouse-admin-secret.yaml   # ClickHouse 관리자(2026-11-07)
   - cmmn-api-secret.yaml
   - defectdojo-secret.yaml
   - dependency-track-secret.yaml

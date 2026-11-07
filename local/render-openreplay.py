@@ -14,6 +14,9 @@ def res(name):
 def secret_env(name, sec, key):
     return {"name": name, "valueFrom": {"secretKeyRef": {"name": sec, "key": key}}}
 
+# ★ ClickHouse 비밀번호는 openreplay-secret/clickhouse-password 다(2026-11-07, Gotcha 220).
+#   전에는 clickhouse-secret/password(= ClickHouse 관리자)였다 — 앱이 관리자로 붙고 있었다.
+#   clickhouse-secret 에는 openmeter(과금) 키도 있어, 거기 두면 openreplay 회전이 openmeter 를 재시작시킨다.
 # 이 클러스터의 실제 엔드포인트. 자격증명은 값이 아니라 $(VAR) 로 넣고
 # 그 VAR 는 Secret 에서 온다 — 렌더 산출물에 평문이 남지 않는다.
 REWRITE = {
@@ -30,7 +33,7 @@ INJECT = {
     "POSTGRES_STRING":   [("pg_password",    "openreplay-secret", "db-password")],
     "REDIS_STRING":      [("redis_password", "redis-users",       "openreplay-password")],
     "CLICKHOUSE_STRING": [("CLICKHOUSE_USERNAME", None, None),
-                          ("CLICKHOUSE_PASSWORD", "clickhouse-secret", "password")],
+                          ("CLICKHOUSE_PASSWORD", "openreplay-secret", "clickhouse-password")],
     "AWS_ENDPOINT":      [("AWS_ACCESS_KEY_ID",     "seaweedfs-users", "openreplay-access-key"),
                           ("AWS_SECRET_ACCESS_KEY", "seaweedfs-users", "openreplay-secret-key")],
 }
@@ -96,17 +99,17 @@ def fix_container(c):
     FORCE = {
         "pg_password":           ("openreplay-secret", "db-password"),
         "POSTGRES_PASSWORD":     ("openreplay-secret", "db-password"),
-        "ch_password":           ("clickhouse-secret", "password"),
-        "CLICKHOUSE_PASSWORD":   ("clickhouse-secret", "password"),
+        "ch_password":           ("openreplay-secret", "clickhouse-password"),
+        "CLICKHOUSE_PASSWORD":   ("openreplay-secret", "clickhouse-password"),
         "redis_password":        ("redis-users",       "openreplay-password"),
-        "CH_PASSWORD":           ("clickhouse-secret", "password"),
-        "ch_password":           ("clickhouse-secret", "password"),
+        "CH_PASSWORD":           ("openreplay-secret", "clickhouse-password"),
+        "ch_password":           ("openreplay-secret", "clickhouse-password"),
         "S3_KEY":                ("seaweedfs-users",       "openreplay-access-key"),
         "S3_SECRET":             ("seaweedfs-users",       "openreplay-secret-key"),
         # 마이그레이션 Job 의 initContainer·컨테이너가 쓰는 이름.
         # 차트 Secret 의 값은 미치환 "{{ randAlphaNum 20}}" 라 인증이 실패한다.
         "PGPASSWORD":            ("openreplay-secret", "db-password"),
-        "CLICKHOUSE_PASS":       ("clickhouse-secret", "password"),
+        "CLICKHOUSE_PASS":       ("openreplay-secret", "clickhouse-password"),
     }
     # chalice(psycopg2)는 접속 정보를 개별 변수로 받는다 — *_STRING 이 없다.
     PLAIN = {

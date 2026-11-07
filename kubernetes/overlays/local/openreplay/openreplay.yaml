@@ -842,8 +842,8 @@ spec:
         - name: ch_password
           valueFrom:
             secretKeyRef:
-              name: clickhouse-secret
-              key: password
+              name: openreplay-secret
+              key: clickhouse-password
         - name: pg_user
           value: openreplay
         - name: pg_password
@@ -974,8 +974,8 @@ spec:
         - name: CLICKHOUSE_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: clickhouse-secret
-              key: password
+              name: openreplay-secret
+              key: clickhouse-password
         - name: redis_password
           valueFrom:
             secretKeyRef:
@@ -1020,8 +1020,8 @@ spec:
         - name: CH_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: clickhouse-secret
-              key: password
+              name: openreplay-secret
+              key: clickhouse-password
         - name: CLICKHOUSE_STRING
           value: clickhouse-headless.local.svc.cluster.local:9000
         - name: CLICKHOUSE_HTTP_STRING
@@ -1472,8 +1472,8 @@ spec:
         - name: ch_password
           valueFrom:
             secretKeyRef:
-              name: clickhouse-secret
-              key: password
+              name: openreplay-secret
+              key: clickhouse-password
         - name: ch_host
           value: clickhouse-headless.local.svc.cluster.local
         - name: ch_port
@@ -1730,8 +1730,8 @@ spec:
         - name: CLICKHOUSE_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: clickhouse-secret
-              key: password
+              name: openreplay-secret
+              key: clickhouse-password
         - name: redis_password
           valueFrom:
             secretKeyRef:
@@ -1742,8 +1742,8 @@ spec:
         - name: CH_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: clickhouse-secret
-              key: password
+              name: openreplay-secret
+              key: clickhouse-password
         - name: CLICKHOUSE_STRING
           value: clickhouse-headless.local.svc.cluster.local:9000
         - name: LICENSE_KEY
@@ -3432,8 +3432,8 @@ spec:
         - name: CH_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: clickhouse-secret
-              key: password
+              name: openreplay-secret
+              key: clickhouse-password
         - name: CH_USE_TLS
           value: 'false'
         command:
@@ -3553,8 +3553,8 @@ spec:
         - name: CH_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: clickhouse-secret
-              key: password
+              name: openreplay-secret
+              key: clickhouse-password
         - name: CH_USE_TLS
           value: 'false'
         command:

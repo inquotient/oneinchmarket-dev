@@ -241,6 +241,10 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: clickhouse-bootstrap
+        # 비밀번호 로테이터(Gotcha 220) — 관리자로 ALTER USER 하고 새 값으로 다시 붙어 본다.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: rotator-clickhouse
       ports:
         - { protocol: TCP, port: 8123 }
         - { protocol: TCP, port: 9000 }

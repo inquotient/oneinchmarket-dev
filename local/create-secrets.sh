@@ -247,9 +247,14 @@ mk jenkins-secret        "admin-password=$JK_ADMIN"
 #   둘을 같은 Secret 에 두는 것은 상류 차트의 선택이다(render-openmeter.py 가
 #   그 이름을 읽는다). 이 둘이 없어 openmeter 5종이 전부
 #   `Init:CreateContainerConfigError` 였다 — 베어메탈 첫 구축 실측.
-mk clickhouse-secret     "password=$(gen)" "openmeter-password=$(gen)" "openmeter-pg-password=$(gen)"
-# OpenReplay — PostgreSQL 롤. ClickHouse·Redis·Kafka·SeaweedFS 는 기존 것을 쓴다.
-mk openreplay-secret     "db-password=$(gen)"
+# ★ `password` 키는 2026-11-07 까지 ClickHouse 관리자이자 OpenReplay 앱 비밀번호였다 — 이제 아무도 읽지 않는다
+#   (관리자 -> clickhouse-admin-secret · OpenReplay -> openreplay-secret/clickhouse-password, Gotcha 220).
+mk clickhouse-secret     "openmeter-password=$(gen)" "openmeter-pg-password=$(gen)"
+# ClickHouse 관리자 oim_admin — statefulset 의 엔트리포인트가 users.xml 로 굽는다. 앱 키와 다른 Secret 인 이유는
+#   같은 Secret 이면 앱 비밀번호 회전에도 Reloader 가 ClickHouse 를 재시작하기 때문이다.
+mk clickhouse-admin-secret "password=$(gen)"
+# OpenReplay — PostgreSQL 롤 · ClickHouse 앱 사용자 openreplay(clickhouse-bootstrap 이 만든다). Redis·Kafka·SeaweedFS 는 기존 것을 쓴다.
+mk openreplay-secret     "db-password=$(gen)" "clickhouse-password=$(gen)"
 # ★★★ or-secrets — OpenReplay 의 앱 내부 서명 키. 2026-10-05 에 **여기로
 #   옮겼다.** 그 전까지는 차트가 렌더한 Secret 이 git 에 있었고, 값이 전부
 #   미치환 리터럴 `{{ randAlphaNum 20 }}` 였다 — 즉 **누구나 아는 문자열로

@@ -403,7 +403,8 @@ $K port-forward svc/proxysql              16033:6033    # MySQL 와이어
 | Host / Port | `localhost` / `18123` (HTTP) |
 | Database | `openmeter` 또는 `openreplay` |
 | Username | **`openmeter`** 또는 **`openreplay`** |
-| Password | `pw clickhouse-secret openmeter-password` / `pw clickhouse-secret password` |
+| Password | `pw clickhouse-secret openmeter-password` / `pw openreplay-secret clickhouse-password` |
+| 관리자 | `oim_admin` / `pw clickhouse-admin-secret password` — 사용자·권한 관리용. 앱 사용자 둘은 자기 DB 만 본다(2026-11-07, Gotcha 220) |
 | JDBC URL | `jdbc:clickhouse://localhost:18123/openmeter` |
 
 > **★ `default` 사용자가 이 인스턴스에 없다**(Gotcha 27). DBeaver 는 기본으로

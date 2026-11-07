@@ -73,6 +73,8 @@ CRONJOBS=(
   "rotate-redis-password"
   "rotate-seaweedfs-password"
   "rotate-seaweedfs-root"
+  "rotate-clickhouse-apps"
+  "rotate-clickhouse-admin"
   "rotate-admin-passwords"
   # ★ rotation-git-sync 는 2026-11-06 에 지웠다 — 원천이 OpenBao 가 되어 Secret 을 git 에 둘 이유가 없다.
   # ★★ 주기 로테이션이 아니라 **필요할 때 실행**한다(사용자 결정, 2026-11-06 — Gotcha 212).
@@ -80,7 +82,7 @@ CRONJOBS=(
   #   그래서 ON_DEMAND 는 suspend: true 가 **정상**이고, false 면 결정과 어긋나 [FAIL] 이다.
   #   rotate-admin-passwords 는 옛 설계라 돌릴 수 없다 — 여전히 [FAIL] 이다.
 )
-ON_DEMAND=" rotate-postgresql-password rotate-postgresql-apps rotate-mariadb-password rotate-mariadb-apps rotate-mongodb-apps rotate-mongodb-password rotate-redis-password rotate-seaweedfs-password rotate-seaweedfs-root "
+ON_DEMAND=" rotate-postgresql-password rotate-postgresql-apps rotate-mariadb-password rotate-mariadb-apps rotate-mongodb-apps rotate-mongodb-password rotate-redis-password rotate-seaweedfs-password rotate-seaweedfs-root rotate-clickhouse-apps rotate-clickhouse-admin "
 
 for cj in "${CRONJOBS[@]}"; do
   if INFO=$(kubectl get cronjob "$cj" -n "$NAMESPACE" -o go-template='{{.spec.schedule}}{{"|"}}{{if .spec.suspend}}true{{else}}false{{end}}' 2>/dev/null); then
@@ -122,6 +124,7 @@ SECRETS=(
   "redis-users"      # 소비자별 ACL 사용자(2026-11-06)
   "seaweedfs-secret"
   "seaweedfs-users"      # 소비자별 버킷 사용자(2026-11-06)
+  "clickhouse-admin-secret"   # ClickHouse 관리자 oim_admin(2026-11-07)
   "keycloak-secret"
   "gitlab-secret"
 )

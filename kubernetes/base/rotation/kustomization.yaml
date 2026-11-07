@@ -11,6 +11,7 @@ resources:
   - rotate-mongodb.yaml
   - rotate-db-apps.yaml           # MariaDB·MongoDB 앱 사용자(2026-11-07)
   - rotate-redis.yaml
+  - rotate-clickhouse.yaml        # 앱 사용자 둘 + 관리자(2026-11-07, Gotcha 220)
   # Infrastructure Rotation
   - rotate-seaweedfs.yaml
   # Admin Rotation (90일 주기)

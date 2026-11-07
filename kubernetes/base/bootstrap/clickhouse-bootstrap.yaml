@@ -22,6 +22,18 @@
 #   전용 SA 가 `allow-database-access` 의 ClickHouse 규칙에, 파드 라벨이
 #   `allow-clickhouse-access` NetworkPolicy 에 **각각** 있어야 한다.
 #   둘 중 하나만 있으면 증상이 오류가 아니라 **무한 대기**다(Gotcha 19·147).
+#
+# ★★★ 2026-11-07 — 관리자와 앱 사용자를 갈랐다(Gotcha 220).
+#   그 전에는 statefulset 이 만드는 `openreplay` 가 **관리자**(users.xml · access_management · 전 DB)였고
+#   OpenReplay 앱이 그 자격으로 붙어 openmeter(과금) DB 를 읽고 사용자를 만들 수 있었다.
+#   지금은 관리자 `oim_admin`(clickhouse-admin-secret, users.xml)만 statefulset 이 만들고
+#   앱 사용자 둘은 이 Job 이 SQL 사용자로 만든다:
+#     openreplay  ALL ON default·openreplay·experimental·product_analytics + CREATE/DROP FUNCTION(마이그레이션의 UDF)
+#     openmeter   ALL ON openmeter
+#   권한 범위는 실측으로 정했다 — query_log 30일의 used_privileges 와, 같은 권한의 시험 사용자로
+#   앱·마이그레이션 질의를 쳐 보고 openmeter·CREATE USER·system.users·CREATE DATABASE 가 거부되는 것을 봤다.
+#   ★ OpenReplay 가 새 데이터베이스를 쓰는 판으로 올라가면 그 DB 를 GRANT 목록에 더할 것 —
+#     빠뜨리면 마이그레이션이 Code 497(ACCESS_DENIED)로 실패한다.
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -79,56 +91,88 @@ spec:
           args:
             - |
               set -euo pipefail
+              # ★ 관리자 자격은 환경변수(CLICKHOUSE_USER·CLICKHOUSE_PASSWORD)로만 넘긴다 — clickhouse-client 가
+              #   그 둘을 읽으므로 비밀번호가 프로세스 인자에 남지 않는다. 앱 비밀번호가 든 SQL 은 stdin 으로 보낸다.
+              export CLICKHOUSE_USER="${CH_ADMIN_USER}" CLICKHOUSE_PASSWORD="${CH_ADMIN_PASSWORD}"
               CH="clickhouse-client -h clickhouse-headless --port 9000"
-              ADMIN="--user ${CH_ADMIN_USER} --password ${CH_ADMIN_PASSWORD}"
 
               # ★ 대기 루프에 `-q`/`>/dev/null` 를 쓰지 않는다 — 출력을 죽이면
               #   "응답 없음" 과 "자격 거부" 가 구분되지 않는다(Gotcha 120).
+              #   ★ 관리자를 갈아끼운 직후에는 옛 파드가 oim_admin 을 몰라 인증 실패가 몇 번 나온다 — 정상이다.
               n=0
-              until $CH $ADMIN -q "SELECT 1" ; do
+              until $CH -q "SELECT 1" ; do
                 n=$((n+1))
                 if [ "$n" -ge 60 ]; then
-                  echo "[error] ClickHouse 가 60회(약 5분) 동안 응답하지 않았다" >&2
+                  echo "[error] ClickHouse 가 60회(약 5분) 동안 관리자 자격을 받지 않았다" >&2
                   exit 1
                 fi
                 echo "[info] ClickHouse 대기 중 ($n/60)"
                 sleep 5
               done
-              echo "[ok] ClickHouse 접속 성공"
+              echo "[ok] ClickHouse 접속 성공 ($($CH -q 'SELECT currentUser()'))"
 
-              # ★★ 멱등하다. 비밀번호는 **매번 다시 쓴다** — Secret 이 로테이션
-              #   되면 ClickHouse 쪽도 따라가야 하고, 그러지 않으면 증상이
-              #   "인증 실패" 로만 보인다. 사용자 생성과 비밀번호 설정을
-              #   분리해 두는 이유다.
-              $CH $ADMIN -q "CREATE DATABASE IF NOT EXISTS openmeter"
-              $CH $ADMIN -q "CREATE USER IF NOT EXISTS openmeter IDENTIFIED WITH sha256_password BY '${OPENMETER_CH_PASSWORD}'"
-              $CH $ADMIN -q "ALTER USER openmeter IDENTIFIED WITH sha256_password BY '${OPENMETER_CH_PASSWORD}'"
-              # ★ 범위를 좁힌다 — openmeter 는 openreplay 데이터베이스를 보지
-              #   못해야 한다(Gotcha 27).
-              $CH $ADMIN -q "GRANT ALL ON openmeter.* TO openmeter"
+              # ★ 앱 사용자가 users.xml 에 남아 있으면(옛 statefulset) ALTER USER 가 실패한다 — 먼저 가려 둔다.
+              for u in openreplay openmeter; do
+                st=$($CH -q "SELECT storage FROM system.users WHERE name='$u'")
+                case "$st" in
+                  ""|local_directory) ;;
+                  *) echo "[error] $u 가 $st 저장소에 있다 — statefulset 이 아직 옛 판이다" >&2; exit 1 ;;
+                esac
+              done
 
-              # ★★ 판정을 "오류가 없다" 로 두지 않는다 — 실제로 그 자격으로
-              #   붙어 본다(Gotcha 117·163 ①: 가드는 결과로 세워야 한다).
-              got=$(clickhouse-client -h clickhouse-headless --port 9000 \
-                      --user openmeter --password "${OPENMETER_CH_PASSWORD}" \
-                      --database openmeter -q "SELECT currentUser()")
-              if [ "$got" != "openmeter" ]; then
-                echo "[error] openmeter 자격으로 붙지 못했다 (받은 값: '${got}')" >&2
-                exit 1
-              fi
-              echo "[ok] openmeter 사용자·데이터베이스 준비 완료"
+              # ★★ 멱등하다. 비밀번호는 **매번 다시 쓴다** — Secret 이 로테이션되면 ClickHouse 쪽도 따라가야 하고,
+              #   그러지 않으면 증상이 "인증 실패" 로만 보인다. 사용자 생성과 비밀번호 설정을 분리해 둔 이유다.
+              # ★ 로테이션(rotate-clickhouse-apps)과 겹치면 이 Job 이 옛 Secret 값으로 되돌릴 수 있다 —
+              #   동기화 중에는 로테이터를 돌리지 말 것(rotate-db-apps.yaml 의 같은 주의).
+              {
+                for db in openmeter experimental product_analytics; do
+                  echo "CREATE DATABASE IF NOT EXISTS $db;"
+                done
+                printf "CREATE USER IF NOT EXISTS openmeter IDENTIFIED WITH sha256_password BY '%s';\n" "${OPENMETER_CH_PASSWORD}"
+                printf "ALTER USER openmeter IDENTIFIED WITH sha256_password BY '%s';\n" "${OPENMETER_CH_PASSWORD}"
+                printf "CREATE USER IF NOT EXISTS openreplay IDENTIFIED WITH sha256_password BY '%s';\n" "${OPENREPLAY_CH_PASSWORD}"
+                printf "ALTER USER openreplay IDENTIFIED WITH sha256_password BY '%s';\n" "${OPENREPLAY_CH_PASSWORD}"
+                # ★ 범위를 좁힌다 — openmeter 는 openreplay 를, openreplay 는 openmeter 를 보지 못한다(Gotcha 27).
+                echo "GRANT ALL ON openmeter.* TO openmeter;"
+                for db in default openreplay experimental product_analytics; do
+                  echo "GRANT ALL ON $db.* TO openreplay;"
+                done
+                # 마이그레이션이 SQL UDF(openreplay_version · openreplay_migration_state · or_*)를 만든다 — UDF 는 전역이다.
+                echo "GRANT CREATE FUNCTION, DROP FUNCTION ON *.* TO openreplay;"
+              } | $CH --multiquery
+
+              # ★★ 판정을 "오류가 없다" 로 두지 않는다 — 실제로 그 자격으로 붙어 본다(Gotcha 117·163 ①).
+              #   그리고 좁힌 것이 정말 좁은지도 본다 — 열려 있으면 실패다.
+              chk() { CLICKHOUSE_USER="$1" CLICKHOUSE_PASSWORD="$2" clickhouse-client -h clickhouse-headless --port 9000 -q "$3" 2>&1; }
+              [ "$(chk openmeter "${OPENMETER_CH_PASSWORD}" 'SELECT currentUser()')" = openmeter ] \
+                || { echo "[error] openmeter 자격으로 붙지 못했다" >&2; exit 1; }
+              [ "$(chk openreplay "${OPENREPLAY_CH_PASSWORD}" 'SELECT currentUser()')" = openreplay ] \
+                || { echo "[error] openreplay 자격으로 붙지 못했다" >&2; exit 1; }
+              chk openreplay "${OPENREPLAY_CH_PASSWORD}" 'SHOW TABLES FROM experimental' >/dev/null \
+                || { echo "[error] openreplay 가 experimental 을 읽지 못한다" >&2; exit 1; }
+              for q in "SELECT count() FROM system.users" "CREATE USER oim_bootstrap_probe"; do
+                out=$(chk openreplay "${OPENREPLAY_CH_PASSWORD}" "$q" || true)
+                case "$out" in
+                  *"Code: 497"*) ;;
+                  *) echo "[error] openreplay 가 관리 동작을 거부당하지 않았다: $q" >&2; exit 1 ;;
+                esac
+              done
+              echo "[ok] 앱 사용자 openmeter·openreplay 준비 완료 — 관리 동작은 거부된다"
           env:
-            # 관리 자격 — statefulset 이 CLICKHOUSE_USER 로 만든 사용자다.
-            # `CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1` 이라 CREATE USER 가 된다.
+            # 관리 자격 — statefulset 이 CLICKHOUSE_USER 로 만든 사용자다(users.xml · access_management).
             - name: CH_ADMIN_USER
-              value: openreplay
+              value: oim_admin
             - name: CH_ADMIN_PASSWORD
-              valueFrom: { secretKeyRef: { name: clickhouse-secret, key: password } }
+              valueFrom: { secretKeyRef: { name: clickhouse-admin-secret, key: password } }
             # ★ openmeter 의 ClickHouse 비밀번호는 `clickhouse-secret` 안에 있다
             #   — 상류 차트의 선택이고 render-openmeter.py 가 그 이름을 읽는다.
             #   PostgreSQL 쪽은 같은 Secret 의 `openmeter-pg-password` 로 다르다.
             - name: OPENMETER_CH_PASSWORD
               valueFrom: { secretKeyRef: { name: clickhouse-secret, key: openmeter-password } }
+            # ★ openreplay 의 ClickHouse 비밀번호는 openreplay-secret 에 있다(render-openreplay.py 가 그 이름을 쓴다) —
+            #   clickhouse-secret 에 두면 openreplay 회전이 과금 워크로드(openmeter)까지 재시작시킨다.
+            - name: OPENREPLAY_CH_PASSWORD
+              valueFrom: { secretKeyRef: { name: openreplay-secret, key: clickhouse-password } }
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: false
