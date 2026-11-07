@@ -56,7 +56,7 @@ spec:
         # Kafka 가 뜨기 전에 Connect 가 붙으면 내부 토픽 생성에 실패하고
         # CrashLoop 한다. 재시도는 하지만 로그가 지저분해진다.
         - name: wait-kafka
-          image: gitlab-registry.local.svc.cluster.local:5050/oneinch/kafka-connect:4.3.1-dbz3.6.2
+          image: gitlab-registry.local.svc.cluster.local:5050/oneinch/kafka-connect:4.4.0-dbz3.7.1
           imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
@@ -100,7 +100,7 @@ spec:
               mountPath: /tmp
       containers:
         - name: kafka-connect
-          image: gitlab-registry.local.svc.cluster.local:5050/oneinch/kafka-connect:4.3.1-dbz3.6.2
+          image: gitlab-registry.local.svc.cluster.local:5050/oneinch/kafka-connect:4.4.0-dbz3.7.1
           imagePullPolicy: IfNotPresent
           # ★ 기동 래퍼 — ConfigMap 은 읽기 전용이므로 /tmp 로 복사해
           #   파드 IP 를 덧붙인다. 그러지 않으면 워커가 자기 주소를

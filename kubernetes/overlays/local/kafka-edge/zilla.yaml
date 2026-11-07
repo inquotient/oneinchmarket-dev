@@ -201,7 +201,7 @@ spec:
         # Zilla 가 없는 dev·prod 에도 토픽이 생긴다. 이 신원(sa/zilla)은
         # authz.yaml 에서 9092 를 허용받는다.
         - name: ensure-topic
-          image: docker.io/apache/kafka:4.3.1
+          image: docker.io/apache/kafka:4.4.0
           command: ["/bin/sh", "-c"]
           args:
             - |

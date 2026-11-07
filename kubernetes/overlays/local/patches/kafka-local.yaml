@@ -61,8 +61,8 @@ spec:
         - name: gitlab-registry-secret
       initContainers:
         - name: fetch-ranger-plugin
-          # Ranger 2.9.0 Kafka 플러그인을 kafka-clients 4.3.1 대상으로 다시 빌드했다.
-          image: gitlab-registry.local.svc.cluster.local:5050/oneinch/ranger-kafka-plugin:2.9.0-kafka4-solrj9
+          # Ranger 2.9.0 Kafka 플러그인을 kafka-clients 4.4.0 대상으로 다시 빌드했다.
+          image: gitlab-registry.local.svc.cluster.local:5050/oneinch/ranger-kafka-plugin:2.9.0-kafka44-solrj9
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "-c"]
           args:

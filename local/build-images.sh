@@ -37,7 +37,7 @@ log() { echo "[build] $*"; }
 #   구조적으로 어긋날 수 없다.
 #   ★ :latest 는 넣지 않는다. 매니페스트가 쓰지 않고 Kyverno disallow-latest
 #     가 막는 이름이다.
-IMAGE_TAGS="spark-iceberg:3.5.6 livy:0.9.0-incubating ranger-usersync:2.9.0 hbase:3.0.0 ranger-hdfs-plugin:2.9.0-jersey2 ranger-hbase-plugin:2.9.0-hbase3 ranger-hive-plugin:2.9.0-hive4 ranger-knox-plugin:2.9.0-knox3-jetty9 ranger-kafka-plugin:2.9.0-kafka4-solrj9 ranger-solr-plugin:2.9.0-solr10 jenkins:2.568.3-lts proxysql:4.0.11 kafka-connect:4.3.1-dbz3.6.2 backstage:1.54.0"
+IMAGE_TAGS="spark-iceberg:3.5.6 livy:0.9.0-incubating ranger-usersync:2.9.0 hbase:3.0.0 ranger-hdfs-plugin:2.9.0-jersey2 ranger-hbase-plugin:2.9.0-hbase3 ranger-hive-plugin:2.9.0-hive4 ranger-knox-plugin:2.9.0-knox3-jetty9 ranger-kafka-plugin:2.9.0-kafka44-solrj9 ranger-solr-plugin:2.9.0-solr10 jenkins:2.568.3-lts proxysql:4.0.11 kafka-connect:4.4.0-dbz3.7.1 backstage:1.54.0"
 ALL_IMAGES="$(for _it in $IMAGE_TAGS; do printf '%s ' "${_it%%:*}"; done)"
 if [ "${1:-}" = "--list" ]; then
   for n in $ALL_IMAGES; do echo "  $n"; done
@@ -136,7 +136,7 @@ if want ranger-kafka-plugin; then
   # Scala 2.12 아티팩트가 없고 libs/ 에 Jersey 3 만 있어, 4.3.1 로 다시 컴파일하고
   # Jersey 2 를 impl 에 함께 넣는다 — 상세는 docker/ranger-kafka-plugin/Dockerfile 머리말.
   # ★ Kafka 이미지(apache/kafka)를 올리면 이 이미지도 다시 빌드해 확인할 것.
-  sudo podman build --format docker --network host     -t oneinch/ranger-kafka-plugin:latest -t oneinch/ranger-kafka-plugin:2.9.0-kafka4-solrj9     "${REPO_ROOT}/docker/ranger-kafka-plugin"
+  sudo podman build --format docker --network host     -t oneinch/ranger-kafka-plugin:latest -t oneinch/ranger-kafka-plugin:2.9.0-kafka44-solrj9     "${REPO_ROOT}/docker/ranger-kafka-plugin"
 fi
 
 if want ranger-solr-plugin; then
@@ -195,7 +195,7 @@ fi
 
 if want kafka-connect; then
   log "oneinch/kafka-connect 빌드"
-  # 브로커와 **같은 베이스**(apache/kafka:4.3.1) 위에 Debezium MariaDB
+  # 브로커와 **같은 베이스**(apache/kafka:4.4.0) 위에 Debezium MariaDB
   # 커넥터만 얹는다. 상류의 quay.io/debezium/connect 는 715 MiB 에 쓰지 않는
   # 커넥터가 14종 더 들어 있어 취약점 표면만 늘린다 — 이 클러스터는 Trivy
   # Operator·Dependency-Track 이 상시로 돈다. 상세는
@@ -205,7 +205,7 @@ if want kafka-connect; then
   #   올려도 다른 이미지가 된다. kafka-statefulset.yaml 의 image 를 올릴 때
   #   이 태그와 Dockerfile 의 FROM 을 함께 움직일 것.
   sudo podman build --format docker --network host \
-    -t oneinch/kafka-connect:latest -t oneinch/kafka-connect:4.3.1-dbz3.6.2 \
+    -t oneinch/kafka-connect:latest -t oneinch/kafka-connect:4.4.0-dbz3.7.1 \
     "${REPO_ROOT}/docker/kafka-connect"
 fi
 

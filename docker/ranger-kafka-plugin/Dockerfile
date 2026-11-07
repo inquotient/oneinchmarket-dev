@@ -80,8 +80,17 @@ FROM docker.io/library/maven:3.9-eclipse-temurin-17 AS build
 COPY --from=jdk8 /root/.m2 /root/.m2
 COPY --from=jdk8 /src /src
 WORKDIR /src/apache-ranger-2.9.0
+# ★★★ Kafka 4.4.0 에서 org.apache.kafka.common.utils.SecurityUtils 가 …common.utils.internals.SecurityUtils 로 옮겨졌다
+#   (2026-11-07 바이트코드 실측 — 공개 static 메서드 9개는 그대로다). 옛 import 로 빌드한 플러그인을 4.4 브로커에 얹으면
+#   인가 도중 NoClassDefFoundError → 정책 0건 = 전면 거부라 **브로커가 뜨지 못한다**(Gotcha 217). 플러그인이 부르는
+#   Kafka 클래스 25개 중 이것 하나만 빠진다. 인터페이스(Authorizer 등)는 같아서 인터페이스 대조로는 놓친다.
+RUN set -eux; \
+    F=plugin-kafka/src/main/java/org/apache/ranger/authorization/kafka/authorizer/RangerKafkaAuthorizer.java; \
+    sed -i 's/^import org\.apache\.kafka\.common\.utils\.SecurityUtils;$/import org.apache.kafka.common.utils.internals.SecurityUtils;/' "$F"; \
+    test "$(grep -c '^import org.apache.kafka.common.utils.internals.SecurityUtils;$' "$F")" -eq 1; \
+    if grep -rq 'org\.apache\.kafka\.common\.utils\.SecurityUtils' plugin-kafka/src ranger-kafka-plugin-shim/src; then echo "[guard] 옛 SecurityUtils 참조가 남았다" >&2; exit 1; fi
 RUN mvn -B -pl plugin-kafka,ranger-kafka-plugin-shim \
-        -Dkafka.version=4.3.1 -Dscala.binary.version=2.13 \
+        -Dkafka.version=4.4.0 -Dscala.binary.version=2.13 \
         -DskipTests -Dmaven.test.skip=true -Dmaven.javadoc.skip=true \
         -Drat.skip=true -Dcheckstyle.skip=true -Dsort.skip=true \
         -Dsortpom.skip=true -Dspotbugs.skip=true -Dfindbugs.skip=true \
@@ -181,6 +190,6 @@ RUN set -eux; \
 
 FROM docker.io/library/busybox:1.36
 LABEL org.opencontainers.image.title="ranger-kafka-plugin (Kafka 4.3 / Jersey 2)" \
-      org.opencontainers.image.description="Apache Ranger 2.9.0 Kafka plugin rebuilt against kafka-clients 4.3.1 with the Jersey 2 REST client backport." \
+      org.opencontainers.image.description="Apache Ranger 2.9.0 Kafka plugin rebuilt against kafka-clients 4.4.0 with the Jersey 2 REST client backport." \
       org.opencontainers.image.licenses="Apache-2.0"
 COPY --from=build /plugin /plugin

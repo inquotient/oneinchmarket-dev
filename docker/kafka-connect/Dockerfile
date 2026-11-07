@@ -27,10 +27,10 @@
 # 베이스 이미지에 curl·tar 가 있다고 가정하지 않기 위해 단계를 나눈다.
 FROM docker.io/library/alpine:3.22 AS fetch
 
-ARG DEBEZIUM_VERSION=3.6.2.Final
+ARG DEBEZIUM_VERSION=3.7.1.Final
 # 2026-09-10 에 실제로 받아 계산한 값이다. 상류가 아티팩트를 바꾸면
 # 여기서 빌드가 **실패해야 한다** — 조용히 다른 것을 굽는 것보다 낫다.
-ARG DEBEZIUM_MARIADB_SHA256=407a4a8d5c8715e025008e885937413591e63b5d49a6bb0e2d6ca284e0672166
+ARG DEBEZIUM_MARIADB_SHA256=ba2b6391931d2c81c8d1c421411c61f64dbbca32beaee2ef162c76eac85f8c34
 
 RUN apk add --no-cache curl tar
 
@@ -45,7 +45,7 @@ RUN set -eux; \
     ls /plugins/debezium-connector-mariadb/*.jar >/dev/null
 
 # ── 2단계: 브로커와 같은 베이스 위에 얹는다 ───────────────────────────────
-FROM docker.io/apache/kafka:4.3.1
+FROM docker.io/apache/kafka:4.4.0
 
 # plugin.path 가 가리키는 곳. 베이스에는 이 디렉터리가 없다.
 # uid/gid 1000 은 이 이미지의 appuser 다 — Connect 워커가 그 사용자로 돈다.
