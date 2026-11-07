@@ -205,6 +205,15 @@ kubectl -n trivy-system patch cm trivy-operator-trivy-config --type merge -p '{"
 #
 #   ★ 서버와 클라이언트 **버전이 같아야 한다** — trivy-server.yaml 을 함께 옮길 것.
 kubectl -n trivy-system patch cm trivy-operator-trivy-config --type merge -p '{"data":{"trivy.tag":"0.76.2"}}' || true
+# ★★★ 2026-11-08 — 0.36.1/0.76.2 로 올린 뒤 오퍼레이터가 OOMKilled 로 CrashLoop 이었다(11시간 113회, Gotcha 221).
+#   ① SBOM 생성을 끈다 — 다이제스트가 든 이미지 참조(`name@sha256:…`·`name:tag@sha256:…`)에서 다이제스트를
+#      두 번 붙여(`@sha256@sha256:`) CycloneDX 직렬화가 실패하고 그 Job 이 끝없이 재시도됐다(hive·knox·cilium).
+#      그리고 SbomReport 548개가 JSON 417MB 라 오퍼레이터 캐시만으로 1Gi 를 넘겼다. 이 레포에 SbomReport 소비자는 0이다.
+#   ② UNKNOWN 심각도를 뺀다 — 등급이 없는 항목이 리포트 바이트의 50% 였고, 큰 이미지의 리포트가 저장 한도
+#      (kine gRPC 2MiB · API 서버 3MiB)를 넘어 영원히 실패했다. LOW 이상은 그대로 남는다.
+#   다시 켤 조건: 상류가 다이제스트 중복을 고친 판(①) · 리포트를 CR 밖에 저장하는 구성(②).
+kubectl -n trivy-system patch cm trivy-operator-config --type merge -p '{"data":{"OPERATOR_SBOM_GENERATION_ENABLED":"false"}}' || true
+kubectl -n trivy-system patch cm trivy-operator-trivy-config --type merge -p '{"data":{"trivy.severity":"LOW,MEDIUM,HIGH,CRITICAL"}}' || true
 kubectl -n trivy-system patch cm trivy-operator-trivy-config --type merge -p '{"data":{"trivy.nonSslRegistry.gitlab":"gitlab-registry.local.svc.cluster.local:5050"}}' || true
 
 # 5-2-b. 스캔 Job 이 **노드 containerd 에서** 이미지를 읽게 한다 (§9-14 ①)
