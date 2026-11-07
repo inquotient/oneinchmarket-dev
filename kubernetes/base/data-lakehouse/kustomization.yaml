@@ -5,6 +5,8 @@ resources:
   # MinIO - Object Storage
   - minio/minio-statefulset.yaml
   - minio/minio-headless.yaml
+  - seaweedfs/seaweedfs-statefulset.yaml
+  - seaweedfs/seaweedfs-headless.yaml
   # - minio/minio-secret.enc.yaml  # SOPS: re-enable after ArgoCD SOPS plugin setup
   # Trino - Query Engine
   - trino/trino-statefulset.yaml

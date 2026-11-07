@@ -21,6 +21,8 @@ spec:
         app.kubernetes.io/name: minio
         app.kubernetes.io/component: data-lakehouse
         app.kubernetes.io/part-of: oneinchmarket
+        # S3 엔진 공통 라벨(2026-11-07) — 접근 정책이 엔진 이름이 아니라 이것을 고른다(SeaweedFS 이전).
+        oneinchmarket.io/object-store: s3
     spec:
       serviceAccountName: minio
       # ★★★ quay.io 자격 (2026-10-05). MinIO 는 2026-09-11 에 Docker Hub

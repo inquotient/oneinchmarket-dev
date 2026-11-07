@@ -379,7 +379,8 @@ metadata:
 spec:
   selector:
     matchLabels:
-      app.kubernetes.io/name: minio
+      # MinIO·SeaweedFS 공통(2026-11-07) — S3 엔진을 바꿔도 정책은 그대로다.
+      oneinchmarket.io/object-store: s3
   action: ALLOW
   rules:
     - from:
