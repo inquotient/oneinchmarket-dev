@@ -31,7 +31,8 @@ spec:
   commonName: kafka-ca
   secretName: kafka-ca-tls
   duration: 87600h    # 10년. 로컬 CA 를 만료로 잃는 일이 없게 한다
-  privateKey: {algorithm: RSA, size: 4096, encoding: PKCS8}
+  # CA 는 갱신 때 키를 바꾸지 않는다(cert-manager 1.18 기본값 변경, 2026-11-07)
+  privateKey: {algorithm: RSA, size: 4096, encoding: PKCS8, rotationPolicy: Never}
   issuerRef: {name: kafka-selfsigned, kind: Issuer}
 ---
 apiVersion: cert-manager.io/v1

@@ -45,6 +45,9 @@ spec:
   privateKey:
     algorithm: ECDSA
     size: 256
+    # CA 는 갱신 때 키를 바꾸지 않는다 — cert-manager 1.18 부터 기본값이 Always 다(2026-11-07).
+    #   CA 키가 바뀌면 이 CA 로 서명된 인증서와 이 CA 를 신뢰 목록에 둔 파드가 한꺼번에 어긋난다.
+    rotationPolicy: Never
   issuerRef:
     name: gateway-selfsigned
     kind: Issuer
