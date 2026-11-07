@@ -97,7 +97,7 @@ cd scripts/security-verification && ./run-all.sh [namespace]
 
 - **No Helm** — 전부 수기 YAML + Kustomize
 - **Kafka KRaft** — ZooKeeper 없음. 단 `KAFKA_LOG_DIRS` 미설정으로 마운트한 PVC를 쓰지 않는다
-- **Istio Ambient** — ztunnel + waypoint. **현재 dev에서 비활성이고 mTLS는 `PERMISSIVE`다**. local 은 **1.31.4**(2026-11-07), k3s 는 **v1.36.4+k3s1** 이다 — 이 둘은 **짝이 맞아야 한다**(§8-73, Gotcha 47)
+- **Istio Ambient** — ztunnel + waypoint. **현재 dev에서 비활성이고 mTLS는 `PERMISSIVE`다**. local 은 **1.31.4**(2026-11-07), k3s 는 **v1.36.6+k3s1** 이다(2026-11-07 패치 — 바이너리만 교체, `bootstrap-baremetal-k3s.sh` 머리말) — 이 둘은 **짝이 맞아야 한다**(§8-73, Gotcha 47)
 - **ECK operator** — Elasticsearch/Kibana가 `elasticsearch.k8s.elastic.co/v1` CRD 사용. **설치 스크립트는 없다**
 - **Redis** — **공식 `redis`** standalone 6 레플리카. 클러스터가 아니다
 - **Multi-provider IaC** — `infra/modules/`가 count로 분기. **Vultr만 완성**

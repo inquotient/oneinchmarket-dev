@@ -64,7 +64,12 @@ trap 'echo "[bootstrap][ERROR] line $LINENO: $BASH_COMMAND" >&2' ERR
 #   그래서 k3s 1.37(stable v1.37.2+k3s1)은 **Cilium 1.21 정식판이 나온 뒤**다. 순서: Cilium 1.21 로 먼저
 #   (1.21 은 1.36 도 지원한다) -> k3s 1.37. 반대로 하면 그 사이 CNI 가 지원 밖이다(Gotcha 167).
 #   그 전까지는 1.36 줄의 패치(v1.36.6+k3s1, 2026-11-03)까지만 올릴 수 있다.
-K3S_VERSION="${K3S_VERSION:-v1.36.4+k3s1}"
+#   ★ 2026-11-07 에 v1.36.4 -> v1.36.6 으로 올렸다 — 설치 스크립트를 다시 돌리지 않고 **바이너리만** 바꿨다
+#     (릴리스의 sha256sum-amd64.txt 로 검증 · 서버 먼저 · k3s 를 멈춘 동안 server/db 를 복사해 두고 교체).
+#     유닛·인자를 건드리지 않으므로 `--flannel-backend=none` 이 사라지는 함정(Gotcha 47)이 없다.
+#     실측: API 3초 안에 ready · 노드 둘 Ready · 파드 재시작 없음(keda-operator 1회 — API 재기동 중 리더 선출) ·
+#     ambient 편입 전수 통과 · kubernetes 엔드포인트 103 하나(Gotcha 55) · 외부 443 두 노드 302 · ArgoCD Synced/Healthy.
+K3S_VERSION="${K3S_VERSION:-v1.36.6+k3s1}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UPSTREAM_RESOLV="/run/systemd/resolve/resolv.conf"
 
