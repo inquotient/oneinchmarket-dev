@@ -13,12 +13,23 @@
 #   얻고, 그 신원을 허용하는 추가 정책이 authz-external-access.yaml 에 있다.
 #
 # ★★ 왜 Gateway API 의 TCPRoute 가 아닌가
-#   이 클러스터의 Gateway API 는 **standard 채널**이라 CRD 가 `httproutes`·
-#   `grpcroutes` 뿐이다(실측 2026-10-11). `TCPRoute` 를 쓰려면 experimental
-#   채널 CRD 를 넣어야 하고, 그러면 ① ArgoCD 컨트롤러가 클러스터 전체를
-#   캐시하므로 CRD 수에 비례해 메모리가 는다(Gotcha 119 — 한 번 OOMKilled 로
-#   17시간을 잃었다) ② AppProject 화이트리스트를 함께 고쳐야 하고 빠뜨리면
-#   **동기화 전체가 멈춘다**(Gotcha 57). 그 비용을 내지 않고 파드 하나로 끝낸다.
+#   ~~standard 채널이라 TCPRoute 가 없다(2026-10-11)~~ — **2026-11-07 에 전제가 바뀌었다.**
+#   Gateway API v1.6.0 standard 채널에 `TCPRoute`·`TLSRoute`·`UDPRoute` v1 이 들어 있고
+#   이 클러스터에 이미 깔려 있다. istiod 1.31.4 도 그것을 감시한다.
+#   kubectl 로 시범을 해 보았다(별도 Gateway `db-tcp-pilot`, 시범 뒤 지웠다):
+#     ZooKeeper   TCPRoute -> zookeeper-headless:2181 로 `ruok` -> `imok`
+#                 (headless 백엔드도 EDS 로 풀린다 — ORIGINAL_DST 문제 없음)
+#     PostgreSQL  게이트웨이가 신원 `sa/db-tcp-pilot-istio` 로 붙고 ALLOW 정책이 거부했다
+#                 (= 허용 목록의 신원만 바꾸면 통한다)
+#   **그래도 바꾸지 않았다** — 얻는 것이 작고 비용이 크다:
+#     ① 메모리 3Mi(nginx) -> 56Mi(Envoy) · requests 32Mi -> 128Mi
+#     ② DBeaver 용 **고정 NodePort 14개**를 Istio 가 만드는 Service 에 박으려면
+#        parametersRef 로 Service 를 덮어야 한다 — 지금은 우리 Service 에 적혀 있다
+#     ③ 외부 `ingress` 게이트웨이에 리스너를 더하는 것은 **안 된다** — 과금 계량
+#        Telemetry 가 그 게이트웨이를 고르므로 DB 연결이 과금 스트림에 섞일 수 있다
+#        (Gotcha 15·23). 그래서 별도 Gateway 가 필요하고, 그러면 파드 수는 그대로다
+#   얻는 것은 nginx.conf·Service·NetworkPolicy 셋의 짝 맞추기를 TCPRoute 로 바꾸는 것과
+#   Envoy 지표뿐이다. 복귀 조건: 대상이 수십 개로 늘거나 TLS 종료가 필요해질 때.
 #
 # ★ local 전용인 이유: DB 를 클러스터 밖에 노출하는 것은 **개발 랩의 결정**이다.
 #   base 에 두면 prod 오버레이가 그대로 상속해, 금지가 문서에만 남는다 —

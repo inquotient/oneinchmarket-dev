@@ -67,11 +67,14 @@
    열리고 프로토콜에서 죽는다**(Gotcha 147·194). 그래서 신원을 가진 **메시 안
    프록시**(`db-gateway`)를 둔다.
 
-3. **TCP 를 게이트웨이로 보낼 수 없다.** 이 클러스터의 Gateway API 는
-   **standard 채널**이라 CRD 가 `httproutes`·`grpcroutes` 뿐이고
-   **`TCPRoute`·`TLSRoute` 가 없다**(실측). experimental 채널을 넣으면 CRD 가
-   늘어 ArgoCD 컨트롤러 캐시가 커지고(Gotcha 119) AppProject 화이트리스트도
-   함께 고쳐야 한다(Gotcha 57). 그 비용 대신 nginx stream 파드 하나로 끝낸다.
+3. **TCP 는 게이트웨이로 보낼 수 있지만 보내지 않는다.** ~~standard 채널이라
+   `TCPRoute` 가 없다~~ — 2026-11-07 에 Gateway API v1.6.0 standard 채널이
+   `TCPRoute` v1 을 담고 있음을 확인했고, 별도 Istio Gateway 로 시범도 통했다
+   (headless ZooKeeper `imok` · PostgreSQL 은 게이트웨이 신원으로 ALLOW 정책이 판정).
+   그래도 nginx stream 파드(`db-gateway`)를 유지한다 — 메모리가 3Mi -> 56Mi 로 늘고,
+   고정 NodePort 14개를 Istio 가 만드는 Service 에 박아야 하며, 외부 `ingress`
+   게이트웨이에 얹는 것은 과금 계량이 그 게이트웨이를 고르므로 안 된다.
+   사유와 복귀 조건은 `db-gateway.yaml` 머리말에 있다.
 
 4. **443 은 노드 DNAT 가 아니라 `externalIPs` 로 받는다.** NodePort 범위는
    `30000-32767` 이라 443 을 직접 열 수 없고, Gateway API 의 Service 는 Istio
