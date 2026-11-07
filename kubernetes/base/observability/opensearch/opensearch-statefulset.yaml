@@ -35,7 +35,7 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       initContainers:
         - name: render-security-config
-          image: docker.io/opensearchproject/opensearch:3.8.0
+          image: docker.io/opensearchproject/opensearch:3.9.0
           command: ["/bin/bash", "/render/render.sh"]
           env:
             # ★ hash.sh 는 java 를 부른다. 엔트리포인트를 command 로 대체했으므로
@@ -60,7 +60,7 @@ spec:
             - {name: render, mountPath: /render, readOnly: true}
       containers:
         - name: opensearch
-          image: docker.io/opensearchproject/opensearch:3.8.0
+          image: docker.io/opensearchproject/opensearch:3.9.0
           env:
             # ★ 데모 설정 설치를 끈다. 켜 두면 데모 인증서·데모 사용자가 들어오고
             #   OPENSEARCH_INITIAL_ADMIN_PASSWORD 를 요구한다.

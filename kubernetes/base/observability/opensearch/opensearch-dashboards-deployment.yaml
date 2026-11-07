@@ -66,7 +66,7 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: opensearch-dashboards
-          image: docker.io/opensearchproject/opensearch-dashboards:3.8.0
+          image: docker.io/opensearchproject/opensearch-dashboards:3.9.0
           env:
             - name: OPENSEARCH_DASHBOARDS_PASSWORD
               valueFrom: {secretKeyRef: {name: opensearch-secret, key: dashboards-password}}
