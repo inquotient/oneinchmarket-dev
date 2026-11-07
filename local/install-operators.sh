@@ -19,7 +19,7 @@ KYVERNO_VERSION="${KYVERNO_VERSION:-v1.13.2}"
 CERT_MANAGER_VERSION="${CERT_MANAGER_VERSION:-v1.16.2}"
 # 4단계(security-min)
 TETRAGON_VERSION="${TETRAGON_VERSION:-1.7.1}"
-TRIVY_OPERATOR_VERSION="${TRIVY_OPERATOR_VERSION:-v0.34.0}"
+TRIVY_OPERATOR_VERSION="${TRIVY_OPERATOR_VERSION:-v0.36.1}"
 POLICY_REPORTER_VERSION="${POLICY_REPORTER_VERSION:-policy-reporter-3.10.0}"
 EXTERNAL_SECRETS_VERSION="${EXTERNAL_SECRETS_VERSION:-2.10.0}"
 RELOADER_VERSION="${RELOADER_VERSION:-2.2.16}"   # app v1.4.21
@@ -198,7 +198,7 @@ kubectl -n trivy-system patch cm trivy-operator-trivy-config --type merge -p '{"
 #      0.74 는 난수 이름(`/tmp/trivy-2350274864`)이라 이 결함이 없다.
 #
 #   ★ 서버와 클라이언트 **버전이 같아야 한다** — trivy-server.yaml 을 함께 옮길 것.
-kubectl -n trivy-system patch cm trivy-operator-trivy-config --type merge -p '{"data":{"trivy.tag":"0.74.0"}}' || true
+kubectl -n trivy-system patch cm trivy-operator-trivy-config --type merge -p '{"data":{"trivy.tag":"0.76.2"}}' || true
 kubectl -n trivy-system patch cm trivy-operator-trivy-config --type merge -p '{"data":{"trivy.nonSslRegistry.gitlab":"gitlab-registry.local.svc.cluster.local:5050"}}' || true
 
 # 5-2-b. 스캔 Job 이 **노드 containerd 에서** 이미지를 읽게 한다 (§9-14 ①)
