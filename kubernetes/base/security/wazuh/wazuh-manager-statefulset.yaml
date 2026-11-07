@@ -41,7 +41,7 @@ spec:
             limits:   {cpu: 100m, memory: 64Mi}
       containers:
         - name: wazuh-manager
-          image: docker.io/wazuh/wazuh-manager:4.14.7
+          image: docker.io/wazuh/wazuh-manager:4.14.10
           env:
             # 내장 filebeat 가 인덱서로 보내는 경로.
             # indexer 의 security 플러그인을 켰으므로 https + 기본 인증이다.

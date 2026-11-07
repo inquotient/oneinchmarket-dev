@@ -52,7 +52,7 @@ spec:
           #   같은 버전에서 fallbackLng:"en" 이다(두 이미지의 /app/static/assets 를 직접 비교했다). 상류
           #   compose 의 이미지 이름이 safeline-mgt${REGION} 이고 REGION=-g 가 해외판이다. 네 컨테이너와
           #   보조(fvm·luigi)가 **같은 판**이어야 한다 — 섞지 말 것. 바꾸기 전 설정 DB 를 pg_dump 했다.
-          image: docker.io/chaitin/safeline-mgt-g:9.4.1
+          image: docker.io/chaitin/safeline-mgt-g:9.4.3
           ports:
             - containerPort: 1443
               name: mgt
@@ -96,7 +96,7 @@ spec:
             periodSeconds: 20
             timeoutSeconds: 10
         - name: detector
-          image: docker.io/chaitin/safeline-detector-g:9.4.1
+          image: docker.io/chaitin/safeline-detector-g:9.4.3
           env:
             - name: LOG_DIR
               value: /logs/detector
@@ -114,7 +114,7 @@ spec:
             requests: { cpu: 150m, memory: 512Mi }
             limits:   { cpu: "2",  memory: 1536Mi }
         - name: tengine
-          image: docker.io/chaitin/safeline-tengine-g:9.4.1
+          image: docker.io/chaitin/safeline-tengine-g:9.4.3
           # ★★★ Gotcha 79 를 여기서 막는다. 이미지의 nginx.conf 2행이
           #   `# worker_processes 4;` 로 **주석 처리**돼 있어 기본값 auto 가
           #   되고, 컨테이너 안 프로세스는 limit 이 아니라 **호스트 코어 수**를
@@ -193,7 +193,7 @@ spec:
             requests: { cpu: 100m, memory: 384Mi }
             limits:   { cpu: "2",  memory: 3Gi }
         - name: chaos
-          image: docker.io/chaitin/safeline-chaos-g:9.4.1
+          image: docker.io/chaitin/safeline-chaos-g:9.4.3
           env:
             - name: SAFELINE_DB_PASSWORD
               valueFrom: { secretKeyRef: { name: safeline-secret, key: db-password } }

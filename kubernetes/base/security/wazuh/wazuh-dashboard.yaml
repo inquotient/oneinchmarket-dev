@@ -5,7 +5,7 @@
 #   (`No authorization token provided`)만 보였다 — 고장이 아니라 처음부터 화면이 없었던 것이다.
 #   그 호스트는 이제 이 대시보드로 가고, API 는 `wazuh-api.oneinchmarket.local` 로 옮겼다.
 #
-# ★ 이미지에서 확인한 것(wazuh/wazuh-dashboard:4.14.7):
+# ★ 이미지에서 확인한 것(wazuh/wazuh-dashboard:4.14.10):
 #   · uid 1000(wazuh-dashboard). 엔트리포인트가 config/ 에 keystore 를, data/wazuh/config/wazuh.yml
 #     에 API 접속 정보를 **쓴다** — 그래서 rootfs 는 쓰기 가능해야 한다.
 #   · opensearch_dashboards.yml 은 이미지에 **없다**(공식 compose 가 마운트로 준다) — 여기서 준다.
@@ -77,7 +77,7 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: wazuh-dashboard
-          image: docker.io/wazuh/wazuh-dashboard:4.14.7
+          image: docker.io/wazuh/wazuh-dashboard:4.14.10
           ports:
             - {containerPort: 5601, name: http, protocol: TCP}
           env:
