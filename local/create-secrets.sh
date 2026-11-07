@@ -346,7 +346,7 @@ mk dependency-track-secret "db-password=$(gen)" \
 
 # SafeLine WAF — 공용 PG 롤 비밀번호. 관리자 계정은 mgt 가 첫 기동에
 # 생성하고 로그에 1회만 출력한다.
-mk safeline-secret "db-password=$(gen)"
+mk safeline-secret "db-password=$(gen)" "detector-mgmt-token=$(gen 48)"
 # OpenFGA — 인가(WSO2-OSS-MAPPING Phase 2 ⑧, §8-102).
 #   ★ datastore-uri 에 비밀번호가 들어간다 — db-password 와 **반드시 같은 값**이어야
 #   한다. postgres-bootstrap 은 db-password 로 롤을 만들고 OpenFGA 는 URI 로

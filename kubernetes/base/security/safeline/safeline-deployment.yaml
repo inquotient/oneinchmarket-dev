@@ -125,6 +125,12 @@ spec:
           env:
             - name: LOG_DIR
               value: /logs/detector
+            # ★ 9.4.3 의 내부 관리 토큰(2026-11-07) — detector 의 koopa 는 관리면(8001 /stat 등)을 루프백 밖에는
+            #   `X-Safeline-Internal-Token` 이 맞을 때만 연다. luigi 가 같은 값을 그 헤더로 보낸다. 둘이 같은 Secret 키를 읽는다.
+            #   없으면 luigi 의 `request qps failed ... 401 Unauthorized` 가 5초마다 난다(상류 compose 는 이 변수를 두지 않는다 —
+            #   koopa·luigi 바이너리의 문자열에서 찾았다).
+            - name: DETECTOR_MGMT_TOKEN
+              valueFrom: { secretKeyRef: { name: safeline-secret, key: detector-mgmt-token } }
           volumeMounts:
             - name: detector
               mountPath: /resources/detector

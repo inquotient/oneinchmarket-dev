@@ -104,6 +104,9 @@ spec:
               valueFrom: { secretKeyRef: { name: safeline-secret, key: db-password } }
             - name: MGT_IP
               value: safeline-mgt
+            # detector 관리면 토큰 — safeline-deployment.yaml 의 detector 와 같은 키다(9.4.3).
+            - name: DETECTOR_MGMT_TOKEN
+              valueFrom: { secretKeyRef: { name: safeline-secret, key: detector-mgmt-token } }
             - name: LUIGI_PG
               value: postgres://safeline:$(SAFELINE_DB_PASSWORD)@postgresql-headless/safeline?sslmode=disable
           volumeMounts:
