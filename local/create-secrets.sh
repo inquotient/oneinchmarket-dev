@@ -75,7 +75,7 @@ echo "[secrets] 네임스페이스: $NS"
 #    서로 다른 건이 4건 있다 (문서가 지적한 불일치).
 #    로컬에서는 양쪽 키를 같은 값으로 함께 넣어 둘 다 동작하게 한다.
 PG=$(gen);   MARIA_ROOT=$(gen); MARIA_APP=$(gen); MONGO=$(gen); REDIS=$(gen)
-MINIO_PW=$(gen 32); KC_ADMIN=$(gen); GL_ROOT=$(gen)
+S3_ROOT_PW=$(gen 32); KC_ADMIN=$(gen); GL_ROOT=$(gen)
 
 mk postgresql-secret  "postgresql-password=$PG"      "postgres-password=$PG"
 # debezium-password 는 CDC 전용 계정이다(mariadb-bootstrap 이 만든다).
@@ -155,8 +155,6 @@ mk oauth2-proxy-secret "spark-ui-client-secret=$(gen 32)"      "spark-ui-cookie-
                       "seaweedfs-volume-client-secret=$(gen 32)" "seaweedfs-volume-cookie-secret=$(gen 32)" \
                       "seaweedfs-filer-client-secret=$(gen 32)"  "seaweedfs-filer-cookie-secret=$(gen 32)"
 # ★ 위 목록 뒤 열 호스트는 render-external-access.py 의 O2P 와 같아야 한다 — 다르면 그 생성기가 멈춘다.
-# SeaweedFS 관리 콘솔(weed admin) 비밀번호 — 사용자 admin. oauth2-proxy 로그인 뒤의 두 번째 겹이다(2026-11-07).
-mk seaweedfs-secret "admin-password=$(gen 32)"
 # Temporal — 이력·가시성 DB 를 같은 롤로 쓴다(postgres-bootstrap 이 둘을 만든다).
 mk temporal-secret "db-password=$(gen)"
 # ★★ midPoint — 이 Secret 은 **아예 없었다**(2026-10-05에 더했다). 참조는
@@ -182,8 +180,8 @@ mk midpoint-secret "db-password=$(gen)" "admin-password=Mp$(gen 20)#A1"
 # ★ 이 키를 바꾸면 그 전에 암호화된 연결·변수를 영원히 못 읽는다
 #   (GitLab 의 db_key_base 와 같은 부류 — Gotcha 51·72).
 fernet() { python3 -c "import base64,os,sys; sys.stdout.write(base64.urlsafe_b64encode(os.urandom(32)).decode())"; }
-#   ★ MinIO 키(태스크 로그 보존용)는 2026-11-07 에 minio-users/airflow-secret-key 로 옮겼다(아래) —
-#     이 Secret 은 OpenBao 원천이 아니라 rotate-minio-password 가 회전할 수 없었다.
+#   ★ S3 키(태스크 로그 보존용)는 2026-11-07 에 seaweedfs-users/airflow-secret-key 로 옮겼다(아래) —
+#     이 Secret 은 OpenBao 원천이 아니라 rotate-seaweedfs-password 가 회전할 수 없었다.
 mk airflow-secret "db-password=$(gen)" "fernet-key=$(fernet)" "api-secret-key=$(gen 32)" "jwt-secret=$(gen 32)" "admin-password=$(gen 24)"
 # OpenSearch — security 플러그인의 internal_users. StatefulSet 의 initContainer 가
 # 이 값들을 bcrypt 해시로 바꿔 internal_users.yml 을 렌더한다(평문은 저장되지 않는다).
@@ -206,14 +204,15 @@ mk shardingsphere-secret "proxy-password=$(gen)"
 # 헬스체크용 계정이다 — mariadb-bootstrap 이 'proxysql-monitor'@'%' 를
 # USAGE 권한만으로 만든다. 앱 계정(cmmn)을 재사용하지 않는다(§8-44).
 mk proxysql-secret "admin-password=$(gen)" "monitor-password=$(gen)"
-mk minio-secret       "root-user=oimadmin"           "root-password=$MINIO_PW" \
-                      "minio-access-key=oimadmin"    "minio-secret-key=$MINIO_PW"
-# MinIO 소비자별 사용자(2026-11-06). root 는 MinIO 자신·minio-bootstrap·로테이터만 쓴다.
-#   minio-bootstrap 이 이 키들로 사용자를 만들고 버킷 정책을 붙인다 — 이름(<u>-access-key)과
+# SeaweedFS root(S3 관리자)와 관리 콘솔(weed admin, 사용자 admin) 비밀번호(2026-11-07 — 전에는 minio-secret).
+#   옛 별칭 키 minio-access-key·minio-secret-key 는 쓰는 곳이 없어 걷었다.
+mk seaweedfs-secret "root-user=oimadmin" "root-password=$S3_ROOT_PW" "admin-password=$(gen 32)"
+# S3 소비자별 사용자(2026-11-06). root 는 SeaweedFS 자신·seaweedfs-bootstrap·로테이터만 쓴다.
+#   SeaweedFS 의 initContainer 가 이 키들로 -s3.config 를 렌더한다 — 이름(<u>-access-key)과
 #   비밀키(<u>-secret-key)를 한 Secret 에 두어 소비자는 secretKeyRef 만 바꾸면 된다.
-# ★ minio-secret 과 따로 둔 이유 — 사용자 키를 회전해도 MinIO 자신이 재시작하지 않게(Reloader).
+# ★ seaweedfs-secret 과 따로 둔 이유 — 회전하는 단위가 다르다(사용자 키 7개 · root). 어느 쪽이든 SeaweedFS 는 다시 뜬다.
 # ★ airflow 도 여기 있다(2026-11-07 — 전에는 airflow-secret/s3-secret-key).
-mk minio-users \
+mk seaweedfs-users \
    "trino-access-key=trino"                       "trino-secret-key=$(gen 32)" \
    "hive-access-key=hive"                         "hive-secret-key=$(gen 32)" \
    "spark-access-key=spark"                       "spark-secret-key=$(gen 32)" \
@@ -249,7 +248,7 @@ mk jenkins-secret        "admin-password=$JK_ADMIN"
 #   그 이름을 읽는다). 이 둘이 없어 openmeter 5종이 전부
 #   `Init:CreateContainerConfigError` 였다 — 베어메탈 첫 구축 실측.
 mk clickhouse-secret     "password=$(gen)" "openmeter-password=$(gen)" "openmeter-pg-password=$(gen)"
-# OpenReplay — PostgreSQL 롤. ClickHouse·Redis·Kafka·MinIO 는 기존 것을 쓴다.
+# OpenReplay — PostgreSQL 롤. ClickHouse·Redis·Kafka·SeaweedFS 는 기존 것을 쓴다.
 mk openreplay-secret     "db-password=$(gen)"
 # ★★★ or-secrets — OpenReplay 의 앱 내부 서명 키. 2026-10-05 에 **여기로
 #   옮겼다.** 그 전까지는 차트가 렌더한 Secret 이 git 에 있었고, 값이 전부
@@ -258,8 +257,8 @@ mk openreplay-secret     "db-password=$(gen)"
 #   실측으로 `secretKeyRef` 로 읽히는 키가 10개였다(아래 전부).
 #   ★ 이제 `render-openreplay.py` 가 그 Secret 을 버린다(DROP_SECRETS) —
 #     양쪽이 같은 이름을 만들면 소유권을 다투기 때문이다.
-#   ★★ DB·ClickHouse·MinIO 자격은 **여기 없다** — 렌더가 컨테이너의 env 를
-#     openreplay-secret·clickhouse-secret·minio-secret 으로 돌려 놓는다.
+#   ★★ DB·ClickHouse·S3 자격은 **여기 없다** — 렌더가 컨테이너의 env 를
+#     openreplay-secret·clickhouse-secret·seaweedfs-secret 으로 돌려 놓는다.
 #     그래서 같은 자격이 두 곳에 생기지 않는다(Gotcha 71 과 같은 원칙).
 mk or-secrets "jwt-secret=$(gen 40)" \
               "jwt-refresh-secret=$(gen 40)" \
@@ -391,7 +390,7 @@ mk caldera-secret "api-key-red=$(gen 32)" \
 #   이미지 9종을 스캔하지 못한다(§8-79).
 echo
 echo "[secrets] 접속 정보 (이 값들은 커밋되지 않는다)"
-printf "  MinIO      oimadmin / %s\n" "$MINIO_PW"
+printf "  SeaweedFS  oimadmin / %s\n" "$S3_ROOT_PW"
 printf "  Keycloak   admin / %s\n"    "$KC_ADMIN"
 printf "  GitLab     root / %s\n"     "$GL_ROOT"
 printf "  Ranger     admin / %s\n"   "$RANGER_PW"

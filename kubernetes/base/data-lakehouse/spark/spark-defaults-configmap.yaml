@@ -18,7 +18,7 @@ data:
     #   받을 수 있는 곳에 올린다(2026-11-06). 이 키가 없어 Livy 세션이 전부
     #   `Please specify spark.kubernetes.file.upload.path property.` 로 죽었다 — 드라이버 파드조차
     #   생기지 않아 **처음부터 한 번도 시작되지 않았다.** livy.conf 에 넣으면 무시된다(그 파일 참조).
-    #   버킷 livy-recovery 는 minio-bootstrap 이 만들고 비어 있다(Livy 복구는 file:// 를 쓴다).
+    #   버킷 livy-recovery 는 seaweedfs-bootstrap 이 만들고 비어 있다(Livy 복구는 file:// 를 쓴다).
     #   로컬 의존이 없는 제출(ETL Job 의 s3a:// · local:// 리소스)은 이 경로를 쓰지 않는다.
     spark.kubernetes.file.upload.path               s3a://livy-recovery/uploads
     # ★ spark-iceberg 이미지에는 `python3` 만 있고 `python` 이 없다(2026-11-06 실측). Livy 의 PySpark
@@ -27,7 +27,7 @@ data:
     spark.pyspark.python                            python3
     spark.pyspark.driver.python                     python3
     spark.kubernetes.authenticate.driver.serviceAccountName  spark-driver
-    # 익스큐터 전용 SA(spark-rbac.yaml) — 없으면 `default` 로 떠서 MinIO 인가에 넣을 수 없다.
+    # 익스큐터 전용 SA(spark-rbac.yaml) — 없으면 `default` 로 떠서 S3 인가에 넣을 수 없다.
     spark.kubernetes.authenticate.executor.serviceAccountName  spark-executor
     spark.kubernetes.driver.podTemplateFile         /opt/spark/conf/driver-pod-template.yaml
     spark.kubernetes.executor.podTemplateFile       /opt/spark/conf/executor-pod-template.yaml
@@ -43,30 +43,30 @@ data:
     spark.sql.catalog.iceberg.uri                   http://hive-metastore-headless:9001/iceberg
     spark.sql.catalog.iceberg.warehouse             s3a://warehouse/tables
     spark.sql.catalog.iceberg.io-impl               org.apache.iceberg.aws.s3.S3FileIO
-    spark.sql.catalog.iceberg.s3.endpoint           http://minio-headless:9000
+    spark.sql.catalog.iceberg.s3.endpoint           http://seaweedfs-headless:9000
     spark.sql.catalog.iceberg.s3.path-style-access  true
     spark.sql.catalog.iceberg.client.region         us-east-1
     spark.sql.defaultCatalog                        iceberg
 
     # ── S3A (직접 파일 접근 경로)
     spark.hadoop.fs.s3a.impl                        org.apache.hadoop.fs.s3a.S3AFileSystem
-    spark.hadoop.fs.s3a.endpoint                    http://minio-headless:9000
+    spark.hadoop.fs.s3a.endpoint                    http://seaweedfs-headless:9000
     spark.hadoop.fs.s3a.path.style.access           true
     spark.hadoop.fs.s3a.connection.ssl.enabled      false
     # SimpleAWSCredentialsProvider 는 fs.s3a.access.key 만 읽고 환경변수는 보지 않는다.
     # ConfigMap 은 Secret 값을 보간할 수 없으므로 환경변수 기반 provider 를 쓴다.
-    #   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY 는 각 워크로드가 minio-users 의 `spark` 사용자로 주입한다(Spark History 는 `spark-history`).
+    #   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY 는 각 워크로드가 seaweedfs-users 의 `spark` 사용자로 주입한다(Spark History 는 `spark-history`).
     #   root 가 아니다(2026-11-06) — 버킷 warehouse·spark-events·livy-recovery 만 읽고 쓴다.
     spark.hadoop.fs.s3a.aws.credentials.provider    com.amazonaws.auth.EnvironmentVariableCredentialsProvider
 
     # ── 이벤트 로그 (History Server가 읽는다)
     spark.eventLog.enabled                          true
-    # minio-bootstrap 은 spark-events 를 별도 버킷으로 만든다.
+    # seaweedfs-bootstrap 은 spark-events 를 별도 버킷으로 만든다.
     # s3a://warehouse/spark-events 는 존재하지 않는 프리픽스다:
     #   FileNotFoundException: Log directory specified does not exist
     # 버킷 루트(s3a://spark-events/)는 stripSuffix("/") 후 경로 성분이 사라져
     # SparkContext.scala:631 에서 IllegalArgumentException: path must be absolute 가 난다.
-    # 프리픽스를 포함한 경로를 준다. minio-bootstrap 이 프리픽스를 만든다.
+    # 프리픽스를 포함한 경로를 준다. seaweedfs-bootstrap 이 프리픽스를 만든다.
     spark.eventLog.dir                              s3a://spark-events/events
 
     # ── 유휴 시 executor 를 0으로 반납한다. 로컬 메모리 예산에서 중요하다.
@@ -102,9 +102,9 @@ data:
           #   실패한다. Livy·Connect 와 같은 키를 쓴다.
           env:
             - name: AWS_ACCESS_KEY_ID
-              valueFrom: {secretKeyRef: {name: minio-users, key: spark-access-key}}
+              valueFrom: {secretKeyRef: {name: seaweedfs-users, key: spark-access-key}}
             - name: AWS_SECRET_ACCESS_KEY
-              valueFrom: {secretKeyRef: {name: minio-users, key: spark-secret-key}}
+              valueFrom: {secretKeyRef: {name: seaweedfs-users, key: spark-secret-key}}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -141,9 +141,9 @@ data:
           #   실패한다. Livy·Connect 와 같은 키를 쓴다.
           env:
             - name: AWS_ACCESS_KEY_ID
-              valueFrom: {secretKeyRef: {name: minio-users, key: spark-access-key}}
+              valueFrom: {secretKeyRef: {name: seaweedfs-users, key: spark-access-key}}
             - name: AWS_SECRET_ACCESS_KEY
-              valueFrom: {secretKeyRef: {name: minio-users, key: spark-secret-key}}
+              valueFrom: {secretKeyRef: {name: seaweedfs-users, key: spark-secret-key}}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

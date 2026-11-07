@@ -1,4 +1,4 @@
-# 부트스트랩 Job 은 DB·MinIO·Kafka 에 접속해야 하나 default-deny-ingress 하에서
+# 부트스트랩 Job 은 DB·S3(SeaweedFS)·Kafka 에 접속해야 하나 default-deny-ingress 하에서
 # 대상 파드의 allow 규칙에 포함되어 있지 않아 Connection timed out 이 났다.
 #
 # 기존 allow-postgresql-access 는 keycloak·gitlab·hive-metastore 만 허용하며
@@ -54,9 +54,9 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-bootstrap-to-minio
+  name: allow-bootstrap-to-seaweedfs
   labels:
-    app.kubernetes.io/name: allow-bootstrap-to-minio
+    app.kubernetes.io/name: allow-bootstrap-to-seaweedfs
     app.kubernetes.io/component: network-policies
     app.kubernetes.io/part-of: oneinchmarket
     app.kubernetes.io/managed-by: kustomize

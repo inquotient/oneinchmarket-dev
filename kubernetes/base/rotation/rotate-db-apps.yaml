@@ -4,7 +4,7 @@
 # ★ SA 는 새로 만들지 않는다 — rotate-mariadb-password · rotate-mongodb-password 의 SA(rotator-mariadb ·
 #   rotator-mongodb)를 쓴다. 그 둘은 이미 superuser 경로를 읽고 쓰고, 메시·NetworkPolicy 에 들어 있다.
 #   앱 사용자 Secret 을 위해 그 Role 의 resourceNames 와 OpenBao 정책 경로(openbao-rotator-setup.sh 의 paths())를 넓혔다.
-#   (rotate-minio-password · rotate-minio-root 가 SA 하나를 나눠 쓰는 것과 같은 모양이다.)
+#   (rotate-seaweedfs-password · rotate-seaweedfs-root 가 SA 하나를 나눠 쓰는 것과 같은 모양이다.)
 #
 # 대상
 #   MariaDB  cmmn-api,cmmn   cmmn-api-secret/db-password   ★ 'cmmn-api' 가 앱이 실제로 쓰는 계정이다(mariadb-bootstrap 머리말).

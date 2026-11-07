@@ -19,7 +19,7 @@
 #   2. TODO-48 — proxyuser 위임 범위. Knox·Ranger 경유로 대체할지
 #   3. hdfs-site / tez 설정을 환경별로 나누는 방식 확정
 #
-# base 에 남는 것 — MinIO·Trino·Hive Metastore·Spark·Livy 는 오브젝트
+# base 에 남는 것 — SeaweedFS·Trino·Hive Metastore·Spark·Livy 는 오브젝트
 # 스토리지만 쓰므로 환경 의존 값이 없다.
 # ─────────────────────────────────────────────────────────────────────────
 apiVersion: kustomize.config.k8s.io/v1beta1

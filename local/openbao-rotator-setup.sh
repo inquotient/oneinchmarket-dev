@@ -23,13 +23,13 @@ POD="${POD:-openbao-0}"
 MOUNT="${MOUNT:-oim}"
 # 이름 <x> 는 SA rotator-<x> · 역할 rotator-<x> · KV 경로 <x>-secret 로 이어진다(paths() 가 예외를 정한다).
 # ★ 새 DB 를 더할 때는 그 CronJob(base/rotation/rotate-<x>.yaml)의 설계가 OpenBao 원천인지 먼저 볼 것.
-ROTATORS="${ROTATORS:-postgresql postgresql-apps mariadb mongodb minio redis}"
-# ★ minio 는 경로가 둘이다 — 소비자 사용자 키(minio-users)와 root(minio-secret). 두 CronJob 이 같은 SA 를 쓴다
-#   (base/rotation/rotate-minio.yaml). 사용자 로테이션은 root 로 `mc admin user add` 를 해야 하므로 root 를 읽어야 한다.
+ROTATORS="${ROTATORS:-postgresql postgresql-apps mariadb mongodb seaweedfs redis}"
+# ★ seaweedfs 는 경로가 둘이다 — 소비자 사용자 키(seaweedfs-users)와 root(seaweedfs-secret). 두 CronJob 이 같은 SA 를 쓴다
+#   (base/rotation/rotate-seaweedfs.yaml). root 로테이션이 root-password 를 쓴다(사용자 로테이션은 root 를 읽지 않는다).
 # ★ postgresql-apps(2026-11-07) — 앱 롤 16개의 Secret 을 읽고 쓰고, superuser(postgresql-secret)는 ALTER ROLE 에
 #   필요해서 **읽기만** 한다(ro_paths). 목록은 base/rotation/rotate-postgresql-apps.yaml 의 TABLE 과 같아야 한다.
 PG_APPS="keycloak-secret gitlab-secret apicurio-secret hive-metastore-secret ranger-secret glitchtip-secret openreplay-secret dependency-track-secret defectdojo-secret safeline-secret openfga-secret midpoint-secret backstage-secret temporal-secret airflow-secret clickhouse-secret"
-paths() { case "$1" in minio) echo "minio-users minio-secret";; redis) echo "redis-users redis-secret";; postgresql-apps) echo "$PG_APPS";; mariadb) echo "mariadb-secret cmmn-api-secret proxysql-secret";; mongodb) echo "mongodb-secret gravitee-secret";; *) echo "$1-secret";; esac; }
+paths() { case "$1" in seaweedfs) echo "seaweedfs-users seaweedfs-secret";; redis) echo "redis-users redis-secret";; postgresql-apps) echo "$PG_APPS";; mariadb) echo "mariadb-secret cmmn-api-secret proxysql-secret";; mongodb) echo "mongodb-secret gravitee-secret";; *) echo "$1-secret";; esac; }
 ro_paths() { case "$1" in postgresql-apps) echo "postgresql-secret";; *) echo "";; esac; }
 log() { echo "[rotator] $*"; }
 

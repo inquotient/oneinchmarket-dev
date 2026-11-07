@@ -47,7 +47,7 @@ RULES = [
     (r"^ds389$", "C", "multi-supplier 복제. 복제본만 늘리면 갈라진다"),
     (r"^hadoop-namenode$", "C", "JournalNode 3 + ZKFC + standby NN — 큰 작업"),
     (r"^hbase-master$", "C", "마스터 여럿 + ZK 선출"),
-    (r"^minio$", "C", "분산 모드는 엔드포인트 4개 이상. Loki·Tempo·Grafana·백업의 선행"),
+    (r"^seaweedfs$", "C", "분산 모드는 엔드포인트 4개 이상. Loki·Tempo·Grafana·백업의 선행"),
     (r"^alertmanager$", "C", "네이티브 gossip 클러스터. 현재 --cluster.listen-address= 로 꺼져 있다"),
     (r"^grafana$", "S", "SQLite on PVC → PostgreSQL 로 옮긴 뒤 replicas 2"),
     (r"^loki$", "S", "filesystem → MinIO(S3) + 마이크로서비스 모드"),
@@ -101,7 +101,7 @@ RULES = [
 # HA 구성 시 목표 복제본. 등급 기본값을 이름별로 덮어쓴다.
 DEFAULT_TARGET = {"R": 2, "C": 3, "S": 2, "L": 2, "D": 1, "J": 0, "X": 0}
 TARGET_OVERRIDE = [
-    (r"^minio$", 4, "분산 모드는 엔드포인트 4개 이상"),
+    (r"^seaweedfs$", 4, "분산 모드는 엔드포인트 4개 이상"),
     (r"^clickhouse$", 2, "복제본 2 + Keeper 3(아래 신규 항목)"),
     (r"^keycloak$", 2, "상태가 PG 에 있어 2로 충분"),
     (r"^ds389$", 2, "multi-supplier 2"),

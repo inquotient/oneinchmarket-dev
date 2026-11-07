@@ -100,12 +100,12 @@ spec:
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: minio-users
+                  name: seaweedfs-users
                   key: hive-access-key
             - name: AWS_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: minio-users
+                  name: seaweedfs-users
                   key: hive-secret-key
             # HDFS 접근 주체. NameNode 는 simple 인증이라 이 값이 곧 사용자다.
             # hdfs-bootstrap 이 /warehouse 를 hive 소유로 만들어 두었다.

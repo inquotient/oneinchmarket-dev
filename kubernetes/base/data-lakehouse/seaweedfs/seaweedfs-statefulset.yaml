@@ -11,12 +11,12 @@
 #   Iceberg REST(8181)·Lance(9101)는 기본으로 켜져 0.0.0.0 에 붙으므로 끈다 —
 #   Iceberg 카탈로그는 HMS 가 맡는다(Gotcha 211).
 #
-# ★★ 사용자·권한은 `-s3.config` 정적 파일이다. initContainer 가 Secret(minio-secret 의
-#   root · minio-users 의 사용자 7명)에서 렌더하고, 버킷 단위 권한은 MinIO 정책과 같다
+# ★★ 사용자·권한은 `-s3.config` 정적 파일이다. initContainer 가 Secret(seaweedfs-secret 의
+#   root · seaweedfs-users 의 사용자 7명)에서 렌더하고, 버킷 단위 권한은 MinIO 정책과 같다
 #   (`Read:<버킷>` 형식 — 실측으로 다른 버킷 쓰기·목록·새 버킷 생성이 거부됐다).
 #   파일은 기동 때만 읽히므로 키를 바꾸면 **파드가 다시 떠야 한다** — Reloader 가 그 일을
 #   한다(아래 어노테이션). MinIO 와 달리 사용자 키 회전에도 S3 가 몇 초 끊긴다.
-#   Secret 이름이 minio-* 인 것은 그대로 둔다 — 소비자 19곳이 그 이름을 읽는다.
+#   Secret 은 seaweedfs-secret(root·콘솔) · seaweedfs-users(사용자 7명)다 — 2026-11-07 에 minio-* 에서 이름을 바꿨다.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -29,7 +29,7 @@ metadata:
   annotations:
     reloader.stakater.com/auto: "true"
     # Secret 을 initContainer 의 env 로만 읽으므로 이름도 명시한다.
-    secret.reloader.stakater.com/reload: "minio-secret,minio-users,seaweedfs-secret"
+    secret.reloader.stakater.com/reload: "seaweedfs-secret,seaweedfs-users"
 spec:
   serviceName: seaweedfs-headless
   replicas: 1
@@ -89,22 +89,22 @@ spec:
               [ -n "${ADMIN_PW:-}" ] || { echo "[render] ADMIN_PW 가 비었다" >&2; exit 1; }
               printf 'adminPassword=%s\n' "$ADMIN_PW" > /cfg/admin.options
           env:
-            - { name: ROOT_USER, valueFrom: { secretKeyRef: { name: minio-secret, key: root-user } } }
-            - { name: ROOT_PW,   valueFrom: { secretKeyRef: { name: minio-secret, key: root-password } } }
-            - { name: TRINO_A, valueFrom: { secretKeyRef: { name: minio-users, key: trino-access-key } } }
-            - { name: TRINO_S, valueFrom: { secretKeyRef: { name: minio-users, key: trino-secret-key } } }
-            - { name: HIVE_A,  valueFrom: { secretKeyRef: { name: minio-users, key: hive-access-key } } }
-            - { name: HIVE_S,  valueFrom: { secretKeyRef: { name: minio-users, key: hive-secret-key } } }
-            - { name: SPARK_A, valueFrom: { secretKeyRef: { name: minio-users, key: spark-access-key } } }
-            - { name: SPARK_S, valueFrom: { secretKeyRef: { name: minio-users, key: spark-secret-key } } }
-            - { name: SH_A,    valueFrom: { secretKeyRef: { name: minio-users, key: spark-history-access-key } } }
-            - { name: SH_S,    valueFrom: { secretKeyRef: { name: minio-users, key: spark-history-secret-key } } }
-            - { name: OR_A,    valueFrom: { secretKeyRef: { name: minio-users, key: openreplay-access-key } } }
-            - { name: OR_S,    valueFrom: { secretKeyRef: { name: minio-users, key: openreplay-secret-key } } }
-            - { name: OB_A,    valueFrom: { secretKeyRef: { name: minio-users, key: openbao-snapshot-access-key } } }
-            - { name: OB_S,    valueFrom: { secretKeyRef: { name: minio-users, key: openbao-snapshot-secret-key } } }
-            - { name: AF_A,    valueFrom: { secretKeyRef: { name: minio-users, key: airflow-access-key } } }
-            - { name: AF_S,    valueFrom: { secretKeyRef: { name: minio-users, key: airflow-secret-key } } }
+            - { name: ROOT_USER, valueFrom: { secretKeyRef: { name: seaweedfs-secret, key: root-user } } }
+            - { name: ROOT_PW,   valueFrom: { secretKeyRef: { name: seaweedfs-secret, key: root-password } } }
+            - { name: TRINO_A, valueFrom: { secretKeyRef: { name: seaweedfs-users, key: trino-access-key } } }
+            - { name: TRINO_S, valueFrom: { secretKeyRef: { name: seaweedfs-users, key: trino-secret-key } } }
+            - { name: HIVE_A,  valueFrom: { secretKeyRef: { name: seaweedfs-users, key: hive-access-key } } }
+            - { name: HIVE_S,  valueFrom: { secretKeyRef: { name: seaweedfs-users, key: hive-secret-key } } }
+            - { name: SPARK_A, valueFrom: { secretKeyRef: { name: seaweedfs-users, key: spark-access-key } } }
+            - { name: SPARK_S, valueFrom: { secretKeyRef: { name: seaweedfs-users, key: spark-secret-key } } }
+            - { name: SH_A,    valueFrom: { secretKeyRef: { name: seaweedfs-users, key: spark-history-access-key } } }
+            - { name: SH_S,    valueFrom: { secretKeyRef: { name: seaweedfs-users, key: spark-history-secret-key } } }
+            - { name: OR_A,    valueFrom: { secretKeyRef: { name: seaweedfs-users, key: openreplay-access-key } } }
+            - { name: OR_S,    valueFrom: { secretKeyRef: { name: seaweedfs-users, key: openreplay-secret-key } } }
+            - { name: OB_A,    valueFrom: { secretKeyRef: { name: seaweedfs-users, key: openbao-snapshot-access-key } } }
+            - { name: OB_S,    valueFrom: { secretKeyRef: { name: seaweedfs-users, key: openbao-snapshot-secret-key } } }
+            - { name: AF_A,    valueFrom: { secretKeyRef: { name: seaweedfs-users, key: airflow-access-key } } }
+            - { name: AF_S,    valueFrom: { secretKeyRef: { name: seaweedfs-users, key: airflow-secret-key } } }
             - { name: ADMIN_PW, valueFrom: { secretKeyRef: { name: seaweedfs-secret, key: admin-password } } }
           securityContext:
             allowPrivilegeEscalation: false

@@ -18,7 +18,7 @@ locals {
     "keycloak",
     "kafka-ui",
     "kibana",
-    "minio",
+    "seaweedfs",
     "admin",
   ]
 }

@@ -11,7 +11,7 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
 ---
 # 익스큐터 전용 신원(2026-11-06). 익스큐터는 API 를 부르지 않으므로 RBAC 도 토큰도 없다.
-#   지정하지 않으면 네임스페이스의 `default` SA 로 떠서 MinIO 의 AuthorizationPolicy 에 넣을 수
+#   지정하지 않으면 네임스페이스의 `default` SA 로 떠서 S3(SeaweedFS) 의 AuthorizationPolicy 에 넣을 수
 #   없다 — 넣으면 `default` 를 쓰는 모든 것이 함께 열린다(Gotcha 10).
 apiVersion: v1
 kind: ServiceAccount

@@ -3,9 +3,9 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-minio-access
+  name: allow-seaweedfs-access
   labels:
-    app.kubernetes.io/name: allow-minio-access
+    app.kubernetes.io/name: allow-seaweedfs-access
     app.kubernetes.io/component: network-policies
     app.kubernetes.io/part-of: oneinchmarket
     app.kubernetes.io/managed-by: kustomize
@@ -36,8 +36,8 @@ spec:
         # 자격 로테이터(Gotcha 212) — allow-datalakehouse-access 9000 에도 같은 신원이 있다.
         - podSelector:
             matchLabels:
-              app.kubernetes.io/name: rotator-minio
-        # OpenReplay — 자기 버킷 6개만 쓰는 MinIO 사용자 `openreplay`(2026-11-06).
+              app.kubernetes.io/name: rotator-seaweedfs
+        # OpenReplay — 자기 버킷 6개만 쓰는 S3 사용자 `openreplay`(2026-11-06).
         #   서비스마다 name 라벨이 달라 instance 로 고른다(database-netpol 과 같다).
         #   실제 통제는 allow-datalakehouse-access 의 SA 11종이다(ambient, Gotcha 13).
         - podSelector:

@@ -45,7 +45,7 @@ data:
       <!-- S3A filesystem configuration -->
       <property>
         <name>fs.s3a.endpoint</name>
-        <value>http://minio-headless:9000</value>
+        <value>http://seaweedfs-headless:9000</value>
       </property>
       <!-- ★ 자격증명은 값이 아니라 공급자로 넘긴다.
            fs.s3a.access.key 에 ${env:MINIO_ACCESS_KEY} 를 쓰던 방식은

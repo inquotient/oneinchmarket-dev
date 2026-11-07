@@ -16,7 +16,7 @@ resources:
   - clickhouse-bootstrap.yaml
   - kafka-topics.yaml
   - hive-schematool.yaml
-  - minio-bootstrap.yaml
+  - seaweedfs-bootstrap.yaml
   - keycloak-realm.yaml
   - ds389-bootstrap.yaml
   - apicurio-rules.yaml

@@ -22,7 +22,7 @@
 #     게이트웨이의 대리로 쓸 수 없다. 그렇게 재서 한 번 틀렸고, 실제 경로를
 #     치니 200 이었다. **대리 실험의 조건이 대상과 같은지 먼저 볼 것.**
 #
-# ★ AuthorizationPolicy 가 선택하는 백엔드는 예외다(minio·opensearch·
+# ★ AuthorizationPolicy 가 선택하는 백엔드는 예외다(seaweedfs·opensearch·
 #   spark-connect). 게이트웨이 신원을 허용하는 **추가** 정책이 필요하고 그것은
 #   authz-external-access.yaml 에 있다. 기존 정책은 손대지 않는다 — Istio 의
 #   ALLOW 는 합집합이라 추가 정책으로 더하는 것이 안전하다.
@@ -1419,7 +1419,7 @@ spec:
       backendRefs:
         - group: ""
           kind: Service
-          name: minio-headless
+          name: seaweedfs-headless
           port: 9000
           weight: 1
 ---
@@ -1888,7 +1888,7 @@ spec:
       backendRefs:
         - group: ""
           kind: Service
-          name: minio-headless
+          name: seaweedfs-headless
           port: 9000
           weight: 1
     - matches:
@@ -1898,7 +1898,7 @@ spec:
       backendRefs:
         - group: ""
           kind: Service
-          name: minio-headless
+          name: seaweedfs-headless
           port: 9000
           weight: 1
     - matches:
@@ -1908,7 +1908,7 @@ spec:
       backendRefs:
         - group: ""
           kind: Service
-          name: minio-headless
+          name: seaweedfs-headless
           port: 9000
           weight: 1
     - matches:
@@ -1918,7 +1918,7 @@ spec:
       backendRefs:
         - group: ""
           kind: Service
-          name: minio-headless
+          name: seaweedfs-headless
           port: 9000
           weight: 1
     - matches:
@@ -1928,7 +1928,7 @@ spec:
       backendRefs:
         - group: ""
           kind: Service
-          name: minio-headless
+          name: seaweedfs-headless
           port: 9000
           weight: 1
     - matches:
@@ -1938,7 +1938,7 @@ spec:
       backendRefs:
         - group: ""
           kind: Service
-          name: minio-headless
+          name: seaweedfs-headless
           port: 9000
           weight: 1
     - matches:

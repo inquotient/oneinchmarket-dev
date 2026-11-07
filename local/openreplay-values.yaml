@@ -34,7 +34,7 @@ global:
     kafkaPort: "9092"
     kafkaUseSsl: "false"
   s3:
-    endpoint: "http://minio-headless.local.svc.cluster.local:9000"
+    endpoint: "http://seaweedfs-headless.local.svc.cluster.local:9000"
     region: "us-east-1"
 
 # ★ 인그레스 컨트롤러는 이 차트로 들이지 않는다.

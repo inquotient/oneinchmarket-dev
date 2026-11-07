@@ -4,9 +4,9 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: minio-bootstrap
+  name: seaweedfs-bootstrap
   labels:
-    app.kubernetes.io/name: minio-bootstrap
+    app.kubernetes.io/name: seaweedfs-bootstrap
     app.kubernetes.io/component: bootstrap
     app.kubernetes.io/part-of: oneinchmarket
     app.kubernetes.io/managed-by: kustomize
@@ -15,9 +15,9 @@ automountServiceAccountToken: false
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: minio-bootstrap
+  name: seaweedfs-bootstrap
   labels:
-    app.kubernetes.io/name: minio-bootstrap
+    app.kubernetes.io/name: seaweedfs-bootstrap
     app.kubernetes.io/component: bootstrap
     app.kubernetes.io/part-of: oneinchmarket
     app.kubernetes.io/managed-by: kustomize
@@ -31,7 +31,7 @@ spec:
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: minio-bootstrap
+        app.kubernetes.io/name: seaweedfs-bootstrap
         app.kubernetes.io/component: bootstrap
         app.kubernetes.io/part-of: oneinchmarket
     spec:
@@ -42,7 +42,7 @@ spec:
       #   ★ 이 Job 은 오래 성공해 왔다. 정책이 minio 를 선택하게 된 뒤로
       #   깨진 것이고, **평소에 돌지 않는 Job 이라 재실행할 때 비로소**
       #   드러났다(Gotcha 19 가 적은 그대로다).
-      serviceAccountName: minio-bootstrap
+      serviceAccountName: seaweedfs-bootstrap
       # ★ quay 자격이 더는 필요 없다(2026-11-07) — S3 클라이언트를 quay.io/minio/mc 에서
       #   docker.io/amazon/aws-cli 로 바꿨다(익명 pull). quay-pull-secret 을 쓰는 곳은 이제 0 이다.
       restartPolicy: OnFailure
@@ -61,19 +61,19 @@ spec:
             - |
               set -uo pipefail
               export HOME=/tmp AWS_DEFAULT_REGION=us-east-1
-              E=http://minio-headless:9000
-              # 이름은 minio-headless 그대로다 — 엔진은 SeaweedFS(2026-11-07). HTTP 다.
+              E=http://seaweedfs-headless:9000
+              # SeaweedFS S3(2026-11-07). HTTP 다.
               # 키는 인자가 아니라 환경변수로 넘긴다(프로세스 목록에 남지 않는다).
               as() { local k="$1" s="$2"; shift 2; AWS_ACCESS_KEY_ID="$k" AWS_SECRET_ACCESS_KEY="$s" aws --endpoint-url "$E" "$@"; }
-              root() { as "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" "$@"; }
-              echo "[minio-bootstrap] S3(SeaweedFS) 대기"
+              root() { as "$S3_ROOT_USER" "$S3_ROOT_PASSWORD" "$@"; }
+              echo "[seaweedfs-bootstrap] S3(SeaweedFS) 대기"
               until root s3api list-buckets >/dev/null 2>&1; do sleep 3; done
               # openbao-snapshots·OpenReplay 버킷도 여기서 만든다 — 소비자 사용자에게는 버킷 생성 권한이 없다(2026-11-06).
               for b in warehouse spark-events livy-recovery airflow-logs openbao-snapshots \
                        mobs sessions-assets records sourcemaps uxtesting-records spots; do
-                if root s3api head-bucket --bucket "$b" >/dev/null 2>&1; then echo "[minio-bootstrap] bucket $b (있음)"
-                else root s3api create-bucket --bucket "$b" >/dev/null || { echo "[minio-bootstrap] bucket $b 생성 실패" >&2; exit 1; }
-                     echo "[minio-bootstrap] bucket $b (생성)"; fi
+                if root s3api head-bucket --bucket "$b" >/dev/null 2>&1; then echo "[seaweedfs-bootstrap] bucket $b (있음)"
+                else root s3api create-bucket --bucket "$b" >/dev/null || { echo "[seaweedfs-bootstrap] bucket $b 생성 실패" >&2; exit 1; }
+                     echo "[seaweedfs-bootstrap] bucket $b (생성)"; fi
               done
               # Spark 는 버킷 루트를 이벤트 로그 경로로 받지 못한다 — 경로 성분이
               # 없어 SparkContext.scala:631 에서 path must be absolute 가 난다.
@@ -85,7 +85,7 @@ spec:
               # ★★★ root 자격을 소비자에게 주지 않는다. Airflow 가 첫 사례였다 — LocalExecutor 는 DAG 코드를
               #   scheduler 파드 안에서 실행하므로 root 면 아무 DAG 이나 warehouse 를 지울 수 있다(Gotcha 27).
               # ★★ 사용자·버킷 권한은 SeaweedFS 가 기동 때 읽는 -s3.config 다 — 그 파드의 initContainer 가
-              #   minio-users 에서 렌더한다(base/data-lakehouse/seaweedfs). 이 Job 은 만들지 않고 **확인만** 한다:
+              #   seaweedfs-users 에서 렌더한다(base/data-lakehouse/seaweedfs). 이 Job 은 만들지 않고 **확인만** 한다:
               #   Secret 의 키로 자기 버킷이 열리고, 남의 버킷은 닫혀 있는지.
               fails=0
               for spec in trino:warehouse:TRINO_KEY hive:warehouse:HIVE_KEY spark:livy-recovery:SPARK_KEY \
@@ -93,36 +93,36 @@ spec:
                           openbao-snapshot:openbao-snapshots:OPENBAO_SNAPSHOT_KEY airflow:airflow-logs:AIRFLOW_S3_SECRET_KEY; do
                 u=${spec%%:*}; rest=${spec#*:}; b=${rest%%:*}; v=${rest#*:}
                 k=${!v:-}
-                [ -n "$k" ] || { echo "[minio-bootstrap] $u: 비밀키($v)가 비었다" >&2; fails=$((fails+1)); continue; }
+                [ -n "$k" ] || { echo "[seaweedfs-bootstrap] $u: 비밀키($v)가 비었다" >&2; fails=$((fails+1)); continue; }
                 as "$u" "$k" s3api list-objects-v2 --bucket "$b" --max-keys 1 >/dev/null 2>&1 \
-                  || { echo "[minio-bootstrap] $u: Secret 의 키로 $b 가 열리지 않는다" >&2; fails=$((fails+1)); continue; }
+                  || { echo "[seaweedfs-bootstrap] $u: Secret 의 키로 $b 가 열리지 않는다" >&2; fails=$((fails+1)); continue; }
                 # 음성 대조군 — 남의 버킷(openbao-snapshots, 주인은 openbao-snapshot)이 열리면 권한이 새고 있다.
                 if [ "$u" != openbao-snapshot ] && as "$u" "$k" s3api list-objects-v2 --bucket openbao-snapshots --max-keys 1 >/dev/null 2>&1; then
-                  echo "[minio-bootstrap] $u: 남의 버킷 openbao-snapshots 가 열린다 — 권한이 넓다" >&2; fails=$((fails+1)); continue
+                  echo "[seaweedfs-bootstrap] $u: 남의 버킷 openbao-snapshots 가 열린다 — 권한이 넓다" >&2; fails=$((fails+1)); continue
                 fi
-                echo "[minio-bootstrap] user $u -> $b 확인"
+                echo "[seaweedfs-bootstrap] user $u -> $b 확인"
               done
-              [ "$fails" -eq 0 ] || { echo "[minio-bootstrap] 사용자 $fails 건 실패" >&2; exit 1; }
+              [ "$fails" -eq 0 ] || { echo "[seaweedfs-bootstrap] 사용자 $fails 건 실패" >&2; exit 1; }
 
               root s3 ls
-              echo "[minio-bootstrap] 완료"
+              echo "[seaweedfs-bootstrap] 완료"
           env:
-            - name: MINIO_ROOT_USER
-              valueFrom: { secretKeyRef: { name: minio-secret, key: root-user } }
-            - name: MINIO_ROOT_PASSWORD
-              valueFrom: { secretKeyRef: { name: minio-secret, key: root-password } }
-            # ★ Airflow 전용 사용자의 비밀키. 이 Job 이 MinIO 에 그 사용자를
+            - name: S3_ROOT_USER
+              valueFrom: { secretKeyRef: { name: seaweedfs-secret, key: root-user } }
+            - name: S3_ROOT_PASSWORD
+              valueFrom: { secretKeyRef: { name: seaweedfs-secret, key: root-password } }
+            # ★ Airflow 전용 사용자의 비밀키. SeaweedFS 가 이 Secret 으로 그 사용자를
             #   만들고, Airflow 파드는 같은 Secret 에서 같은 값을 읽는다 —
             #   원천이 하나여야 회전 때 어긋나지 않는다(Gotcha 117).
             - name: AIRFLOW_S3_SECRET_KEY
-              valueFrom: { secretKeyRef: { name: minio-users, key: airflow-secret-key } }
-            # ★ 소비자별 사용자의 비밀키(2026-11-06) — 원천은 OpenBao oim/minio-users(ESO).
-            - { name: TRINO_KEY,            valueFrom: { secretKeyRef: { name: minio-users, key: trino-secret-key } } }
-            - { name: HIVE_KEY,             valueFrom: { secretKeyRef: { name: minio-users, key: hive-secret-key } } }
-            - { name: SPARK_KEY,            valueFrom: { secretKeyRef: { name: minio-users, key: spark-secret-key } } }
-            - { name: SPARK_HISTORY_KEY,    valueFrom: { secretKeyRef: { name: minio-users, key: spark-history-secret-key } } }
-            - { name: OPENREPLAY_KEY,       valueFrom: { secretKeyRef: { name: minio-users, key: openreplay-secret-key } } }
-            - { name: OPENBAO_SNAPSHOT_KEY, valueFrom: { secretKeyRef: { name: minio-users, key: openbao-snapshot-secret-key } } }
+              valueFrom: { secretKeyRef: { name: seaweedfs-users, key: airflow-secret-key } }
+            # ★ 소비자별 사용자의 비밀키(2026-11-06) — 원천은 OpenBao oim/seaweedfs-users(ESO).
+            - { name: TRINO_KEY,            valueFrom: { secretKeyRef: { name: seaweedfs-users, key: trino-secret-key } } }
+            - { name: HIVE_KEY,             valueFrom: { secretKeyRef: { name: seaweedfs-users, key: hive-secret-key } } }
+            - { name: SPARK_KEY,            valueFrom: { secretKeyRef: { name: seaweedfs-users, key: spark-secret-key } } }
+            - { name: SPARK_HISTORY_KEY,    valueFrom: { secretKeyRef: { name: seaweedfs-users, key: spark-history-secret-key } } }
+            - { name: OPENREPLAY_KEY,       valueFrom: { secretKeyRef: { name: seaweedfs-users, key: openreplay-secret-key } } }
+            - { name: OPENBAO_SNAPSHOT_KEY, valueFrom: { secretKeyRef: { name: seaweedfs-users, key: openbao-snapshot-secret-key } } }
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: { drop: ["ALL"] }

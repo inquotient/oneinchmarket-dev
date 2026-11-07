@@ -93,7 +93,7 @@ pw() { $K get secret "$1" -o jsonpath="{.data.$2}" | base64 -d; echo; }
 | **Airflow** | `$K port-forward deploy/airflow-apiserver 18080:8080` | http://localhost:18080 | `admin` | `pw airflow-secret admin-password` |
 > ★ Airflow 의 **태스크 로그는 S3(SeaweedFS)** 에 있다(`s3://airflow-logs/`). UI 가 거기서 읽으므로 평소엔 신경 쓸 일이 없고,
 > 직접 보려면 S3 9002 port-forward 뒤 `aws --endpoint-url http://localhost:9002 s3 ls --recursive s3://airflow-logs/` 다
-> (자격 `pw minio-users airflow-access-key` / `airflow-secret-key` — 엔진은 SeaweedFS 지만 Secret 이름은 그대로다).
+> (자격 `pw seaweedfs-users airflow-access-key` / `airflow-secret-key` — 엔진은 SeaweedFS 지만 Secret 이름은 그대로다).
 > 파드의 `/opt/airflow/logs` 는 업로드 뒤 비므로 거기서 찾지 말 것.
 > ★★★ **2026-10-11 — 여기로는 로그인이 되지 않는다.** UI 는 뜨지만
 > `/api/v2/auth/login` 이 `https://airflow.oneinchmarket.local/auth/login/` 로
@@ -685,7 +685,7 @@ OpenSearch Dashboards(http://localhost:5601) 의 **Dev Tools** 가 가장 편하
 | DB | `hive-server-headless` | 10000 | 10000 | JDBC `jdbc:hive2://localhost:10000/default` |
 | DB | `kafka-headless` | 9092 | 9092 | Kafka 클라이언트(kcat) — AKHQ 가 더 편하다 |
 | DB | `mariadb-headless` | 3306 | 13306 | root / `pw mariadb-secret root-password` · DB `cmmn` |
-| DB | `minio-headless` | 9000 | 9002 | S3 API(엔진 SeaweedFS) — mc·aws·s3cmd 용(DBeaver 아님) |
+| DB | `seaweedfs-headless` | 9000 | 9002 | S3 API(엔진 SeaweedFS) — mc·aws·s3cmd 용(DBeaver 아님) |
 | DB | `mongodb-headless` | 27017 | 17017 | root / `pw mongodb-secret root-password` · **authSource=admin** |
 | DB | `postgresql-headless` | 5432 | 15432 | postgres / `pw postgresql-secret postgres-password` · DB 13개 |
 | DB | `ranger-db` | 5432 | 15433 | PostgreSQL 별칭 — 같은 인스턴스다 |

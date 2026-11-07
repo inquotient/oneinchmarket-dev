@@ -91,12 +91,12 @@ spec:
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: minio-users
+                  name: seaweedfs-users
                   key: spark-access-key
             - name: AWS_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: minio-users
+                  name: seaweedfs-users
                   key: spark-secret-key
           securityContext:
             allowPrivilegeEscalation: false

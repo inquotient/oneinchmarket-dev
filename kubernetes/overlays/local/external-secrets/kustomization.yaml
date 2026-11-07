@@ -34,8 +34,8 @@ resources:
   - backstage-secret.yaml
   - gravitee-secret.yaml
   - mariadb-secret.yaml
-  - minio-secret.yaml
-  - minio-users.yaml
+  - seaweedfs-secret.yaml
+  - seaweedfs-users.yaml
   - mongodb-secret.yaml
   - openfga-secret.yaml
   - openreplay-secret.yaml

@@ -12,7 +12,7 @@ resources:
   - rotate-db-apps.yaml           # MariaDB·MongoDB 앱 사용자(2026-11-07)
   - rotate-redis.yaml
   # Infrastructure Rotation
-  - rotate-minio.yaml
+  - rotate-seaweedfs.yaml
   # Admin Rotation (90일 주기)
   - rotate-admin.yaml
   # ★ rotation-git-sync 는 2026-11-06 에 지웠다 — 로테이션된 Secret 을 SOPS 로 싸서 git 에 push 하던 Job 이다.

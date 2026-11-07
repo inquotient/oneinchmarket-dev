@@ -24,15 +24,15 @@ REWRITE = {
     #   DB·사용자·비밀번호는 ch_db·CH_USERNAME·CH_PASSWORD 로 따로 넘긴다.
     "CLICKHOUSE_STRING": f"clickhouse-headless.{NS}:9000",
     "KAFKA_SERVERS":     f"kafka-headless.{NS}:9092",
-    "AWS_ENDPOINT":      f"http://minio-headless.{NS}:9000",
+    "AWS_ENDPOINT":      f"http://seaweedfs-headless.{NS}:9000",
 }
 INJECT = {
     "POSTGRES_STRING":   [("pg_password",    "openreplay-secret", "db-password")],
     "REDIS_STRING":      [("redis_password", "redis-users",       "openreplay-password")],
     "CLICKHOUSE_STRING": [("CLICKHOUSE_USERNAME", None, None),
                           ("CLICKHOUSE_PASSWORD", "clickhouse-secret", "password")],
-    "AWS_ENDPOINT":      [("AWS_ACCESS_KEY_ID",     "minio-users", "openreplay-access-key"),
-                          ("AWS_SECRET_ACCESS_KEY", "minio-users", "openreplay-secret-key")],
+    "AWS_ENDPOINT":      [("AWS_ACCESS_KEY_ID",     "seaweedfs-users", "openreplay-access-key"),
+                          ("AWS_SECRET_ACCESS_KEY", "seaweedfs-users", "openreplay-secret-key")],
 }
 
 # ★ 마이그레이션 Job 의 버전 검사 상한을 18 로 올린다.
@@ -88,9 +88,9 @@ def fix_container(c):
                 names.add(var)
         # 차트가 빈 문자열로 둔 S3 자격증명을 Secret 으로 채운다
         elif n == "AWS_ACCESS_KEY_ID" and not e.get("value"):
-            e.pop("value", None); e["valueFrom"] = {"secretKeyRef": {"name": "minio-users", "key": "openreplay-access-key"}}
+            e.pop("value", None); e["valueFrom"] = {"secretKeyRef": {"name": "seaweedfs-users", "key": "openreplay-access-key"}}
         elif n == "AWS_SECRET_ACCESS_KEY" and not e.get("value"):
-            e.pop("value", None); e["valueFrom"] = {"secretKeyRef": {"name": "minio-users", "key": "openreplay-secret-key"}}
+            e.pop("value", None); e["valueFrom"] = {"secretKeyRef": {"name": "seaweedfs-users", "key": "openreplay-secret-key"}}
     # ★ *_STRING 이 없는 컨테이너도 pg_password 등을 직접 쓴다(chalice 계열).
     #   트리거에 의존하지 말고 **이름 기준으로 무조건** 우리 Secret 을 가리키게 한다.
     FORCE = {
@@ -101,8 +101,8 @@ def fix_container(c):
         "redis_password":        ("redis-users",       "openreplay-password"),
         "CH_PASSWORD":           ("clickhouse-secret", "password"),
         "ch_password":           ("clickhouse-secret", "password"),
-        "S3_KEY":                ("minio-users",       "openreplay-access-key"),
-        "S3_SECRET":             ("minio-users",       "openreplay-secret-key"),
+        "S3_KEY":                ("seaweedfs-users",       "openreplay-access-key"),
+        "S3_SECRET":             ("seaweedfs-users",       "openreplay-secret-key"),
         # 마이그레이션 Job 의 initContainer·컨테이너가 쓰는 이름.
         # 차트 Secret 의 값은 미치환 "{{ randAlphaNum 20}}" 라 인증이 실패한다.
         "PGPASSWORD":            ("openreplay-secret", "db-password"),
@@ -116,7 +116,7 @@ def fix_container(c):
         "pg_dbname": "openreplay", "pg_user": "openreplay",
         "ch_host": f"clickhouse-headless.{NS}", "ch_port": "9000",
         "ch_port_http": "8123", "ch_user": "openreplay",
-        "S3_HOST": f"http://minio-headless.{NS}:9000",
+        "S3_HOST": f"http://seaweedfs-headless.{NS}:9000",
     }
     for e in envs:
         n = e.get("name")
@@ -141,7 +141,7 @@ def fix_container(c):
 #         문자열로 토큰에 서명하고 있었다.
 #     (2) 값이 쓸모없는데 존재하니 "자격이 있다" 로 읽힌다 — 이 레포가
 #         반복해서 경계하는 부류다(Gotcha 33·84·141).
-#   DB·ClickHouse·MinIO 자격은 위 FORCE/INJECT 가 이미 우리 Secret 으로
+#   DB·ClickHouse·S3 자격은 위 FORCE/INJECT 가 이미 우리 Secret 으로
 #   돌려 놓았다. 남은 JWT 계열은 `create-secrets.sh` 의 `mk or-secrets` 가
 #   **실제 난수로** 만든다(그래서 렌더 산출물에 평문이 남지 않는다).
 # ★ `openreplay-secrets` 는 **아무도 참조하지 않는다** — 실측으로 렌더 전체에서

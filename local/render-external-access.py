@@ -162,7 +162,7 @@ CATALOG = [
      "SeaweedFS volume 서버 UI(`/ui/index.html`) · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P) · 자체 인증 없음"),
     ("seaweedfs-filer", "seaweedfs-headless", 8988, "http", AUTH,
      "SeaweedFS filer 브라우저 — ★ 업로드·삭제가 되고 버킷별 권한을 우회한다 · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P) · 자체 인증 없음"),
-    ("s3", "minio-headless", 9000, "http", AUTH,
+    ("s3", "seaweedfs-headless", 9000, "http", AUTH,
      "S3 API — `mc`·`s3cmd`·boto3. 서명 인증"),
     ("trino", "trino-headless", 8080, "http", AUTH,
      "LDAP 로그인 `data-admin`(전권)·`analyst`(조회만) / `pw ds389-secret <uid>-password` · 권한은 Ranger `oim-trino` · 웹 UI(`/ui/`) + **JDBC**(§3-b). ★ `http-server.process-forwarded=true` 가 있어야 한다 — 없으면 전부 406 이다"),
@@ -238,7 +238,7 @@ O2P_PEERS = [
 #   ★ spark-connect 4040 은 2026-11-06 에 빠졌다 — 게이트웨이가 아니라 oauth2-proxy 가
 #     닿는다(authz-external-access.yaml 이 그 신원만 허용한다).
 AUTHZ_GUARDED = {
-    ("minio-headless", 9000),
+    ("seaweedfs-headless", 9000),
     ("opensearch-headless", 9200),
 }
 
@@ -308,7 +308,7 @@ HEADER = """# ★ 생성 파일이다 — 손으로 고치지 말 것.
 #     게이트웨이의 대리로 쓸 수 없다. 그렇게 재서 한 번 틀렸고, 실제 경로를
 #     치니 200 이었다. **대리 실험의 조건이 대상과 같은지 먼저 볼 것.**
 #
-# ★ AuthorizationPolicy 가 선택하는 백엔드는 예외다(minio·opensearch·
+# ★ AuthorizationPolicy 가 선택하는 백엔드는 예외다(seaweedfs·opensearch·
 #   spark-connect). 게이트웨이 신원을 허용하는 **추가** 정책이 필요하고 그것은
 #   authz-external-access.yaml 에 있다. 기존 정책은 손대지 않는다 — Istio 의
 #   ALLOW 는 합집합이라 추가 정책으로 더하는 것이 안전하다.
@@ -346,13 +346,13 @@ PATH_ROUTES = {
         ("/ingest/v1/mobile/images", "images-openreplay", 8080, "/v1/mobile/images"),
         ("/ingest", "http-openreplay", 8080, "/"),
         ("/spot", "spot-openreplay", 8080, "/"),
-        # 리플레이 파일(mobs 등)은 버킷 경로 그대로 MinIO 로 간다 — 차트의 minio Ingress 와 같다.
-        ("/mobs", "minio-headless", 9000, None),
-        ("/sessions-assets", "minio-headless", 9000, None),
-        ("/static", "minio-headless", 9000, None),
-        ("/sourcemaps", "minio-headless", 9000, None),
-        ("/records", "minio-headless", 9000, None),
-        ("/spots", "minio-headless", 9000, None),
+        # 리플레이 파일(mobs 등)은 버킷 경로 그대로 S3(SeaweedFS)로 간다 — 차트의 minio Ingress 와 같다.
+        ("/mobs", "seaweedfs-headless", 9000, None),
+        ("/sessions-assets", "seaweedfs-headless", 9000, None),
+        ("/static", "seaweedfs-headless", 9000, None),
+        ("/sourcemaps", "seaweedfs-headless", 9000, None),
+        ("/records", "seaweedfs-headless", 9000, None),
+        ("/spots", "seaweedfs-headless", 9000, None),
     ],
 }
 

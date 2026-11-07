@@ -13,7 +13,7 @@
 #                                   postgresql-0 proxysql redis-0 shardingsphere
 #     allow-messaging-access     -> kafka-0
 #     allow-observability-access -> opensearch-0
-#     allow-datalakehouse-access -> minio-0
+#     allow-datalakehouse-access -> seaweedfs-0
 #     spark-connect-authz        -> spark-connect-0
 #     allow-data-prepper-access  -> data-prepper
 #     api-require-jwt            -> 게이트웨이 자신
@@ -33,14 +33,14 @@
 #   보낼 수가 없다). 사유가 사라진 허용을 남기면 다음 사람이 전제를 틀리게
 #   읽는다(Gotcha 131).
 ---
-# minio — 콘솔(9001)과 S3 API(9000). 브라우저와 mc/boto3 둘 다 게이트웨이를
+# seaweedfs — S3 API(9000). 브라우저와 mc/boto3 둘 다 게이트웨이를
 #   지난다(S3 는 HTTP 프로토콜이고 서명이 자격이다).
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
-  name: allow-ext-minio
+  name: allow-ext-seaweedfs-s3
   labels:
-    app.kubernetes.io/name: allow-ext-minio
+    app.kubernetes.io/name: allow-ext-seaweedfs-s3
     app.kubernetes.io/component: external-access
     app.kubernetes.io/part-of: oneinchmarket
     app.kubernetes.io/managed-by: kustomize

@@ -1,10 +1,9 @@
 # S3 자격 로테이션 — **OpenBao 가 원천** (2026-11-06 재설계, 2026-11-07 SeaweedFS 로 옮겼다)
 #
-# 이름이 minio 인 것은 Secret(minio-secret·minio-users)과 소비자 19곳이 그 이름을 쓰기 때문이다 —
-# 엔진은 SeaweedFS 다(base/data-lakehouse/seaweedfs, Gotcha 176).
+# 2026-11-07 에 minio-* 에서 이름을 바꿨다(SA rotator-seaweedfs · OpenBao 역할 rotator-seaweedfs · KV seaweedfs-*, Gotcha 218).
 #
-#   rotate-minio-password  소비자 사용자 7명의 비밀키(minio-users).
-#   rotate-minio-root      root 비밀번호(minio-secret).
+#   rotate-seaweedfs-password  소비자 사용자 7명의 비밀키(seaweedfs-users).
+#   rotate-seaweedfs-root      root 비밀번호(seaweedfs-secret).
 #
 # ★★ 둘 다 같은 모양이다 — SeaweedFS 의 사용자는 정적 파일(-s3.config)이고 기동 때만 읽힌다.
 #   그래서 살아 있는 서버의 키를 바꾸지 않고, OpenBao → ESO → k8s Secret 을 바꾸면 Reloader 가 SeaweedFS 와
@@ -14,18 +13,18 @@
 # ★ 마지막 컨테이너가 **동기화된 k8s Secret 의 값**(소비자가 받을 값)으로 다시 붙어 본다 — 엔진이 새 값을
 #   받아들일 때까지 기다린다. 실패하면 되돌리는 법을 출력한다(OpenBao KV 의 이전 버전).
 # ★ suspend: true — 자동 실행하지 않는다(사용자 결정, 2026-11-06). 수동 실행:
-#     kubectl -n local create job --from=cronjob/rotate-minio-password rotate-minio-manual-$(date +%s)
-#     kubectl -n local create job --from=cronjob/rotate-minio-root     rotate-minio-root-manual-$(date +%s)
-# ★ 전제: ROTATORS="minio" local/openbao-rotator-setup.sh · 메시(allow-datalakehouse-access 9000) ·
-#   NetworkPolicy(allow-minio-access · allow-openbao-access)에 이 SA/라벨.
+#     kubectl -n local create job --from=cronjob/rotate-seaweedfs-password rotate-seaweedfs-manual-$(date +%s)
+#     kubectl -n local create job --from=cronjob/rotate-seaweedfs-root     rotate-seaweedfs-root-manual-$(date +%s)
+# ★ 전제: ROTATORS="seaweedfs" local/openbao-rotator-setup.sh · 메시(allow-datalakehouse-access 9000) ·
+#   NetworkPolicy(allow-seaweedfs-access · allow-openbao-access)에 이 SA/라벨.
 # ★ S3 클라이언트는 aws-cli 다 — bash·coreutils 가 함께 있고 Docker Hub 에서 익명으로 받는다(quay 자격이 필요 없다).
 #   키는 인자가 아니라 환경변수로 넘긴다.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: rotator-minio
+  name: rotator-seaweedfs
   labels:
-    app.kubernetes.io/name: rotator-minio
+    app.kubernetes.io/name: rotator-seaweedfs
     app.kubernetes.io/component: rotation
     app.kubernetes.io/part-of: oneinchmarket
     app.kubernetes.io/managed-by: kustomize
@@ -33,45 +32,45 @@ metadata:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: rotator-minio
+  name: rotator-seaweedfs
   labels:
-    app.kubernetes.io/name: rotator-minio
+    app.kubernetes.io/name: rotator-seaweedfs
     app.kubernetes.io/component: rotation
     app.kubernetes.io/part-of: oneinchmarket
     app.kubernetes.io/managed-by: kustomize
 rules:
   - apiGroups: [""]
     resources: ["secrets"]
-    resourceNames: ["minio-users", "minio-secret"]
+    resourceNames: ["seaweedfs-users", "seaweedfs-secret"]
     verbs: ["get"]
   - apiGroups: ["external-secrets.io"]
     resources: ["externalsecrets"]
-    resourceNames: ["minio-users", "minio-secret"]
+    resourceNames: ["seaweedfs-users", "seaweedfs-secret"]
     verbs: ["get", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: rotator-minio
+  name: rotator-seaweedfs
   labels:
-    app.kubernetes.io/name: rotator-minio
+    app.kubernetes.io/name: rotator-seaweedfs
     app.kubernetes.io/component: rotation
     app.kubernetes.io/part-of: oneinchmarket
     app.kubernetes.io/managed-by: kustomize
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: rotator-minio
+  name: rotator-seaweedfs
 subjects:
   - kind: ServiceAccount
-    name: rotator-minio
+    name: rotator-seaweedfs
 ---
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: rotate-minio-password
+  name: rotate-seaweedfs-password
   labels:
-    app.kubernetes.io/name: rotate-minio-password
+    app.kubernetes.io/name: rotate-seaweedfs-password
     app.kubernetes.io/component: rotation
     app.kubernetes.io/part-of: oneinchmarket
     app.kubernetes.io/managed-by: kustomize
@@ -89,12 +88,12 @@ spec:
       template:
         metadata:
           labels:
-            app.kubernetes.io/name: rotator-minio
+            app.kubernetes.io/name: rotator-seaweedfs
             app.kubernetes.io/component: rotation
             app.kubernetes.io/part-of: oneinchmarket
             app.kubernetes.io/managed-by: kustomize
         spec:
-          serviceAccountName: rotator-minio
+          serviceAccountName: rotator-seaweedfs
           restartPolicy: Never
           securityContext:
             runAsUser: 1000
@@ -127,7 +126,7 @@ spec:
                   set -euo pipefail
                   B=/tools/bao
                   export BAO_ADDR=http://openbao.local.svc.cluster.local:8200 HOME=/tmp AWS_DEFAULT_REGION=us-east-1
-                  URL=http://minio-headless:9000
+                  URL=http://seaweedfs-headless:9000
                   USERS="trino hive spark spark-history openreplay openbao-snapshot airflow"
                   declare -A BK=([trino]=warehouse [hive]=warehouse [spark]=warehouse [spark-history]=spark-events
                                  [openreplay]=mobs [openbao-snapshot]=openbao-snapshots [airflow]=airflow-logs)
@@ -136,16 +135,16 @@ spec:
                   ok() { AWS_ACCESS_KEY_ID="$1" AWS_SECRET_ACCESS_KEY="$2" aws --endpoint-url "$URL" \
                            s3api list-objects-v2 --bucket "${BK[$1]}" --max-keys 1 >/dev/null 2>&1; }
 
-                  echo "[1/5] OpenBao 로그인 (rotator-minio)"
-                  BAO_TOKEN=$($B write -field=token auth/kubernetes/login role=rotator-minio \
+                  echo "[1/5] OpenBao 로그인 (rotator-seaweedfs)"
+                  BAO_TOKEN=$($B write -field=token auth/kubernetes/login role=rotator-seaweedfs \
                     jwt=@/var/run/secrets/kubernetes.io/serviceaccount/token)
                   export BAO_TOKEN
 
                   echo "[2/5] 원천 일치 확인 (OpenBao = k8s Secret, 사용자 ${USERS// /·})"
                   declare -A OLD NEW
                   for u in $USERS; do
-                    OLD[$u]=$($B kv get -mount=oim -field="$u-secret-key" minio-users)
-                    [ "$($B kv get -mount=oim -field="$u-access-key" minio-users)" = "$u" ] \
+                    OLD[$u]=$($B kv get -mount=oim -field="$u-secret-key" seaweedfs-users)
+                    [ "$($B kv get -mount=oim -field="$u-access-key" seaweedfs-users)" = "$u" ] \
                       || { echo "$u: OpenBao 의 access-key 가 사용자 이름과 다르다 — 멈춘다" >&2; exit 1; }
                     [ -n "${OLD[$u]}" ] || { echo "$u: OpenBao 값이 비었다" >&2; exit 1; }
                     [ "${OLD[$u]}" = "$(ev "$u")" ] || { echo "$u: OpenBao 와 k8s Secret 이 다르다 — ESO 동기화부터 볼 것" >&2; exit 1; }
@@ -165,11 +164,11 @@ spec:
                   rollback() {
                     echo "[rollback] OpenBao 를 옛 값으로 되돌린다" >&2
                     R="{"; for u in $USERS; do R="$R\"$u-secret-key\":\"${OLD[$u]}\","; done; R="${R%,}}"
-                    printf '%s' "$R" | $B kv patch -mount=oim minio-users - >/dev/null || echo "[rollback] 실패 — 사람이 볼 것" >&2
+                    printf '%s' "$R" | $B kv patch -mount=oim seaweedfs-users - >/dev/null || echo "[rollback] 실패 — 사람이 볼 것" >&2
                   }
-                  printf '%s' "$J" | $B kv patch -mount=oim minio-users - >/dev/null || { echo "OpenBao 기록 실패" >&2; exit 1; }
+                  printf '%s' "$J" | $B kv patch -mount=oim seaweedfs-users - >/dev/null || { echo "OpenBao 기록 실패" >&2; exit 1; }
                   for u in $USERS; do
-                    [ "$($B kv get -mount=oim -field="$u-secret-key" minio-users)" = "${NEW[$u]}" ] \
+                    [ "$($B kv get -mount=oim -field="$u-secret-key" seaweedfs-users)" = "${NEW[$u]}" ] \
                       || { echo "$u: OpenBao 되읽기가 다르다" >&2; rollback; exit 1; }
                   done
 
@@ -178,13 +177,13 @@ spec:
                   for u in $USERS; do printf '%s %s\n' "$u-secret-key" "$(sha "${NEW[$u]}")" >> /tools/expected; done
                   echo "OpenBao 갱신 완료 — SeaweedFS 는 재시작 뒤에 새 값을 쓴다"
               env:
-                - {name: K8S_TRINO,            valueFrom: {secretKeyRef: {name: minio-users, key: trino-secret-key}}}
-                - {name: K8S_HIVE,             valueFrom: {secretKeyRef: {name: minio-users, key: hive-secret-key}}}
-                - {name: K8S_SPARK,            valueFrom: {secretKeyRef: {name: minio-users, key: spark-secret-key}}}
-                - {name: K8S_SPARK_HISTORY,    valueFrom: {secretKeyRef: {name: minio-users, key: spark-history-secret-key}}}
-                - {name: K8S_OPENREPLAY,       valueFrom: {secretKeyRef: {name: minio-users, key: openreplay-secret-key}}}
-                - {name: K8S_OPENBAO_SNAPSHOT, valueFrom: {secretKeyRef: {name: minio-users, key: openbao-snapshot-secret-key}}}
-                - {name: K8S_AIRFLOW,          valueFrom: {secretKeyRef: {name: minio-users, key: airflow-secret-key}}}
+                - {name: K8S_TRINO,            valueFrom: {secretKeyRef: {name: seaweedfs-users, key: trino-secret-key}}}
+                - {name: K8S_HIVE,             valueFrom: {secretKeyRef: {name: seaweedfs-users, key: hive-secret-key}}}
+                - {name: K8S_SPARK,            valueFrom: {secretKeyRef: {name: seaweedfs-users, key: spark-secret-key}}}
+                - {name: K8S_SPARK_HISTORY,    valueFrom: {secretKeyRef: {name: seaweedfs-users, key: spark-history-secret-key}}}
+                - {name: K8S_OPENREPLAY,       valueFrom: {secretKeyRef: {name: seaweedfs-users, key: openreplay-secret-key}}}
+                - {name: K8S_OPENBAO_SNAPSHOT, valueFrom: {secretKeyRef: {name: seaweedfs-users, key: openbao-snapshot-secret-key}}}
+                - {name: K8S_AIRFLOW,          valueFrom: {secretKeyRef: {name: seaweedfs-users, key: airflow-secret-key}}}
               volumeMounts: [{name: tools, mountPath: /tools}]
               resources:
                 requests: {cpu: 50m, memory: 128Mi}
@@ -199,9 +198,9 @@ spec:
                 - -c
                 - |
                   set -eu
-                  h() { kubectl get secret minio-users -o go-template="{{index .data \"$1\" | base64decode}}" | sha256sum | cut -d' ' -f1; }
+                  h() { kubectl get secret seaweedfs-users -o go-template="{{index .data \"$1\" | base64decode}}" | sha256sum | cut -d' ' -f1; }
                   echo "[sync] ExternalSecret 강제 동기화"
-                  kubectl annotate externalsecret minio-users force-sync="$(date +%s)" --overwrite >/dev/null
+                  kubectl annotate externalsecret seaweedfs-users force-sync="$(date +%s)" --overwrite >/dev/null
                   i=0
                   while [ $i -lt 60 ]; do
                     bad=0
@@ -235,23 +234,23 @@ spec:
                     fails=0
                     for u in trino hive spark spark-history openreplay openbao-snapshot airflow; do
                       v="K8S_$(printf '%s' "$u" | tr 'a-z-' 'A-Z_')"
-                      AWS_ACCESS_KEY_ID="$u" AWS_SECRET_ACCESS_KEY="${!v}" aws --endpoint-url http://minio-headless:9000 \
+                      AWS_ACCESS_KEY_ID="$u" AWS_SECRET_ACCESS_KEY="${!v}" aws --endpoint-url http://seaweedfs-headless:9000 \
                         s3api list-objects-v2 --bucket "${BK[$u]}" --max-keys 1 >/dev/null 2>&1 || fails=$((fails+1))
                     done
                     [ $fails -eq 0 ] && { echo "[verify] 소비자가 받을 값으로 7명 전부 붙는다 (${i}회째)"; exit 0; }
                     sleep 3
                   done
                   echo "[verify] 300초 안에 $fails 명이 새 키로 붙지 못한다 — Reloader 가 seaweedfs 를 재시작했는지 볼 것." >&2
-                  echo "[verify] 되돌리려면 OpenBao oim/minio-users 를 이전 버전으로(bao kv rollback) 하고 force-sync 할 것." >&2
+                  echo "[verify] 되돌리려면 OpenBao oim/seaweedfs-users 를 이전 버전으로(bao kv rollback) 하고 force-sync 할 것." >&2
                   exit 1
               env:
-                - {name: K8S_TRINO,            valueFrom: {secretKeyRef: {name: minio-users, key: trino-secret-key}}}
-                - {name: K8S_HIVE,             valueFrom: {secretKeyRef: {name: minio-users, key: hive-secret-key}}}
-                - {name: K8S_SPARK,            valueFrom: {secretKeyRef: {name: minio-users, key: spark-secret-key}}}
-                - {name: K8S_SPARK_HISTORY,    valueFrom: {secretKeyRef: {name: minio-users, key: spark-history-secret-key}}}
-                - {name: K8S_OPENREPLAY,       valueFrom: {secretKeyRef: {name: minio-users, key: openreplay-secret-key}}}
-                - {name: K8S_OPENBAO_SNAPSHOT, valueFrom: {secretKeyRef: {name: minio-users, key: openbao-snapshot-secret-key}}}
-                - {name: K8S_AIRFLOW,          valueFrom: {secretKeyRef: {name: minio-users, key: airflow-secret-key}}}
+                - {name: K8S_TRINO,            valueFrom: {secretKeyRef: {name: seaweedfs-users, key: trino-secret-key}}}
+                - {name: K8S_HIVE,             valueFrom: {secretKeyRef: {name: seaweedfs-users, key: hive-secret-key}}}
+                - {name: K8S_SPARK,            valueFrom: {secretKeyRef: {name: seaweedfs-users, key: spark-secret-key}}}
+                - {name: K8S_SPARK_HISTORY,    valueFrom: {secretKeyRef: {name: seaweedfs-users, key: spark-history-secret-key}}}
+                - {name: K8S_OPENREPLAY,       valueFrom: {secretKeyRef: {name: seaweedfs-users, key: openreplay-secret-key}}}
+                - {name: K8S_OPENBAO_SNAPSHOT, valueFrom: {secretKeyRef: {name: seaweedfs-users, key: openbao-snapshot-secret-key}}}
+                - {name: K8S_AIRFLOW,          valueFrom: {secretKeyRef: {name: seaweedfs-users, key: airflow-secret-key}}}
               resources:
                 requests: {cpu: 20m, memory: 64Mi}
                 limits:   {cpu: 500m, memory: 512Mi}
@@ -262,9 +261,9 @@ spec:
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: rotate-minio-root
+  name: rotate-seaweedfs-root
   labels:
-    app.kubernetes.io/name: rotate-minio-root
+    app.kubernetes.io/name: rotate-seaweedfs-root
     app.kubernetes.io/component: rotation
     app.kubernetes.io/part-of: oneinchmarket
     app.kubernetes.io/managed-by: kustomize
@@ -282,12 +281,12 @@ spec:
       template:
         metadata:
           labels:
-            app.kubernetes.io/name: rotator-minio
+            app.kubernetes.io/name: rotator-seaweedfs
             app.kubernetes.io/component: rotation
             app.kubernetes.io/part-of: oneinchmarket
             app.kubernetes.io/managed-by: kustomize
         spec:
-          serviceAccountName: rotator-minio
+          serviceAccountName: rotator-seaweedfs
           restartPolicy: Never
           securityContext:
             runAsUser: 1000
@@ -322,31 +321,29 @@ spec:
                   export BAO_ADDR=http://openbao.local.svc.cluster.local:8200 HOME=/tmp AWS_DEFAULT_REGION=us-east-1
                   sha() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
 
-                  echo "[1/5] OpenBao 로그인 (rotator-minio)"
-                  BAO_TOKEN=$($B write -field=token auth/kubernetes/login role=rotator-minio \
+                  echo "[1/5] OpenBao 로그인 (rotator-seaweedfs)"
+                  BAO_TOKEN=$($B write -field=token auth/kubernetes/login role=rotator-seaweedfs \
                     jwt=@/var/run/secrets/kubernetes.io/serviceaccount/token)
                   export BAO_TOKEN
 
-                  echo "[2/5] 원천 일치 확인 (OpenBao 두 별칭 키 = k8s Secret)"
-                  RUSER=$($B kv get -mount=oim -field=root-user minio-secret)
-                  OLD=$($B kv get -mount=oim -field=root-password minio-secret)
-                  ALIAS=$($B kv get -mount=oim -field=minio-secret-key minio-secret)
+                  echo "[2/5] 원천 일치 확인 (OpenBao = k8s Secret)"
+                  RUSER=$($B kv get -mount=oim -field=root-user seaweedfs-secret)
+                  OLD=$($B kv get -mount=oim -field=root-password seaweedfs-secret)
                   [ -n "$OLD" ] || { echo "OpenBao 값이 비었다" >&2; exit 1; }
-                  [ "$OLD" = "$ALIAS" ] || { echo "OpenBao 의 두 별칭 키가 다르다 — 멈춘다" >&2; exit 1; }
                   [ "$OLD" = "$K8S_CURRENT" ] || { echo "OpenBao 와 k8s Secret 이 다르다 — ESO 동기화부터 볼 것" >&2; exit 1; }
 
                   echo "[3/5] 현재 root 로 접속 확인"
-                  AWS_ACCESS_KEY_ID="$RUSER" AWS_SECRET_ACCESS_KEY="$OLD" aws --endpoint-url http://minio-headless:9000 \
+                  AWS_ACCESS_KEY_ID="$RUSER" AWS_SECRET_ACCESS_KEY="$OLD" aws --endpoint-url http://seaweedfs-headless:9000 \
                     s3api list-buckets >/dev/null 2>&1 || { echo "현재 root 로 붙지 못한다 — 멈춘다" >&2; exit 1; }
 
-                  echo "[4/5] OpenBao 에 기록 (두 별칭 키를 함께)"
+                  echo "[4/5] OpenBao 에 기록"
                   NEW=$(head -c 48 /dev/urandom | base64 | tr -d '=+/\n' | cut -c1-32)
                   [ "${#NEW}" -ge 24 ] || { echo "생성한 값이 짧다" >&2; exit 1; }
-                  printf '{"root-password":"%s","minio-secret-key":"%s"}' "$NEW" "$NEW" \
-                    | $B kv patch -mount=oim minio-secret - >/dev/null
-                  if [ "$($B kv get -mount=oim -field=root-password minio-secret)" != "$NEW" ]; then
+                  printf '{"root-password":"%s"}' "$NEW" \
+                    | $B kv patch -mount=oim seaweedfs-secret - >/dev/null
+                  if [ "$($B kv get -mount=oim -field=root-password seaweedfs-secret)" != "$NEW" ]; then
                     echo "OpenBao 되읽기가 다르다 — 옛 값으로 되돌린다" >&2
-                    printf '{"root-password":"%s","minio-secret-key":"%s"}' "$OLD" "$OLD" | $B kv patch -mount=oim minio-secret - >/dev/null
+                    printf '{"root-password":"%s"}' "$OLD" | $B kv patch -mount=oim seaweedfs-secret - >/dev/null
                     exit 1
                   fi
 
@@ -355,7 +352,7 @@ spec:
                   echo "OpenBao 갱신 완료 — SeaweedFS 는 재시작 뒤에 새 값을 쓴다"
               env:
                 - name: K8S_CURRENT
-                  valueFrom: {secretKeyRef: {name: minio-secret, key: root-password}}
+                  valueFrom: {secretKeyRef: {name: seaweedfs-secret, key: root-password}}
               volumeMounts: [{name: tools, mountPath: /tools}]
               resources:
                 requests: {cpu: 50m, memory: 128Mi}
@@ -371,12 +368,12 @@ spec:
                 - |
                   set -eu
                   want=$(cat /tools/expected.sha)
-                  h() { kubectl get secret minio-secret -o go-template="{{index .data \"$1\" | base64decode}}" | sha256sum | cut -d' ' -f1; }
+                  h() { kubectl get secret seaweedfs-secret -o go-template="{{index .data \"$1\" | base64decode}}" | sha256sum | cut -d' ' -f1; }
                   echo "[sync] ExternalSecret 강제 동기화"
-                  kubectl annotate externalsecret minio-secret force-sync="$(date +%s)" --overwrite >/dev/null
+                  kubectl annotate externalsecret seaweedfs-secret force-sync="$(date +%s)" --overwrite >/dev/null
                   i=0
                   while [ $i -lt 60 ]; do
-                    if [ "$(h root-password)" = "$want" ] && [ "$(h minio-secret-key)" = "$want" ]; then
+                    if [ "$(h root-password)" = "$want" ]; then
                       echo "[sync] k8s Secret 갱신 확인 — Reloader 가 SeaweedFS 를 재시작한다"; exit 0
                     fi
                     i=$((i+1)); sleep 3
@@ -403,17 +400,17 @@ spec:
                   export HOME=/tmp AWS_DEFAULT_REGION=us-east-1
                   for i in $(seq 1 100); do
                     if AWS_ACCESS_KEY_ID="$ROOT_USER" AWS_SECRET_ACCESS_KEY="$ROOT_PW" \
-                         aws --endpoint-url http://minio-headless:9000 s3api list-buckets >/dev/null 2>&1; then
+                         aws --endpoint-url http://seaweedfs-headless:9000 s3api list-buckets >/dev/null 2>&1; then
                       echo "[verify] SeaweedFS 가 새 root 를 받아들인다 (${i}회째)"; exit 0
                     fi
                     sleep 3
                   done
                   echo "[verify] 300초 안에 SeaweedFS 가 새 root 를 받지 않았다 — Reloader 가 seaweedfs 를 재시작했는지 볼 것." >&2
-                  echo "[verify] 되돌리려면 OpenBao oim/minio-secret 의 두 키를 옛 값으로(그 KV 의 이전 버전에 있다)." >&2
+                  echo "[verify] 되돌리려면 OpenBao oim/seaweedfs-secret 의 root-password 를 옛 값으로(그 KV 의 이전 버전에 있다)." >&2
                   exit 1
               env:
-                - {name: ROOT_USER, valueFrom: {secretKeyRef: {name: minio-secret, key: root-user}}}
-                - {name: ROOT_PW,   valueFrom: {secretKeyRef: {name: minio-secret, key: root-password}}}
+                - {name: ROOT_USER, valueFrom: {secretKeyRef: {name: seaweedfs-secret, key: root-user}}}
+                - {name: ROOT_PW,   valueFrom: {secretKeyRef: {name: seaweedfs-secret, key: root-password}}}
               resources:
                 requests: {cpu: 20m, memory: 64Mi}
                 limits:   {cpu: 500m, memory: 512Mi}

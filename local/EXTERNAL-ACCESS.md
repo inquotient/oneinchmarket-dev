@@ -254,7 +254,7 @@ Import-Certificate -FilePath .\oim-ca.crt -CertStoreLocation Cert:\LocalMachine\
 | https://seaweedfs-master.oneinchmarket.local | 자체 인증 | `oauth2-proxy-seaweedfs-master` -> `seaweedfs-headless:9433` | SeaweedFS master UI(클러스터·볼륨 배치) · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P) · 자체 인증 없음 |
 | https://seaweedfs-volume.oneinchmarket.local | 자체 인증 | `oauth2-proxy-seaweedfs-volume` -> `seaweedfs-headless:8180` | SeaweedFS volume 서버 UI(`/ui/index.html`) · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P) · 자체 인증 없음 |
 | https://seaweedfs-filer.oneinchmarket.local | 자체 인증 | `oauth2-proxy-seaweedfs-filer` -> `seaweedfs-headless:8988` | SeaweedFS filer 브라우저 — ★ 업로드·삭제가 되고 버킷별 권한을 우회한다 · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P) · 자체 인증 없음 |
-| https://s3.oneinchmarket.local | 자체 인증 | `minio-headless:9000` | S3 API — `mc`·`s3cmd`·boto3. 서명 인증 |
+| https://s3.oneinchmarket.local | 자체 인증 | `seaweedfs-headless:9000` | S3 API — `mc`·`s3cmd`·boto3. 서명 인증 |
 | https://trino.oneinchmarket.local | 자체 인증 | `trino-headless:8080` | LDAP 로그인 `data-admin`(전권)·`analyst`(조회만) / `pw ds389-secret <uid>-password` · 권한은 Ranger `oim-trino` · 웹 UI(`/ui/`) + **JDBC**(§3-b). ★ `http-server.process-forwarded=true` 가 있어야 한다 — 없으면 전부 406 이다 |
 | https://spark-history.oneinchmarket.local | 자체 인증 | `oauth2-proxy-spark-history:4180` | 완료된 Spark 앱. **Keycloak 로그인 · 그룹 `platform` 만**(spark-ui 와 같다) — 앞단 oauth2-proxy |
 | https://spark-ui.oneinchmarket.local | 자체 인증 | `oauth2-proxy-spark-ui:4180` | Spark Connect 세션 UI. **Keycloak 로그인 · 그룹 `platform` 만**(`portal` / `pw keycloak-secret portal-user-password`) — 앞단 oauth2-proxy(external-access/oauth2-proxy-spark-ui.yaml). ★ 세션 UI 는 Job 을 **죽일 수 있다**(`spark.ui.killEnabled` 기본 true) |

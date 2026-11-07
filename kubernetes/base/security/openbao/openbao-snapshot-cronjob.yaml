@@ -1,4 +1,4 @@
-# OpenBao raft 스냅샷 → MinIO
+# OpenBao raft 스냅샷 → S3(SeaweedFS)
 #
 # ★ Vault Enterprise 의 **자동 스냅샷 · DR Replication** 자리를 채운다
 #   (WSO2-OSS-MAPPING.md 부록 A-2). 복제가 아니라 백업·복구로 바꾸는 것이며,
@@ -87,10 +87,10 @@ spec:
               args:
                 - |
                   set -euo pipefail
-                  export HOME=/tmp AWS_DEFAULT_REGION=us-east-1 AWS_ACCESS_KEY_ID="$MINIO_USER" AWS_SECRET_ACCESS_KEY="$MINIO_KEY"
-                  E=http://minio-headless:9000
-                  # 엔진은 SeaweedFS(2026-11-07), 이름은 minio-headless 그대로. HTTP 다.
-                  # ★ root 가 아니라 전용 사용자다(2026-11-06) — openbao-snapshots 버킷만 읽고 쓴다. 버킷은 minio-bootstrap 이
+                  export HOME=/tmp AWS_DEFAULT_REGION=us-east-1 AWS_ACCESS_KEY_ID="$S3_USER" AWS_SECRET_ACCESS_KEY="$S3_KEY"
+                  E=http://seaweedfs-headless:9000
+                  # SeaweedFS S3(2026-11-07). HTTP 다.
+                  # ★ root 가 아니라 전용 사용자다(2026-11-06) — openbao-snapshots 버킷만 읽고 쓴다. 버킷은 seaweedfs-bootstrap 이
                   #   만든다(이 사용자에게는 생성 권한이 없다).
                   until aws --endpoint-url "$E" s3api list-objects-v2 --bucket openbao-snapshots --max-keys 1 >/dev/null 2>&1; do sleep 3; done
                   TS="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -110,10 +110,10 @@ spec:
                   echo "[openbao-snapshot] 업로드 완료 openbao-${TS}.snap · 30일 넘은 것 ${n}개 정리"
                   aws --endpoint-url "$E" s3 ls s3://openbao-snapshots/ | tail -3
               env:
-                - name: MINIO_USER
-                  valueFrom: {secretKeyRef: {name: minio-users, key: openbao-snapshot-access-key}}
-                - name: MINIO_KEY
-                  valueFrom: {secretKeyRef: {name: minio-users, key: openbao-snapshot-secret-key}}
+                - name: S3_USER
+                  valueFrom: {secretKeyRef: {name: seaweedfs-users, key: openbao-snapshot-access-key}}
+                - name: S3_KEY
+                  valueFrom: {secretKeyRef: {name: seaweedfs-users, key: openbao-snapshot-secret-key}}
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true

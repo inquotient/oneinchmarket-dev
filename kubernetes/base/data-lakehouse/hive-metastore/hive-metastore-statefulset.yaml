@@ -86,12 +86,12 @@ spec:
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: minio-users
+                  name: seaweedfs-users
                   key: hive-access-key
             - name: AWS_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: minio-users
+                  name: seaweedfs-users
                   key: hive-secret-key
             # ★ S3A 클래스패스.
             #   hadoop-aws 와 AWS SDK 는 share/hadoop/tools/lib 에 있고 이 경로는

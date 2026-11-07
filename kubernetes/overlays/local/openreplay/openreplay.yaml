@@ -854,16 +854,16 @@ spec:
         - name: SITE_URL
           value: https://openreplay.oneinchmarket.local
         - name: S3_HOST
-          value: http://minio-headless.local.svc.cluster.local:9000
+          value: http://seaweedfs-headless.local.svc.cluster.local:9000
         - name: S3_KEY
           valueFrom:
             secretKeyRef:
-              name: minio-users
+              name: seaweedfs-users
               key: openreplay-access-key
         - name: S3_SECRET
           valueFrom:
             secretKeyRef:
-              name: minio-users
+              name: seaweedfs-users
               key: openreplay-secret-key
         - name: AWS_DEFAULT_REGION
           value: us-east-1
@@ -1002,15 +1002,15 @@ spec:
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
-              name: minio-users
+              name: seaweedfs-users
               key: openreplay-access-key
         - name: AWS_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: minio-users
+              name: seaweedfs-users
               key: openreplay-secret-key
         - name: AWS_ENDPOINT
-          value: http://minio-headless.local.svc.cluster.local:9000
+          value: http://seaweedfs-headless.local.svc.cluster.local:9000
         - name: AWS_REGION
           value: us-east-1
         - name: BUCKET_NAME
@@ -1138,12 +1138,12 @@ spec:
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
-              name: minio-users
+              name: seaweedfs-users
               key: openreplay-access-key
         - name: AWS_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: minio-users
+              name: seaweedfs-users
               key: openreplay-secret-key
         - name: BUCKET_NAME
           value: sessions-assets
@@ -1154,7 +1154,7 @@ spec:
               key: license-key
               optional: true
         - name: AWS_ENDPOINT
-          value: http://minio-headless.local.svc.cluster.local:9000
+          value: http://seaweedfs-headless.local.svc.cluster.local:9000
         - name: AWS_REGION
           value: us-east-1
         - name: KAFKA_SERVERS
@@ -1340,15 +1340,15 @@ spec:
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
-              name: minio-users
+              name: seaweedfs-users
               key: openreplay-access-key
         - name: AWS_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: minio-users
+              name: seaweedfs-users
               key: openreplay-secret-key
         - name: AWS_ENDPOINT
-          value: http://minio-headless.local.svc.cluster.local:9000
+          value: http://seaweedfs-headless.local.svc.cluster.local:9000
         - name: AWS_REGION
           value: us-east-1
         - name: BUCKET_NAME
@@ -1538,16 +1538,16 @@ spec:
         - name: SITE_URL
           value: https://openreplay.oneinchmarket.local
         - name: S3_HOST
-          value: http://minio-headless.local.svc.cluster.local:9000
+          value: http://seaweedfs-headless.local.svc.cluster.local:9000
         - name: S3_KEY
           valueFrom:
             secretKeyRef:
-              name: minio-users
+              name: seaweedfs-users
               key: openreplay-access-key
         - name: S3_SECRET
           valueFrom:
             secretKeyRef:
-              name: minio-users
+              name: seaweedfs-users
               key: openreplay-secret-key
         - name: AWS_DEFAULT_REGION
           value: us-east-1
@@ -2131,17 +2131,17 @@ spec:
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
-              name: minio-users
+              name: seaweedfs-users
               key: openreplay-access-key
         - name: AWS_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: minio-users
+              name: seaweedfs-users
               key: openreplay-secret-key
         - name: AWS_REGION
           value: us-east-1
         - name: AWS_ENDPOINT
-          value: http://minio-headless.local.svc.cluster.local:9000
+          value: http://seaweedfs-headless.local.svc.cluster.local:9000
         - name: LICENSE_KEY
           valueFrom:
             secretKeyRef:
@@ -2266,15 +2266,15 @@ spec:
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
-              name: minio-users
+              name: seaweedfs-users
               key: openreplay-access-key
         - name: AWS_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: minio-users
+              name: seaweedfs-users
               key: openreplay-secret-key
         - name: AWS_ENDPOINT
-          value: http://minio-headless.local.svc.cluster.local:9000
+          value: http://seaweedfs-headless.local.svc.cluster.local:9000
         - name: AWS_REGION
           value: us-east-1
         - name: BUCKET_NAME
@@ -2401,15 +2401,15 @@ spec:
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
-              name: minio-users
+              name: seaweedfs-users
               key: openreplay-access-key
         - name: AWS_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: minio-users
+              name: seaweedfs-users
               key: openreplay-secret-key
         - name: AWS_ENDPOINT
-          value: http://minio-headless.local.svc.cluster.local:9000
+          value: http://seaweedfs-headless.local.svc.cluster.local:9000
         - name: AWS_REGION
           value: us-east-1
         - name: BUCKET_NAME
@@ -2623,16 +2623,16 @@ spec:
         - name: SMR_HOST
           value: 0.0.0.0
         - name: S3_HOST
-          value: http://minio-headless.local.svc.cluster.local:9000
+          value: http://seaweedfs-headless.local.svc.cluster.local:9000
         - name: S3_KEY
           valueFrom:
             secretKeyRef:
-              name: minio-users
+              name: seaweedfs-users
               key: openreplay-access-key
         - name: S3_SECRET
           valueFrom:
             secretKeyRef:
-              name: minio-users
+              name: seaweedfs-users
               key: openreplay-secret-key
         - name: AWS_REGION
           value: us-east-1
@@ -2738,19 +2738,19 @@ spec:
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
-              name: minio-users
+              name: seaweedfs-users
               key: openreplay-access-key
         - name: AWS_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: minio-users
+              name: seaweedfs-users
               key: openreplay-secret-key
         - name: BUCKET_NAME
           value: spots
         - name: AWS_REGION
           value: us-east-1
         - name: AWS_ENDPOINT
-          value: http://minio-headless.local.svc.cluster.local:9000
+          value: http://seaweedfs-headless.local.svc.cluster.local:9000
         - name: LICENSE_KEY
           valueFrom:
             secretKeyRef:
@@ -2876,15 +2876,15 @@ spec:
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
-              name: minio-users
+              name: seaweedfs-users
               key: openreplay-access-key
         - name: AWS_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: minio-users
+              name: seaweedfs-users
               key: openreplay-secret-key
         - name: AWS_ENDPOINT
-          value: http://minio-headless.local.svc.cluster.local:9000
+          value: http://seaweedfs-headless.local.svc.cluster.local:9000
         - name: AWS_REGION
           value: us-east-1
         - name: BUCKET_NAME

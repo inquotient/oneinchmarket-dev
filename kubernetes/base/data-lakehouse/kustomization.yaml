@@ -2,12 +2,11 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  # S3 - Object Storage. 엔진은 SeaweedFS(2026-11-07). 소비자가 쓰는 이름 minio-headless 는 Service 하나로 남는다.
-  - minio/minio-headless.yaml
+  # S3 - Object Storage — SeaweedFS(2026-11-07 에 MinIO 를 대체했다, Gotcha 218)
   - seaweedfs/seaweedfs-statefulset.yaml
   - seaweedfs/seaweedfs-headless.yaml
   - seaweedfs/seaweedfs-ui-proxy-configmap.yaml
-  # - minio/minio-secret.enc.yaml  # SOPS: re-enable after ArgoCD SOPS plugin setup
+  # - seaweedfs/seaweedfs-secret.enc.yaml  # SOPS: re-enable after ArgoCD SOPS plugin setup
   # Trino - Query Engine
   - trino/trino-statefulset.yaml
   - trino/trino-headless.yaml
