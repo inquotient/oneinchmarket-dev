@@ -20,6 +20,10 @@
 #   즉 **dry-run 으로 Audit 정책을 검증할 수 없다.** Audit 의 측정 지점은
 #   §2 의 PolicyReport 이고, dry-run 은 Enforce 일 때만 뜻이 있다.
 #
+# ★★ 2026-11-07: 정책이 kyverno.io/v1 ClusterPolicy 에서 policies.kyverno.io/v1 ValidatingPolicy(CEL)로
+#   옮겨졌다. 읽는 종류와 action 자리(spec.validationActions — Deny 가 옛 Enforce 다)를 함께 바꿨다.
+#   옛 종류를 그대로 읽으면 6개 전부 '없다' 로 실패한다 — 그것은 정책이 사라진 것이 아니다.
+#
 # 판정은 셋이다: 0 통과 · 1 실패 · 2 측정 불가.
 
 set -euo pipefail
@@ -63,24 +67,29 @@ if ! kubectl get namespace "$NAMESPACE" >/dev/null 2>&1; then
   printf "${BLUE}[측정 불가]${NC} 네임스페이스 %s 가 없다 — 대상을 잘못 보고 있다\n" "$NAMESPACE"
   exit 2
 fi
-if ! kubectl get clusterpolicy >/dev/null 2>&1; then
-  printf "${BLUE}[측정 불가]${NC} ClusterPolicy 를 읽지 못한다 — Kyverno 가 없거나 CRD 가 없다\n"
+VP=validatingpolicies.policies.kyverno.io
+if ! kubectl get "$VP" >/dev/null 2>&1; then
+  printf "${BLUE}[측정 불가]${NC} ValidatingPolicy 를 읽지 못한다 — Kyverno 가 없거나 CRD 가 없다\n"
   exit 2
 fi
-printf "${GREEN}[OK]${NC}   클러스터·네임스페이스 %s·ClusterPolicy 를 읽을 수 있다\n" "$NAMESPACE"
+printf "${GREEN}[OK]${NC}   클러스터·네임스페이스 %s·ValidatingPolicy 를 읽을 수 있다\n" "$NAMESPACE"
 echo ""
 
-echo "=== 1. ClusterPolicy 존재와 실효 action ==="
-# ★ action 을 두 자리에서 읽는다. Kyverno 1.13 은 spec.validationFailureAction
-#   이지만 **1.14 가 그 필드를 없애고** rules[].validate.failureAction 으로
-#   옮겼다. 지금은 v1.13.2 로 핀되어 있다(local/install-operators.sh) —
-#   올리는 날 한쪽만 읽는 코드는 조용히 빈 값을 보게 된다.
+echo "=== 1. ValidatingPolicy 존재와 실효 action ==="
+# ★ action 은 spec.validationActions(목록)다. Deny 가 있으면 옛 Enforce 와 같고(어드미션이 거부한다),
+#   Audit 만 있으면 PolicyReport 로만 간다. 아래 표기는 옛 이름(Enforce/Audit)으로 맞춰 둔다 —
+#   §5 의 문구가 그 이름을 쓴다.
 declare -A ACTION_OF
 for policy in "${POLICIES[@]}"; do
-  if ACT=$(kubectl get clusterpolicy "$policy" -o go-template='{{if .spec.validationFailureAction}}{{.spec.validationFailureAction}}{{else}}{{range .spec.rules}}{{if .validate}}{{if .validate.failureAction}}{{.validate.failureAction}}{{end}}{{end}}{{end}}{{end}}' 2>/dev/null); then
+  if RAW=$(kubectl get "$VP" "$policy" -o go-template='{{range .spec.validationActions}}{{.}} {{end}}' 2>/dev/null); then
+    case " $RAW " in
+      *" Deny "*) ACT=Enforce ;;
+      *" Audit "*) ACT=Audit ;;
+      *) ACT="" ;;
+    esac
     if [ -z "$ACT" ]; then
       ACT=Audit
-      printf "${YELLOW}[WARN]${NC} %-32s action 이 두 자리 어디에도 없다 — Kyverno 기본값(Audit)으로 읽는다\n" "$policy"
+      printf "${YELLOW}[WARN]${NC} %-32s validationActions 가 비었거나 알 수 없다(%s) — Audit 으로 읽는다\n" "$policy" "$RAW"
       WARNED=$((WARNED + 1))
     else
       printf "${GREEN}[OK]${NC}   %-32s action: %s\n" "$policy" "$ACT"

@@ -1,5 +1,10 @@
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+# ★ 2026-11-07 에 kyverno.io/v1 ClusterPolicy 에서 policies.kyverno.io/v1 ValidatingPolicy(CEL)로 옮겼다
+#   (Kyverno 1.19 가 ClusterPolicy 를 지원 중단 예정으로 경고한다). 옮기기 전에 노드의 kyverno-cli 로
+#   렌더 전체에 두 판을 돌려 위반 자원 집합을 대조했다. Audit/Deny 는 spec.validationActions 다
+#   (prod 는 패치가 Deny 로 바꾼다). Pod 규칙은 autogen 으로 Deployment·StatefulSet·DaemonSet·
+#   ReplicaSet·Job·CronJob 에도 걸린다.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: disallow-latest-tag
   labels:
@@ -14,22 +19,17 @@ metadata:
     policies.kyverno.io/description: >-
       Container images should use a specific version tag rather than :latest.
       This policy audits containers using the :latest tag in dev.
-      NOTE: In production, change validationFailureAction to Enforce.
+      NOTE: In production, validationActions is Deny (overlays/prod patch).
 spec:
-  # In dev, set to Audit to allow flexibility during development.
-  # For production overlays, change to: validationFailureAction: Enforce
-  validationFailureAction: Audit
-  background: true
-  rules:
-    - name: validate-image-tag
-      match:
-        any:
-          - resources:
-              kinds:
-                - Pod
-      validate:
-        message: "Container images must not use the :latest tag. Use a specific version tag instead."
-        pattern:
-          spec:
-            containers:
-              - image: "!*:latest"
+  validationActions: [Audit]
+  evaluation:
+    background: {enabled: true}
+  matchConstraints:
+    resourceRules:
+      - {apiGroups: [""], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [pods]}
+  autogen:
+    podControllers:
+      controllers: [deployments, statefulsets, daemonsets, replicasets, jobs, cronjobs]
+  validations:
+    - expression: "object.spec.containers.all(c, !c.image.endsWith(':latest'))"
+      message: "Container images must not use the :latest tag. Use a specific version tag instead."

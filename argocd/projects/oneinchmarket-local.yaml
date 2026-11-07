@@ -55,6 +55,11 @@ spec:
       kind: Namespace
     - group: kyverno.io
       kind: ClusterPolicy
+    # ★ 2026-11-07 CEL 정책으로 옮겼다(base/security/kyverno). ClusterPolicy 는 옮기는 동안의 prune 대상이라 남겨 둔다.
+    - group: policies.kyverno.io
+      kind: ValidatingPolicy
+    - group: policies.kyverno.io
+      kind: MutatingPolicy
     - group: policy
       kind: PodDisruptionBudget
     - group: networking.k8s.io

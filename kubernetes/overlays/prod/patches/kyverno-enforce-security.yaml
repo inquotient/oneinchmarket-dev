@@ -1,21 +1,21 @@
 # Prod 환경: 보안 정책을 Audit → Enforce로 전환
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: disallow-root-user
 spec:
-  validationFailureAction: Enforce
+  validationActions: [Deny]
 ---
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: disallow-privilege-escalation
 spec:
-  validationFailureAction: Enforce
+  validationActions: [Deny]
 ---
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: require-resource-limits
 spec:
-  validationFailureAction: Enforce
+  validationActions: [Deny]

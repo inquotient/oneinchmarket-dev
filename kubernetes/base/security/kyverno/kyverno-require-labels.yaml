@@ -1,5 +1,10 @@
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+# ★ 2026-11-07 에 kyverno.io/v1 ClusterPolicy 에서 policies.kyverno.io/v1 ValidatingPolicy(CEL)로 옮겼다
+#   (Kyverno 1.19 가 ClusterPolicy 를 지원 중단 예정으로 경고한다). 옮기기 전에 노드의 kyverno-cli 로
+#   렌더 전체에 두 판을 돌려 위반 자원 집합을 대조했다. Audit/Deny 는 spec.validationActions 다
+#   (prod 는 패치가 Deny 로 바꾼다). Pod 규칙은 autogen 으로 Deployment·StatefulSet·DaemonSet·
+#   ReplicaSet·Job·CronJob 에도 걸린다.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: require-standard-labels
   labels:
@@ -16,23 +21,19 @@ metadata:
       app.kubernetes.io/name and app.kubernetes.io/part-of for consistent
       identification and grouping.
 spec:
-  validationFailureAction: Audit
-  background: true
-  rules:
-    - name: validate-standard-labels
-      match:
-        any:
-          - resources:
-              kinds:
-                - Pod
-                - Deployment
-                - StatefulSet
-                - Service
-                - ConfigMap
-      validate:
-        message: "Resources must have labels 'app.kubernetes.io/name' and 'app.kubernetes.io/part-of'."
-        pattern:
-          metadata:
-            labels:
-              app.kubernetes.io/name: "?*"
-              app.kubernetes.io/part-of: "?*"
+  validationActions: [Audit]
+  evaluation:
+    background: {enabled: true}
+  matchConstraints:
+    resourceRules:
+      - {apiGroups: [""], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [pods, services, configmaps]}
+      - {apiGroups: [apps], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [deployments, statefulsets]}
+  autogen:
+    podControllers:
+      controllers: []
+  validations:
+    - expression: >-
+        has(object.metadata.labels) &&
+        object.metadata.labels[?'app.kubernetes.io/name'].orValue('') != '' &&
+        object.metadata.labels[?'app.kubernetes.io/part-of'].orValue('') != ''
+      message: "Resources must have labels 'app.kubernetes.io/name' and 'app.kubernetes.io/part-of'."

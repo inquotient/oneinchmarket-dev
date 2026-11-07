@@ -136,18 +136,10 @@ spec:
         - '.spec.volumeClaimTemplates[]?.status'
         - '.spec.volumeClaimTemplates[]?.spec.volumeMode'
 
-    # Kyverno ClusterPolicy 6건 — 웹훅이 정책에 자기 기본값을 되써 넣는다.
-    #   이 키들은 Kyverno 버전에 따라 늘어나므로 매니페스트에 박아 두면
-    #   업그레이드마다 어긋난다(Gotcha 46 의 하드코딩 부류).
-    #   ★ `validationFailureAction` 은 **여기 없다** — 그것은 우리가 정하는
-    #   값이고 dev/prod 가 서로 다르게 소유해 충돌한 전력이 있다(CLAUDE.md).
-    - group: kyverno.io
-      kind: ClusterPolicy
-      jqPathExpressions:
-        - '.spec.admission'
-        - '.spec.emitWarning'
-        - '.spec.rules[]?.skipBackgroundRequests'
-        - '.spec.rules[]?.validate.allowExistingViolations'
+    # ~~Kyverno ClusterPolicy 6건 — 웹훅이 정책에 자기 기본값을 되써 넣는다~~
+    #   2026-11-07 에 ValidatingPolicy(CEL)로 옮기며 걷었다. 서버측 dry-run 으로 쟀더니
+    #   ValidatingPolicy 6건은 **채워지는 기본값이 0개**였다 — 무시할 필드가 없다.
+    #   다시 OutOfSync 가 상수로 보이면 그때 그 필드만 지목할 것.
 
     # Reloader 가 재시작을 일으킬 때 파드 템플릿에 남기는 흔적이다(§8-96).
     #   reload-strategy=annotations 로 두어 **이 한 줄**만 달라진다 —

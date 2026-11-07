@@ -35,8 +35,10 @@
 # ★ 판정: 스캔 파드에 이 env 가 붙었는지 + 스캔 로그에 원격 다운로드가 사라졌는지.
 #   `trivy.registry.mirror.*` 로 가는 ②안은 이것이 되면 필요 없다.
 ---
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+# ★ 2026-11-07 에 ClusterPolicy(patchStrategicMerge)에서 MutatingPolicy(CEL ApplyConfiguration)로 옮겼다 —
+#   kyverno-cli 로 같은 Pod 셋에 두 판을 돌려 같은 env 가 붙는 것을 확인했다.
+apiVersion: policies.kyverno.io/v1
+kind: MutatingPolicy
 metadata:
   name: trivy-scanjob-containerd-namespace
   labels:
@@ -44,26 +46,29 @@ metadata:
     app.kubernetes.io/component: security
 spec:
   # 이미 있는 파드를 건드릴 이유가 없다 — 스캔 파드는 매번 새로 생긴다.
-  background: false
-  rules:
-    - name: containerd-namespace-env
-      match:
-        any:
-          - resources:
-              kinds:
-                - Pod
-              namespaces:
-                - trivy-system
-              selector:
-                matchLabels:
-                  app.kubernetes.io/managed-by: trivy-operator
-      mutate:
-        patchStrategicMerge:
-          spec:
-            containers:
-              # (name) 은 조건부 앵커다 — 이름이 무엇이든 전부 고른다.
-              # 스캔 Job 은 대상 컨테이너마다 trivy 컨테이너를 하나씩 만든다.
-              - (name): "?*"
-                env:
-                  - name: CONTAINERD_NAMESPACE
-                    value: k8s.io
+  evaluation:
+    background: {enabled: false}
+  matchConstraints:
+    resourceRules:
+      - {apiGroups: [""], apiVersions: [v1], operations: [CREATE], resources: [pods]}
+  autogen:
+    podControllers:
+      controllers: []
+  matchConditions:
+    - name: trivy-system-scan-pod
+      expression: >-
+        object.metadata.?namespace.orValue('') == 'trivy-system' &&
+        object.metadata.?labels[?'app.kubernetes.io/managed-by'].orValue('') == 'trivy-operator'
+  mutations:
+    # 스캔 Job 은 대상 컨테이너마다 trivy 컨테이너를 하나씩 만든다 — 이름이 무엇이든 전부에 붙인다.
+    - patchType: ApplyConfiguration
+      applyConfiguration:
+        expression: >-
+          Object{
+            spec: Object.spec{
+              containers: object.spec.containers.map(c, Object.spec.containers{
+                name: c.name,
+                env: [Object.spec.containers.env{name: "CONTAINERD_NAMESPACE", value: "k8s.io"}]
+              })
+            }
+          }
