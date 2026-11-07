@@ -43,6 +43,12 @@ spec:
             - containerPort: 9004
               name: grpc
               protocol: TCP
+          env:
+            # detector 관리면 토큰(9.4.3) — fvm 이 detector 로 규칙(FSL)을 밀고 /stat 을 읽는다. 없으면
+            #   `AppendFSL: push fsl failed: Push FSL response(401 unauthorized)` — **규칙 갱신이 detector 에 가지 않는다.**
+            #   detector·luigi 와 같은 키다(safeline-deployment.yaml 주석).
+            - name: DETECTOR_MGMT_TOKEN
+              valueFrom: { secretKeyRef: { name: safeline-secret, key: detector-mgmt-token } }
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
