@@ -18,7 +18,7 @@
 set -Eeuo pipefail
 trap 'echo "[argocd][ERROR] line $LINENO: $BASH_COMMAND" >&2' ERR
 
-ARGOCD_VERSION="${ARGOCD_VERSION:-v3.5.2}"
+ARGOCD_VERSION="${ARGOCD_VERSION:-v3.6.1}"
 log() { echo "[argocd] $*"; }
 
 log "네임스페이스"
