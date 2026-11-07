@@ -206,9 +206,42 @@ spec:
           volumeMounts:
             - { name: data, mountPath: /data }
             - { name: s3-config, mountPath: /cfg, readOnly: true }
+        # ★ 내부 UI 셋(master·volume·filer)을 루프백에서 파드 밖으로 중계한다(2026-11-07) — 설정과 사유는
+        #   seaweedfs-ui-proxy-configmap.yaml. 9433 -> 9333(master) · 8180 -> 8080(volume) · 8988 -> 8888(filer).
+        #   ★ 상류 엔트리포인트를 쓰지 않는다 — /docker-entrypoint.d 가 설정을 고쳐 쓰려다 읽기 전용 rootfs 와 부딪힌다.
+        #   실측: uid 1000·읽기 전용에서 세 UI 가 중계되고 6.7 MB.
+        - name: ui-proxy
+          image: docker.io/library/nginx:1.31.5
+          command: ["nginx", "-c", "/etc/nginx/nginx.conf", "-g", "daemon off;"]
+          ports:
+            - { containerPort: 9433, name: ui-master, protocol: TCP }
+            - { containerPort: 8180, name: ui-volume, protocol: TCP }
+            - { containerPort: 8988, name: ui-filer, protocol: TCP }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+            readOnlyRootFilesystem: true
+          resources:
+            requests: { cpu: 50m, memory: 32Mi }
+            limits:   { cpu: 50m, memory: 32Mi }
+          startupProbe:
+            httpGet: { path: /healthz, port: 8190 }
+            failureThreshold: 12
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8190 }
+            periodSeconds: 20
+            timeoutSeconds: 5
+          volumeMounts:
+            - { name: ui-proxy-config, mountPath: /etc/nginx/nginx.conf, subPath: nginx.conf, readOnly: true }
+            - { name: ui-proxy-tmp, mountPath: /tmp }
       volumes:
         - name: s3-config
           emptyDir: { medium: Memory, sizeLimit: 1Mi }
+        - name: ui-proxy-config
+          configMap: { name: seaweedfs-ui-proxy }
+        - name: ui-proxy-tmp
+          emptyDir: { sizeLimit: 1Gi }
   volumeClaimTemplates:
     - metadata:
         name: data

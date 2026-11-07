@@ -1595,3 +1595,444 @@ spec:
       to:
         - operation:
             ports: ["12535"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oauth2-proxy-seaweedfs-master
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: seaweedfs-master
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: seaweedfs-master
+  ports:
+    - name: http
+      port: 4180
+      targetPort: 4180
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-proxy-seaweedfs-master
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: seaweedfs-master
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate: {maxSurge: 0, maxUnavailable: 1}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oauth2-proxy
+      app.kubernetes.io/instance: seaweedfs-master
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oauth2-proxy
+        app.kubernetes.io/instance: seaweedfs-master
+        app.kubernetes.io/component: external-access
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: oauth2-proxy
+      automountServiceAccountToken: false
+      hostAliases:
+        - ip: "192.168.0.103"
+          hostnames: ["keycloak.oneinchmarket.local"]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.6
+          args:
+            - --http-address=0.0.0.0:4180
+            - --provider=keycloak-oidc
+            - --oidc-issuer-url=https://keycloak.oneinchmarket.local/realms/oneinchmarket
+            - --provider-ca-file=/certs/ca.crt
+            - --client-id=oauth2-proxy-seaweedfs-master
+            - --redirect-url=https://seaweedfs-master.oneinchmarket.local/oauth2/callback
+            - --code-challenge-method=S256
+            - --scope=openid email profile
+            - --allowed-group=platform
+            - --email-domain=*
+            - --upstream=http://seaweedfs-headless:9433/
+            - --reverse-proxy=true
+            - --cookie-secure=true
+            - --cookie-name=_oim_seaweedfs_master
+            - --skip-provider-button=true
+            - --silence-ping-logging=true
+            # 앱 로그아웃(/oauth2/sign_out)이 Keycloak 세션까지 끝낸다 — 세션의 ID 토큰으로 서버 쪽에서
+            #   end_session 을 부른다. 없으면 앱 쿠키만 지워지고 SSO 세션이 남아 비밀번호 없이 다시 들어온다.
+            - --backend-logout-url=https://keycloak.oneinchmarket.local/realms/oneinchmarket/protocol/openid-connect/logout?id_token_hint={id_token}
+            # 2분마다 refresh 토큰으로 Keycloak 세션을 다시 확인한다 — 다른 앱에서 로그아웃해 세션이 끝났으면
+            #   갱신이 거절되어 이 앱도 로그인을 다시 요구한다(없으면 쿠키 만료 168시간까지 열린다).
+            #   realm 의 access token 수명(300초)보다 짧게 둔다.
+            - --cookie-refresh=2m
+          env:
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: seaweedfs-master-client-secret}}
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: seaweedfs-master-cookie-secret}}
+          ports:
+            - {name: http, containerPort: 4180}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits:   {cpu: 200m, memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 20
+          volumeMounts:
+            - name: gateway-ca
+              mountPath: /certs
+              readOnly: true
+      volumes:
+        - name: gateway-ca
+          secret:
+            secretName: gateway-ca-cert
+            items:
+              - key: ca.crt
+                path: ca.crt
+---
+# 게이트웨이가 이 백엔드에 **직접** 닿지 못하게 한다 — 라우트가 oauth2-proxy 를 건너뛰는 날의 방어선.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-gateway-direct-seaweedfs-master
+  labels:
+    app.kubernetes.io/name: deny-gateway-direct-seaweedfs-master
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: seaweedfs
+  action: DENY
+  rules:
+    - from:
+        - source:
+            principals: ["*/sa/ingress-istio"]
+      to:
+        - operation:
+            ports: ["9433"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oauth2-proxy-seaweedfs-volume
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: seaweedfs-volume
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: seaweedfs-volume
+  ports:
+    - name: http
+      port: 4180
+      targetPort: 4180
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-proxy-seaweedfs-volume
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: seaweedfs-volume
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate: {maxSurge: 0, maxUnavailable: 1}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oauth2-proxy
+      app.kubernetes.io/instance: seaweedfs-volume
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oauth2-proxy
+        app.kubernetes.io/instance: seaweedfs-volume
+        app.kubernetes.io/component: external-access
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: oauth2-proxy
+      automountServiceAccountToken: false
+      hostAliases:
+        - ip: "192.168.0.103"
+          hostnames: ["keycloak.oneinchmarket.local"]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.6
+          args:
+            - --http-address=0.0.0.0:4180
+            - --provider=keycloak-oidc
+            - --oidc-issuer-url=https://keycloak.oneinchmarket.local/realms/oneinchmarket
+            - --provider-ca-file=/certs/ca.crt
+            - --client-id=oauth2-proxy-seaweedfs-volume
+            - --redirect-url=https://seaweedfs-volume.oneinchmarket.local/oauth2/callback
+            - --code-challenge-method=S256
+            - --scope=openid email profile
+            - --allowed-group=platform
+            - --email-domain=*
+            - --upstream=http://seaweedfs-headless:8180/
+            - --reverse-proxy=true
+            - --cookie-secure=true
+            - --cookie-name=_oim_seaweedfs_volume
+            - --skip-provider-button=true
+            - --silence-ping-logging=true
+            # 앱 로그아웃(/oauth2/sign_out)이 Keycloak 세션까지 끝낸다 — 세션의 ID 토큰으로 서버 쪽에서
+            #   end_session 을 부른다. 없으면 앱 쿠키만 지워지고 SSO 세션이 남아 비밀번호 없이 다시 들어온다.
+            - --backend-logout-url=https://keycloak.oneinchmarket.local/realms/oneinchmarket/protocol/openid-connect/logout?id_token_hint={id_token}
+            # 2분마다 refresh 토큰으로 Keycloak 세션을 다시 확인한다 — 다른 앱에서 로그아웃해 세션이 끝났으면
+            #   갱신이 거절되어 이 앱도 로그인을 다시 요구한다(없으면 쿠키 만료 168시간까지 열린다).
+            #   realm 의 access token 수명(300초)보다 짧게 둔다.
+            - --cookie-refresh=2m
+          env:
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: seaweedfs-volume-client-secret}}
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: seaweedfs-volume-cookie-secret}}
+          ports:
+            - {name: http, containerPort: 4180}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits:   {cpu: 200m, memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 20
+          volumeMounts:
+            - name: gateway-ca
+              mountPath: /certs
+              readOnly: true
+      volumes:
+        - name: gateway-ca
+          secret:
+            secretName: gateway-ca-cert
+            items:
+              - key: ca.crt
+                path: ca.crt
+---
+# 게이트웨이가 이 백엔드에 **직접** 닿지 못하게 한다 — 라우트가 oauth2-proxy 를 건너뛰는 날의 방어선.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-gateway-direct-seaweedfs-volume
+  labels:
+    app.kubernetes.io/name: deny-gateway-direct-seaweedfs-volume
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: seaweedfs
+  action: DENY
+  rules:
+    - from:
+        - source:
+            principals: ["*/sa/ingress-istio"]
+      to:
+        - operation:
+            ports: ["8180"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oauth2-proxy-seaweedfs-filer
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: seaweedfs-filer
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: seaweedfs-filer
+  ports:
+    - name: http
+      port: 4180
+      targetPort: 4180
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-proxy-seaweedfs-filer
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: seaweedfs-filer
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate: {maxSurge: 0, maxUnavailable: 1}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oauth2-proxy
+      app.kubernetes.io/instance: seaweedfs-filer
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oauth2-proxy
+        app.kubernetes.io/instance: seaweedfs-filer
+        app.kubernetes.io/component: external-access
+        app.kubernetes.io/part-of: oneinchmarket
+    spec:
+      serviceAccountName: oauth2-proxy
+      automountServiceAccountToken: false
+      hostAliases:
+        - ip: "192.168.0.103"
+          hostnames: ["keycloak.oneinchmarket.local"]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.6
+          args:
+            - --http-address=0.0.0.0:4180
+            - --provider=keycloak-oidc
+            - --oidc-issuer-url=https://keycloak.oneinchmarket.local/realms/oneinchmarket
+            - --provider-ca-file=/certs/ca.crt
+            - --client-id=oauth2-proxy-seaweedfs-filer
+            - --redirect-url=https://seaweedfs-filer.oneinchmarket.local/oauth2/callback
+            - --code-challenge-method=S256
+            - --scope=openid email profile
+            - --allowed-group=platform
+            - --email-domain=*
+            - --upstream=http://seaweedfs-headless:8988/
+            - --reverse-proxy=true
+            - --cookie-secure=true
+            - --cookie-name=_oim_seaweedfs_filer
+            - --skip-provider-button=true
+            - --silence-ping-logging=true
+            # 앱 로그아웃(/oauth2/sign_out)이 Keycloak 세션까지 끝낸다 — 세션의 ID 토큰으로 서버 쪽에서
+            #   end_session 을 부른다. 없으면 앱 쿠키만 지워지고 SSO 세션이 남아 비밀번호 없이 다시 들어온다.
+            - --backend-logout-url=https://keycloak.oneinchmarket.local/realms/oneinchmarket/protocol/openid-connect/logout?id_token_hint={id_token}
+            # 2분마다 refresh 토큰으로 Keycloak 세션을 다시 확인한다 — 다른 앱에서 로그아웃해 세션이 끝났으면
+            #   갱신이 거절되어 이 앱도 로그인을 다시 요구한다(없으면 쿠키 만료 168시간까지 열린다).
+            #   realm 의 access token 수명(300초)보다 짧게 둔다.
+            - --cookie-refresh=2m
+          env:
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: seaweedfs-filer-client-secret}}
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom: {secretKeyRef: {name: oauth2-proxy-secret, key: seaweedfs-filer-cookie-secret}}
+          ports:
+            - {name: http, containerPort: 4180}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits:   {cpu: 200m, memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /ping, port: 4180}
+            periodSeconds: 20
+          volumeMounts:
+            - name: gateway-ca
+              mountPath: /certs
+              readOnly: true
+      volumes:
+        - name: gateway-ca
+          secret:
+            secretName: gateway-ca-cert
+            items:
+              - key: ca.crt
+                path: ca.crt
+---
+# 게이트웨이가 이 백엔드에 **직접** 닿지 못하게 한다 — 라우트가 oauth2-proxy 를 건너뛰는 날의 방어선.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-gateway-direct-seaweedfs-filer
+  labels:
+    app.kubernetes.io/name: deny-gateway-direct-seaweedfs-filer
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: seaweedfs
+  action: DENY
+  rules:
+    - from:
+        - source:
+            principals: ["*/sa/ingress-istio"]
+      to:
+        - operation:
+            ports: ["8988"]

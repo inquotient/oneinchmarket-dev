@@ -1,0 +1,57 @@
+# SeaweedFS 내부 UI 셋(master 9333 · volume 8080 · filer 8888)을 파드 밖으로 중계하는 nginx 설정(2026-11-07).
+#
+# ★ 왜 중계인가 — master·volume·filer 는 `-ip=127.0.0.1` 로 루프백에만 붙어 있다. 그 포트들의 gRPC
+#   (+10000)는 인증이 없으므로 -ip 를 파드 IP 로 바꾸면 그것까지 메시에 드러난다. 그래서 루프백은 그대로
+#   두고 **HTTP UI 세 포트만** 같은 파드의 nginx 가 다른 포트로 받아 넘긴다.
+# ★★ 세 UI 는 **인증이 없고 쓰기 API 가 함께 있다** — filer 는 파일 업로드·삭제, volume 은 fid 로 객체
+#   직접 쓰기·지우기, master 는 볼륨 할당·증설. S3 의 버킷별 권한을 전부 우회한다. 그래서 사람은
+#   oauth2-proxy(Keycloak, 그룹 platform) 뒤로만 오고, 메시는 oauth2-proxy 신원에만 이 포트들을 연다
+#   (authz-external-access.yaml 의 allow-ext-seaweedfs-admin).
+# ★ 대시보드의 `127.0.0.1:8080` 같은 링크는 파드 안 주소라 브라우저에서 열리지 않는다 — 각 UI 는 자기 호스트로 연다.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: seaweedfs-ui-proxy
+  labels:
+    app.kubernetes.io/name: seaweedfs
+    app.kubernetes.io/component: data-lakehouse
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+data:
+  nginx.conf: |
+    # 코어 수만큼 워커를 띄우지 않게(Gotcha 79·163).
+    worker_processes 1;
+    pid /tmp/nginx.pid;
+    error_log /dev/stderr warn;
+    events {
+      worker_connections 256;
+    }
+    http {
+      access_log off;
+      # 읽기 전용 rootfs — 임시 경로를 전부 /tmp(emptyDir)로.
+      client_body_temp_path /tmp/client_body;
+      proxy_temp_path       /tmp/proxy;
+      fastcgi_temp_path     /tmp/fastcgi;
+      uwsgi_temp_path       /tmp/uwsgi;
+      scgi_temp_path        /tmp/scgi;
+      client_max_body_size  1g;
+      proxy_read_timeout    300s;
+      proxy_buffering       off;
+      server {
+        listen 9433;
+        location / { proxy_pass http://127.0.0.1:9333; }
+      }
+      server {
+        listen 8180;
+        location / { proxy_pass http://127.0.0.1:8080; }
+      }
+      server {
+        listen 8988;
+        location / { proxy_pass http://127.0.0.1:8888; }
+      }
+      # 프로브 전용 — Service 에 없다.
+      server {
+        listen 8190;
+        location = /healthz { return 200 "ok\n"; }
+      }
+    }

@@ -156,6 +156,12 @@ CATALOG = [
     #   인증이 없어 열지 않는다. 버킷·객체는 `s3` 호스트에 S3 클라이언트(mc·aws)로 본다.
     ("seaweedfs", "seaweedfs-headless", 12535, "http", AUTH,
      "S3 관리 콘솔(weed admin — 볼륨·버킷·파일) · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P) · 그 뒤 `admin` / `pw seaweedfs-secret admin-password`"),
+    ("seaweedfs-master", "seaweedfs-headless", 9433, "http", AUTH,
+     "SeaweedFS master UI(클러스터·볼륨 배치) · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P) · 자체 인증 없음"),
+    ("seaweedfs-volume", "seaweedfs-headless", 8180, "http", AUTH,
+     "SeaweedFS volume 서버 UI(`/ui/index.html`) · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P) · 자체 인증 없음"),
+    ("seaweedfs-filer", "seaweedfs-headless", 8988, "http", AUTH,
+     "SeaweedFS filer 브라우저 — ★ 업로드·삭제가 되고 버킷별 권한을 우회한다 · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P) · 자체 인증 없음"),
     ("s3", "minio-headless", 9000, "http", AUTH,
      "S3 API — `mc`·`s3cmd`·boto3. 서명 인증"),
     ("trino", "trino-headless", 8080, "http", AUTH,
@@ -211,11 +217,14 @@ O2P = {
     #   업스트림 이름(hive-server-headless:10002)을 보내면 맞는다.
     "hive":         ("hive-server", ["--pass-host-header=false"]),
     "seaweedfs":    ("seaweedfs", []),
+    "seaweedfs-master": ("seaweedfs", []),
+    "seaweedfs-volume": ("seaweedfs", []),
+    "seaweedfs-filer":  ("seaweedfs", []),
 }
 # DENY(게이트웨이 신원)를 **UI 포트에만** 거는 호스트 — 같은 파드의 다른 포트를 게이트웨이가 정당하게 쓴다.
 #   ★ seaweedfs: 9000(S3)은 `s3` 호스트와 OpenReplay 의 버킷 경로(/mobs 등)가 게이트웨이로 닿는다.
 #     포트 없이 DENY 하면 그 둘이 함께 끊긴다(DENY 는 ALLOW 보다 먼저 평가된다).
-O2P_DENY_PORT_ONLY = {"seaweedfs"}
+O2P_DENY_PORT_ONLY = {"seaweedfs", "seaweedfs-master", "seaweedfs-volume", "seaweedfs-filer"}
 O2P_FILE = os.path.join(ROOT, "kubernetes", "overlays", "local",
                         "external-access", "oauth2-proxies.yaml")
 O2P_PEERS = [

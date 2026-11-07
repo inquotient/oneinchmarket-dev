@@ -22,5 +22,9 @@ spec:
       targetPort: admin
       protocol: TCP
       name: admin
+    # 내부 UI 셋(ui-proxy 사이드카가 루프백에서 중계) — 역시 oauth2-proxy 만 닿는다.
+    - { port: 9433, targetPort: ui-master, protocol: TCP, name: ui-master }
+    - { port: 8180, targetPort: ui-volume, protocol: TCP, name: ui-volume }
+    - { port: 8988, targetPort: ui-filer, protocol: TCP, name: ui-filer }
   selector:
     app.kubernetes.io/name: seaweedfs

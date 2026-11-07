@@ -11,7 +11,7 @@
 > 때 port-forward 가 대조군이 된다.
 
 <!-- GENERATED:counts START -->
-웹 호스트 **49**(자체 인증 41 · 인증 없음 0 · 도구용 8, 그중 백엔드가 HTTPS 인 것 5) · TCP 대상 **14**
+웹 호스트 **52**(자체 인증 44 · 인증 없음 0 · 도구용 8, 그중 백엔드가 HTTPS 인 것 5) · TCP 대상 **14**
 <!-- GENERATED:counts END -->
 
 ---
@@ -169,6 +169,9 @@ nslookup grafana.oneinchmarket.local 192.168.0.103
 192.168.0.103 jenkins.oneinchmarket.local
 192.168.0.103 glitchtip.oneinchmarket.local
 192.168.0.103 seaweedfs.oneinchmarket.local
+192.168.0.103 seaweedfs-master.oneinchmarket.local
+192.168.0.103 seaweedfs-volume.oneinchmarket.local
+192.168.0.103 seaweedfs-filer.oneinchmarket.local
 192.168.0.103 s3.oneinchmarket.local
 192.168.0.103 trino.oneinchmarket.local
 192.168.0.103 spark-history.oneinchmarket.local
@@ -248,6 +251,9 @@ Import-Certificate -FilePath .\oim-ca.crt -CertStoreLocation Cert:\LocalMachine\
 | https://jenkins.oneinchmarket.local | 자체 인증 | `jenkins-headless:8080` | admin / `pw jenkins-secret admin-password` |
 | https://glitchtip.oneinchmarket.local | 자체 인증 | `glitchtip:8000` | 오류 추적. 가입이 필요하다 |
 | https://seaweedfs.oneinchmarket.local | 자체 인증 | `oauth2-proxy-seaweedfs` -> `seaweedfs-headless:12535` | S3 관리 콘솔(weed admin — 볼륨·버킷·파일) · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P) · 그 뒤 `admin` / `pw seaweedfs-secret admin-password` |
+| https://seaweedfs-master.oneinchmarket.local | 자체 인증 | `oauth2-proxy-seaweedfs-master` -> `seaweedfs-headless:9433` | SeaweedFS master UI(클러스터·볼륨 배치) · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P) · 자체 인증 없음 |
+| https://seaweedfs-volume.oneinchmarket.local | 자체 인증 | `oauth2-proxy-seaweedfs-volume` -> `seaweedfs-headless:8180` | SeaweedFS volume 서버 UI(`/ui/index.html`) · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P) · 자체 인증 없음 |
+| https://seaweedfs-filer.oneinchmarket.local | 자체 인증 | `oauth2-proxy-seaweedfs-filer` -> `seaweedfs-headless:8988` | SeaweedFS filer 브라우저 — ★ 업로드·삭제가 되고 버킷별 권한을 우회한다 · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P) · 자체 인증 없음 |
 | https://s3.oneinchmarket.local | 자체 인증 | `minio-headless:9000` | S3 API — `mc`·`s3cmd`·boto3. 서명 인증 |
 | https://trino.oneinchmarket.local | 자체 인증 | `trino-headless:8080` | LDAP 로그인 `data-admin`(전권)·`analyst`(조회만) / `pw ds389-secret <uid>-password` · 권한은 Ranger `oim-trino` · 웹 UI(`/ui/`) + **JDBC**(§3-b). ★ `http-server.process-forwarded=true` 가 있어야 한다 — 없으면 전부 406 이다 |
 | https://spark-history.oneinchmarket.local | 자체 인증 | `oauth2-proxy-spark-history:4180` | 완료된 Spark 앱. **Keycloak 로그인 · 그룹 `platform` 만**(spark-ui 와 같다) — 앞단 oauth2-proxy |

@@ -334,4 +334,5 @@ spec:
             principals: ["*/sa/oauth2-proxy"]
       to:
         - operation:
-            ports: ["12535"]
+            # 12535 = weed admin · 9433·8180·8988 = master·volume·filer UI(ui-proxy 사이드카, 인증 없음 — 2026-11-07)
+            ports: ["12535", "9433", "8180", "8988"]
