@@ -41,7 +41,10 @@ case "$K8S_SERVICE_HOST" in 127.*|localhost) echo "[platform] k8sServiceHost 가
 #   Gotcha 117("같은 목록을 두 곳에 적어 두고 주석으로 막지 말 것")의 가장 싼
 #   형태다 — 쓰지 않는 쪽을 지우면 원천이 하나가 된다.
 # ★ 이 파일이 실제로 설치하는 것은 **Cilium 과 Gateway API 둘뿐**이다.
-GATEWAY_API_VERSION="${GATEWAY_API_VERSION:-v1.2.0}"
+GATEWAY_API_VERSION="${GATEWAY_API_VERSION:-v1.6.0}"
+# ★ 판은 **Istio 가 빌드에 쓴 판**에 맞춘다(2026-11-07 — istio 1.31.4 의 go.mod 가 sigs.k8s.io/gateway-api v1.6.0).
+#   최신(v1.7)이 아니다. 올리기 전에 살아 있는 CRD 의 status.storedVersions 가 새 CRD 에서도 served 인지 대조할 것.
+#   ★ v1.6 standard 에는 TCPRoute·TLSRoute 가 들어 있다 — db-gateway(nginx stream)를 대체할 수 있는지는 아직 보지 않았다.
 
 log() { echo "[platform] $*"; }
 
