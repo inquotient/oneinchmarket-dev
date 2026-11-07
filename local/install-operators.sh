@@ -214,6 +214,44 @@ kubectl -n trivy-system patch cm trivy-operator-trivy-config --type merge -p '{"
 #   다시 켤 조건: 상류가 다이제스트 중복을 고친 판(①) · 리포트를 CR 밖에 저장하는 구성(②).
 kubectl -n trivy-system patch cm trivy-operator-config --type merge -p '{"data":{"OPERATOR_SBOM_GENERATION_ENABLED":"false"}}' || true
 kubectl -n trivy-system patch cm trivy-operator-trivy-config --type merge -p '{"data":{"trivy.severity":"LOW,MEDIUM,HIGH,CRITICAL"}}' || true
+#   ③ ②로도 Spark 계열 이미지는 넘는다(실측 2026-11-08, LOW 이상: spark-iceberg 5,256건 · livy 5,547건 ≈ 2.76MB,
+#      한도 2MiB 는 약 3,990건). 그 워크로드에만 ignore 정책을 건다 — LOW 전부와 **수정판 없는 MEDIUM** 을 뺀다.
+#      HIGH·CRITICAL 은 수정판이 없어도 남는다(결과 2,871 · 3,152건). 키는 `trivy.ignorePolicy.<ns>.<워크로드 이름>` 이고
+#      이름을 하나씩 적는다 — ConfigMap 키에 `*` 를 쓸 수 없다(API 가 거부한다. 오퍼레이터는 키 안의 `.` 을
+#      와일드카드로 바꾸는데 그러면 의도보다 넓게 맞는다). 전역 ignoreUnfixed 를 쓰지 않은 이유: 다른 워크로드의
+#      수정판 없는 CRITICAL 까지 사라진다. 빠진 항목은 CI 의 Trivy 이미지 스캔이 본다.
+#      ★ safeline-fvm·cert-manager·coredns 는 크기가 아니었다 — 노드에 레이어 블롭이 없었다(Gotcha 134, content fetch 로 채운다).
+TRIVY_SPARK_POLICY='package trivy
+
+import rego.v1
+
+default ignore := false
+
+ignore if input.Severity == "LOW"
+
+ignore if {
+	input.Severity == "MEDIUM"
+	object.get(input, "FixedVersion", "") == ""
+}
+'
+kubectl -n trivy-system patch cm trivy-operator-trivy-config --type merge -p "$(P="$TRIVY_SPARK_POLICY" python3 -c '
+import json, os
+p = os.environ["P"]
+ns = "local"
+print(json.dumps({"data": {f"trivy.ignorePolicy.{ns}.{w}": p for w in ("spark-connect", "spark-history", "livy")}}))')" || true
+#   ④ caldera(local 전용 레드팀 도구, ADR-030)는 12,299건이라 ③으로도 7,137건 -> HIGH·CRITICAL 만 남긴다(2,422건).
+#      ReplicaSet 이름에 해시가 붙으므로 키 끝의 `.` 을 쓴다 — 오퍼레이터가 그것을 `*` 로 바꿔 `caldera-<해시>` 에 맞는다.
+TRIVY_HIGH_ONLY_POLICY='package trivy
+
+import rego.v1
+
+default ignore := false
+
+ignore if input.Severity in {"LOW", "MEDIUM"}
+'
+kubectl -n trivy-system patch cm trivy-operator-trivy-config --type merge -p "$(P="$TRIVY_HIGH_ONLY_POLICY" python3 -c '
+import json, os
+print(json.dumps({"data": {"trivy.ignorePolicy.local.caldera.": os.environ["P"]}}))')" || true
 kubectl -n trivy-system patch cm trivy-operator-trivy-config --type merge -p '{"data":{"trivy.nonSslRegistry.gitlab":"gitlab-registry.local.svc.cluster.local:5050"}}' || true
 
 # 5-2-b. 스캔 Job 이 **노드 containerd 에서** 이미지를 읽게 한다 (§9-14 ①)
