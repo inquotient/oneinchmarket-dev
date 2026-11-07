@@ -91,8 +91,9 @@ pw() { $K get secret "$1" -o jsonpath="{.data.$2}" | base64 -d; echo; }
 | kube-state-metrics | `$K port-forward deploy/kube-state-metrics 8080:8080` | http://localhost:8080/metrics | 없음 | — |
 | **Pyrra**(SLO) | `$K port-forward deploy/pyrra 9099:9099` | http://localhost:9099 | 없음 | — |
 | **Airflow** | `$K port-forward deploy/airflow-apiserver 18080:8080` | http://localhost:18080 | `admin` | `pw airflow-secret admin-password` |
-> ★ Airflow 의 **태스크 로그는 MinIO** 에 있다(`s3://airflow-logs/`). UI 가 거기서 읽으므로 평소엔 신경 쓸 일이 없고,
-> 직접 보려면 `$K exec minio-0 -- mc ls --recursive oim/airflow-logs` 다(alias 설정은 minio-bootstrap 참조).
+> ★ Airflow 의 **태스크 로그는 S3(SeaweedFS)** 에 있다(`s3://airflow-logs/`). UI 가 거기서 읽으므로 평소엔 신경 쓸 일이 없고,
+> 직접 보려면 S3 9002 port-forward 뒤 `aws --endpoint-url http://localhost:9002 s3 ls --recursive s3://airflow-logs/` 다
+> (자격 `pw minio-users airflow-access-key` / `airflow-secret-key` — 엔진은 SeaweedFS 지만 Secret 이름은 그대로다).
 > 파드의 `/opt/airflow/logs` 는 업로드 뒤 비므로 거기서 찾지 말 것.
 > ★★★ **2026-10-11 — 여기로는 로그인이 되지 않는다.** UI 는 뜨지만
 > `/api/v2/auth/login` 이 `https://airflow.oneinchmarket.local/auth/login/` 로
@@ -278,7 +279,7 @@ curl -k -u "ranger-sync:$PW" \n  'https://localhost:8443/gateway/oim/webhdfs/v1/
 
 | 컴포넌트 | port-forward | URL | 비고 |
 |---|---|---|---|
-| **MinIO Console** | `$K port-forward svc/minio-headless 9001:9001` | http://localhost:9001 | `pw minio-secret root-user` / `root-password` |
+| ~~MinIO Console~~ | — | — | 2026-11-07 에 SeaweedFS 로 옮기며 없어졌다(filer UI 는 인증이 없어 열지 않는다). S3 클라이언트를 쓸 것 |
 | **Trino** | — (외부 주소를 쓸 것) | https://trino.oneinchmarket.local | LDAP `data-admin`·`analyst` — 평문 port-forward 로는 로그인 불가 |
 | Spark History | `$K port-forward spark-history-0 18080:18080` | http://localhost:18080 | |
 | Spark Connect UI | `$K port-forward spark-connect-0 4041:4040` | http://localhost:4041 | |
@@ -429,7 +430,7 @@ $K port-forward svc/proxysql              16033:6033    # MySQL 와이어
 (EXTERNAL-ACCESS §3-b). 계정은 `data-admin`(전권)·`analyst`(조회만), 비밀번호는
 `pw ds389-secret data-admin-password` · `pw ds389-secret analyst-password`.
 
-카탈로그는 `hive`·`iceberg`(MinIO)와 `system` 이다.
+카탈로그는 `hive`·`iceberg`(S3 — SeaweedFS)와 `system` 이다.
 
 ### 2-6. HiveServer2
 
@@ -579,7 +580,7 @@ OpenSearch Dashboards(http://localhost:5601) 의 **Dev Tools** 가 가장 편하
 | `ds389` LDAP 3389 / LDAPS 3636 | Apache Directory Studio · `ldapsearch` · LAM UI(8084). `pw ds389-secret dm-password` |
 | `kafka` 9092 | **AKHQ UI(8080)가 가장 편하다** · `kcat` |
 | `zookeeper` 2181 | `zkCli.sh` |
-| `minio` S3 9002 | `mc` · `s3cmd` · 콘솔 UI(9001) |
+| S3(SeaweedFS) 9002 | `mc` · `aws` · `s3cmd` |
 | `spark-connect` 15002 | PySpark `SparkSession.builder.remote("sc://localhost:15002")` |
 | `hadoop-namenode` 8020 | `hdfs dfs` · UI(9870) |
 | `openbao` 8200 | `bao` CLI · UI |
@@ -639,7 +640,6 @@ OpenSearch Dashboards(http://localhost:5601) 의 **Dev Tools** 가 가장 편하
 | UI | `knox-headless` | 8443 | 8443 | https · `pw knox-secret master-secret` |
 | UI | `lam-headless` | 80 | 8084 | `cn=Directory Manager` / `pw ds389-secret dm-password` (★ `lam-secret master-password` 는 로그인이 아니라 설정 편집기 암호다) |
 | UI | `livy-headless` | 8998 | 8998 |  |
-| UI | `minio-headless` | 9001 | 9001 | 콘솔 · `pw minio-secret root-user`/`root-password` |
 | UI | `nginx` | 80 | 8093 |  |
 | UI | `nginx` | 443 | 8447 | https |
 | UI | `prometheus-headless` | 9090 | 9090 | 인증 없음 |
@@ -685,7 +685,7 @@ OpenSearch Dashboards(http://localhost:5601) 의 **Dev Tools** 가 가장 편하
 | DB | `hive-server-headless` | 10000 | 10000 | JDBC `jdbc:hive2://localhost:10000/default` |
 | DB | `kafka-headless` | 9092 | 9092 | Kafka 클라이언트(kcat) — AKHQ 가 더 편하다 |
 | DB | `mariadb-headless` | 3306 | 13306 | root / `pw mariadb-secret root-password` · DB `cmmn` |
-| DB | `minio-headless` | 9000 | 9002 | S3 API — mc·s3cmd 용(DBeaver 아님) |
+| DB | `minio-headless` | 9000 | 9002 | S3 API(엔진 SeaweedFS) — mc·aws·s3cmd 용(DBeaver 아님) |
 | DB | `mongodb-headless` | 27017 | 17017 | root / `pw mongodb-secret root-password` · **authSource=admin** |
 | DB | `postgresql-headless` | 5432 | 15432 | postgres / `pw postgresql-secret postgres-password` · DB 13개 |
 | DB | `ranger-db` | 5432 | 15433 | PostgreSQL 별칭 — 같은 인스턴스다 |

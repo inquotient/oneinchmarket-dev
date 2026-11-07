@@ -68,8 +68,8 @@ spec:
           args:
             - |
               set -eu
-              echo "[minio-bootstrap] MinIO 대기"
-              # MinIO 는 HTTP 다. 로테이션 CronJob 의 https:// + --insecure 는 오류다.
+              echo "[minio-bootstrap] S3(SeaweedFS) 대기"
+              # 이름은 minio-headless 그대로다 — 엔진은 SeaweedFS(2026-11-07). HTTP 다.
               until mc alias set oim http://minio-headless:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null 2>&1; do sleep 3; done
               # openbao-snapshots·OpenReplay 버킷도 여기서 만든다 — 소비자 사용자에게는 버킷 생성 권한이 없다(2026-11-06).
               for b in warehouse spark-events livy-recovery airflow-logs openbao-snapshots \
@@ -85,46 +85,25 @@ spec:
               # ── 소비자별 사용자 ─────────────────────────────
               # ★★★ root 자격을 소비자에게 주지 않는다. Airflow 가 첫 사례였다 — LocalExecutor 는 DAG 코드를
               #   scheduler 파드 안에서 실행하므로 root 면 아무 DAG 이나 warehouse 를 지울 수 있다(Gotcha 27).
-              #   2026-11-06 에 나머지 소비자도 옮겼다 — root 는 MinIO 자신·이 Job·로테이터만 쓴다.
-              # ★ heredoc 을 쓰지 않는다 — 종료자가 열 0 에 놓여야 하는데 그것은 YAML 블록 스칼라를 끊는다.
-              # ★ 이 이미지에는 grep 이 없다 — 판정은 셸 내장 case 로 한다(Gotcha 56·109).
-              MINIO_URL=http://minio-headless:9000
-              # ── 버킷 정책 — 사용자마다 자기 버킷만 (2026-11-06) ─────────────
-              # pol <정책 이름> <버킷>... — 객체 읽기·쓰기·지우기 + 목록. 버킷을 만들거나 지우는 권한은 없다.
-              pol() {
-                name=$1; shift; objs=""; bks=""
-                for b in "$@"; do
-                  objs="$objs${objs:+,}\"arn:aws:s3:::$b/*\""
-                  bks="$bks${bks:+,}\"arn:aws:s3:::$b\""
-                done
-                printf '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject","s3:AbortMultipartUpload","s3:ListMultipartUploadParts"],"Resource":[%s]},{"Effect":"Allow","Action":["s3:ListBucket","s3:GetBucketLocation","s3:ListBucketMultipartUploads"],"Resource":[%s]}]}' "$objs" "$bks" > "/tmp/$name.json"
-                mc admin policy create oim "$name" "/tmp/$name.json" >/dev/null
-              }
-              pol warehouse-rw         warehouse
-              pol spark-rw             warehouse spark-events livy-recovery
-              pol spark-events-rw      spark-events
-              pol openreplay-rw        mobs sessions-assets records sourcemaps uxtesting-records spots
-              pol openbao-snapshots-rw openbao-snapshots
-              pol airflow-logs-rw      airflow-logs
-              # ── 사용자 — <이름>:<정책>:<비밀키 환경변수> ─────────────────────
-              # ★ 이미 있는 사용자의 키를 함부로 덮지 않는다 — Secret 의 키로 인증되면 그대로 두고, 안 될 때만
-              #   Secret 값으로 맞춘다(Secret 이 원천이다 — OpenBao → ESO → Secret). 키를 바꾸는 것은 로테이션 Job 뿐이다.
+              # ★★ 2026-11-07 부터 사용자·버킷 권한은 SeaweedFS 가 기동 때 읽는 -s3.config 다 — 그 파드의 initContainer 가
+              #   minio-users 에서 렌더한다(base/data-lakehouse/seaweedfs). 이 Job 은 만들지 않고 **확인만** 한다:
+              #   Secret 의 키로 자기 버킷이 열리고, 남의 버킷은 닫혀 있는지. MinIO 때의 `mc admin user/policy` 는 없다.
+              # ★ 이 이미지에는 grep 이 없다 — 판정은 셸 내장으로 한다(Gotcha 56·109).
               fails=0
-              for spec in trino:warehouse-rw:TRINO_KEY hive:warehouse-rw:HIVE_KEY spark:spark-rw:SPARK_KEY \
-                          spark-history:spark-events-rw:SPARK_HISTORY_KEY openreplay:openreplay-rw:OPENREPLAY_KEY \
-                          openbao-snapshot:openbao-snapshots-rw:OPENBAO_SNAPSHOT_KEY airflow:airflow-logs-rw:AIRFLOW_S3_SECRET_KEY; do
-                u=${spec%%:*}; rest=${spec#*:}; p=${rest%%:*}; v=${rest#*:}
+              for spec in trino:warehouse:TRINO_KEY hive:warehouse:HIVE_KEY spark:livy-recovery:SPARK_KEY \
+                          spark-history:spark-events:SPARK_HISTORY_KEY openreplay:mobs:OPENREPLAY_KEY \
+                          openbao-snapshot:openbao-snapshots:OPENBAO_SNAPSHOT_KEY airflow:airflow-logs:AIRFLOW_S3_SECRET_KEY; do
+                u=${spec%%:*}; rest=${spec#*:}; b=${rest%%:*}; v=${rest#*:}
                 eval "k=\${$v:-}"
                 [ -n "$k" ] || { echo "[minio-bootstrap] $u: 비밀키($v)가 비었다" >&2; fails=$((fails+1)); continue; }
-                if mc alias set chk "$MINIO_URL" "$u" "$k" >/dev/null 2>&1; then st=유지
-                else mc admin user add oim "$u" "$k" >/dev/null; st=설정; fi
-                # 이미 붙어 있으면 attach 가 실패를 낸다 — 판정은 아래 되읽기로 한다(Gotcha 12·86).
-                mc admin policy attach oim "$p" --user "$u" >/dev/null 2>&1 || true
-                info=$(mc admin user info oim "$u" 2>/dev/null || true)
-                case "$info" in *"PolicyName: $p"*) ;; *) echo "[minio-bootstrap] $u: 정책 $p 가 붙지 않았다" >&2; fails=$((fails+1)); continue;; esac
-                mc alias set chk "$MINIO_URL" "$u" "$k" >/dev/null 2>&1 \
-                  || { echo "[minio-bootstrap] $u: Secret 의 키로 인증되지 않는다" >&2; fails=$((fails+1)); continue; }
-                echo "[minio-bootstrap] user $u ($st) + $p 확인"
+                mc alias set chk http://minio-headless:9000 "$u" "$k" >/dev/null 2>&1 || true
+                mc ls "chk/$b" >/dev/null 2>&1 \
+                  || { echo "[minio-bootstrap] $u: Secret 의 키로 $b 가 열리지 않는다" >&2; fails=$((fails+1)); continue; }
+                # 음성 대조군 — 남의 버킷(openbao-snapshots, 주인은 openbao-snapshot)이 열리면 권한이 새고 있다.
+                if [ "$u" != openbao-snapshot ] && mc ls chk/openbao-snapshots >/dev/null 2>&1; then
+                  echo "[minio-bootstrap] $u: 남의 버킷 openbao-snapshots 가 열린다 — 권한이 넓다" >&2; fails=$((fails+1)); continue
+                fi
+                echo "[minio-bootstrap] user $u -> $b 확인"
               done
               mc alias remove chk >/dev/null 2>&1 || true
               [ "$fails" -eq 0 ] || { echo "[minio-bootstrap] 사용자 $fails 건 실패" >&2; exit 1; }

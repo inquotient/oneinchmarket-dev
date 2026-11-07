@@ -17,21 +17,6 @@ spec:
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: minio
-spec:
-  volumeClaimTemplates:
-    - metadata:
-        name: data
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        storageClassName: standard
-        resources:
-          requests:
-            storage: 100Gi
----
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
   name: gitlab
 spec:
   volumeClaimTemplates:

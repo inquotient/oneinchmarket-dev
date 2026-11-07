@@ -90,24 +90,6 @@ spec:
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: minio
-spec:
-  template:
-    spec:
-      containers:
-        - name: minio
-          # 1Gi -> 640Mi (2026-09-03). 실사용 107Mi.
-          # ★ 이 워크로드에는 전례가 있다 — limits-local 에서 limit 을
-          #   requests 아래로 내렸다가 파드가 97분간 조용히 사라졌다.
-          #   Guaranteed 는 두 값을 **함께** 바꿔야 한다.
-          #   107Mi 대비 크게 남기는 이유: 큰 오브젝트 업로드 시 버퍼가 튄다.
-          resources:
-            requests: { cpu: "1", memory: 640Mi }
-            limits:   { cpu: "1", memory: 640Mi }
----
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
   name: seaweedfs
 spec:
   template:

@@ -1,27 +1,25 @@
-# MinIO 자격 로테이션 — **OpenBao 가 원천** (2026-11-06 재설계, 본보기는 rotate-postgresql.yaml)
+# S3 자격 로테이션 — **OpenBao 가 원천** (2026-11-06 재설계, 2026-11-07 SeaweedFS 로 옮겼다)
 #
-# ★★ 옛 판은 root 를 `mc admin user svcacct edit` 로 바꾸려 했다 — root 는 서비스 계정이 아니라 기동 환경변수라
-#   그 명령으로 바뀌지 않고, 주소도 https 였다(MinIO 는 HTTP 다). 그리고 소비자 19곳이 전부 root 를 쓰고 있어
-#   바뀌었다면 한꺼번에 끊겼을 것이다(Gotcha 212). 2026-11-06 에 소비자를 버킷 단위 사용자로 옮긴 뒤
-#   (minio-bootstrap · minio-users) 둘로 나눴다:
+# 이름이 minio 인 것은 Secret(minio-secret·minio-users)과 소비자 19곳이 그 이름을 쓰기 때문이다 —
+# 엔진은 SeaweedFS 다(base/data-lakehouse/seaweedfs, Gotcha 176).
 #
-#   rotate-minio-password  소비자 사용자 7명의 비밀키(minio-users). MinIO 는 재시작하지 않는다 — 살아 있는 서버에
-#                          `mc admin user add` 로 바꾸고(이미 있는 사용자는 키만 바뀌고 정책은 남는다 — 실측),
-#                          Reloader 가 소비자를 다시 띄운다. 바뀐 순간부터 재시작까지 그 소비자는 S3 에 못 붙는다.
-#   rotate-minio-root      root 비밀번호(minio-secret). root 는 기동 때만 읽히므로 OpenBao → Secret 을 바꾸고
-#                          Reloader 가 MinIO 를 다시 띄워야 적용된다 — 그동안 **모든 S3 소비자가 끊긴다.**
-#                          사용자·정책은 재시작 뒤에도 남는다(실측: root 교체 재시작 후 사용자 키로 ls 성공 · 옛 root 거부).
+#   rotate-minio-password  소비자 사용자 7명의 비밀키(minio-users).
+#   rotate-minio-root      root 비밀번호(minio-secret).
 #
-# ★ 두 Job 모두 마지막 컨테이너가 **동기화된 k8s Secret 의 값**(소비자가 받을 값)으로 MinIO 에 다시 붙어 본다.
-#   중간에 minio-bootstrap 훅이 끼어 키를 되돌려도 여기서 드러난다.
-# ★ airflow 사용자도 2026-11-07 부터 여기 있다 — 키를 airflow-secret/s3-secret-key 에서 minio-users/airflow-secret-key 로
-#   같은 값 그대로 옮겼다(airflow-secret 은 OpenBao 원천이 아니라 회전기가 볼 수 없었다).
+# ★★ 둘 다 같은 모양이다 — SeaweedFS 의 사용자는 정적 파일(-s3.config)이고 기동 때만 읽힌다.
+#   그래서 살아 있는 서버의 키를 바꾸지 않고, OpenBao → ESO → k8s Secret 을 바꾸면 Reloader 가 SeaweedFS 와
+#   소비자를 다시 띄운다. 그동안(실측 수십 초) **모든 S3 소비자가 끊긴다.** MinIO 때의 사용자 회전은 무중단이었다 —
+#   이것이 이전의 대가다(살아 있는 서버의 IAM API 로 바꾸려면 -s3.config 대신 filer 의 identity 저장소를 써야 하고,
+#   그러면 사용자 정의가 git 밖으로 나간다).
+# ★ 마지막 컨테이너가 **동기화된 k8s Secret 의 값**(소비자가 받을 값)으로 다시 붙어 본다 — 엔진이 새 값을
+#   받아들일 때까지 기다린다. 실패하면 되돌리는 법을 출력한다(OpenBao KV 의 이전 버전).
 # ★ suspend: true — 자동 실행하지 않는다(사용자 결정, 2026-11-06). 수동 실행:
 #     kubectl -n local create job --from=cronjob/rotate-minio-password rotate-minio-manual-$(date +%s)
 #     kubectl -n local create job --from=cronjob/rotate-minio-root     rotate-minio-root-manual-$(date +%s)
 # ★ 전제: ROTATORS="minio" local/openbao-rotator-setup.sh · 메시(allow-datalakehouse-access 9000) ·
 #   NetworkPolicy(allow-minio-access · allow-openbao-access)에 이 SA/라벨.
-# ★ 이미지는 quay.io 자격이 필요하다(quay-pull-secret, local/quay-pull-secret.sh — Gotcha 176).
+# ★ S3 클라이언트는 aws-cli 다 — bash·coreutils 가 함께 있고 Docker Hub 에서 익명으로 받는다(quay 자격이 필요 없다).
+#   키는 인자가 아니라 환경변수로 넘긴다.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -98,7 +96,6 @@ spec:
         spec:
           serviceAccountName: rotator-minio
           restartPolicy: Never
-          imagePullSecrets: [{name: quay-pull-secret}]
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000
@@ -122,28 +119,29 @@ spec:
                 readOnlyRootFilesystem: true
                 capabilities: {drop: ["ALL"]}
             - name: rotate
-              # mc 이미지에는 grep·sha256sum 이 없다 — 서버 이미지에 mc·bash·coreutils 가 함께 있다(실측).
-              image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+              image: docker.io/amazon/aws-cli:2.27.50
               command:
                 - /bin/bash
                 - -c
                 - |
                   set -euo pipefail
                   B=/tools/bao
-                  export BAO_ADDR=http://openbao.local.svc.cluster.local:8200 HOME=/tmp MC_CONFIG_DIR=/tmp/.mc
+                  export BAO_ADDR=http://openbao.local.svc.cluster.local:8200 HOME=/tmp AWS_DEFAULT_REGION=us-east-1
                   URL=http://minio-headless:9000
                   USERS="trino hive spark spark-history openreplay openbao-snapshot airflow"
+                  declare -A BK=([trino]=warehouse [hive]=warehouse [spark]=warehouse [spark-history]=spark-events
+                                 [openreplay]=mobs [openbao-snapshot]=openbao-snapshots [airflow]=airflow-logs)
                   sha() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
                   ev() { local v; v="K8S_$(printf '%s' "$1" | tr 'a-z-' 'A-Z_')"; printf '%s' "${!v:-}"; }
-                  # mc 는 키를 인자로 받는다 — 이 파드 안의 프로세스 목록에만 잠깐 보인다.
-                  ok() { mc alias set chk "$URL" "$1" "$2" >/dev/null 2>&1; }
+                  ok() { AWS_ACCESS_KEY_ID="$1" AWS_SECRET_ACCESS_KEY="$2" aws --endpoint-url "$URL" \
+                           s3api list-objects-v2 --bucket "${BK[$1]}" --max-keys 1 >/dev/null 2>&1; }
 
-                  echo "[1/6] OpenBao 로그인 (rotator-minio)"
+                  echo "[1/5] OpenBao 로그인 (rotator-minio)"
                   BAO_TOKEN=$($B write -field=token auth/kubernetes/login role=rotator-minio \
                     jwt=@/var/run/secrets/kubernetes.io/serviceaccount/token)
                   export BAO_TOKEN
 
-                  echo "[2/6] 원천 일치 확인 (OpenBao = k8s Secret, 사용자 ${USERS// /·})"
+                  echo "[2/5] 원천 일치 확인 (OpenBao = k8s Secret, 사용자 ${USERS// /·})"
                   declare -A OLD NEW
                   for u in $USERS; do
                     OLD[$u]=$($B kv get -mount=oim -field="$u-secret-key" minio-users)
@@ -152,44 +150,33 @@ spec:
                     [ -n "${OLD[$u]}" ] || { echo "$u: OpenBao 값이 비었다" >&2; exit 1; }
                     [ "${OLD[$u]}" = "$(ev "$u")" ] || { echo "$u: OpenBao 와 k8s Secret 이 다르다 — ESO 동기화부터 볼 것" >&2; exit 1; }
                   done
-                  ROOT_USER=$($B kv get -mount=oim -field=root-user minio-secret)
-                  ROOT_PW=$($B kv get -mount=oim -field=root-password minio-secret)
-                  mc alias set oim "$URL" "$ROOT_USER" "$ROOT_PW" >/dev/null \
-                    || { echo "OpenBao 의 root 로 MinIO 에 붙지 못한다" >&2; exit 1; }
 
-                  echo "[3/6] 현재 키로 인증 확인 → 새 키로 변경"
-                  for u in $USERS; do ok "$u" "${OLD[$u]}" || { echo "$u: 현재 키로 인증되지 않는다 — 멈춘다" >&2; exit 1; }; done
-                  CHANGED=""
-                  rollback() {
-                    echo "[rollback] 바꾼 사용자를 옛 키로 되돌린다:${CHANGED:- 없음}" >&2
-                    for u in $CHANGED; do mc admin user add oim "$u" "${OLD[$u]}" >/dev/null || echo "[rollback] $u 실패 — 사람이 볼 것" >&2; done
-                  }
+                  echo "[3/5] 현재 키로 자기 버킷에 붙는지 확인"
+                  for u in $USERS; do ok "$u" "${OLD[$u]}" || { echo "$u: 현재 키로 ${BK[$u]} 에 붙지 못한다 — 멈춘다" >&2; exit 1; }; done
+
+                  echo "[4/5] OpenBao 에 기록 (사용자 키 전부를 한 번에)"
+                  J="{"
                   for u in $USERS; do
                     NEW[$u]=$(head -c 48 /dev/urandom | base64 | tr -d '=+/\n' | cut -c1-32)
-                    [ "${#NEW[$u]}" -ge 24 ] || { echo "생성한 값이 짧다" >&2; rollback; exit 1; }
-                    mc admin user add oim "$u" "${NEW[$u]}" >/dev/null || { echo "$u: 변경 실패" >&2; rollback; exit 1; }
-                    CHANGED="$CHANGED $u"
+                    [ "${#NEW[$u]}" -ge 24 ] || { echo "생성한 값이 짧다" >&2; exit 1; }
+                    J="$J\"$u-secret-key\":\"${NEW[$u]}\","
                   done
-
-                  echo "[4/6] 새 키로 인증 확인 (정책이 남았는지도)"
-                  for u in $USERS; do
-                    if ! ok "$u" "${NEW[$u]}"; then echo "$u: 새 키로 인증되지 않는다" >&2; rollback; exit 1; fi
-                    case "$(mc admin user info oim "$u" 2>/dev/null)" in *"PolicyName: "*-rw*) ;; *) echo "$u: 정책이 사라졌다" >&2; rollback; exit 1;; esac
-                  done
-
-                  echo "[5/6] OpenBao 에 기록 (사용자 키 전부를 한 번에)"
-                  J="{"; for u in $USERS; do J="$J\"$u-secret-key\":\"${NEW[$u]}\","; done; J="${J%,}}"
-                  if ! printf '%s' "$J" | $B kv patch -mount=oim minio-users - >/dev/null; then rollback; exit 1; fi
+                  J="${J%,}}"
+                  rollback() {
+                    echo "[rollback] OpenBao 를 옛 값으로 되돌린다" >&2
+                    R="{"; for u in $USERS; do R="$R\"$u-secret-key\":\"${OLD[$u]}\","; done; R="${R%,}}"
+                    printf '%s' "$R" | $B kv patch -mount=oim minio-users - >/dev/null || echo "[rollback] 실패 — 사람이 볼 것" >&2
+                  }
+                  printf '%s' "$J" | $B kv patch -mount=oim minio-users - >/dev/null || { echo "OpenBao 기록 실패" >&2; exit 1; }
                   for u in $USERS; do
                     [ "$($B kv get -mount=oim -field="$u-secret-key" minio-users)" = "${NEW[$u]}" ] \
                       || { echo "$u: OpenBao 되읽기가 다르다" >&2; rollback; exit 1; }
                   done
 
-                  echo "[6/6] 다음 단계에 해시만 넘긴다"
+                  echo "[5/5] 다음 단계에 해시만 넘긴다"
                   : > /tools/expected
                   for u in $USERS; do printf '%s %s\n' "$u-secret-key" "$(sha "${NEW[$u]}")" >> /tools/expected; done
-                  mc alias remove chk >/dev/null 2>&1 || true
-                  echo "MinIO · OpenBao 갱신 완료"
+                  echo "OpenBao 갱신 완료 — SeaweedFS 는 재시작 뒤에 새 값을 쓴다"
               env:
                 - {name: K8S_TRINO,            valueFrom: {secretKeyRef: {name: minio-users, key: trino-secret-key}}}
                 - {name: K8S_HIVE,             valueFrom: {secretKeyRef: {name: minio-users, key: hive-secret-key}}}
@@ -219,10 +206,10 @@ spec:
                   while [ $i -lt 60 ]; do
                     bad=0
                     while read -r k want; do [ "$(h "$k")" = "$want" ] || bad=1; done < /tools/expected
-                    if [ $bad -eq 0 ]; then echo "[sync] k8s Secret 갱신 확인 — Reloader 가 소비자를 재시작한다"; exit 0; fi
+                    if [ $bad -eq 0 ]; then echo "[sync] k8s Secret 갱신 확인 — Reloader 가 SeaweedFS·소비자를 재시작한다"; exit 0; fi
                     i=$((i+1)); sleep 3
                   done
-                  echo "[sync] 180초 안에 k8s Secret 이 따라오지 않았다 — MinIO·OpenBao 는 새 값이다. ESO 상태를 볼 것" >&2
+                  echo "[sync] 180초 안에 k8s Secret 이 따라오지 않았다 — OpenBao 는 새 값이다. ESO 상태를 볼 것" >&2
                   exit 1
               volumeMounts: [{name: tools, mountPath: /tools, readOnly: true}]
               resources:
@@ -235,21 +222,28 @@ spec:
           containers:
             # ★ 이 컨테이너의 env 는 앞의 컨테이너들이 **끝난 뒤** 생성될 때 Secret 에서 읽힌다 — 소비자가 받을 값이다.
             - name: verify
-              image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+              image: docker.io/amazon/aws-cli:2.27.50
               command:
                 - /bin/bash
                 - -c
                 - |
                   set -uo pipefail
-                  export HOME=/tmp MC_CONFIG_DIR=/tmp/.mc
-                  fails=0
-                  for u in trino hive spark spark-history openreplay openbao-snapshot airflow; do
-                    v="K8S_$(printf '%s' "$u" | tr 'a-z-' 'A-Z_')"
-                    if mc alias set chk http://minio-headless:9000 "$u" "${!v}" >/dev/null 2>&1; then echo "[verify] $u ok"
-                    else echo "[verify] $u: 동기화된 Secret 의 키로 인증되지 않는다" >&2; fails=$((fails+1)); fi
+                  export HOME=/tmp AWS_DEFAULT_REGION=us-east-1
+                  declare -A BK=([trino]=warehouse [hive]=warehouse [spark]=warehouse [spark-history]=spark-events
+                                 [openreplay]=mobs [openbao-snapshot]=openbao-snapshots [airflow]=airflow-logs)
+                  for i in $(seq 1 100); do
+                    fails=0
+                    for u in trino hive spark spark-history openreplay openbao-snapshot airflow; do
+                      v="K8S_$(printf '%s' "$u" | tr 'a-z-' 'A-Z_')"
+                      AWS_ACCESS_KEY_ID="$u" AWS_SECRET_ACCESS_KEY="${!v}" aws --endpoint-url http://minio-headless:9000 \
+                        s3api list-objects-v2 --bucket "${BK[$u]}" --max-keys 1 >/dev/null 2>&1 || fails=$((fails+1))
+                    done
+                    [ $fails -eq 0 ] && { echo "[verify] 소비자가 받을 값으로 7명 전부 붙는다 (${i}회째)"; exit 0; }
+                    sleep 3
                   done
-                  [ $fails -eq 0 ] || { echo "[verify] $fails 건 — MinIO 와 Secret 이 갈렸다. minio-bootstrap 훅이 끼어들었는지 볼 것" >&2; exit 1; }
-                  echo "[verify] 소비자가 받을 값으로 전부 인증된다"
+                  echo "[verify] 300초 안에 $fails 명이 새 키로 붙지 못한다 — Reloader 가 seaweedfs 를 재시작했는지 볼 것." >&2
+                  echo "[verify] 되돌리려면 OpenBao oim/minio-users 를 이전 버전으로(bao kv rollback) 하고 force-sync 할 것." >&2
+                  exit 1
               env:
                 - {name: K8S_TRINO,            valueFrom: {secretKeyRef: {name: minio-users, key: trino-secret-key}}}
                 - {name: K8S_HIVE,             valueFrom: {secretKeyRef: {name: minio-users, key: hive-secret-key}}}
@@ -260,7 +254,7 @@ spec:
                 - {name: K8S_AIRFLOW,          valueFrom: {secretKeyRef: {name: minio-users, key: airflow-secret-key}}}
               resources:
                 requests: {cpu: 20m, memory: 64Mi}
-                limits:   {cpu: 200m, memory: 256Mi}
+                limits:   {cpu: 500m, memory: 512Mi}
               securityContext:
                 allowPrivilegeEscalation: false
                 capabilities: {drop: ["ALL"]}
@@ -295,7 +289,6 @@ spec:
         spec:
           serviceAccountName: rotator-minio
           restartPolicy: Never
-          imagePullSecrets: [{name: quay-pull-secret}]
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000
@@ -319,14 +312,14 @@ spec:
                 readOnlyRootFilesystem: true
                 capabilities: {drop: ["ALL"]}
             - name: rotate
-              image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+              image: docker.io/amazon/aws-cli:2.27.50
               command:
                 - /bin/bash
                 - -c
                 - |
                   set -euo pipefail
                   B=/tools/bao
-                  export BAO_ADDR=http://openbao.local.svc.cluster.local:8200 HOME=/tmp MC_CONFIG_DIR=/tmp/.mc
+                  export BAO_ADDR=http://openbao.local.svc.cluster.local:8200 HOME=/tmp AWS_DEFAULT_REGION=us-east-1
                   sha() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
 
                   echo "[1/5] OpenBao 로그인 (rotator-minio)"
@@ -343,11 +336,9 @@ spec:
                   [ "$OLD" = "$K8S_CURRENT" ] || { echo "OpenBao 와 k8s Secret 이 다르다 — ESO 동기화부터 볼 것" >&2; exit 1; }
 
                   echo "[3/5] 현재 root 로 접속 확인"
-                  mc alias set oim http://minio-headless:9000 "$RUSER" "$OLD" >/dev/null \
-                    || { echo "현재 root 로 붙지 못한다 — 멈춘다" >&2; exit 1; }
+                  AWS_ACCESS_KEY_ID="$RUSER" AWS_SECRET_ACCESS_KEY="$OLD" aws --endpoint-url http://minio-headless:9000 \
+                    s3api list-buckets >/dev/null 2>&1 || { echo "현재 root 로 붙지 못한다 — 멈춘다" >&2; exit 1; }
 
-                  # ★ root 는 MinIO 가 기동할 때만 읽는다 — 살아 있는 서버에서 바꿀 수 없다. 그래서 여기서는
-                  #   OpenBao 만 바꾸고, Secret 이 따라오면 Reloader 가 MinIO 를 다시 띄워 적용한다.
                   echo "[4/5] OpenBao 에 기록 (두 별칭 키를 함께)"
                   NEW=$(head -c 48 /dev/urandom | base64 | tr -d '=+/\n' | cut -c1-32)
                   [ "${#NEW}" -ge 24 ] || { echo "생성한 값이 짧다" >&2; exit 1; }
@@ -361,7 +352,7 @@ spec:
 
                   echo "[5/5] 다음 단계에 해시만 넘긴다"
                   sha "$NEW" > /tools/expected.sha
-                  echo "OpenBao 갱신 완료 — MinIO 는 재시작 뒤에 새 값을 쓴다"
+                  echo "OpenBao 갱신 완료 — SeaweedFS 는 재시작 뒤에 새 값을 쓴다"
               env:
                 - name: K8S_CURRENT
                   valueFrom: {secretKeyRef: {name: minio-secret, key: root-password}}
@@ -386,7 +377,7 @@ spec:
                   i=0
                   while [ $i -lt 60 ]; do
                     if [ "$(h root-password)" = "$want" ] && [ "$(h minio-secret-key)" = "$want" ]; then
-                      echo "[sync] k8s Secret 갱신 확인 — Reloader 가 MinIO 를 재시작한다"; exit 0
+                      echo "[sync] k8s Secret 갱신 확인 — Reloader 가 SeaweedFS 를 재시작한다"; exit 0
                     fi
                     i=$((i+1)); sleep 3
                   done
@@ -401,22 +392,23 @@ spec:
                 readOnlyRootFilesystem: true
                 capabilities: {drop: ["ALL"]}
           containers:
-            # ★ env 는 동기화가 끝난 뒤의 Secret 값이다. MinIO 가 다시 떠서 그 값을 받아들일 때까지 기다린다.
+            # ★ env 는 동기화가 끝난 뒤의 Secret 값이다. SeaweedFS 가 다시 떠서 그 값을 받아들일 때까지 기다린다.
             - name: verify
-              image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+              image: docker.io/amazon/aws-cli:2.27.50
               command:
                 - /bin/bash
                 - -c
                 - |
                   set -uo pipefail
-                  export HOME=/tmp MC_CONFIG_DIR=/tmp/.mc
+                  export HOME=/tmp AWS_DEFAULT_REGION=us-east-1
                   for i in $(seq 1 100); do
-                    if mc alias set chk http://minio-headless:9000 "$ROOT_USER" "$ROOT_PW" >/dev/null 2>&1; then
-                      echo "[verify] MinIO 가 새 root 를 받아들인다 (${i}회째)"; exit 0
+                    if AWS_ACCESS_KEY_ID="$ROOT_USER" AWS_SECRET_ACCESS_KEY="$ROOT_PW" \
+                         aws --endpoint-url http://minio-headless:9000 s3api list-buckets >/dev/null 2>&1; then
+                      echo "[verify] SeaweedFS 가 새 root 를 받아들인다 (${i}회째)"; exit 0
                     fi
                     sleep 3
                   done
-                  echo "[verify] 300초 안에 MinIO 가 새 root 를 받지 않았다 — Reloader 가 minio 를 재시작했는지 볼 것." >&2
+                  echo "[verify] 300초 안에 SeaweedFS 가 새 root 를 받지 않았다 — Reloader 가 seaweedfs 를 재시작했는지 볼 것." >&2
                   echo "[verify] 되돌리려면 OpenBao oim/minio-secret 의 두 키를 옛 값으로(그 KV 의 이전 버전에 있다)." >&2
                   exit 1
               env:
@@ -424,7 +416,7 @@ spec:
                 - {name: ROOT_PW,   valueFrom: {secretKeyRef: {name: minio-secret, key: root-password}}}
               resources:
                 requests: {cpu: 20m, memory: 64Mi}
-                limits:   {cpu: 200m, memory: 256Mi}
+                limits:   {cpu: 500m, memory: 512Mi}
               securityContext:
                 allowPrivilegeEscalation: false
                 capabilities: {drop: ["ALL"]}
