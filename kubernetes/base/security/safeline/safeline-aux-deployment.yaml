@@ -47,6 +47,11 @@ spec:
             # detector 관리면 토큰(9.4.3) — fvm 이 detector 로 규칙(FSL)을 밀고 /stat 을 읽는다. 없으면
             #   `AppendFSL: push fsl failed: Push FSL response(401 unauthorized)` — **규칙 갱신이 detector 에 가지 않는다.**
             #   detector·luigi 와 같은 키다(safeline-deployment.yaml 주석).
+            # ★★ 알고 남겨 둔 것(2026-11-07, 사용자 결정) — fvm 의 `get stat error` 가 10초마다 난다. fvm 은 /stat 폴링에
+            #   이 토큰을 **싣지 않는다**(같은 fvm 의 규칙 푸시는 싣는다 — 상류 결함으로 보인다). detector(koopa) 로그에
+            #   `reject detector management request without valid token ... path=/stat` 로 남는다. 차단·규칙 갱신·공격 기록은
+            #   정상이고 fvm 의 통계 읽기만 실패한다. 토큰 검사를 끄는 우회(DETECTOR_MGMT_AUTH=off + 메시 DENY 로 8001 보호)는
+            #   방어선을 하나 줄이므로 하지 않았다. 복귀 조건: fvm 이 /stat 에 토큰을 실는 판이 나오면 이 줄을 지운다.
             - name: DETECTOR_MGMT_TOKEN
               valueFrom: { secretKeyRef: { name: safeline-secret, key: detector-mgmt-token } }
           securityContext:
