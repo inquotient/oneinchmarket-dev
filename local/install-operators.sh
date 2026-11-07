@@ -221,6 +221,7 @@ kubectl -n trivy-system patch cm trivy-operator-trivy-config --type merge -p '{"
 #      와일드카드로 바꾸는데 그러면 의도보다 넓게 맞는다). 전역 ignoreUnfixed 를 쓰지 않은 이유: 다른 워크로드의
 #      수정판 없는 CRITICAL 까지 사라진다. 빠진 항목은 CI 의 Trivy 이미지 스캔이 본다.
 #      ★ safeline-fvm·cert-manager·coredns 는 크기가 아니었다 — 노드에 레이어 블롭이 없었다(Gotcha 134, content fetch 로 채운다).
+#      ★ 오퍼레이터는 실패한 스캔을 다시 시도하지 않는다 — 리포트가 빠지면 local/trivy-rescan-missing.sh --fix.
 TRIVY_SPARK_POLICY='package trivy
 
 import rego.v1
