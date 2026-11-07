@@ -119,7 +119,7 @@ spec:
               emptyDir: {sizeLimit: 512Mi}
           initContainers:
             - name: tools
-              image: docker.io/openbao/openbao:2.4.1
+              image: docker.io/openbao/openbao:2.7.2
               command: ["/bin/sh", "-c", "cp /bin/bao /tools/bao && /tools/bao version"]
               volumeMounts: [{name: tools, mountPath: /tools}]
               resources:

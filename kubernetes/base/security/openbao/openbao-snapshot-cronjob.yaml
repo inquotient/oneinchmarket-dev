@@ -62,7 +62,7 @@ spec:
             seccompProfile: {type: RuntimeDefault}
           initContainers:
             - name: snapshot
-              image: docker.io/openbao/openbao:2.4.1
+              image: docker.io/openbao/openbao:2.7.2
               command: ["/bin/sh", "-c"]
               args:
                 - |
