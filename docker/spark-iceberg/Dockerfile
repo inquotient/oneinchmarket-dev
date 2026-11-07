@@ -12,7 +12,7 @@
 #   ★ 빌드는 성공하고 파드도 Ready 라(Spark Connect 는 첫 SQL 전까지 확장을 싣지 않는다) 실제로
 #   질의해야만 드러난다. 그래서 아래 가드가 JVM 메이저를 확인한다(Gotcha 43 — 바이트코드에 물을 것).
 #   python3 이 함께 든 판을 쓴다(Livy 의 PySpark · spark.pyspark.python=python3).
-FROM docker.io/apache/spark:3.5.6-scala2.12-java17-python3-ubuntu
+FROM docker.io/apache/spark:3.5.9-scala2.12-java17-python3-ubuntu
 
 USER root
 
@@ -22,9 +22,9 @@ RUN v=$(java -XshowSettings:properties -version 2>&1 | sed -n 's/^ *java.specifi
  && [ "${v%%.*}" -ge 17 ] \
  && command -v python3
 
-ARG ICEBERG_VERSION=1.11.0
+ARG ICEBERG_VERSION=1.12.0
 ARG SCALA_VERSION=2.12
-ARG SPARK_VERSION=3.5.6
+ARG SPARK_VERSION=3.5.9
 
 # ★★ 아래 둘은 **최신으로 올리지 말 것.** 여기서 "최신" 은 오답이다.
 #   apache/spark:3.5.6 이 번들하는 것은 `hadoop-client-api-3.3.4.jar` 이고,

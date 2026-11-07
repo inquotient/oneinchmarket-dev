@@ -42,7 +42,7 @@ data:
     # ── 컨테이너 레지스트리 ────────────────────────────────────────────
     # 왜 여기인가 — `docker/` 9종은 로컬에서만 빌드되어 어느 레지스트리에도
     # 없다. 그래서 **Trivy Operator 가 이 이미지들을 한 번도 스캔하지 못했다**
-    #   unable to find the specified image "oneinch/spark-iceberg:3.5.6"
+    #   unable to find the specified image "oneinch/spark-iceberg:3.5.9"
     #   in ["docker" "containerd" "podman" "remote"]
     # 스캔 Job 은 파드라 노드의 containerd 소켓에 닿지 못하고, 이름은
     # docker.io 로 해석되어 401 이 된다. 공급망 통제에 9종짜리 구멍이었다.

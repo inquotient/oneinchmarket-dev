@@ -37,7 +37,7 @@ log() { echo "[build] $*"; }
 #   구조적으로 어긋날 수 없다.
 #   ★ :latest 는 넣지 않는다. 매니페스트가 쓰지 않고 Kyverno disallow-latest
 #     가 막는 이름이다.
-IMAGE_TAGS="spark-iceberg:3.5.6 livy:0.9.0-incubating ranger-usersync:2.9.0 hbase:3.0.0 ranger-hdfs-plugin:2.9.0-jersey2 ranger-hbase-plugin:2.9.0-hbase3 ranger-hive-plugin:2.9.0-hive4 ranger-knox-plugin:2.9.0-knox3-jetty9 ranger-kafka-plugin:2.9.0-kafka44-solrj9 ranger-solr-plugin:2.9.0-solr10 jenkins:2.568.3-lts proxysql:4.0.11 kafka-connect:4.4.0-dbz3.7.1 backstage:1.54.0"
+IMAGE_TAGS="spark-iceberg:3.5.9 livy:0.9.0-incubating-spark3.5.9 ranger-usersync:2.9.0 hbase:3.0.0 ranger-hdfs-plugin:2.9.0-jersey2 ranger-hbase-plugin:2.9.0-hbase3 ranger-hive-plugin:2.9.0-hive4 ranger-knox-plugin:2.9.0-knox3-jetty9 ranger-kafka-plugin:2.9.0-kafka44-solrj9 ranger-solr-plugin:2.9.0-solr10 jenkins:2.568.3-lts proxysql:4.0.11 kafka-connect:4.4.0-dbz3.7.1 backstage:1.54.0"
 ALL_IMAGES="$(for _it in $IMAGE_TAGS; do printf '%s ' "${_it%%:*}"; done)"
 if [ "${1:-}" = "--list" ]; then
   for n in $ALL_IMAGES; do echo "  $n"; done
@@ -77,14 +77,14 @@ podman --version
 if want spark-iceberg; then
   log "oneinch/spark-iceberg 빌드"
   sudo podman build --format docker --network host \
-    -t oneinch/spark-iceberg:latest -t oneinch/spark-iceberg:3.5.6 \
+    -t oneinch/spark-iceberg:latest -t oneinch/spark-iceberg:3.5.9 \
     "${REPO_ROOT}/docker/spark-iceberg"
 fi
 
 if want livy; then
   log "oneinch/livy 빌드"
   sudo podman build --format docker --network host \
-    -t oneinch/livy:latest -t oneinch/livy:0.9.0-incubating \
+    -t oneinch/livy:latest -t oneinch/livy:0.9.0-incubating-spark3.5.9 \
     "${REPO_ROOT}/docker/livy"
 fi
 
@@ -227,7 +227,7 @@ fi
 #   충분하다). 필요한 것은 **Trivy Operator** 다. 스캔 Job 은 파드라 노드의
 #   containerd 소켓을 볼 수 없어 이미지를 레지스트리에서 직접 당긴다.
 #   레지스트리에 없던 시절 이 9종은 **한 번도 스캔되지 않았다**(§8-79):
-#     unable to find the specified image "oneinch/spark-iceberg:3.5.6"
+#     unable to find the specified image "oneinch/spark-iceberg:3.5.9"
 #     in ["docker" "containerd" "podman" "remote"]
 #
 # ★ 그래서 **push 와 반입을 둘 다** 한다. 순환 의존을 피하기 위해서다 —

@@ -62,7 +62,7 @@ data:
     # ★ 이미지는 노드 containerd 에 **실제로 있는 이름**이어야 한다(2026-11-06). 예전 값
     #   `oneinch/spark-iceberg:latest` 는 docker.io 로 풀리는데 그런 이미지는 없다 — 반입본은
     #   build-images.sh 가 넣는 FQDN · 버전 태그다(Gotcha 85 · §8-72).
-    livy.spark.kubernetes.container.image                             = gitlab-registry.local.svc.cluster.local:5050/oneinch/spark-iceberg:3.5.6
+    livy.spark.kubernetes.container.image                             = gitlab-registry.local.svc.cluster.local:5050/oneinch/spark-iceberg:3.5.9
     # ★★ 업로드 경로(spark.kubernetes.file.upload.path)는 여기가 아니라 spark-defaults.conf 에 있다
     #   (spark-defaults-configmap.yaml) — 아래 ★★★ 참조.
     livy.spark.kubernetes.authenticate.driver.serviceAccountName      = spark-driver
