@@ -62,7 +62,7 @@ spec:
       initContainers:
         - name: fetch-ranger-plugin
           # Ranger 2.9.0 Kafka 플러그인을 kafka-clients 4.3.1 대상으로 다시 빌드했다.
-          image: gitlab-registry.local.svc.cluster.local:5050/oneinch/ranger-kafka-plugin:2.9.0-kafka4
+          image: gitlab-registry.local.svc.cluster.local:5050/oneinch/ranger-kafka-plugin:2.9.0-kafka4-solrj9
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "-c"]
           args:
@@ -73,6 +73,9 @@ spec:
               # (가드를 `! cmd` 로 쓰지 말 것 — set -e 는 부정한 명령의 실패를 무시한다)
               test -f /ranger/ranger-kafka-plugin-shim-2.9.0.jar
               test -f /ranger/ranger-kafka-plugin-impl/ranger-kafka-plugin-2.9.0.jar
+              # 감사(Solr)는 SolrJ 9 여야 한다 — 8.11 은 Kafka 4 에 없는 ZooKeeper 클래스를 불러 감사가 조용히 멈춘다(docker/ranger-kafka-plugin)
+              test -f /ranger/ranger-kafka-plugin-impl/solr-solrj-9.11.0.jar
+              if ls /ranger/ranger-kafka-plugin-impl | grep -qE '^solr-solrj-8|zookeeper'; then echo "SolrJ 8 또는 ZooKeeper jar 가 impl 에 있다" >&2; exit 1; fi
               if ls /ranger/ranger-kafka-plugin-impl | grep -q '^kafka-clients-'; then echo "kafka-clients 가 impl 에 있다" >&2; exit 1; fi
               # 정책 시드 — Admin 에 못 닿을 때 플러그인이 읽는 캐시 자리에 둔다(kustomization.yaml 의
               # configMapGenerator 머리말). Admin 에 닿으면 플러그인이 덮어쓴다.

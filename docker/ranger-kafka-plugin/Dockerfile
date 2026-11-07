@@ -93,6 +93,32 @@ RUN mvn -B -q -pl agents-common dependency:copy \
         -Dartifact=org.glassfish.jersey.core:jersey-server:2.47 -DoutputDirectory=/deps \
  && mvn -B -q -pl agents-common dependency:copy \
         -Dartifact=jakarta.validation:jakarta.validation-api:2.0.2 -DoutputDirectory=/deps
+# ★★★ 감사 모듈(dest-solr)을 SolrJ 9.11.0 으로 다시 빌드한다(2026-11-07).
+#   배포물의 SolrJ 8.11.3 은 Solr 응답(javabin)을 풀 때 org.apache.solr.common.util.Utils 가
+#   org.apache.zookeeper.server.ByteBufferInputStream 을 부른다(바이트코드 실측). Kafka 4 는 KRaft 라
+#   ZooKeeper 가 **없어서** NoClassDefFoundError 로 **Solr 가 이미 받은 묶음을 실패로 읽고** 같은 묶음을
+#   매분 다시 보냈다 — 11-03 13:13 부터 Kafka 감사가 Solr 에 하나도 들어가지 않았다(스풀 7.3 GB).
+#   브로커와 인가는 멀쩡해 감사만 조용히 멈춘다.
+#   SolrJ 9 는 ZooKeeper 를 solr-solrj-zookeeper 로 떼어 냈다(코어 jar 의 ZooKeeper 참조 0 — 실측).
+#   그 모듈과 solr-solrj-streaming 은 **넣지 않고**, 남은 유일한 ZooKeeper 경로(SolrCloud 분기)는
+#   solrj9-patch.sh 가 소스에서 지운다. 나머지 API 는 수정 없이 컴파일된다.
+#   ★ Ranger 의 dependencyManagement 가 Jetty(9.4.56)·HttpClient(4.5.13)를 고정해 SolrJ 9 의 Jetty 10 이
+#     아니라 9.4 가 따라온다. 감사 경로(HttpSolrClient·LBHttpSolrClient)는 Jetty 를 쓰지 않고, Krb5 빌더가
+#     참조하는 Jetty 클래스(client/util/SPNEGOAuthentication 등)는 9.4 에 있다 — 그리고 impl 에 9.4 를
+#     **한 벌로**(client·http·io·util) 두어 Kafka 의 Jetty 12 와 섞이지 않게 한다(Knox 와 같은 처방, Gotcha 206 ⑧).
+COPY solrj9-patch.sh /tmp/solrj9-patch.sh
+RUN sh /tmp/solrj9-patch.sh /src/apache-ranger-2.9.0 \
+ && mvn -B -q -pl agents-audit/dest-solr -am -Dsolr.version=9.11.0 \
+        -DskipTests -Dmaven.test.skip=true -Dmaven.javadoc.skip=true \
+        -Drat.skip=true -Dcheckstyle.skip=true -Dsort.skip=true \
+        -Dsortpom.skip=true -Dspotbugs.skip=true -Dfindbugs.skip=true -Denforcer.skip=true \
+        install \
+ && mvn -B -q -pl agents-audit/dest-solr -Dsolr.version=9.11.0 \
+        dependency:copy-dependencies -DincludeScope=runtime -DoutputDirectory=/deps-solr \
+        -DincludeGroupIds=org.apache.solr,org.apache.httpcomponents,org.eclipse.jetty,org.semver4j \
+        -DexcludeArtifactIds=solr-solrj-zookeeper,solr-solrj-streaming \
+ && ls /deps-solr \
+ && test -f /deps-solr/solr-solrj-9.11.0.jar
 # ★★★ jersey-server 2.47 은 **쓰려고가 아니라 가리려고** 넣는다(2026-11-03 실측).
 #   Jersey 2 와 3 은 JAX-RS API 만 javax->jakarta 로 바뀌었고 **org.glassfish.jersey.*
 #   클래스 이름은 똑같다.** Jersey 2 클라이언트는 기동할 때 META-INF/services 의
@@ -115,8 +141,12 @@ RUN mvn -B -q -pl agents-common dependency:copy \
 
 # ── ③ 업스트림 배포물에 우리 jar 를 얹고 Jersey 1·kafka-clients 를 빼고 Jersey 2 를 넣는다 ──
 RUN set -eux; \
-    curl -sSL --fail -o /tmp/p.tgz \
-      "https://archive.apache.org/dist/ranger/2.9.0/plugins/kafka/ranger-2.9.0-kafka-plugin.tar.gz"; \
+    # ★ dlcdn 을 먼저 쓴다 — archive.apache.org 는 이 회선에서 91 KB/s 라 116 MB 를 받다 curl 이 시간 초과(28)로
+    #   끊겼다(2026-11-07). 미러가 바뀌어도 내용은 같아야 하므로 sha512 로 고정한다(값은 두 곳의 .sha512 가 같았다).
+    P=ranger/2.9.0/plugins/kafka/ranger-2.9.0-kafka-plugin.tar.gz; \
+    curl -sSL --fail --retry 3 -o /tmp/p.tgz "https://dlcdn.apache.org/$P" \
+      || curl -sSL --fail --retry 3 -o /tmp/p.tgz "https://archive.apache.org/dist/$P"; \
+    echo "b8538ae260e8235f29056ab223274b166bc62ce4674ed810851008b6a4765c1a8b292ab8efd19dd126bc13e93ff4d38cef0f7c11eba0034d8f3932da95a0699a  /tmp/p.tgz" | sha512sum -c -; \
     tar xzf /tmp/p.tgz -C /tmp; \
     mkdir -p /plugin; \
     cp -r /tmp/ranger-2.9.0-kafka-plugin/lib/. /plugin/; \
@@ -130,6 +160,15 @@ RUN set -eux; \
     rm -f "$IMPL"/jersey-client-2.*.jar "$IMPL"/jersey-common-2.*.jar "$IMPL"/jersey-hk2-2.*.jar; \
     cp /deps/*.jar "$IMPL/"; \
     ls /deps; \
+    # SolrJ 8 -> 9: 옛 SolrJ·감사 모듈·Jetty·HttpClient 를 빼고 다시 빌드한 판으로 바꾼다(위 ★★★).
+    rm -f "$IMPL"/solr-solrj-*.jar "$IMPL"/ranger-audit-dest-solr-*.jar "$IMPL"/jetty-*.jar \
+          "$IMPL"/httpclient-*.jar "$IMPL"/httpcore-*.jar "$IMPL"/httpmime-*.jar \
+          "$IMPL"/httpasyncclient-*.jar "$IMPL"/httpcore-nio-*.jar; \
+    cp /deps-solr/*.jar "$IMPL/"; \
+    cp agents-audit/dest-solr/target/ranger-audit-dest-solr-2.9.0.jar "$IMPL/"; \
+    if ls "$IMPL" | grep -qiE 'zookeeper|solrj-streaming'; then echo "[guard] ZooKeeper·streaming jar 가 impl 에 있다" >&2; exit 1; fi; \
+    if [ "$(ls "$IMPL" | grep -cE '^solr-solrj-')" -ne 1 ] || [ ! -f "$IMPL/solr-solrj-9.11.0.jar" ]; then echo "[guard] SolrJ 가 9.11.0 한 벌이 아니다" >&2; ls "$IMPL" | grep solr >&2; exit 1; fi; \
+    if [ "$(ls "$IMPL" | grep -E '^jetty-' | sed -E 's/^jetty-[a-z-]+-//' | sort -u | wc -l)" -ne 1 ]; then echo "[guard] Jetty 판이 섞였다" >&2; ls "$IMPL" | grep jetty >&2; exit 1; fi; \
     # ★ 가드를 `! cmd` 로 쓰지 말 것 — set -e 는 부정한 명령의 실패를 무시해 그 줄이
     #   **아무것도 막지 않는다**(실측: Jersey 1 이 남았는데 통과했다). if 로 끝낸다.
     if ls "$IMPL" /plugin | grep -qE '^(jersey-client-1|jersey-core-1|jersey-bundle-1|kafka-clients-)'; then \
