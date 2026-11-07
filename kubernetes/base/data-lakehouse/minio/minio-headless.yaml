@@ -11,12 +11,10 @@ spec:
   clusterIP: None
   ports:
     - port: 9000
-      targetPort: api
+      targetPort: 9000
       protocol: TCP
       name: api
-    - port: 9001
-      targetPort: console
-      protocol: TCP
-      name: console
+  # ★ 소비자 21곳이 이 이름을 쓴다 — S3 엔진은 이 셀렉터 하나로 고른다(2026-11-07 MinIO -> SeaweedFS).
+  #   되돌리려면 셀렉터를 minio 로(MinIO 의 PVC 는 남아 있다). 콘솔 포트(9001)는 SeaweedFS 에 없다.
   selector:
-    app.kubernetes.io/name: minio
+    app.kubernetes.io/name: seaweedfs

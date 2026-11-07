@@ -482,19 +482,6 @@ spec:
         context: GATEWAY
         routeConfiguration:
           vhost:
-            name: "minio.oneinchmarket.local:443"
-      patch:
-        operation: MERGE
-        value:
-          typed_per_filter_config:
-            envoy.filters.http.jwt_authn:
-              "@type": type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.PerRouteConfig
-              disabled: true
-    - applyTo: VIRTUAL_HOST
-      match:
-        context: GATEWAY
-        routeConfiguration:
-          vhost:
             name: "s3.oneinchmarket.local:443"
       patch:
         operation: MERGE

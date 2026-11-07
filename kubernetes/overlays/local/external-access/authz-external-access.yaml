@@ -58,7 +58,7 @@ spec:
             principals: ["*/sa/ingress-istio"]
       to:
         - operation:
-            ports: ["9000", "9001"]
+            ports: ["9000"]
 ---
 # opensearch — REST 9200. ★ HTTPS 다. 게이트웨이가 TLS 를 오리지네이션하고
 #   (destinationrules.yaml) 그 위에 HBONE 이 한 겹 더 씌워진다.

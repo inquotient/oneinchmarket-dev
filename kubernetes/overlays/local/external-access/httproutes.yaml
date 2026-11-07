@@ -1246,42 +1246,6 @@ spec:
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: ext-minio
-  labels:
-    app.kubernetes.io/name: ext-minio
-    app.kubernetes.io/component: gateway-routes
-    app.kubernetes.io/part-of: oneinchmarket
-    app.kubernetes.io/managed-by: kustomize
-  annotations:
-    argocd.argoproj.io/sync-wave: "8"
-    # 인증 등급 — 문서(local/EXTERNAL-ACCESS.md)의 경고 축이다
-    oneinchmarket.local/auth-tier: "auth"
-  # ★ 이 백엔드는 AuthorizationPolicy 가 선택한다 — 게이트웨이
-  #   신원 허용이 authz-external-access.yaml 에 함께 있어야
-  #   한다. 없으면 이 호스트만 502·리셋이다.
-spec:
-  parentRefs:
-    - group: gateway.networking.k8s.io
-      kind: Gateway
-      name: ingress
-      sectionName: https
-  hostnames:
-    - minio.oneinchmarket.local
-  rules:
-    - matches:
-        - path:
-            type: PathPrefix
-            value: /
-      backendRefs:
-        - group: ""
-          kind: Service
-          name: minio-headless
-          port: 9001
-          weight: 1
----
-apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
-metadata:
   name: ext-s3
   labels:
     app.kubernetes.io/name: ext-s3

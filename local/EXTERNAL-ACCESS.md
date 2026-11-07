@@ -11,7 +11,7 @@
 > 때 port-forward 가 대조군이 된다.
 
 <!-- GENERATED:counts START -->
-웹 호스트 **49**(자체 인증 41 · 인증 없음 0 · 도구용 8, 그중 백엔드가 HTTPS 인 것 5) · TCP 대상 **14**
+웹 호스트 **48**(자체 인증 40 · 인증 없음 0 · 도구용 8, 그중 백엔드가 HTTPS 인 것 5) · TCP 대상 **14**
 <!-- GENERATED:counts END -->
 
 ---
@@ -168,7 +168,6 @@ nslookup grafana.oneinchmarket.local 192.168.0.103
 192.168.0.103 gitlab.oneinchmarket.local
 192.168.0.103 jenkins.oneinchmarket.local
 192.168.0.103 glitchtip.oneinchmarket.local
-192.168.0.103 minio.oneinchmarket.local
 192.168.0.103 s3.oneinchmarket.local
 192.168.0.103 trino.oneinchmarket.local
 192.168.0.103 spark-history.oneinchmarket.local
@@ -247,7 +246,6 @@ Import-Certificate -FilePath .\oim-ca.crt -CertStoreLocation Cert:\LocalMachine\
 | https://gitlab.oneinchmarket.local | 자체 인증 | `gitlab-headless:80` | root / `pw gitlab-secret root-password` |
 | https://jenkins.oneinchmarket.local | 자체 인증 | `jenkins-headless:8080` | admin / `pw jenkins-secret admin-password` |
 | https://glitchtip.oneinchmarket.local | 자체 인증 | `glitchtip:8000` | 오류 추적. 가입이 필요하다 |
-| https://minio.oneinchmarket.local | 자체 인증 | `minio-headless:9001` | 콘솔. `pw minio-secret root-user` / `root-password` |
 | https://s3.oneinchmarket.local | 자체 인증 | `minio-headless:9000` | S3 API — `mc`·`s3cmd`·boto3. 서명 인증 |
 | https://trino.oneinchmarket.local | 자체 인증 | `trino-headless:8080` | LDAP 로그인 `data-admin`(전권)·`analyst`(조회만) / `pw ds389-secret <uid>-password` · 권한은 Ranger `oim-trino` · 웹 UI(`/ui/`) + **JDBC**(§3-b). ★ `http-server.process-forwarded=true` 가 있어야 한다 — 없으면 전부 406 이다 |
 | https://spark-history.oneinchmarket.local | 자체 인증 | `oauth2-proxy-spark-history:4180` | 완료된 Spark 앱. **Keycloak 로그인 · 그룹 `platform` 만**(spark-ui 와 같다) — 앞단 oauth2-proxy |

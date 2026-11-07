@@ -152,8 +152,8 @@ CATALOG = [
     ("glitchtip", "glitchtip", 8000, "http", AUTH,
      "오류 추적. 가입이 필요하다"),
     # -- 레이크하우스 ------------------------------------------------------
-    ("minio", "minio-headless", 9001, "http", AUTH,
-     "콘솔. `pw minio-secret root-user` / `root-password`"),
+    # ★ MinIO 콘솔(minio, 9001)은 2026-11-07 에 SeaweedFS 로 옮기며 없어졌다 — SeaweedFS 의 filer UI 는
+    #   인증이 없어 열지 않는다. 버킷·객체는 `s3` 호스트에 S3 클라이언트(mc·aws)로 본다.
     ("s3", "minio-headless", 9000, "http", AUTH,
      "S3 API — `mc`·`s3cmd`·boto3. 서명 인증"),
     ("trino", "trino-headless", 8080, "http", AUTH,
@@ -222,7 +222,7 @@ O2P_PEERS = [
 #   ★ spark-connect 4040 은 2026-11-06 에 빠졌다 — 게이트웨이가 아니라 oauth2-proxy 가
 #     닿는다(authz-external-access.yaml 이 그 신원만 허용한다).
 AUTHZ_GUARDED = {
-    ("minio-headless", 9000), ("minio-headless", 9001),
+    ("minio-headless", 9000),
     ("opensearch-headless", 9200),
 }
 
