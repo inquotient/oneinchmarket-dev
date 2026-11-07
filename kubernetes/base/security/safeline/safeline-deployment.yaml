@@ -52,7 +52,13 @@ spec:
           #   같은 버전에서 fallbackLng:"en" 이다(두 이미지의 /app/static/assets 를 직접 비교했다). 상류
           #   compose 의 이미지 이름이 safeline-mgt${REGION} 이고 REGION=-g 가 해외판이다. 네 컨테이너와
           #   보조(fvm·luigi)가 **같은 판**이어야 한다 — 섞지 말 것. 바꾸기 전 설정 DB 를 pg_dump 했다.
-          image: docker.io/chaitin/safeline-mgt-g:9.4.3
+          # ★★ 9.4.3 으로 올리지 말 것(2026-11-07 실측 · 되돌렸다) — mgt 가 기동 때 /app/data/nginx_inner_allow.conf 를
+          #   `allow 172.22.222.0/24;`(compose 기본 서브넷) 하나로 다시 쓰고, 9.4.3 은 그 목록으로 내부 API(/inner/*)를 막는다.
+          #   detector 는 서비스 이름(safeline-mgt:80)으로 되돌아오므로 출발지가 파드 IP(10.0.x)라 `access forbidden by rule` →
+          #   `init config failed` 로 2~4분마다 재시작했다(9.4.1 은 같은 24시간에 0건 — Loki 대조).
+          #   올리려면 허용 목록에 파드 대역을 넣는 수단부터 확인할 것(SUBNET_PREFIX 류 env 또는 기동 뒤 치환 + nginx reload).
+          # ★ 별개로 9.4.1 에도 detector 의 `failed to send web log`(하루 21만 줄)가 있다 — 공격 기록이 mgt 로 가지 않는다. 원인 미조사.
+          image: docker.io/chaitin/safeline-mgt-g:9.4.1
           ports:
             - containerPort: 1443
               name: mgt
@@ -96,7 +102,7 @@ spec:
             periodSeconds: 20
             timeoutSeconds: 10
         - name: detector
-          image: docker.io/chaitin/safeline-detector-g:9.4.3
+          image: docker.io/chaitin/safeline-detector-g:9.4.1
           env:
             - name: LOG_DIR
               value: /logs/detector
@@ -114,7 +120,7 @@ spec:
             requests: { cpu: 150m, memory: 512Mi }
             limits:   { cpu: "2",  memory: 1536Mi }
         - name: tengine
-          image: docker.io/chaitin/safeline-tengine-g:9.4.3
+          image: docker.io/chaitin/safeline-tengine-g:9.4.1
           # ★★★ Gotcha 79 를 여기서 막는다. 이미지의 nginx.conf 2행이
           #   `# worker_processes 4;` 로 **주석 처리**돼 있어 기본값 auto 가
           #   되고, 컨테이너 안 프로세스는 limit 이 아니라 **호스트 코어 수**를
@@ -193,7 +199,7 @@ spec:
             requests: { cpu: 100m, memory: 384Mi }
             limits:   { cpu: "2",  memory: 3Gi }
         - name: chaos
-          image: docker.io/chaitin/safeline-chaos-g:9.4.3
+          image: docker.io/chaitin/safeline-chaos-g:9.4.1
           env:
             - name: SAFELINE_DB_PASSWORD
               valueFrom: { secretKeyRef: { name: safeline-secret, key: db-password } }
