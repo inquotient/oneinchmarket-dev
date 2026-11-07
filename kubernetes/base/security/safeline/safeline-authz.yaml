@@ -1,0 +1,30 @@
+# SafeLine 내부 API(/inner, mgt 의 nginx 80)는 SafeLine 자신만 쓴다(2026-11-07).
+#   부르는 쪽: detector(같은 파드, Service 로 되돌아온다) · luigi(별도 파드). 둘 다 SA safeline 이다.
+# ★ 9.4.1 까지 이 포트는 메시 안 **누구에게나** 열려 있었다 — SafeLine 을 고르는 AuthorizationPolicy 가 0건이었고,
+#   NetworkPolicy allow-safeline-internal 의 포트 규칙은 ambient 의 HBONE(15008) 경로에 걸리지 않는다(Gotcha 13).
+#   9.4.3 의 nginx 허용 목록(파드 CIDR)은 깊이 방어일 뿐이고, 신원으로 가르는 것은 이 정책이다.
+# ★ ALLOW 가 아니라 DENY 다 — ALLOW 로 고르면 1443(콘솔, 게이트웨이)·tengine(WAF 경로) 등 다른 포트를 전부
+#   나열해야 하고 하나만 빠져도 그 경로가 끊긴다(Gotcha 9). DENY 는 80 만 건드린다.
+# ★ notPrincipals 는 신원이 없는(메시 밖) 출발지도 거부한다 — principal 이 비어 있으면 목록에 없으므로.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-safeline-inner
+  labels:
+    app.kubernetes.io/name: deny-safeline-inner
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: safeline
+      app.kubernetes.io/instance: core
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals: ["*/sa/safeline"]
+      to:
+        - operation:
+            ports: ["80"]
