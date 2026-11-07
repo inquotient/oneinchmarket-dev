@@ -154,6 +154,8 @@ CATALOG = [
     # -- 레이크하우스 ------------------------------------------------------
     # ★ MinIO 콘솔(minio, 9001)은 2026-11-07 에 SeaweedFS 로 옮기며 없어졌다 — SeaweedFS 의 filer UI 는
     #   인증이 없어 열지 않는다. 버킷·객체는 `s3` 호스트에 S3 클라이언트(mc·aws)로 본다.
+    ("seaweedfs", "seaweedfs-headless", 12535, "http", AUTH,
+     "S3 관리 콘솔(weed admin — 볼륨·버킷·파일) · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P) · 그 뒤 `admin` / `pw seaweedfs-secret admin-password`"),
     ("s3", "minio-headless", 9000, "http", AUTH,
      "S3 API — `mc`·`s3cmd`·boto3. 서명 인증"),
     ("trino", "trino-headless", 8080, "http", AUTH,
@@ -208,7 +210,12 @@ O2P = {
     # HiveServer2 의 Jetty 는 Host 헤더의 **포트**로 핸들러를 고른다(외부 이름 :443 이면 500).
     #   업스트림 이름(hive-server-headless:10002)을 보내면 맞는다.
     "hive":         ("hive-server", ["--pass-host-header=false"]),
+    "seaweedfs":    ("seaweedfs", []),
 }
+# DENY(게이트웨이 신원)를 **UI 포트에만** 거는 호스트 — 같은 파드의 다른 포트를 게이트웨이가 정당하게 쓴다.
+#   ★ seaweedfs: 9000(S3)은 `s3` 호스트와 OpenReplay 의 버킷 경로(/mobs 등)가 게이트웨이로 닿는다.
+#     포트 없이 DENY 하면 그 둘이 함께 끊긴다(DENY 는 ALLOW 보다 먼저 평가된다).
+O2P_DENY_PORT_ONLY = {"seaweedfs"}
 O2P_FILE = os.path.join(ROOT, "kubernetes", "overlays", "local",
                         "external-access", "oauth2-proxies.yaml")
 O2P_PEERS = [
@@ -595,9 +602,11 @@ spec:
     - from:
         - source:
             principals: ["*/sa/ingress-istio"]
-""".format(host=host, lbl=lbl, node=NODE, domain=DOMAIN, usvc=upstream_svc,
+{denyports}""".format(host=host, lbl=lbl, node=NODE, domain=DOMAIN, usvc=upstream_svc,
            uport=upstream_port, cookie=host.replace("-", "_"), args=args,
-           podname=podname)
+           podname=podname,
+           denyports=("      to:\n        - operation:\n            ports: [\"%d\"]\n" % upstream_port)
+                     if host in O2P_DENY_PORT_ONLY else "")
 
 
 def gen_o2p():

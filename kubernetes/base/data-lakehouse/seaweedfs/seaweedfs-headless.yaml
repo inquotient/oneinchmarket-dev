@@ -17,5 +17,10 @@ spec:
       targetPort: s3
       protocol: TCP
       name: api
+    # 관리 콘솔 — oauth2-proxy-seaweedfs 만 닿는다(authz-external-access.yaml).
+    - port: 12535
+      targetPort: admin
+      protocol: TCP
+      name: admin
   selector:
     app.kubernetes.io/name: seaweedfs

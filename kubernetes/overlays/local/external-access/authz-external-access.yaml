@@ -307,3 +307,31 @@ spec:
       to:
         - operation:
             ports: ["18080"]
+---
+# seaweedfs 관리 콘솔(weed admin, 12535) — 사람은 oauth2-proxy(Keycloak 로그인) 뒤로만 온다.
+#   이 파드는 allow-datalakehouse-access(9000)가 이미 고르므로 ALLOW 가 없으면 거부다(Gotcha 9).
+#   ★ 게이트웨이 신원은 넣지 않는다 — deny-gateway-direct-seaweedfs 가 직접 경로를 한 번 더 막는다.
+#   ★ 워커 gRPC(22535)는 아무에게도 열지 않는다 — 인증 없이 워커 등록을 받는다.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-ext-seaweedfs-admin
+  labels:
+    app.kubernetes.io/name: allow-ext-seaweedfs-admin
+    app.kubernetes.io/component: external-access
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: seaweedfs
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals: ["*/sa/oauth2-proxy"]
+      to:
+        - operation:
+            ports: ["12535"]

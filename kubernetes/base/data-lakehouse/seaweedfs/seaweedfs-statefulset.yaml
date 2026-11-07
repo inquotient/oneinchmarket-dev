@@ -29,7 +29,7 @@ metadata:
   annotations:
     reloader.stakater.com/auto: "true"
     # Secret 을 initContainer 의 env 로만 읽으므로 이름도 명시한다.
-    secret.reloader.stakater.com/reload: "minio-secret,minio-users"
+    secret.reloader.stakater.com/reload: "minio-secret,minio-users,seaweedfs-secret"
 spec:
   serviceName: seaweedfs-headless
   replicas: 1
@@ -85,6 +85,9 @@ spec:
               n=$(grep -o '"name":' /cfg/s3.json | wc -l)
               [ "$n" -eq 8 ] || { echo "[render] identity 가 8 개가 아니다($n)" >&2; exit 1; }
               echo "[render] identity $n 개"
+              # 관리 콘솔(weed admin) 비밀번호 — 인자가 아니라 -options 파일로 준다(프로세스 목록에 남지 않는다).
+              [ -n "${ADMIN_PW:-}" ] || { echo "[render] ADMIN_PW 가 비었다" >&2; exit 1; }
+              printf 'adminPassword=%s\n' "$ADMIN_PW" > /cfg/admin.options
           env:
             - { name: ROOT_USER, valueFrom: { secretKeyRef: { name: minio-secret, key: root-user } } }
             - { name: ROOT_PW,   valueFrom: { secretKeyRef: { name: minio-secret, key: root-password } } }
@@ -102,6 +105,7 @@ spec:
             - { name: OB_S,    valueFrom: { secretKeyRef: { name: minio-users, key: openbao-snapshot-secret-key } } }
             - { name: AF_A,    valueFrom: { secretKeyRef: { name: minio-users, key: airflow-access-key } } }
             - { name: AF_S,    valueFrom: { secretKeyRef: { name: minio-users, key: airflow-secret-key } } }
+            - { name: ADMIN_PW, valueFrom: { secretKeyRef: { name: seaweedfs-secret, key: admin-password } } }
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: { drop: ["ALL"] }
@@ -155,6 +159,49 @@ spec:
           readinessProbe:
             httpGet: { path: /healthz, port: s3 }
             periodSeconds: 10
+            timeoutSeconds: 5
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: s3-config, mountPath: /cfg, readOnly: true }
+        # ★ 관리 콘솔 — `weed admin`(2026-11-07). 같은 파드라 루프백의 master(9333)·filer 에 닿는다.
+        #   비밀번호가 있으면 0.0.0.0 에 붙고(없으면 루프백), 로그인 없이는 / -> /login(307) · API 401 이다(실측).
+        #   사람은 게이트웨이 -> oauth2-proxy(Keycloak, 그룹 platform) -> 여기 로 온다 — 로그인이 두 겹이다.
+        #   ★★ 워커용 gRPC(12535+10000=22535)는 **인증 없이** 워커 등록을 받는다(이미지 자신의 경고).
+        #   막는 것은 메시다: 이 파드를 고르는 ALLOW 정책이 9000(소비자)·12535(oauth2-proxy)만 연다.
+        #   ★ -port.legacy(23646)·Iceberg·Lance 표시는 끈다. 상태(-dataDir)는 데이터 PVC 의 admin/ 에 둔다.
+        - name: admin
+          image: docker.io/chrislusf/seaweedfs:4.52
+          command: ["weed"]
+          args:
+            - admin
+            - -options=/cfg/admin.options
+            - -master=127.0.0.1:9333
+            - -port=12535
+            - -ip=0.0.0.0
+            - -port.legacy=0
+            - -iceberg.port=0
+            - -lance.port=0
+            - -dataDir=/data/admin
+          ports:
+            - { containerPort: 12535, name: admin, protocol: TCP }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+            readOnlyRootFilesystem: true
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits:   { cpu: 100m, memory: 128Mi }
+          startupProbe:
+            tcpSocket: { port: admin }
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: { port: admin }
+            periodSeconds: 20
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet: { path: /login, port: admin }
+            periodSeconds: 20
             timeoutSeconds: 5
           volumeMounts:
             - { name: data, mountPath: /data }

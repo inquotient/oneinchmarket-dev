@@ -192,7 +192,7 @@ spec:
             # 인증이 없던 UI 의 oauth2-proxy 클라이언트(2026-11-06) — external-access/oauth2-proxies.yaml 의 짝이다.
             #   ★ 원천은 render-external-access.py 의 O2P 이고 이 값과 다르면 그 생성기가 멈춘다.
             - name: O2P_HOSTS
-              value: "prometheus alertmanager pyroscope pyrra temporal flink hdfs hbase hbase-rs hive"
+              value: "prometheus alertmanager pyroscope pyrra temporal flink hdfs hbase hbase-rs hive seaweedfs"
             - name: O2P_URL_FMT
               value: "https://%s.oneinchmarket.local"
 ---

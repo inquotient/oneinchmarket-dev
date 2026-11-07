@@ -149,8 +149,11 @@ mk oauth2-proxy-secret "spark-ui-client-secret=$(gen 32)"      "spark-ui-cookie-
                       "hdfs-client-secret=$(gen 32)"          "hdfs-cookie-secret=$(gen 32)" \
                       "hbase-client-secret=$(gen 32)"         "hbase-cookie-secret=$(gen 32)" \
                       "hbase-rs-client-secret=$(gen 32)"      "hbase-rs-cookie-secret=$(gen 32)" \
-                      "hive-client-secret=$(gen 32)"          "hive-cookie-secret=$(gen 32)"
+                      "hive-client-secret=$(gen 32)"          "hive-cookie-secret=$(gen 32)" \
+                      "seaweedfs-client-secret=$(gen 32)"     "seaweedfs-cookie-secret=$(gen 32)"
 # ★ 위 목록 뒤 열 호스트는 render-external-access.py 의 O2P 와 같아야 한다 — 다르면 그 생성기가 멈춘다.
+# SeaweedFS 관리 콘솔(weed admin) 비밀번호 — 사용자 admin. oauth2-proxy 로그인 뒤의 두 번째 겹이다(2026-11-07).
+mk seaweedfs-secret "admin-password=$(gen 32)"
 # Temporal — 이력·가시성 DB 를 같은 롤로 쓴다(postgres-bootstrap 이 둘을 만든다).
 mk temporal-secret "db-password=$(gen)"
 # ★★ midPoint — 이 Secret 은 **아예 없었다**(2026-10-05에 더했다). 참조는
