@@ -57,8 +57,13 @@ set -Eeuo pipefail
 trap 'echo "[bootstrap][ERROR] line $LINENO: $BASH_COMMAND" >&2' ERR
 
 # ★★ install-operators.sh 의 ISTIO_VERSION 과 짝이 맞아야 한다(§8-73, Gotcha 47).
-#   Istio 1.31 은 k8s **1.32~1.36** 만 지원한다 — 이 값을 1.32 미만으로 내리면
-#   메시가 뜨지 않고, 1.36 을 넘기면 Istio 쪽이 지원 밖으로 나간다.
+#   ★ 2026-11-07 실측 — 상한을 정하는 것은 이제 Istio 가 아니라 **Cilium** 이다:
+#     Istio 1.31   k8s 1.32~1.37 (supportStatus.yml 이 1.37 을 더했다 · go.mod client-go v0.37.1)
+#     Cilium 1.20  k8s 1.33~1.36 e2e (v1.20.4 · client-go v0.36.5) <- 1.37 은 지원 밖
+#     Cilium 1.21  k8s 1.34~1.37 (main 브랜치 문서) — 아직 v1.21.0-pre.4(2026-11-02) 프리릴리스뿐
+#   그래서 k3s 1.37(stable v1.37.2+k3s1)은 **Cilium 1.21 정식판이 나온 뒤**다. 순서: Cilium 1.21 로 먼저
+#   (1.21 은 1.36 도 지원한다) -> k3s 1.37. 반대로 하면 그 사이 CNI 가 지원 밖이다(Gotcha 167).
+#   그 전까지는 1.36 줄의 패치(v1.36.6+k3s1, 2026-11-03)까지만 올릴 수 있다.
 K3S_VERSION="${K3S_VERSION:-v1.36.4+k3s1}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UPSTREAM_RESOLV="/run/systemd/resolve/resolv.conf"
