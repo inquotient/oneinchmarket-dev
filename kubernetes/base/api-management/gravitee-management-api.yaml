@@ -113,7 +113,7 @@ spec:
             limits:   { cpu: 300m, memory: 192Mi }
       containers:
         - name: management-api
-          image: docker.io/graviteeio/apim-management-api:4.12.19
+          image: docker.io/graviteeio/apim-management-api:4.13.3
           imagePullPolicy: IfNotPresent
           env:
             # ★ 힙을 명시한다 — limit 의 62.5%(Gotcha 81·82).
