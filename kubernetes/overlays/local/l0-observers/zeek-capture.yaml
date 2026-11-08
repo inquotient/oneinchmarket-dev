@@ -95,7 +95,10 @@ spec:
       dnsPolicy: ClusterFirstWithHostNet
       containers:
         - name: zeek
-          image: docker.io/zeek/zeek:7.0.10
+          # ★ 2026-11-08 에 7.0 LTS → 8.0 LTS(8.0.11). 같은 pcap(18 MB)을 두 판에 넣어 비교했다:
+          #   conn.log 에 `ip_proto` 필드 하나가 더해졌고(받는 쪽은 동적 매핑이라 무해),
+          #   analyzer.log 는 8.0 에서 나오지 않는다(zeek-ship 의 WATCH 에 없다). 바이너리 경로 그대로.
+          image: docker.io/zeek/zeek:8.0.11
           command: ["/bin/bash", "-c"]
           args:
             - |
