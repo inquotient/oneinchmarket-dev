@@ -147,6 +147,13 @@ helm template tetragon cilium/tetragon \
 log "Trivy Operator ${TRIVY_OPERATOR_VERSION}"
 kubectl apply --server-side --force-conflicts \
   -f "https://raw.githubusercontent.com/aquasecurity/trivy-operator/${TRIVY_OPERATOR_VERSION}/deploy/static/trivy-operator.yaml"
+# ★★ 이미지를 등급 결함을 고친 판으로 바꾼다(docker/trivy-operator, Gotcha 221). 상류 0.36.1 은 trivy 가 정한
+#   Severity 를 버리고 vendor 표를 다시 찾아, 출처가 빈 항목(Go stdlib·x/net·curl·openssl 등)을 UNKNOWN 으로 적었다 —
+#   실측 HIGH 이상 5,865건이 UNKNOWN 이었다. 이 이미지는 build-images.sh trivy-operator 가 모든 노드에 반입한다
+#   (반입 전에는 ImagePullBackOff — 스캔만 멈추고 다른 것에는 영향이 없다).
+#   ★ 상류가 고치면 이 줄과 docker/trivy-operator 를 지울 것. 버전을 올리면 Dockerfile 을 함께 옮길 것.
+kubectl -n trivy-system set image deploy/trivy-operator \
+  trivy-operator=gitlab-registry.local.svc.cluster.local:5050/oneinch/trivy-operator:0.36.1-sevfix || true
 # ★ 기본 동시 스캔 10개는 이 노드에 과하다. 설치 직후 워크로드 40여 개를
 #   한꺼번에 스캔하며 메모리 limits 를 102%까지 밀어 올렸다. 2로 낮춘다.
 #   키 이름은 OPERATOR_CONCURRENT_SCAN_JOBS_LIMIT 이다.

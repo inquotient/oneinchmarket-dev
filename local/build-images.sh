@@ -37,7 +37,7 @@ log() { echo "[build] $*"; }
 #   구조적으로 어긋날 수 없다.
 #   ★ :latest 는 넣지 않는다. 매니페스트가 쓰지 않고 Kyverno disallow-latest
 #     가 막는 이름이다.
-IMAGE_TAGS="spark-iceberg:3.5.9 livy:0.9.0-incubating-spark3.5.9 ranger-usersync:2.9.0 hbase:3.0.0 ranger-hdfs-plugin:2.9.0-jersey2 ranger-hbase-plugin:2.9.0-hbase3 ranger-hive-plugin:2.9.0-hive4 ranger-knox-plugin:2.9.0-knox3-jetty9 ranger-kafka-plugin:2.9.0-kafka44-solrj9 ranger-solr-plugin:2.9.0-solr10 jenkins:2.568.3-lts proxysql:4.0.11 kafka-connect:4.4.0-dbz3.7.1 backstage:1.54.0"
+IMAGE_TAGS="spark-iceberg:3.5.9 livy:0.9.0-incubating-spark3.5.9 ranger-usersync:2.9.0 hbase:3.0.0 ranger-hdfs-plugin:2.9.0-jersey2 ranger-hbase-plugin:2.9.0-hbase3 ranger-hive-plugin:2.9.0-hive4 ranger-knox-plugin:2.9.0-knox3-jetty9 ranger-kafka-plugin:2.9.0-kafka44-solrj9 ranger-solr-plugin:2.9.0-solr10 jenkins:2.568.3-lts proxysql:4.0.11 kafka-connect:4.4.0-dbz3.7.1 backstage:1.54.0 trivy-operator:0.36.1-sevfix"
 ALL_IMAGES="$(for _it in $IMAGE_TAGS; do printf '%s ' "${_it%%:*}"; done)"
 if [ "${1:-}" = "--list" ]; then
   for n in $ALL_IMAGES; do echo "  $n"; done
@@ -207,6 +207,17 @@ if want kafka-connect; then
   sudo podman build --format docker --network host \
     -t oneinch/kafka-connect:latest -t oneinch/kafka-connect:4.4.0-dbz3.7.1 \
     "${REPO_ROOT}/docker/kafka-connect"
+fi
+
+if want trivy-operator; then
+  log "oneinch/trivy-operator 빌드"
+  # 상류 0.36.1 바이너리의 등급 결함(Severity 를 버리고 vendor 표를 다시 찾아 UNKNOWN 이 된다)을
+  # 한 줄 고쳐 다시 빌드한다 — docker/trivy-operator/sevfix.sh, Gotcha 221. 상류 이미지 위에 바이너리만 바꾼다.
+  # ★ install-operators.sh 가 이 이름으로 오퍼레이터 이미지를 덮어쓴다 — 반입 전에는 오퍼레이터가 뜨지 않는다.
+  # ★ TRIVY_OPERATOR_VERSION 을 올리면 Dockerfile 의 VERSION·FROM 과 이 태그를 함께 움직일 것.
+  sudo podman build --format docker --network host \
+    -t oneinch/trivy-operator:latest -t oneinch/trivy-operator:0.36.1-sevfix \
+    "${REPO_ROOT}/docker/trivy-operator"
 fi
 
 if want backstage; then
