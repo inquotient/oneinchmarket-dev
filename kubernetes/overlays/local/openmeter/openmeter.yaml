@@ -113,7 +113,7 @@ spec:
           capabilities: &id001
             drop:
             - ALL
-        image: ghcr.io/openmeterio/openmeter:v1.0.0-beta.232
+        image: ghcr.io/openmeterio/openmeter:v1.0.0-beta.236
         imagePullPolicy: IfNotPresent
         command:
         - /entrypoint.sh
@@ -260,7 +260,7 @@ spec:
           capabilities: &id001
             drop:
             - ALL
-        image: ghcr.io/openmeterio/openmeter:v1.0.0-beta.232
+        image: ghcr.io/openmeterio/openmeter:v1.0.0-beta.236
         imagePullPolicy: IfNotPresent
         command:
         - /entrypoint.sh
@@ -402,7 +402,7 @@ spec:
           capabilities: &id001
             drop:
             - ALL
-        image: ghcr.io/openmeterio/openmeter:v1.0.0-beta.232
+        image: ghcr.io/openmeterio/openmeter:v1.0.0-beta.236
         imagePullPolicy: IfNotPresent
         command:
         - /entrypoint.sh
@@ -544,7 +544,7 @@ spec:
           capabilities: &id001
             drop:
             - ALL
-        image: ghcr.io/openmeterio/openmeter:v1.0.0-beta.232
+        image: ghcr.io/openmeterio/openmeter:v1.0.0-beta.236
         imagePullPolicy: IfNotPresent
         command:
         - /entrypoint.sh
@@ -686,7 +686,7 @@ spec:
           capabilities: &id001
             drop:
             - ALL
-        image: ghcr.io/openmeterio/openmeter:v1.0.0-beta.232
+        image: ghcr.io/openmeterio/openmeter:v1.0.0-beta.236
         imagePullPolicy: IfNotPresent
         command:
         - /entrypoint.sh
@@ -847,7 +847,7 @@ spec:
               capabilities: &id001
                 drop:
                 - ALL
-            image: ghcr.io/openmeterio/openmeter:v1.0.0-beta.232
+            image: ghcr.io/openmeterio/openmeter:v1.0.0-beta.236
             imagePullPolicy: IfNotPresent
             command:
             - /entrypoint.sh
@@ -1001,7 +1001,7 @@ spec:
               capabilities: &id001
                 drop:
                 - ALL
-            image: ghcr.io/openmeterio/openmeter:v1.0.0-beta.232
+            image: ghcr.io/openmeterio/openmeter:v1.0.0-beta.236
             imagePullPolicy: IfNotPresent
             command:
             - /entrypoint.sh
@@ -1155,7 +1155,7 @@ spec:
               capabilities: &id001
                 drop:
                 - ALL
-            image: ghcr.io/openmeterio/openmeter:v1.0.0-beta.232
+            image: ghcr.io/openmeterio/openmeter:v1.0.0-beta.236
             imagePullPolicy: IfNotPresent
             command:
             - /entrypoint.sh
