@@ -99,6 +99,17 @@ data:
                 continue
             line = f.readline()
             if not line:
+                # ★ Zeek 는 재시작할 때 로그를 **같은 inode 로 비운다**(O_TRUNC). inode 만 보면
+                #   위치가 파일 끝을 넘은 채 영영 읽지 못하고 오류도 없다 — 2026-11-09 Zeek 9 로
+                #   올리며 실측(pos 17.6 MB · 파일 0.3 MB). 파일이 위치보다 작으면 처음부터 다시 읽는다.
+                #   비워진 뒤의 내용은 아직 보낸 적이 없으므로 중복이 아니다.
+                try:
+                    if os.stat(path).st_size < f.tell():
+                        f.seek(0)
+                        print(f"[tail] {name} 비워짐 감지 — 처음부터 다시 읽는다", flush=True)
+                        continue
+                except FileNotFoundError:
+                    pass
                 time.sleep(0.5)
                 continue
             line = line.strip()
