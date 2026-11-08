@@ -5,16 +5,15 @@
 # 묶인 값을 갖는다: domainName(openreplay.oneinchmarket.local) · 단일 노드 · 우리 저장소
 # 엔드포인트가 하드코딩된다. dev/prod 는 도메인·TLS 가 달라진다.
 #
-# openreplay.yaml 은 **생성 파일**이다. 직접 고치지 말 것 —
-#   bash local/render-openreplay.sh
-# 가 `helm template` 으로 만든다(ADR-003 은 유지된다. Tetragon 과 같은 방식으로
-# Helm 을 배포가 아니라 **생성 도구**로만 쓴다).
+# ★★ openreplay.yaml 이 **원천**이다 — 손으로 고친다(2026-11-08 부터).
+#   처음에는 `helm template` 생성물이었으나(ADR-003 — Helm 은 배포 도구가 아니다) 그 뒤
+#   수정이 쌓여 다시 생성하면 사라졌다(CLAUDE.md Gotcha 222 ① · 224).
+#   `local/render-openreplay.sh` 는 이제 **참고 렌더**다 — 판을 올릴 때 상류 차트가 무엇을
+#   바꿨는지(이미지·env 이름·오브젝트) 보여 주고, 레포의 파일은 바꾸지 않는다.
 #
-# ★ 지금 이 스택은 브라우저 데이터를 받지 못한다. 전제 2건이 미해결이다:
-#     ① 외부 HTTPS 진입점 없음(배포 블로커 #6) — Ingress 12개가 컨트롤러
-#        없이 렌더돼 비활성이다
-#     ② 프런트엔드 계측 경로 없음(G9) — 트래커를 심을 수 없다
-#   그래서 세션 리플레이는 **아직 동작하지 않는다.** ADR-069 순서 참조.
+# ★ 수집 경로는 2026-11-08 에 처음 동작을 확인했다(시험 페이지에서 세션·녹화 파일 저장,
+#   Gotcha 224). 외부 진입점은 HTTPRoute 로 섰다(Gotcha 7). 남은 전제는 하나다 —
+#   앱(admin)에 트래커를 심을 경로가 없다(G9).
 #
 # 의도된 예외 — 차트가 securityContext 를 선언하지 않아 컨테이너가 이미지
 # 기본 사용자로 돈다. 로컬은 Kyverno 가 Audit 이라 기동하지만 prod 는
@@ -30,8 +29,8 @@ resources:
 commonAnnotations:
   argocd.argoproj.io/sync-wave: "7"
 
-# ★★ reloader 어노테이션을 여기서 붙인다 — 생성 파일을 고치면 다음
-#   렌더에 지워진다. 이 워크로드들은 redis-users·seaweedfs-users 을 참조하는데
+# ★★ reloader 어노테이션을 여기서 붙인다(생성 파일이던 시절의 결정이다 — 지금은
+#   openreplay.yaml 에 직접 둬도 되지만 옮길 이유가 없어 그대로 둔다). 이 워크로드들은 redis-users·seaweedfs-users 을 참조하는데
 #   상류 차트가 어노테이션을 붙이지 않아 **로테이션 된 뒤에도 옛 자격을**
 #   든 채 남는다(§8-96). 로테이션 CronJob 은 DB 비밀번호와 Secret 을 둘 다
 #   바꾸므로, 재시작하지 않으면 그 순간부터 붙지 못한다.

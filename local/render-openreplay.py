@@ -1,5 +1,9 @@
+# OpenReplay 차트 참고 렌더의 변환기 — local/render-openreplay.sh 가 부른다.
+# ★ 2026-11-08 부터 배포 파일을 만들지 않는다. 원천은 커밋된 openreplay.yaml 이다(그 스크립트 머리말).
+# 사용:
+#   render-openreplay.py <helm template 결과> <출력>      — 이 클러스터 엔드포인트·Secret 으로 바꿔 쓴다
+#   render-openreplay.py --compare <기준> <새 렌더> [이름] — 이미지·env 이름·오브젝트 차이를 출력한다
 import sys, yaml
-out = sys.argv[1]
 NS = "local.svc.cluster.local"
 BIG   = {"chalice", "api", "assist", "spot"}
 SMALL = {"alerts", "heuristics", "sourcemapreader"}
@@ -153,8 +157,70 @@ def fix_container(c):
 #   다음 렌더에 되돌아온다(이 레포가 §8-94 에서 밟은 자리다).
 DROP_SECRETS = {"or-secrets", "openreplay-secrets"}
 
+
+def pod_spec(d):
+    k = d.get('kind')
+    if k in ('Deployment', 'StatefulSet', 'DaemonSet', 'Job'):
+        return d['spec']['template']['spec']
+    if k == 'CronJob':
+        return d['spec']['jobTemplate']['spec']['template']['spec']
+    return None
+
+
+def summarize(path):
+    """오브젝트 집합과, 컨테이너별 (이미지, env 이름 집합)."""
+    objs, ctrs = set(), {}
+    for d in yaml.safe_load_all(open(path, encoding='utf-8')):
+        if not d:
+            continue
+        key = f"{d.get('kind')}/{d.get('metadata', {}).get('name')}"
+        objs.add(key)
+        spec = pod_spec(d)
+        if not spec:
+            continue
+        for c in spec.get('containers', []) + spec.get('initContainers', []):
+            img = c.get('image', '')
+            # 완전지정 접두는 우리가 붙인 것이라 비교에서 뺀다(태그 차이만 본다)
+            for pre in ('docker.io/', 'public.ecr.aws/', 'library/'):
+                if img.startswith(pre):
+                    img = img[len(pre):]
+            ctrs[f"{key}:{c.get('name')}"] = (img, {e.get('name') for e in c.get('env') or []})
+    return objs, ctrs
+
+
+def compare(base, new, label):
+    bo, bc = summarize(base)
+    no, nc = summarize(new)
+    print(f"== 기준: {label}  →  새 판 렌더")
+    print(f"-- 오브젝트: 새로 생김 {len(no - bo)} · 없어짐 {len(bo - no)}")
+    for o in sorted(no - bo):
+        print(f"   + {o}")
+    for o in sorted(bo - no):
+        print(f"   - {o}")
+    print("-- 이미지가 바뀐 컨테이너")
+    n = 0
+    for k in sorted(bc.keys() & nc.keys()):
+        if bc[k][0] != nc[k][0]:
+            print(f"   {k}: {bc[k][0]} -> {nc[k][0]}")
+            n += 1
+    print(f"   ({n}건)")
+    print("-- env 이름이 바뀐 컨테이너")
+    n = 0
+    for k in sorted(bc.keys() & nc.keys()):
+        add, rem = nc[k][1] - bc[k][1], bc[k][1] - nc[k][1]
+        if add or rem:
+            print(f"   {k}: +{sorted(add)} -{sorted(rem)}")
+            n += 1
+    print(f"   ({n}건) — 값은 비교하지 않는다(Secret 참조·엔드포인트는 이 클러스터 것으로 바뀐다)")
+
+
+if len(sys.argv) >= 2 and sys.argv[1] == '--compare':
+    compare(sys.argv[2], sys.argv[3], sys.argv[4] if len(sys.argv) > 4 else sys.argv[2])
+    sys.exit(0)
+
+src, out = sys.argv[1], sys.argv[2]
 docs = []
-for d in yaml.safe_load_all(open('/tmp/or-raw.yaml', encoding='utf-8')):
+for d in yaml.safe_load_all(open(src, encoding='utf-8')):
     if not d: continue
     if d.get('kind') == 'Secret' and d.get('metadata', {}).get('name') in DROP_SECRETS:
         print(f"  버림: Secret/{d['metadata']['name']} (미치환 템플릿 상수)")
@@ -181,6 +247,6 @@ for d in yaml.safe_load_all(open('/tmp/or-raw.yaml', encoding='utf-8')):
         patch_version_gate(spec)
     docs.append(d)
 with open(out, 'w', encoding='utf-8') as f:
-    f.write("# 생성 파일 — 직접 고치지 말 것. local/render-openreplay.sh 가 만든다.\n")
+    f.write("# 참고 렌더 — 배포 파일이 아니다. local/render-openreplay.sh 머리말 참조.\n")
     yaml.safe_dump_all(docs, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 print(f"  {out} — 오브젝트 {len(docs)}개")

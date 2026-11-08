@@ -245,8 +245,8 @@ D=/tmp/or-tar; mkdir -p $D && cd $D
 curl -fsSL -o or.tar.gz https://codeload.github.com/openreplay/openreplay/tar.gz/refs/heads/main
 tar -xzf or.tar.gz --wildcards openreplay-main/scripts/helmcharts/*
 
-# 렌더 (자원·라벨·자격증명 배선을 주입한다)
-bash local/render-openreplay.sh
+# 참고 렌더 — 상류 차트의 차이만 보여 준다. 배포 파일은 손으로 고친다(2026-11-08 부터)
+bash local/render-openreplay.sh $D/openreplay-main/scripts/helmcharts
 ```
 
 `local/build-images.sh` 가 podman 으로 빌드해 k3s containerd 로 반입한다.
