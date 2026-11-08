@@ -36,10 +36,16 @@
 #  5. 사전 점검에 **주소 고정**과 **DNS 스텁** 검사를 넣었다.
 #     WSL 판의 네 검사(MemTotal·BTF·cgroup2·systemd)는 그대로 둔다.
 #
-# ★ 데이터스토어는 기본값(SQLite/kine)이다 — `--cluster-init`(내장 etcd)을
-#   쓰지 않는다. 기계가 2대뿐이라 어차피 HA 정족수(3)가 성립하지 않고, 이
-#   레포의 Gotcha 55 가 kine 을 전제로 쓰여 있다. **서버를 3대로 늘릴 날**
-#   그때 etcd 로 가되 재구축이 필요하다는 것을 알고 가야 한다.
+# ★★ 데이터스토어는 **내장 etcd(단일 멤버)** 다 — `--cluster-init`(2026-11-08, Gotcha 223).
+#   전에는 기본값 SQLite/kine 이었고 "HA 정족수(3)가 안 되니 etcd 는 서버 3대일 때" 로 미뤘는데,
+#   그 판단은 **HA 만 보고 부하를 보지 않았다.** kine 은 압축 트랜잭션이 쓰기 부하(초당 ~18회)를
+#   견디지 못해 시간 초과 → `Transaction commit failed` 로 k3s 가 하루 두 번 스스로 죽었다.
+#   단일 멤버 etcd 도 HA 는 아니다(103 이 단일 장애점인 것은 같다). 바뀌는 것은 그 자멸이 사라지고
+#   12시간마다 etcd 스냅숏이 생긴다는 것이다(db/snapshots). 기존 SQLite 클러스터는 재구축 없이
+#   이 플래그로 재시작하면 옮겨진다 — 단 아래 max-request-bytes 가 먼저 있어야 한다.
+#   ★ `--etcd-arg=max-request-bytes=2097152` — etcd 기본(1.5MiB)보다 큰 VulnerabilityReport 가 있다
+#     (실측 최대 1.81MB). kine 시절 실효 한도(gRPC 2MiB)와 같게 둔다. 없으면 이전이
+#     `etcdserver: request is too large` 로 실패하고, systemd 재시작이 **반쯤 옮겨진 etcd** 를 집는다.
 #
 # 사용
 #   local/bootstrap-baremetal-k3s.sh                     # server(기본)
@@ -356,6 +362,8 @@ if [ "$ROLE" = agent ]; then
 fi
 
 curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="${K3S_VERSION}" sh -s - server \
+  --cluster-init \
+  --etcd-arg=max-request-bytes=2097152 \
   --write-kubeconfig-mode 644 \
   --node-ip "${NODE_IP}" \
   --tls-san "${NODE_IP}" \
