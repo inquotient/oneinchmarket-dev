@@ -70,7 +70,7 @@ spec:
               until root s3api list-buckets >/dev/null 2>&1; do sleep 3; done
               # openbao-snapshots·OpenReplay 버킷도 여기서 만든다 — 소비자 사용자에게는 버킷 생성 권한이 없다(2026-11-06).
               for b in warehouse spark-events livy-recovery airflow-logs openbao-snapshots \
-                       mobs sessions-assets records sourcemaps uxtesting-records spots; do
+                       mobs sessions-assets records sourcemaps uxtesting-records spots replay-exporter-videos; do
                 if root s3api head-bucket --bucket "$b" >/dev/null 2>&1; then echo "[seaweedfs-bootstrap] bucket $b (있음)"
                 else root s3api create-bucket --bucket "$b" >/dev/null || { echo "[seaweedfs-bootstrap] bucket $b 생성 실패" >&2; exit 1; }
                      echo "[seaweedfs-bootstrap] bucket $b (생성)"; fi

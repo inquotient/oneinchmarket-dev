@@ -428,7 +428,6 @@ spec:
               - "*/sa/chalice-openreplay"
               - "*/sa/http-openreplay"
               - "*/sa/images-openreplay"
-              - "*/sa/integrations-openreplay"
               - "*/sa/sourcemapreader-openreplay"
               - "*/sa/spot-openreplay"
               - "*/sa/storage-openreplay"

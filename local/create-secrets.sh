@@ -273,6 +273,7 @@ mk or-secrets "jwt-secret=$(gen 40)" \
               "assist-key=$(gen 40)" \
               "token-secret=$(gen 40)" \
               "scim-access-secret-key=$(gen 40)" \
+              "jwt-mcp-secret=$(gen 40)" \
               "scim-refresh-secret-key=$(gen 40)" \
               "license-key="
 mk argocd-admin-secret   "admin-password=$(gen)"

@@ -714,14 +714,10 @@ OpenSearch Dashboards(http://localhost:5601) 의 **Dev Tools** 가 가장 편하
 | INT | `hadoop-datanode-headless` | 9867 | — |  |
 | INT | `hbase-master` | 16000 | — | RPC |
 | INT | `hbase-regionserver` | 16020 | — | RPC |
-| INT | `heuristics-openreplay` | 8888 | — | 내부 메트릭·헬스 |
-| INT | `heuristics-openreplay` | 9000 | — | OpenReplay 내부 |
 | INT | `http-openreplay` | 8080 | — | OpenReplay 내부 |
 | INT | `http-openreplay` | 8888 | — | 내부 메트릭·헬스 |
 | INT | `images-openreplay` | 8080 | — | OpenReplay 내부 |
 | INT | `images-openreplay` | 8888 | — | 내부 메트릭·헬스 |
-| INT | `integrations-openreplay` | 8080 | — | OpenReplay 내부 |
-| INT | `integrations-openreplay` | 8888 | — | 내부 메트릭·헬스 |
 | INT | `jenkins-headless` | 50000 | — | 에이전트 JNLP |
 | INT | `kafka-bridge` | 8081 | — |  |
 | INT | `kafka-headless` | 9093 | — | KRaft 컨트롤러 |

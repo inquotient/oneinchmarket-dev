@@ -77,7 +77,7 @@ spec:
                 ident hive "$HIVE_A" "$HIVE_S" "$(acts warehouse)"; printf ','
                 ident spark "$SPARK_A" "$SPARK_S" "$(acts warehouse spark-events livy-recovery)"; printf ','
                 ident spark-history "$SH_A" "$SH_S" "$(acts spark-events)"; printf ','
-                ident openreplay "$OR_A" "$OR_S" "$(acts mobs sessions-assets records sourcemaps uxtesting-records spots)"; printf ','
+                ident openreplay "$OR_A" "$OR_S" "$(acts mobs sessions-assets records sourcemaps uxtesting-records spots replay-exporter-videos)"; printf ','
                 ident openbao-snapshot "$OB_A" "$OB_S" "$(acts openbao-snapshots)"; printf ','
                 ident airflow "$AF_A" "$AF_S" "$(acts airflow-logs)"
                 printf ']}\n'

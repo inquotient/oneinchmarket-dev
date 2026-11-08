@@ -95,7 +95,7 @@ patches:
 #   재시작 횟수를 반드시 확인할 것.
   - target:
       kind: Deployment
-      name: "^(alerts|api|assets|canvases|chalice|db|ender|heuristics|http|images|integrations|sink|spot|storage)-openreplay$"
+      name: "^(alerts|api|assets|canvases|chalice|db|ender|http|images|sink|spot|storage)-openreplay$"
     patch: |
       - op: add
         path: /spec/template/spec/containers/0/securityContext/readOnlyRootFilesystem

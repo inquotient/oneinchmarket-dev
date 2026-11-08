@@ -182,20 +182,6 @@ metadata:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: heuristics-openreplay
-  namespace: local
-  labels:
-    helm.sh/chart: heuristics-0.1.1
-    app.kubernetes.io/name: heuristics
-    app.kubernetes.io/instance: openreplay
-    app.kubernetes.io/version: v1.27.1
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/part-of: oneinchmarket
-    app.kubernetes.io/component: observability
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
   name: http-openreplay
   namespace: local
   labels:
@@ -217,20 +203,6 @@ metadata:
     app.kubernetes.io/name: images
     app.kubernetes.io/instance: openreplay
     app.kubernetes.io/version: v1.27.0
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/part-of: oneinchmarket
-    app.kubernetes.io/component: observability
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: integrations-openreplay
-  namespace: local
-  labels:
-    helm.sh/chart: integrations-0.1.1
-    app.kubernetes.io/name: integrations
-    app.kubernetes.io/instance: openreplay
-    app.kubernetes.io/version: v1.27.2
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/part-of: oneinchmarket
     app.kubernetes.io/component: observability
@@ -553,34 +525,6 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: heuristics-openreplay
-  namespace: local
-  labels:
-    helm.sh/chart: heuristics-0.1.1
-    app.kubernetes.io/name: heuristics
-    app.kubernetes.io/instance: openreplay
-    app.kubernetes.io/version: v1.27.1
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/part-of: oneinchmarket
-    app.kubernetes.io/component: observability
-spec:
-  type: ClusterIP
-  ports:
-  - port: 9000
-    targetPort: http
-    protocol: TCP
-    name: http
-  - port: 8888
-    targetPort: metrics
-    protocol: TCP
-    name: metrics
-  selector:
-    app.kubernetes.io/name: heuristics
-    app.kubernetes.io/instance: openreplay
----
-apiVersion: v1
-kind: Service
-metadata:
   name: http-openreplay
   namespace: local
   labels:
@@ -632,34 +576,6 @@ spec:
     name: metrics
   selector:
     app.kubernetes.io/name: images
-    app.kubernetes.io/instance: openreplay
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: integrations-openreplay
-  namespace: local
-  labels:
-    helm.sh/chart: integrations-0.1.1
-    app.kubernetes.io/name: integrations
-    app.kubernetes.io/instance: openreplay
-    app.kubernetes.io/version: v1.27.2
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/part-of: oneinchmarket
-    app.kubernetes.io/component: observability
-spec:
-  type: ClusterIP
-  ports:
-  - port: 8080
-    targetPort: http
-    protocol: TCP
-    name: http
-  - port: 8888
-    targetPort: metrics
-    protocol: TCP
-    name: metrics
-  selector:
-    app.kubernetes.io/name: integrations
     app.kubernetes.io/instance: openreplay
 ---
 apiVersion: v1
@@ -820,11 +736,11 @@ spec:
           allowPrivilegeEscalation: false
           capabilities:
             drop: ["ALL"]
-        image: public.ecr.aws/p1t3u8a3/alerts:v1.27.2
+        image: public.ecr.aws/p1t3u8a3/alerts:v1.28.6
         imagePullPolicy: IfNotPresent
         env:
         - name: version_number
-          value: v1.27.2
+          value: v1.28.6
         - name: pg_host
           value: postgresql-headless.local.svc.cluster.local
         - name: pg_port
@@ -950,7 +866,7 @@ spec:
           allowPrivilegeEscalation: false
           capabilities:
             drop: ["ALL"]
-        image: public.ecr.aws/p1t3u8a3/api:v1.27.10
+        image: public.ecr.aws/p1t3u8a3/api:v1.28.12
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3
@@ -989,6 +905,17 @@ spec:
           value: kafka-headless.local.svc.cluster.local:9092
         - name: KAFKA_USE_SSL
           value: 'false'
+        - name: JWT_MCP_ALGORITHM
+          value: HS512
+        - name: JWT_MCP_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: jwt-mcp-secret
+        - name: REDIS_CACHE_ENABLED
+          value: 'false'
+        - name: REPLAY_EXPORT_BUCKET
+          value: replay-exporter-videos
         - name: JWT_SECRET
           valueFrom:
             secretKeyRef:
@@ -1111,7 +1038,7 @@ spec:
           allowPrivilegeEscalation: false
           capabilities:
             drop: ["ALL"]
-        image: public.ecr.aws/p1t3u8a3/assets:v1.27.2
+        image: public.ecr.aws/p1t3u8a3/assets:v1.28.4
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3
@@ -1228,7 +1155,7 @@ spec:
           allowPrivilegeEscalation: false
           capabilities:
             drop: ["ALL"]
-        image: public.ecr.aws/p1t3u8a3/assist:v1.27.4
+        image: public.ecr.aws/p1t3u8a3/assist:v1.28.2
         imagePullPolicy: IfNotPresent
         env:
         - name: ASSIST_JWT_SECRET
@@ -1313,7 +1240,7 @@ spec:
           allowPrivilegeEscalation: false
           capabilities:
             drop: ["ALL"]
-        image: public.ecr.aws/p1t3u8a3/canvases:v1.27.0
+        image: public.ecr.aws/p1t3u8a3/canvases:v1.28.4
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3
@@ -1448,7 +1375,7 @@ spec:
           allowPrivilegeEscalation: false
           capabilities:
             drop: ["ALL"]
-        image: public.ecr.aws/p1t3u8a3/chalice:v1.27.22
+        image: public.ecr.aws/p1t3u8a3/chalice:v1.28.23
         imagePullPolicy: IfNotPresent
         livenessProbe:
           httpGet:
@@ -1463,6 +1390,15 @@ spec:
             secretKeyRef:
               name: redis-users
               key: openreplay-password
+        - name: JWT_MCP_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: or-secrets
+              key: jwt-mcp-secret
+        - name: SCIM_ALLOWED_REDIRECT_HOSTS
+          value: .okta.com,.oktapreview.com,.okta-emea.com
+        - name: SCIM_AUTH_CODE_EXPIRE_SECONDS
+          value: '600'
         - name: REDIS_STRING
           value: redis://openreplay:$(redis_password)@redis-headless.local.svc.cluster.local:6379/4
         - name: KAFKA_SERVERS
@@ -1521,7 +1457,7 @@ spec:
               key: license-key
               optional: true
         - name: version_number
-          value: v1.27.22
+          value: v1.28.23
         - name: pg_host
           value: postgresql-headless.local.svc.cluster.local
         - name: pg_port
@@ -1706,7 +1642,7 @@ spec:
           allowPrivilegeEscalation: false
           capabilities:
             drop: ["ALL"]
-        image: public.ecr.aws/p1t3u8a3/db:v1.27.3
+        image: public.ecr.aws/p1t3u8a3/db:v1.28.4
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3
@@ -1763,6 +1699,8 @@ spec:
               key: db-password
         - name: POSTGRES_STRING
           value: postgres://openreplay:$(pg_password)@postgresql-headless.local.svc.cluster.local:5432/openreplay
+        - name: REDIS_CACHE_ENABLED
+          value: 'false'
         - name: REDIS_STRING
           value: redis://openreplay:$(redis_password)@redis-headless.local.svc.cluster.local:6379/4
         - name: ch_db
@@ -1830,7 +1768,7 @@ spec:
           allowPrivilegeEscalation: false
           capabilities:
             drop: ["ALL"]
-        image: public.ecr.aws/p1t3u8a3/ender:v1.27.4
+        image: public.ecr.aws/p1t3u8a3/ender:v1.28.3
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3
@@ -1934,7 +1872,7 @@ spec:
           allowPrivilegeEscalation: false
           capabilities:
             drop: ["ALL"]
-        image: public.ecr.aws/p1t3u8a3/frontend:v1.27.27
+        image: public.ecr.aws/p1t3u8a3/frontend:v1.28.11
         imagePullPolicy: IfNotPresent
         env:
         - name: TRACKER_HOST
@@ -1953,105 +1891,6 @@ spec:
           limits:
             cpu: 500m
             memory: 384Mi
-      volumes: null
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: heuristics-openreplay
-  namespace: local
-  labels:
-    helm.sh/chart: heuristics-0.1.1
-    app.kubernetes.io/name: heuristics
-    app.kubernetes.io/instance: openreplay
-    app.kubernetes.io/version: v1.27.1
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/part-of: oneinchmarket
-    app.kubernetes.io/component: observability
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: heuristics
-      app.kubernetes.io/instance: openreplay
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/name: heuristics
-        app.kubernetes.io/instance: openreplay
-        app.kubernetes.io/part-of: oneinchmarket
-        app.kubernetes.io/component: observability
-    spec:
-      serviceAccountName: heuristics-openreplay
-      securityContext:
-        fsGroup: 1001
-        fsGroupChangePolicy: OnRootMismatch
-        runAsGroup: 1001
-        runAsUser: 1001
-        runAsNonRoot: true
-        seccompProfile:
-          type: RuntimeDefault
-      shareProcessNamespace: true
-      containers:
-      - name: heuristics
-        securityContext:
-          runAsGroup: 1001
-          runAsUser: 1001
-          runAsNonRoot: true
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop: ["ALL"]
-        image: public.ecr.aws/p1t3u8a3/heuristics:v1.27.1
-        imagePullPolicy: IfNotPresent
-        livenessProbe:
-          failureThreshold: 3
-          httpGet:
-            path: /health
-            port: 8888
-          initialDelaySeconds: 15
-          periodSeconds: 10
-          timeoutSeconds: 3
-        readinessProbe:
-          failureThreshold: 3
-          httpGet:
-            path: /health
-            port: 8888
-          initialDelaySeconds: 10
-          periodSeconds: 10
-          timeoutSeconds: 5
-        env:
-        - name: redis_password
-          valueFrom:
-            secretKeyRef:
-              name: redis-users
-              key: openreplay-password
-        - name: LICENSE_KEY
-          valueFrom:
-            secretKeyRef:
-              name: or-secrets
-              key: license-key
-              optional: true
-        - name: KAFKA_SERVERS
-          value: kafka-headless.local.svc.cluster.local:9092
-        - name: KAFKA_USE_SSL
-          value: 'false'
-        - name: REDIS_STRING
-          value: redis://openreplay:$(redis_password)@redis-headless.local.svc.cluster.local:6379/4
-        ports:
-        - name: http
-          containerPort: 9000
-          protocol: TCP
-        - name: metrics
-          containerPort: 8888
-          protocol: TCP
-        volumeMounts: null
-        resources:
-          requests:
-            cpu: 20m
-            memory: 48Mi
-          limits:
-            cpu: 300m
-            memory: 192Mi
       volumes: null
 ---
 apiVersion: apps/v1
@@ -2100,7 +1939,7 @@ spec:
           allowPrivilegeEscalation: false
           capabilities:
             drop: ["ALL"]
-        image: public.ecr.aws/p1t3u8a3/http:v1.27.3
+        image: public.ecr.aws/p1t3u8a3/http:v1.28.5
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3
@@ -2239,7 +2078,7 @@ spec:
           allowPrivilegeEscalation: false
           capabilities:
             drop: ["ALL"]
-        image: public.ecr.aws/p1t3u8a3/images:v1.27.0
+        image: public.ecr.aws/p1t3u8a3/images:v1.28.4
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3
@@ -2331,135 +2170,6 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: integrations-openreplay
-  namespace: local
-  labels:
-    helm.sh/chart: integrations-0.1.1
-    app.kubernetes.io/name: integrations
-    app.kubernetes.io/instance: openreplay
-    app.kubernetes.io/version: v1.27.2
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/part-of: oneinchmarket
-    app.kubernetes.io/component: observability
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: integrations
-      app.kubernetes.io/instance: openreplay
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/name: integrations
-        app.kubernetes.io/instance: openreplay
-        app.kubernetes.io/part-of: oneinchmarket
-        app.kubernetes.io/component: observability
-    spec:
-      serviceAccountName: integrations-openreplay
-      securityContext:
-        fsGroup: 1001
-        fsGroupChangePolicy: OnRootMismatch
-        runAsGroup: 1001
-        runAsUser: 1001
-        runAsNonRoot: true
-        seccompProfile:
-          type: RuntimeDefault
-      shareProcessNamespace: true
-      containers:
-      - name: integrations
-        securityContext:
-          runAsGroup: 1001
-          runAsUser: 1001
-          runAsNonRoot: true
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop: ["ALL"]
-        image: public.ecr.aws/p1t3u8a3/integrations:v1.27.2
-        imagePullPolicy: IfNotPresent
-        livenessProbe:
-          failureThreshold: 3
-          httpGet:
-            path: /health
-            port: 8888
-          initialDelaySeconds: 15
-          periodSeconds: 10
-          timeoutSeconds: 3
-        readinessProbe:
-          failureThreshold: 3
-          httpGet:
-            path: /health
-            port: 8888
-          initialDelaySeconds: 10
-          periodSeconds: 10
-          timeoutSeconds: 5
-        env:
-        - name: redis_password
-          valueFrom:
-            secretKeyRef:
-              name: redis-users
-              key: openreplay-password
-        - name: AWS_ACCESS_KEY_ID
-          valueFrom:
-            secretKeyRef:
-              name: seaweedfs-users
-              key: openreplay-access-key
-        - name: AWS_SECRET_ACCESS_KEY
-          valueFrom:
-            secretKeyRef:
-              name: seaweedfs-users
-              key: openreplay-secret-key
-        - name: AWS_ENDPOINT
-          value: http://seaweedfs-headless.local.svc.cluster.local:9000
-        - name: AWS_REGION
-          value: us-east-1
-        - name: BUCKET_NAME
-          value: mobs
-        - name: JWT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: or-secrets
-              key: jwt-secret
-        - name: LICENSE_KEY
-          valueFrom:
-            secretKeyRef:
-              name: or-secrets
-              key: license-key
-              optional: true
-        - name: KAFKA_SERVERS
-          value: kafka-headless.local.svc.cluster.local:9092
-        - name: KAFKA_USE_SSL
-          value: 'false'
-        - name: pg_password
-          valueFrom:
-            secretKeyRef:
-              name: openreplay-secret
-              key: db-password
-        - name: POSTGRES_STRING
-          value: postgres://openreplay:$(pg_password)@postgresql-headless.local.svc.cluster.local:5432/openreplay
-        - name: REDIS_STRING
-          value: redis://openreplay:$(redis_password)@redis-headless.local.svc.cluster.local:6379/4
-        - name: TOKEN_SECRET
-          value: secret_token_string
-        ports:
-        - name: http
-          containerPort: 8080
-          protocol: TCP
-        - name: metrics
-          containerPort: 8888
-          protocol: TCP
-        volumeMounts: null
-        resources:
-          requests:
-            cpu: 25m
-            memory: 64Mi
-          limits:
-            cpu: 500m
-            memory: 384Mi
-      volumes: null
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
   name: sink-openreplay
   namespace: local
   labels:
@@ -2503,7 +2213,7 @@ spec:
           allowPrivilegeEscalation: false
           capabilities:
             drop: ["ALL"]
-        image: public.ecr.aws/p1t3u8a3/sink:v1.27.2
+        image: public.ecr.aws/p1t3u8a3/sink:v1.28.3
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3
@@ -2617,7 +2327,7 @@ spec:
           allowPrivilegeEscalation: false
           capabilities:
             drop: ["ALL"]
-        image: public.ecr.aws/p1t3u8a3/sourcemapreader:v1.27.0
+        image: public.ecr.aws/p1t3u8a3/sourcemapreader:v1.28.2
         imagePullPolicy: IfNotPresent
         env:
         - name: SMR_HOST
@@ -2705,7 +2415,7 @@ spec:
           allowPrivilegeEscalation: false
           capabilities:
             drop: ["ALL"]
-        image: public.ecr.aws/p1t3u8a3/spot:v1.27.0
+        image: public.ecr.aws/p1t3u8a3/spot:v1.28.3
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3
@@ -2849,7 +2559,7 @@ spec:
           allowPrivilegeEscalation: false
           capabilities:
             drop: ["ALL"]
-        image: public.ecr.aws/p1t3u8a3/storage:v1.27.1
+        image: public.ecr.aws/p1t3u8a3/storage:v1.28.2
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3
@@ -3029,8 +2739,8 @@ metadata:
     app.kubernetes.io/part-of: oneinchmarket
     app.kubernetes.io/component: observability
 data:
-  version: v1.27.0
-  chartAppVersion: v1.27.0
+  version: v1.28.0
+  chartAppVersion: v1.28.0
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -3170,7 +2880,7 @@ data:
     \n    exit 1\n    ;;\nesac\n"
   minio.sh: "#!/bin/bash\n\nset -e\n\ncd /tmp\n\nbuckets=(\"mobs\" \"sessions-assets\"\
     \ \"static\" \"sourcemaps\" \"sessions-mobile-assets\" \"quickwit\" \"vault-data\"\
-    \ \"records\" \"spots\")\n\nmc alias set minio $MINIO_HOST $MINIO_ACCESS_KEY $MINIO_SECRET_KEY\n\
+    \ \"records\" \"spots\" \"replay-exporter-videos\")\n\nmc alias set minio $MINIO_HOST $MINIO_ACCESS_KEY $MINIO_SECRET_KEY\n\
     \nfunction init() {\n    echo \"Initializing minio\"\n\n    cat <<EOF >/tmp/lifecycle.json\n\
     {\n  \"Rules\": [\n    {\n      \"Expiration\": {\n        \"Days\": 180\n   \
     \   },\n      \"ID\": \"Delete old mob files\",\n      \"Status\": \"Enabled\"\
@@ -3335,7 +3045,7 @@ spec:
           \ done\n  }\n\n  check_github\n\n  # Modern sparse checkout using Git 2.25+\
           \ features with cone mode\n  # Only fetch required directories: scripts/schema,\
           \ scripts/helmcharts, ee/scripts\n  git clone --depth 1 --filter=blob:none\
-          \ --sparse \\\n    https://github.com/openreplay/openreplay \\\n    -b v1.27.0\
+          \ --sparse \\\n    https://github.com/openreplay/openreplay \\\n    -b v1.28.0\
           \ . || exit 10\n  git sparse-checkout set scripts/schema scripts/helmcharts\
           \ ee/scripts || exit 10\n  \n  ls /opt/openreplay/openreplay\n  git log\
           \ -1\nfi\n\n\n\nexit_count=0\n\nexit_count=0\nerror_connection=1\n\nwhile\
@@ -3440,7 +3150,7 @@ spec:
         - /bin/bash
         - -c
         args:
-        - "lowVersion=25.1\nhighVersion=26\n[[ \"${CH_PASSWORD}\" != \"\" ]] && {\n\
+        - "lowVersion=26.1\nhighVersion=27\n[[ \"${CH_PASSWORD}\" != \"\" ]] && {\n\
           \  CH_PASSWORD=\"--password $CH_PASSWORD\"\n}\n[[ \"${CH_USE_TLS}\" == \"\
           true\" ]] && CH_TLS_FLAGS=\"--secure --accept-invalid-certificate\" || CH_TLS_FLAGS=\"\
           \"\nch_client=`echo clickhouse-client -h ${CH_HOST} --user ${CH_USERNAME}\
@@ -3487,7 +3197,7 @@ spec:
         - name: PREVIOUS_APP_VERSION
           value: v1.27.0
         - name: CHART_APP_VERSION
-          value: v1.27.0
+          value: v1.28.0
         - name: PGHOST
           value: postgresql-headless.local.svc.cluster.local
         - name: PGPORT
@@ -3541,7 +3251,7 @@ spec:
         - name: PREVIOUS_APP_VERSION
           value: v1.27.0
         - name: CHART_APP_VERSION
-          value: v1.27.0
+          value: v1.28.0
         - name: CH_HOST
           value: clickhouse-headless.local.svc.cluster.local
         - name: CH_PORT
