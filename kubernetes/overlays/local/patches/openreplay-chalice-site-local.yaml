@@ -28,7 +28,7 @@ spec:
           hostnames: ["openreplay.oneinchmarket.local"]
       initContainers:
         - name: ca-bundle
-          image: public.ecr.aws/p1t3u8a3/chalice:v1.27.22
+          image: public.ecr.aws/p1t3u8a3/chalice:v1.28.23
           command:
             - sh
             - -c
