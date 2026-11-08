@@ -18,7 +18,7 @@
 # (docker/ 의 다른 이미지와 마찬가지로 podman `--network host` 로
 # 빌드한다 — 빌드 컨테이너가 cilium 네트워크를 잡으면 밖으로 못 나간다.)
 # ─────────────────────────────────────────────────────────────────────────
-FROM docker.io/jenkins/jenkins:2.568.3-lts
+FROM docker.io/jenkins/jenkins:2.580.2-lts
 
 # jenkins-plugin-cli 는 이미지에 이미 있다. `--latest false` 로 코어와
 # 호환되는 안정 버전을 고르게 한다(무조건 최신을 받지 않는다).
