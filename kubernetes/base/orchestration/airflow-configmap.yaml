@@ -25,7 +25,14 @@ data:
   #   대가: 태스크가 **scheduler 파드 안에서** 돈다 — 스케줄러 limit 이 곧
   #   동시 태스크 예산이다.
   AIRFLOW__CORE__EXECUTOR: "LocalExecutor"
-  AIRFLOW__CORE__PARALLELISM: "8"
+  # ★★ 4 다(2026-11-08, 8 에서 내렸다). LocalExecutor 는 이 수만큼 워커 프로세스를 미리
+  #   띄우고, 워커는 태스크를 한 번 돌린 뒤 쓴 메모리를 돌려주지 않는다(실측: 유휴 워커
+  #   RSS 161 MiB · 과금 DAG 회차마다 cgroup 사용량이 계단식으로 올라 1.4 GiB 근처에서
+  #   OOMKilled — 11시간에 18회, 3.4.0 이전 파드들도 1.3~1.4 GiB 였다). 그 사이 회차는
+  #   scheduler 가 다시 뜰 때까지 대기한다(14:00 회차 첫 태스크가 5분 반 늦었다).
+  #   과금 DAG 은 태스크가 일렬이고 max_active_runs=1 이라 동시 태스크는 1 이면 된다.
+  #   DAG 을 늘려 동시성이 필요해지면 이 값과 scheduler limit 을 함께 올릴 것.
+  AIRFLOW__CORE__PARALLELISM: "4"
   AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: "4"
   AIRFLOW__CORE__LOAD_EXAMPLES: "False"
 
