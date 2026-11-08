@@ -124,8 +124,16 @@ data:
     if __name__ == "__main__":
         main()
 ---
+# ★★★ DaemonSet 이다(2026-11-08 — 전에는 replicas 1 인 Deployment 였다).
+#   zeek-capture 와 이 파드는 **노드의 hostPath** 로 로그를 주고받는데, 둘을 같은 노드에 묶는
+#   것이 없었다. 판 올리기로 이 파드만 재생성되며 104 로 옮겨 가자 capture(103)의 로그를 못 보고
+#   **오류 없이** 빈 파일을 지켜봤다 — OpenSearch `zeek` 의 최신 문서가 그 시각(11:28 UTC)에서
+#   멈춘 것으로 드러났다(파드는 Running · 로그는 "연결됨"). Gotcha 12: 건수가 아니라 최신 문서 시각.
+#   노드마다 하나씩 두면 capture 가 어디에 뜨든 그 노드의 ship 이 읽는다. capture 가 없는 노드의
+#   ship 은 파일 끝에서 시작하므로(tail 의 SEEK_END) 옛 로그를 다시 보내지 않고 쉰다.
+#   affinity 로 묶지 않은 이유: 스케줄 시점에만 걸려 한쪽이 나중에 옮겨 가면 다시 갈라진다.
 apiVersion: apps/v1
-kind: Deployment
+kind: DaemonSet
 metadata:
   name: zeek-ship
   labels:
@@ -136,11 +144,9 @@ metadata:
   annotations:
     reloader.stakater.com/auto: "true"
 spec:
-  replicas: 1
-  strategy:
+  updateStrategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 0
       maxUnavailable: 1
   selector:
     matchLabels:
