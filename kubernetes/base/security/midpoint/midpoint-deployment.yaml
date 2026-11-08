@@ -75,12 +75,14 @@ spec:
       initContainers:
         # 1) SQL 을 이미지에서 꺼낸다.
         - name: fetch-schema
-          image: docker.io/evolveum/midpoint:4.10.4-alpine
+          image: docker.io/evolveum/midpoint:4.11.0-alpine
           command: ["/bin/sh", "-c"]
           args:
             - cp /opt/midpoint/doc/config/sql/native/postgres.sql
                  /opt/midpoint/doc/config/sql/native/postgres-audit.sql
-                 /opt/midpoint/doc/config/sql/native/postgres-quartz.sql /sql/
+                 /opt/midpoint/doc/config/sql/native/postgres-quartz.sql
+                 /opt/midpoint/doc/config/sql/native/postgres-upgrade.sql
+                 /opt/midpoint/doc/config/sql/native/postgres-audit-upgrade.sql /sql/
           volumeMounts:
             - {name: sql, mountPath: /sql}
           securityContext:
@@ -90,7 +92,12 @@ spec:
           resources:
             requests: {cpu: 20m, memory: 64Mi}
             limits: {memory: 128Mi}
-        # 2) midpoint 롤로 넣는다. 이미 있으면 건너뛴다.
+        # 2) midpoint 롤로 넣는다. 이미 있으면 **업그레이드 스크립트**를 돌린다(2026-11-08).
+        #    ★ 전에는 이미 있으면 아무것도 하지 않아, 판을 올리면 새 midPoint 가 옛 스키마로 떴다.
+        #      postgres-upgrade.sql·postgres-audit-upgrade.sql 은 apply_change 로 이미 적용한 변경을
+        #      건너뛰는 멱등 스크립트다. 둘의 CREATE EXTENSION IF NOT EXISTS 는 확장이 이미 있으면
+        #      권한 없이 통과한다(fuzzystrmatch·pg_trgm 은 postgres-bootstrap 이 superuser 로 만든다).
+        #    ★ 끝에 m_global_metadata 의 변경 번호가 스크립트의 대상 번호에 닿았는지 되읽는다(Gotcha 86).
         - name: init-schema
           image: docker.io/library/postgres:18.6
           command: ["/bin/bash", "-c"]
@@ -104,7 +111,15 @@ spec:
               # 멱등 — m_object 는 postgres.sql 이 만드는 핵심 테이블이다.
               # 있으면 스키마가 이미 서 있는 것이므로 아무것도 하지 않는다.
               if $PSQL -tc "SELECT 1 FROM information_schema.tables WHERE table_name='m_object'" | grep -q 1; then
-                echo "[midpoint-init] 스키마가 이미 있다 - 건너뛴다"
+                echo "[midpoint-init] 스키마가 이미 있다 - 업그레이드 스크립트를 돌린다"
+                $PSQL -f /sql/postgres-upgrade.sql
+                $PSQL -f /sql/postgres-audit-upgrade.sql
+                want=$(grep -oE 'apply_change\(\s*[0-9]+' /sql/postgres-upgrade.sql | grep -oE '[0-9]+$' | sort -n | tail -1)
+                wanta=$(grep -oE 'apply_audit_change\(\s*[0-9]+' /sql/postgres-audit-upgrade.sql | grep -oE '[0-9]+$' | sort -n | tail -1)
+                got=$($PSQL -Atc "SELECT value FROM m_global_metadata WHERE name='schemaChangeNumber'")
+                gota=$($PSQL -Atc "SELECT value FROM m_global_metadata WHERE name='schemaAuditChangeNumber'")
+                echo "[midpoint-init] schemaChangeNumber $got (대상 $want) · audit $gota (대상 $wanta)"
+                [ -n "$want" ] && [ "$got" -ge "$want" ] && [ -n "$wanta" ] && [ "$gota" -ge "$wanta" ]                   || { echo "[midpoint-init] 업그레이드가 대상 번호에 닿지 않았다" >&2; exit 1; }
                 exit 0
               fi
               echo "[midpoint-init] 스키마 생성"
@@ -126,7 +141,7 @@ spec:
             limits: {memory: 256Mi}
       containers:
         - name: midpoint
-          image: docker.io/evolveum/midpoint:4.10.4-alpine
+          image: docker.io/evolveum/midpoint:4.11.0-alpine
           env:
             # ★★ 기본값이 MP_MEM_MAX=2048m · MP_MEM_INIT=1024m 이다(실측).
             #   이 노드 여유가 2.2 GiB 라 그대로 두면 들어가지 않는다.
