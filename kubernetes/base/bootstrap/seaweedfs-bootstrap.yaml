@@ -55,7 +55,7 @@ spec:
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: bootstrap
-          image: docker.io/amazon/aws-cli:2.27.50
+          image: docker.io/amazon/aws-cli:2.39.6
           command: ["/bin/bash", "-c"]
           args:
             - |

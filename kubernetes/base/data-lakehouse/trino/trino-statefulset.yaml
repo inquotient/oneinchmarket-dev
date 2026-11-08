@@ -32,7 +32,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: trino
-          image: docker.io/trinodb/trino:483
+          image: docker.io/trinodb/trino:484
           ports:
             - containerPort: 8080
               name: http

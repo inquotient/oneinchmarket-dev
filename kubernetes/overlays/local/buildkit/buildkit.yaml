@@ -54,7 +54,7 @@ spec:
         seccompProfile: {type: Unconfined}
       containers:
         - name: buildkitd
-          image: docker.io/moby/buildkit:v0.33.0-rootless
+          image: docker.io/moby/buildkit:v0.34.2-rootless
           args:
             - --addr
             - tcp://0.0.0.0:1234

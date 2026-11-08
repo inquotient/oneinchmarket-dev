@@ -21,7 +21,7 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: grafana
-          image: docker.io/grafana/grafana:13.2.1
+          image: docker.io/grafana/grafana:13.3.0
           ports:
             - {containerPort: 3000, name: http, protocol: TCP}
           env:

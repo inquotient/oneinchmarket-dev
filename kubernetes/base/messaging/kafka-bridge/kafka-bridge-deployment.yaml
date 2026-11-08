@@ -41,7 +41,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: kafka-bridge
-          image: quay.io/strimzi/kafka-bridge:1.1.0
+          image: quay.io/strimzi/kafka-bridge:1.2.1
           # 이미지에 entrypoint 가 없고 Cmd 만 있다. 인자를 주려면 command 와
           # args 를 모두 명시해야 한다 — args 만 주면 Cmd 를 덮어써 버린다.
           # ★ Kafka SASL 비밀번호를 /tmp 사본에 넣은 뒤 띄운다(2026-11-03).

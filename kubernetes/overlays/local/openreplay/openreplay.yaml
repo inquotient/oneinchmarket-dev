@@ -3294,7 +3294,7 @@ spec:
             #   충분하다 — 일회성 파드로 실측했다(§8-49).
             drop: ["ALL"]
             add: ["CHOWN"]
-        image: docker.io/alpine/git:2.52.0
+        image: docker.io/alpine/git:2.54.0
         env:
         - name: SKIP_PERMISSION_CHANGE
           value: 'false'
