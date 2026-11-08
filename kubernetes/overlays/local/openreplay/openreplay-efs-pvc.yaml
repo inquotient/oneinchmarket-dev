@@ -1,0 +1,30 @@
+# OpenReplay 공유 디렉터리(/mnt/efs) — 상류는 EFS(RWX)를 쓴다 (2026-11-08, Gotcha 224).
+#
+# 왜 hostPath 가 아닌가
+#   sink 가 녹화 조각을 /mnt/efs 에 쓰고 storage 가 그것을 읽어 버킷(mobs)에 올린다.
+#   hostPath(/openreplay/storage/nfs)는 ① 노드마다 따로라 104 의 sink 가 쓴 것을 103 의 storage 가
+#   못 보고 ② root:root 755 라 uid 1001 인 sink 가 쓰지도 못했다(permission denied).
+#   그래서 녹화가 한 건도 저장된 적이 없다.
+#
+# 왜 RWO 로 되는가
+#   local-path PV 에는 노드 고정(nodeAffinity)이 붙어, 이 PVC 를 쓰는 파드가 **전부 같은 노드로 모인다.**
+#   RWO 는 노드 단위라 같은 노드의 여러 파드가 함께 쓸 수 있다. local-path 는 디렉터리를 0777 로 만든다.
+#   대가: 쓰는 9곳(api·canvases·chalice·images·sink·spot·storage·efs-cleaner·databases-migrate)이
+#   그 노드에 묶인다 — 그 노드가 내려가면 함께 내려간다(전에도 sink·storage 가 갈리면 동작하지 않았다).
+#   ★ 여러 노드로 흩어야 하면 RWX 스토리지(NFS 등)가 필요하다.
+#   ★ 볼륨 이름을 datadir -> efs-data 로 바꿨다 — 같은 이름에서 타입을 바꾸면 SSA 가 거부한다(Gotcha 113).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: openreplay-efs
+  labels:
+    app.kubernetes.io/name: openreplay-efs
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 20Gi

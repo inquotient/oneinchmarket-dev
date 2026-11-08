@@ -977,7 +977,7 @@ spec:
           containerPort: 8888
           protocol: TCP
         volumeMounts:
-        - name: datadir
+        - name: efs-data
           mountPath: /mnt/efs
         resources:
           requests:
@@ -987,10 +987,9 @@ spec:
             cpu: '1'
             memory: 768Mi
       volumes:
-      - name: datadir
-        hostPath:
-          path: /openreplay/storage/nfs
-          type: DirectoryOrCreate
+      - name: efs-data
+        persistentVolumeClaim:
+          claimName: openreplay-efs
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -1325,13 +1324,12 @@ spec:
             cpu: 500m
             memory: 384Mi
         volumeMounts:
-        - name: datadir
+        - name: efs-data
           mountPath: /mnt/efs
       volumes:
-      - name: datadir
-        hostPath:
-          path: /openreplay/storage/nfs
-          type: DirectoryOrCreate
+      - name: efs-data
+        persistentVolumeClaim:
+          claimName: openreplay-efs
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -1585,7 +1583,7 @@ spec:
           containerPort: 8888
           protocol: TCP
         volumeMounts:
-        - name: datadir
+        - name: efs-data
           mountPath: /mnt/efs
         resources:
           requests:
@@ -1595,10 +1593,9 @@ spec:
             cpu: '1'
             memory: 768Mi
       volumes:
-      - name: datadir
-        hostPath:
-          path: /openreplay/storage/nfs
-          type: DirectoryOrCreate
+      - name: efs-data
+        persistentVolumeClaim:
+          claimName: openreplay-efs
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -2171,13 +2168,12 @@ spec:
             cpu: 500m
             memory: 384Mi
         volumeMounts:
-        - name: datadir
+        - name: efs-data
           mountPath: /mnt/efs
       volumes:
-      - name: datadir
-        hostPath:
-          path: /openreplay/storage/nfs
-          type: DirectoryOrCreate
+      - name: efs-data
+        persistentVolumeClaim:
+          claimName: openreplay-efs
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -2285,13 +2281,12 @@ spec:
             cpu: 500m
             memory: 384Mi
         volumeMounts:
-        - name: datadir
+        - name: efs-data
           mountPath: /mnt/efs
       volumes:
-      - name: datadir
-        hostPath:
-          path: /openreplay/storage/nfs
-          type: DirectoryOrCreate
+      - name: efs-data
+        persistentVolumeClaim:
+          claimName: openreplay-efs
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -2514,7 +2509,7 @@ spec:
           containerPort: 8888
           protocol: TCP
         volumeMounts:
-        - name: datadir
+        - name: efs-data
           mountPath: /mnt/efs
         resources:
           requests:
@@ -2524,10 +2519,9 @@ spec:
             cpu: '1'
             memory: 768Mi
       volumes:
-      - name: datadir
-        hostPath:
-          path: /openreplay/storage/nfs
-          type: DirectoryOrCreate
+      - name: efs-data
+        persistentVolumeClaim:
+          claimName: openreplay-efs
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -2644,13 +2638,12 @@ spec:
             cpu: 500m
             memory: 384Mi
         volumeMounts:
-        - name: datadir
+        - name: efs-data
           mountPath: /mnt/efs
       volumes:
-      - name: datadir
-        hostPath:
-          path: /openreplay/storage/nfs
-          type: DirectoryOrCreate
+      - name: efs-data
+        persistentVolumeClaim:
+          claimName: openreplay-efs
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -2729,7 +2722,7 @@ spec:
               \ ===\"\necho \"Storage after:\"\ndf -h \"$ROOT_DIR\"\n"
             volumeMounts:
             - mountPath: /mnt/efs
-              name: datadir
+              name: efs-data
             resources:
               requests:
                 cpu: 25m
@@ -2738,10 +2731,9 @@ spec:
                 cpu: 500m
                 memory: 384Mi
           volumes:
-          - name: datadir
-            hostPath:
-              path: /openreplay/storage/nfs
-              type: DirectoryOrCreate
+          - name: efs-data
+            persistentVolumeClaim:
+              claimName: openreplay-efs
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -3014,10 +3006,8 @@ spec:
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
-            # ★ hostPath(/openreplay/storage/nfs)는 kubelet 이 root 소유로
-            #   만들고 fsGroup 이 적용되지 않는다. 이 init 컨테이너가
-            #   chown 1001:1001 을 건다. root 대신 CAP_CHOWN 만 주면
-            #   충분하다 — 일회성 파드로 실측했다(§8-49).
+            # ★ 옛 주석("CAP_CHOWN 으로 hostPath 를 chown 한다")은 틀렸다 — 비-root 에서 add 는 실효가 없다(Gotcha 182).
+            #   2026-11-08 부터 /mnt/efs 는 PVC openreplay-efs(local-path, 0777)라 chown 이 필요 없다(Gotcha 224).
             drop: ["ALL"]
             add: ["CHOWN"]
         image: docker.io/alpine/git:2.54.0
@@ -3085,7 +3075,7 @@ spec:
         volumeMounts:
         - name: shared
           mountPath: /opt/openreplay
-        - name: datadir
+        - name: efs-data
           mountPath: /mnt/efs
         resources:
           requests:
@@ -3186,7 +3176,7 @@ spec:
         volumeMounts:
         - name: shared
           mountPath: /opt/openreplay
-        - name: datadir
+        - name: efs-data
           mountPath: /mnt/efs
         resources:
           requests:
@@ -3306,8 +3296,7 @@ spec:
           name: db-migration-script
       - name: shared
         emptyDir: {}
-      - name: datadir
-        hostPath:
-          path: /openreplay/storage/nfs
-          type: DirectoryOrCreate
+      - name: efs-data
+        persistentVolumeClaim:
+          claimName: openreplay-efs
       restartPolicy: Never

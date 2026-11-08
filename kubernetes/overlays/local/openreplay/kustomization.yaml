@@ -25,6 +25,7 @@ kind: Kustomization
 
 resources:
   - openreplay.yaml
+  - openreplay-efs-pvc.yaml
 
 commonAnnotations:
   argocd.argoproj.io/sync-wave: "7"
