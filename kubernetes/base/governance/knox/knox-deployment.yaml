@@ -37,7 +37,7 @@ spec:
         #   Knox 는 이미 있는 것을 그대로 쓴다.
         - name: gateway-identity
           # 아래 본 컨테이너와 같은 다이제스트여야 한다(keytool 버전 일치).
-          image: docker.io/apache/knox@sha256:5f90c6b5b36dd2b2afffbcb358689b9fe87ecf413ae7aa53f208610872cb1ac5
+          image: docker.io/apache/knox@sha256:058733ba7de9b6f7a37f850a50db343ebb8d0e72bc6bd5ecf668736906f2034c
           command: ["/bin/bash","-c"]
           args:
             - |
@@ -72,7 +72,12 @@ spec:
           #   다이제스트뿐이므로 전 환경에서 다이제스트를 쓴다.
           #   (예전에는 prod 오버레이만 다이제스트였다 — 그래서 local·dev 는
           #    같은 매니페스트로 다른 바이너리를 돌리고 있었다.)
-          image: docker.io/apache/knox@sha256:5f90c6b5b36dd2b2afffbcb358689b9fe87ecf413ae7aa53f208610872cb1ac5
+          # ★★ 2026-11-09: 정식 `3.0.0-release`(2026-09-09 빌드)로 옮겼다 — 그 전 다이제스트는
+          #   2026-08-31 빌드로 RC1·RC2·release 어느 태그와도 맞지 않는 **RC 시기 판**이었다.
+          #   지금 `3.0`·`3` 도 이 다이제스트를 가리킨다. 두 판의 lib/dep 대조: 판이 바뀐 의존성은
+          #   netty 4.1.135 -> 4.1.137(14개) · mariadb-java-client 3.3.0 -> 3.3.5 뿐이고, Ranger 플러그인이
+          #   맞물리는 Jetty 12.0.38 · Jersey 2.47 은 같다(docker/ranger-knox-plugin 는 다시 빌드하지 않았다).
+          image: docker.io/apache/knox@sha256:058733ba7de9b6f7a37f850a50db343ebb8d0e72bc6bd5ecf668736906f2034c
           env:
             # ★ 기본값이 true 다. 켜져 있으면 기동 시 Let's Encrypt 스테이징
             #   루트 CA 를 인터넷에서 내려받는다. 폐쇄망·egress 정책 아래에서는
