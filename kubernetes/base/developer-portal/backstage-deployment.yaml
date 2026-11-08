@@ -85,7 +85,7 @@ spec:
           #   앱 소스와 사유는 `docker/backstage/` 에 있다.
           # ★ 다이제스트를 적지 않는다 — 우리가 빌드해 반입하는 이미지라
           #   태그가 곧 우리 산출물이다(다른 로컬 빌드 9종과 같은 규약).
-          image: gitlab-registry.local.svc.cluster.local:5050/oneinch/backstage:1.54.0
+          image: gitlab-registry.local.svc.cluster.local:5050/oneinch/backstage:1.56.3
           imagePullPolicy: IfNotPresent
           env:
             - name: BACKSTAGE_DB_PASSWORD
