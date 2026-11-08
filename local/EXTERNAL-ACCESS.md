@@ -301,7 +301,7 @@ pw grafana-secret admin-password
 여기 이름이 올라오면 그 호스트는 **누구든 주소를 알면 그대로 들어온다.**
 새 UI 를 더할 때 인증이 없으면 `OPEN` 으로 두지 말고 생성기의 `O2P` 에 넣을 것 —
 oauth2-proxy·Keycloak 클라이언트·게이트웨이 직접 접근 거부(DENY)가 함께 생긴다.
-★ **도구용 호스트는 여전히 로그인 없이 닿는 것이 있다**(app-admin · www —
+★ **도구용 호스트는 여전히 로그인 없이 닿는 것이 있다**(app-admin · www — 둘 다 **열어 두기로 정했다**: www 는 정적 프런트, app-admin 은 견본 화면뿐이라 덮을 데이터가 없다 — 사유·복귀 조건은 LOCAL-DEPLOYMENT §9-19 ·
 위 표의 비고. kafka-connect REST 는 2026-11-06 에, app-api·loki·tempo·openreplay-api 는 2026-11-07 에 닫았다 — 아래 표). 브라우저 로그인으로 덮으면 그것을
 부르는 클라이언트가 깨지므로 따로 다룬다.
 그리고 이 배치에서는 **출발지를 L3 로 좁힐 수 없다** — `externalIPs` 는 Cilium 의 eBPF 가 처리해
