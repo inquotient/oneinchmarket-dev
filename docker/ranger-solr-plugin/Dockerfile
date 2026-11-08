@@ -101,7 +101,7 @@ RUN set -eux; \
     python3 /tmp/solr10-patch.py /src/apache-ranger-2.9.0
 
 RUN mvn -B -q -pl plugin-solr,ranger-solr-plugin-shim \
-        -Dsolr.version=10.0.0 -Dmaven.compiler.release=21 \
+        -Dsolr.version=10.1.0 -Dmaven.compiler.release=21 \
         -DskipTests -Dmaven.test.skip=true -Dmaven.javadoc.skip=true \
         -Drat.skip=true -Dcheckstyle.skip=true -Dsort.skip=true \
         -Dsortpom.skip=true -Dspotbugs.skip=true -Dfindbugs.skip=true -Dpmd.skip=true \
@@ -123,8 +123,8 @@ RUN set -eux; \
 # KnoxUserAuthPlugin — Solr 가 직접 싣는다(공유 lib 최상위). solr-core·solrj·서블릿에 대고 컴파일한다.
 RUN set -eux; \
     M=/root/.m2/repository; \
-    CP="$M/org/apache/solr/solr-core/10.0.0/solr-core-10.0.0.jar"; \
-    CP="$CP:$M/org/apache/solr/solr-solrj/10.0.0/solr-solrj-10.0.0.jar"; \
+    CP="$M/org/apache/solr/solr-core/10.1.0/solr-core-10.1.0.jar"; \
+    CP="$CP:$M/org/apache/solr/solr-solrj/10.1.0/solr-solrj-10.1.0.jar"; \
     CP="$CP:$M/jakarta/servlet/jakarta.servlet-api/6.0.0/jakarta.servlet-api-6.0.0.jar"; \
     for j in $(echo "$CP" | tr ':' ' '); do test -f "$j"; done; \
     mkdir -p /tmp/oim-out; \
@@ -181,6 +181,6 @@ RUN set -eux; \
 
 FROM docker.io/library/busybox:1.36
 LABEL org.opencontainers.image.title="ranger-solr-plugin (Solr 10 / Jersey 2)" \
-      org.opencontainers.image.description="Apache Ranger 2.9.0 Solr plugin ported to Solr 10.0.0, plus a Knox user.name authentication plugin." \
+      org.opencontainers.image.description="Apache Ranger 2.9.0 Solr plugin ported to Solr 10.1.0, plus a Knox user.name authentication plugin." \
       org.opencontainers.image.licenses="Apache-2.0"
 COPY --from=build /plugin /plugin

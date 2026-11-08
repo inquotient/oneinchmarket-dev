@@ -47,7 +47,7 @@ spec:
         #     둘로 발견된다). 표식이 있는 코어는 건드리지 않는다 — 데이터가 든 코어의 스키마를
         #     바꾸면 색인이 어긋난다.
         - name: schema
-          image: docker.io/library/solr:10.0.0-slim
+          image: docker.io/library/solr:10.1.0-slim
           command: ["/bin/bash", "-c"]
           args:
             - |
@@ -139,7 +139,7 @@ spec:
         - name: solr
           # ★ `apache/solr` 가 아니라 `library/solr` 다. v1 이 적은
           #   apache/solr:9.10.0-slim 은 저장소에 존재하지 않는 태그다.
-          image: docker.io/library/solr:10.0.0-slim
+          image: docker.io/library/solr:10.1.0-slim
           # solr-precreate 는 코어가 없을 때만 만든다. 재시작에 안전하다.
           # 위 schema initContainer 가 만든 Ranger 감사 configset 으로 만든다.
           args: ["solr-precreate", "ranger_audits", "/var/solr/configsets/ranger_audits"]

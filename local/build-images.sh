@@ -37,7 +37,7 @@ log() { echo "[build] $*"; }
 #   구조적으로 어긋날 수 없다.
 #   ★ :latest 는 넣지 않는다. 매니페스트가 쓰지 않고 Kyverno disallow-latest
 #     가 막는 이름이다.
-IMAGE_TAGS="spark-iceberg:3.5.9 livy:0.9.0-incubating-spark3.5.9 ranger-usersync:2.9.0 hbase:3.0.0 ranger-hdfs-plugin:2.9.0-jersey2 ranger-hbase-plugin:2.9.0-hbase3 ranger-hive-plugin:2.9.0-hive4 ranger-knox-plugin:2.9.0-knox3-jetty9 ranger-kafka-plugin:2.9.0-kafka44-solrj9 ranger-solr-plugin:2.9.0-solr10 jenkins:2.580.2-lts proxysql:4.0.12 kafka-connect:4.4.0-dbz3.7.1 backstage:1.54.0 trivy-operator:0.36.1-sevfix"
+IMAGE_TAGS="spark-iceberg:3.5.9 livy:0.9.0-incubating-spark3.5.9 ranger-usersync:2.9.0 hbase:3.0.0 ranger-hdfs-plugin:2.9.0-jersey2 ranger-hbase-plugin:2.9.0-hbase3 ranger-hive-plugin:2.9.0-hive4 ranger-knox-plugin:2.9.0-knox3-jetty9 ranger-kafka-plugin:2.9.0-kafka44-solrj9 ranger-solr-plugin:2.9.0-solr10.1 jenkins:2.580.2-lts proxysql:4.0.12 kafka-connect:4.4.0-dbz3.7.1 backstage:1.54.0 trivy-operator:0.36.1-sevfix"
 ALL_IMAGES="$(for _it in $IMAGE_TAGS; do printf '%s ' "${_it%%:*}"; done)"
 if [ "${1:-}" = "--list" ]; then
   for n in $ALL_IMAGES; do echo "  $n"; done
@@ -145,7 +145,7 @@ if want ranger-solr-plugin; then
   # Lucene 10.3 · Java 21 이라 이식해 다시 컴파일한다(JDK 8/21 두 단계). Knox 의 user.name 을
   # 사용자로 받는 인증 플러그인도 함께 담는다 — 상세는 docker/ranger-solr-plugin/Dockerfile 머리말.
   # ★ Solr 이미지(library/solr)를 올리면 이 이미지도 다시 빌드해 확인할 것.
-  sudo podman build --format docker --network host     -t oneinch/ranger-solr-plugin:latest -t oneinch/ranger-solr-plugin:2.9.0-solr10     "${REPO_ROOT}/docker/ranger-solr-plugin"
+  sudo podman build --format docker --network host     -t oneinch/ranger-solr-plugin:latest -t oneinch/ranger-solr-plugin:2.9.0-solr10.1     "${REPO_ROOT}/docker/ranger-solr-plugin"
 fi
 
 if want ranger-hbase-plugin; then

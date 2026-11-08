@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Ranger 2.9.0 plugin-solr / ranger-solr-plugin-shim 을 Solr 10.0.0 에 맞춘다 (2026-11-03).
+# Ranger 2.9.0 plugin-solr / ranger-solr-plugin-shim 을 Solr 10.x 에 맞춘다 (2026-11-03 · 10.1 대응 2026-11-08).
 # 각 수정은 "있던 것이 정확히 바뀌었는지" 를 세고, 아니면 실패한다(조용히 빗나가지 않게).
 import re, sys
 B = sys.argv[1] if len(sys.argv) > 1 else "/src"
@@ -92,3 +92,17 @@ def standalone_core(s):
         sys.exit("[patch] READ/UPDATE 루프가 정확히 하나가 아니다: %d" % s.count(OLD_LOOP))
     return s.replace(OLD_LOOP, NEW_LOOP, 1)
 edit(AUTH, standalone_core, "단독 모드 코어 이름으로 컬렉션 검사")
+
+# 8) Solr 10.1 은 LocalSolrQueryRequest 를 없앴다 — SolrQueryRequestBase 가 abstract 에서 구체 클래스가 되어
+#    그 자리를 대신한다(2026-11-08, javap 로 10.0·10.1 대조). HTTP 요청은 10.1 에서도 익명 하위 클래스
+#    (SolrRequestParsers$1 extends SolrQueryRequestBase)라서, **정확히 그 클래스인 것**만 로컬 요청이다.
+#    instanceof 로 바꾸면 모든 HTTP 요청이 superuser 가 되므로 쓰지 말 것.
+#    ★ 이 경로(getUserName(SolrQueryRequest))는 문서 수준 인가(prepare, 기본 꺼짐)에서만 불린다.
+def local_request(s):
+    a = "import org.apache.solr.request.LocalSolrQueryRequest;"
+    b = "if (req instanceof LocalSolrQueryRequest) {"
+    if s.count(a) != 1 or s.count(b) != 1:
+        sys.exit("[patch] LocalSolrQueryRequest 사용처가 예상과 다르다: import=%d use=%d" % (s.count(a), s.count(b)))
+    return (s.replace(a, "import org.apache.solr.request.SolrQueryRequestBase;")
+             .replace(b, "if (req.getClass() == SolrQueryRequestBase.class) {"))
+edit(AUTH, local_request, "LocalSolrQueryRequest -> exact SolrQueryRequestBase")
