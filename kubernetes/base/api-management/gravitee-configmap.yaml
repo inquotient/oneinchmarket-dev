@@ -56,6 +56,19 @@ data:
       analytics:
         type: none
 
+    # ── 리포터(게이트웨이) ──
+    # ★★ `repositories.analytics: none` 은 management-api 의 **읽는 쪽**만 끈다. 게이트웨이의
+    #   **쓰는 쪽**(Elasticsearch 리포터 플러그인)은 별개이고, 이 파일에 절이 없으면 기본값
+    #   `enabled: true` · `http://localhost:9200` 으로 뜬다. 그래서 30분에 771번
+    #   `Connection refused: localhost/127.0.0.1:9200` 을 찍으며 5초마다 재시도했다
+    #   (2026-11-08 실측 — 업그레이드 전부터 있었다, Gotcha 222 ⑥). 키는 플러그인
+    #   jar(gravitee-apim-reporter-elasticsearch-4.13.8)에서 확인했다.
+    # ★ 잃는 것 없음 — 받을 곳이 없었고, 이 클러스터에 Elasticsearch 는 없다(OpenSearch 로
+    #   옮겼다). 계량은 Istio 가 한다(Gotcha 15). 켜려면 OpenSearch 주소·자격·CA 를 함께 줄 것.
+    reporters:
+      elasticsearch:
+        enabled: false
+
     # ── JWT ──
     # ★★ **필수다.** 없으면 management-api 가
     #   `java.lang.IllegalStateException: JWT secret is mandatory` 로 죽는다.
