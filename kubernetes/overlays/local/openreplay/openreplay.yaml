@@ -1259,6 +1259,10 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 5
         env:
+        # ★ 차트는 CORS 를 Ingress(nginx add_header)로 붙였다 — 이 레포는 그 Ingress 를 지웠으므로(Gotcha 58)
+        #   수집기 자신이 붙이게 한다. 없으면 브라우저 트래커의 사전 요청이 막혀 녹화가 0건이다(Gotcha 224).
+        - name: USE_CORS
+          value: 'true'
         - name: redis_password
           valueFrom:
             secretKeyRef:
@@ -1958,6 +1962,10 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 5
         env:
+        # ★ 차트는 CORS 를 Ingress(nginx add_header)로 붙였다 — 이 레포는 그 Ingress 를 지웠으므로(Gotcha 58)
+        #   수집기 자신이 붙이게 한다. 없으면 브라우저 트래커의 사전 요청이 막혀 녹화가 0건이다(Gotcha 224).
+        - name: USE_CORS
+          value: 'true'
         - name: redis_password
           valueFrom:
             secretKeyRef:
@@ -2097,6 +2105,10 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 5
         env:
+        # ★ 차트는 CORS 를 Ingress(nginx add_header)로 붙였다 — 이 레포는 그 Ingress 를 지웠으므로(Gotcha 58)
+        #   수집기 자신이 붙이게 한다. 없으면 브라우저 트래커의 사전 요청이 막혀 녹화가 0건이다(Gotcha 224).
+        - name: USE_CORS
+          value: 'true'
         - name: redis_password
           valueFrom:
             secretKeyRef:
@@ -2434,6 +2446,10 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 5
         env:
+        # ★ 차트는 CORS 를 Ingress(nginx add_header)로 붙였다 — 이 레포는 그 Ingress 를 지웠으므로(Gotcha 58)
+        #   수집기 자신이 붙이게 한다. 없으면 브라우저 트래커의 사전 요청이 막혀 녹화가 0건이다(Gotcha 224).
+        - name: USE_CORS
+          value: 'true'
         - name: redis_password
           valueFrom:
             secretKeyRef:
