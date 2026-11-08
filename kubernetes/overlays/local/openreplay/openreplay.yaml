@@ -2760,7 +2760,7 @@ metadata:
     helm.sh/hook-weight: '-6'
 data:
   clickhouse.sh: "#!/bin/bash\n\nset -ex\n\nclickhousedir=/opt/openreplay/openreplay/scripts/schema/db/init_dbs/clickhouse\n\
-    \n[[ \"${CH_PASSWORD}\" == \"\" ]] || {\n  CH_PASSWORD=\"--password $CH_PASSWORD\"\
+    \n[[ \"${CH_PASSWORD}\" == \"\" ]] || {\n  export CLICKHOUSE_PASSWORD=\"$CH_PASSWORD\"; CH_PASSWORD=\"\"\
     \n}\n\n[[ \"${CH_USE_TLS}\" == \"true\" ]] && CH_TLS_FLAGS=\"--secure --accept-invalid-certificate\"\
     \ || CH_TLS_FLAGS=\"\"\n\nch_client=\"clickhouse-client -h ${CH_HOST} --port ${CH_PORT}\
     \ --user ${CH_USERNAME} ${CH_PASSWORD} ${CH_TLS_FLAGS}\"\n\nfunction run_numbered_migration()\
@@ -3151,7 +3151,7 @@ spec:
         - -c
         args:
         - "lowVersion=26.1\nhighVersion=27\n[[ \"${CH_PASSWORD}\" != \"\" ]] && {\n\
-          \  CH_PASSWORD=\"--password $CH_PASSWORD\"\n}\n[[ \"${CH_USE_TLS}\" == \"\
+          \  export CLICKHOUSE_PASSWORD=\"$CH_PASSWORD\"; CH_PASSWORD=\"\"\n}\n[[ \"${CH_USE_TLS}\" == \"\
           true\" ]] && CH_TLS_FLAGS=\"--secure --accept-invalid-certificate\" || CH_TLS_FLAGS=\"\
           \"\nch_client=`echo clickhouse-client -h ${CH_HOST} --user ${CH_USERNAME}\
           \ ${CH_PASSWORD} --port ${CH_PORT} ${CH_TLS_FLAGS}`\necho $ch_client\nch_version=`$ch_client\
