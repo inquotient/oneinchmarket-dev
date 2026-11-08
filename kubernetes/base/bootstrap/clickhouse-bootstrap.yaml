@@ -86,7 +86,7 @@ spec:
         - name: bootstrap
           # ★ 서버와 **같은 태그**를 쓴다 — 노드에 이미 있으므로 추가 pull 이
           #   없고, 클라이언트·서버 버전이 갈리지 않는다(Gotcha 53 ★).
-          image: docker.io/clickhouse/clickhouse-server:26.8
+          image: docker.io/clickhouse/clickhouse-server:26.10
           command: ["/bin/bash", "-c"]
           args:
             - |

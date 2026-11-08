@@ -34,10 +34,14 @@ spec:
           type: RuntimeDefault
       containers:
         - name: clickhouse
-          # ★ 지금 도는 버전(26.8.2.7)으로 고정한다. 데이터 보유 워크로드라
-          #   최신으로 앞당기지 않는다. OpenReplay 가 번들하는 ClickHouse 는
-          #   별개 인스턴스이고 25.9-alpine 이다 — 같이 움직이지 않는다.
-          image: docker.io/clickhouse/clickhouse-server:26.8
+          # ★ 2026-11-08 에 26.8(LTS) → 26.10 으로 올렸다(사용자 결정 — 26.10 은 LTS 가 아니다.
+          #   LTS 줄은 해마다 .3·.8 이다). 실제 데이터 디렉터리 사본(25 GB)을 26.8 → 26.10 으로 띄워
+          #   표 44 동일 · SQL 사용자(openmeter·openreplay) 적재 · openmeter 17행 · seccomp·Exception 0 을
+          #   확인했다. 26.10 의 비호환 목록(설정 제약을 SQL 사용자에 강제 · seccomp 필터 · 옛 분석기 제거)
+          #   중 이 클러스터가 쓰는 것은 없었다. 백업은 노드 103 /root/backup/clickhouse-26.8-*.
+          # ★ 데이터 보유 워크로드라 판 올리기는 과금 DAG 을 멈추고 백업한 뒤에 한다(Gotcha 222 ⑦).
+          #   OpenReplay 가 번들하는 ClickHouse 는 별개 인스턴스이고 25.9-alpine 이다 — 같이 움직이지 않는다.
+          image: docker.io/clickhouse/clickhouse-server:26.10
           ports:
             - { containerPort: 8123, name: http,   protocol: TCP }
             - { containerPort: 9000, name: native, protocol: TCP }
