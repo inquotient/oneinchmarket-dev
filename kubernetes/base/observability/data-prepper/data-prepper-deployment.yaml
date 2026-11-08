@@ -50,7 +50,7 @@ spec:
       initContainers:
         # 자리표시자를 실제 비밀번호로 바꿔 emptyDir 로 내보낸다.
         - name: render-pipelines
-          image: docker.io/library/busybox:1.37.0
+          image: docker.io/library/busybox:1.38.0
           command: ["/bin/sh", "-c"]
           args:
             - |
