@@ -9,3 +9,8 @@ metadata:
 data:
   MARIADB_DATABASE: "cmmn"
   MARIADB_USER: "cmmn-api"
+  # ★★ 판을 올릴 때 시스템 테이블을 이관한다(mariadb-upgrade). 없으면 엔트리포인트가 경고만 남기고
+  #   옛 형식의 mysql.* 로 돈다. 2026-11-08 12.3 → 13.0 에서 더했다 — 시험(덤프를 12.3 에 복원 →
+  #   13.0.2 로 기동)에서 `Major version upgrade detected ... Phase 1/8` 뒤 사용자 10 · cmmn 테이블 ·
+  #   binlog(ROW/FULL)·`check table` OK 를 확인했다. 이관은 되돌릴 수 없다 — 되돌리려면 덤프에서 복원한다.
+  MARIADB_AUTO_UPGRADE: "1"

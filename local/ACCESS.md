@@ -516,7 +516,7 @@ ShardingSphere 는 논리 DB `oim` 이 `postgresql-headless:5432` 를 물고 있
 
 ```bash
 # 프록시를 거치지 않는 직접 접속. 같이 실패하면 프록시 문제가 아니다.
-$K run t --rm -it --image=mariadb:12.3.3 --restart=Never \
+$K run t --rm -it --image=docker.io/library/mariadb:13.0.2 --restart=Never \
   --overrides='{"spec":{"serviceAccountName":"cmmn-api"}}' -- \
   mariadb -h mariadb-headless -u cmmn-api -p"$(pw cmmn-api-secret db-password)" -e "SELECT 1;"
 
