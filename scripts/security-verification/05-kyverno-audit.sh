@@ -157,6 +157,8 @@ echo ""
 echo "=== 4. PolicyViolation 이벤트 (참고, 최근 10건) ==="
 # ★ 이벤트는 소음이 될 수 있다 — 누수된 ConfigMap 68개가 끝없이 위반을 찍어
 #   이벤트 로그를 통째로 덮은 적이 있다(Gotcha 62). 참고로만 본다.
+# ★ 2026-11-08 부터 local 은 이 이벤트를 내지 않는다(local/kyverno-tune.sh — 이벤트의 90% 가
+#   이것이었다). 그래서 "(없음)" 이 정상이다. 위반은 §2 의 PolicyReport 가 원천이다.
 kubectl get events -n "$NAMESPACE" --field-selector reason=PolicyViolation \
   --sort-by='.lastTimestamp' 2>/dev/null | tail -10 || echo "  (없음)"
 echo ""

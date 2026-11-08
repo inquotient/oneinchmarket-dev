@@ -95,6 +95,10 @@ kubectl apply -f "$NS_FILE"
 
 log "Kyverno ${KYVERNO_VERSION}"
 kubectl apply --server-side -f "https://github.com/kyverno/kyverno/releases/download/${KYVERNO_VERSION}/install.yaml"
+# ★ PolicyViolation 이벤트를 끈다 — 이벤트의 90% 였고 PolicyReport 의 사본이다.
+#   install.yaml 을 적용할 때마다 기본값으로 돌아가므로 바로 뒤에 둔다(local/kyverno-tune.sh 머리말).
+kubectl -n kyverno rollout status deploy/kyverno-admission-controller --timeout=300s || true
+bash "${REPO_ROOT}/local/kyverno-tune.sh"
 
 # ── 4. cert-manager ────────────────────────────────────────────
 # v1 에는 Issuer/Certificate 가 있었다. v2 는 TODO-02 로 남아 있다.
