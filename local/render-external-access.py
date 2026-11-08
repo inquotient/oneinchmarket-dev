@@ -187,7 +187,7 @@ CATALOG = [
     ("www", "nginx", 80, "http", TOOL,
      "정적 프런트"),
     ("openreplay", "frontend-openreplay", 8080, "http", AUTH,
-     "세션 리플레이. 경로별 백엔드(`/api`->chalice 등 14개)는 PATH_ROUTES 가 나눈다 — 차트의 Ingress 대신이다. 첫 접속은 가입 화면(계정 0개). ★ 전제 2건이 미해결이라 데이터가 비어 있다"),
+     "세션 리플레이. 경로별 백엔드(`/api`->chalice 등 14개)는 PATH_ROUTES 가 나눈다 — 차트의 Ingress 대신이다. 첫 접속은 가입 화면(계정 0개). ★ 수집은 2026-11-08 에 처음 실측했다(트래커 → /ingest → 공유 PVC → mobs 버킷, Gotcha 224) — 남은 전제는 앱에 트래커를 심는 것(G9)이다"),
     # ★ openreplay-api 는 외부에 열지 않는다 — 사유와 대안은 CLOSED(아래).
 ]
 

@@ -2108,6 +2108,11 @@ scripts/schema/db/init_dbs/clickhouse/create/init_schema.sql -> experimental 7 �
 
 ADR-069 의 순서 1·2 가 그대로 남아 있다.
 
+> ★ **2026-11-08 갱신** — 외부 HTTPS 진입점은 2026-10-11 에 섰고(EXTERNAL-ACCESS), 시험 페이지의 트래커로
+> **처음으로 녹화를 실측했다**(세션 2건 · `mobs/<세션>/dom.mobs` 저장). 그 과정에서 결함 둘이 더 나왔다 —
+> 지운 Ingress 가 하던 **CORS** 를 아무도 대신하지 않았고(`USE_CORS=true`), 공유 디렉터리가 노드마다 다른
+> root 소유 hostPath 였다(PVC `openreplay-efs`). 남은 전제는 앱(admin)에 트래커를 심는 것(G9) 하나다. CLAUDE.md Gotcha 224.
+
 #### 의도된 예외
 
 차트가 `securityContext` 를 선언하지 않아 컨테이너가 이미지 기본 사용자로 돈다.

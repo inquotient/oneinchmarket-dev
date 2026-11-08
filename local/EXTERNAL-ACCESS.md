@@ -268,7 +268,7 @@ Import-Certificate -FilePath .\oim-ca.crt -CertStoreLocation Cert:\LocalMachine\
 | https://hive.oneinchmarket.local | 자체 인증 | `oauth2-proxy-hive` -> `hive-server-headless:10002` | HiveServer2 웹 UI · **Keycloak 로그인 · 그룹 `platform` 만** — 앞단 oauth2-proxy(O2P). ★ 예전에는 게이트웨이 경유로 500 이었다 — Jetty 가 Host 헤더의 포트로 핸들러를 고른다(§6). oauth2-proxy 가 Host 를 업스트림 이름으로 바꿔 보내 풀린다. JDBC 는 Knox 경유(§4) |
 | https://app-admin.oneinchmarket.local | 도구용 | `admin-headless:3000` | 관리 프런트 |
 | https://www.oneinchmarket.local | 도구용 | `nginx:80` | 정적 프런트 |
-| https://openreplay.oneinchmarket.local | 자체 인증 | `frontend-openreplay:8080` | 세션 리플레이. 경로별 백엔드(`/api`->chalice 등 14개)는 PATH_ROUTES 가 나눈다 — 차트의 Ingress 대신이다. 첫 접속은 가입 화면(계정 0개). ★ 전제 2건이 미해결이라 데이터가 비어 있다 |
+| https://openreplay.oneinchmarket.local | 자체 인증 | `frontend-openreplay:8080` | 세션 리플레이. 경로별 백엔드(`/api`->chalice 등 14개)는 PATH_ROUTES 가 나눈다 — 차트의 Ingress 대신이다. 첫 접속은 가입 화면(계정 0개). ★ 수집은 2026-11-08 에 처음 실측했다(트래커 → /ingest → 공유 PVC → mobs 버킷, Gotcha 224) — 남은 전제는 앱에 트래커를 심는 것(G9)이다 |
 <!-- GENERATED:ui-table END -->
 
 **실측 전수(2026-10-11 · 443 으로)**: 56 중 **48 이 루트(`/`)에서 바로** 응답하고,
