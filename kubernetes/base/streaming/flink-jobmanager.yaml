@@ -13,7 +13,12 @@
 #      것을 실측했다(`size: 1024m`·`address: flink-jobmanager` 확인).
 #   ③ `flink` 사용자(9999)가 있고 `/opt/flink` 가 그 소유라 **비-root 로 돈다.**
 #
-# ★★ JDK 11.0.28 이다 — Gotcha 81(컨테이너 인식 실패)이 걸리는 버전이지만,
+# ★★ 2026-11-08 에 1.20 → 2.3.0 으로 올렸다. 태그를 `-java21` 로 **명시**한다 — 1.20 의 기본
+#   이미지는 JDK 11 이었다. 위 ①②③ 과 FLINK_PROPERTIES 키는 2.3 에서 그대로 성립한다(격리된
+#   podman 파드에서 JM+TM 을 띄워 실측: TM 등록 1 · 슬롯 2 · 6122/6121 청취 · /jobmanager/config
+#   에 다섯 키 그대로 · ERROR 0). 지금 도는 잡이 0개라 잡 API 변경(DataSet 제거 등)의 영향이 없다 —
+#   잡을 넣을 때는 2.x API 로 쓸 것.
+# ★ (아래는 JDK 11 시절의 기록이다.) JDK 11.0.28 이다 — Gotcha 81(컨테이너 인식 실패)이 걸리는 버전이지만,
 #   Flink 는 `MaxRAMPercentage` 가 아니라 **`memory.process.size` 로 스스로**
 #   한도를 정하므로 그 값을 명시하면 우회된다. 기본값(JM 1600m · TM 1728m)은
 #   이 노드에 과하다.
