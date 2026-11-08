@@ -100,13 +100,19 @@ check() {
   newest=$(ls -1t "$SNAP_DIR" | head -1)
   [ -n "$newest" ] || { echo "[실패] 로컬 스냅숏이 0개다"; return 1; }
   a=$(sha256sum "$SNAP_DIR/$newest" | cut -d' ' -f1)
-  b=$($SSH "sha256sum '$DEST_DIR/snapshots/$newest' 2>/dev/null" | cut -d' ' -f1) || { echo "[측정 불가] ${DEST_HOST} 에 닿지 못했다" >&2; return 2; }
+  # ★ 닿는지와 사본이 있는지를 따로 묻는다 — 한 줄로 물으면 사본이 없을 때(원격 sha256sum 실패)도
+  #   "닿지 못했다" 가 되어 설치가 안 된 상태를 측정 불가로 읽는다(2026-11-08 실제로 그렇게 보고했다).
+  $SSH true 2>/dev/null || { echo "[측정 불가] ${DEST_HOST} 에 닿지 못했다" >&2; return 2; }
+  b=$($SSH "sha256sum '$DEST_DIR/snapshots/$newest' 2>/dev/null || true" | cut -d' ' -f1)
   local tok; tok=$($SSH "test -s '$DEST_DIR/server-token' && echo yes || echo no")
   local age=$(( ($(date +%s) - $(stat -c %Y "$SNAP_DIR/$newest")) / 3600 ))
   echo "최신 로컬 스냅숏: $newest (${age}시간 전)"
   echo "원격 사본: $([ "$a" = "$b" ] && echo '같은 해시' || echo '없음 또는 다름') · 토큰 사본: $tok"
-  echo "타이머: $(systemctl is-enabled ${UNIT}.timer 2>/dev/null || echo 없음) · 다음 실행: $(systemctl show ${UNIT}.timer -p NextElapseUSecRealtime --value 2>/dev/null)"
-  [ "$a" = "$b" ] && [ "$tok" = yes ] || return 1
+  # is-enabled 는 없는 유닛에도 "not-found" 를 찍고 0 이 아닌 값을 낸다 — 출력만 쓴다
+  local en; en=$(systemctl is-enabled "${UNIT}.timer" 2>/dev/null || true)
+  echo "타이머: ${en:-없음} · 다음 실행: $(systemctl show "${UNIT}.timer" -p NextElapseUSecRealtime --value 2>/dev/null || true)"
+  [ "$en" = enabled ] || { echo "[실패] 타이머가 없다 — install 을 돌릴 것"; return 1; }
+  [ "$a" = "$b" ] && [ "$tok" = yes ] || { echo "[실패] 원격 사본이나 토큰 사본이 없다"; return 1; }
   [ "$age" -le 13 ] || { echo "[실패] 최신 스냅숏이 13시간보다 오래됐다 — k3s 의 스냅숏 일정을 볼 것"; return 1; }
   echo "판정: 통과"
 }
