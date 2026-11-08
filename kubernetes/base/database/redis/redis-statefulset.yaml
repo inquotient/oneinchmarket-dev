@@ -45,7 +45,7 @@ spec:
         #   DB 단위 권한이 없다). 실측: INFO·CLIENT SETINFO·EVAL·SELECT 는 통과 · CONFIG·FLUSHALL 은 NOPERM.
         # ★ 사용자를 더할 때는 여기 USERS · redis-users Secret · 로테이터의 USERS 를 함께 고칠 것.
         - name: render-acl
-          image: docker.io/library/redis:8.10.1
+          image: docker.io/library/redis:8.10.3
           command:
             - /bin/bash
             - -c
@@ -90,7 +90,7 @@ spec:
       containers:
         - name: redis
           # 공식 이미지. 설정(ACL·appendonly·dir)은 render-acl 이 /conf/redis.conf 로 만든다 — 데이터 경로는 /data 다.
-          image: docker.io/library/redis:8.10.1
+          image: docker.io/library/redis:8.10.3
           command: ["redis-server"]
           args: ["/conf/redis.conf"]
           ports:

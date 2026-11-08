@@ -91,7 +91,7 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: alertmanager
-          image: quay.io/prometheus/alertmanager:v0.34.0
+          image: quay.io/prometheus/alertmanager:v0.34.2
           args:
             - --config.file=/etc/alertmanager/alertmanager.yml
             - --storage.path=/alertmanager

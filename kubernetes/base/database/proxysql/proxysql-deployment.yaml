@@ -109,7 +109,7 @@ spec:
         - name: proxysql
           # 로컬 빌드다 — 업스트림이 4.x 컨테이너 이미지를 내지 않는다.
           # docker/proxysql/Dockerfile 과 §8-76 참조.
-          image: gitlab-registry.local.svc.cluster.local:5050/oneinch/proxysql:4.0.11
+          image: gitlab-registry.local.svc.cluster.local:5050/oneinch/proxysql:4.0.12
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 6033

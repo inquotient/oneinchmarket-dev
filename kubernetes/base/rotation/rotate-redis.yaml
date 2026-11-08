@@ -117,7 +117,7 @@ spec:
                 readOnlyRootFilesystem: true
                 capabilities: {drop: ["ALL"]}
             - name: rotate
-              image: docker.io/library/redis:8.10.1
+              image: docker.io/library/redis:8.10.3
               command:
                 - /bin/bash
                 - -c
@@ -247,7 +247,7 @@ spec:
           containers:
             # ★ env 는 앞의 컨테이너들이 끝난 뒤 생성될 때 Secret 에서 읽힌다 — 소비자가 받을 값이다.
             - name: finalize
-              image: docker.io/library/redis:8.10.1
+              image: docker.io/library/redis:8.10.3
               command:
                 - /bin/bash
                 - -c

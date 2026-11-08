@@ -252,7 +252,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: nginx
-          image: docker.io/library/nginx:1.31.5
+          image: docker.io/library/nginx:1.31.8
           # ★ 상류 엔트리포인트(/docker-entrypoint.sh)를 쓰지 않는다 — 그것은
           #   /docker-entrypoint.d 의 스크립트가 템플릿을 치환하며 **파일을
           #   쓴다.** readOnlyRootFilesystem 과 부딪히고, 실패하면 설정을

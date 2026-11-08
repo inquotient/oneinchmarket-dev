@@ -138,7 +138,7 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: ism-setup
-          image: docker.io/curlimages/curl:8.22.0
+          image: docker.io/curlimages/curl:8.23.0
           command: ["/bin/sh", "/scripts/setup.sh"]
           env:
             - name: OPENSEARCH_ADMIN_PASSWORD

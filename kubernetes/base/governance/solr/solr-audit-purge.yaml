@@ -41,7 +41,7 @@ spec:
             seccompProfile: {type: RuntimeDefault}
           containers:
             - name: purge
-              image: docker.io/curlimages/curl:8.22.0
+              image: docker.io/curlimages/curl:8.23.0
               command: ["/bin/sh", "-c"]
               args:
                 - |

@@ -87,7 +87,7 @@ spec:
       containers:
         # ① UI·API. Prometheus 에 질의해 소진율을 계산한다.
         - name: api
-          image: ghcr.io/pyrra-dev/pyrra:v0.10.1
+          image: ghcr.io/pyrra-dev/pyrra:v0.10.2
           args:
             - api
             - --prometheus-url=http://prometheus-headless:9090
@@ -115,7 +115,7 @@ spec:
             failureThreshold: 6
         # ② SLO 정의를 읽어 Prometheus 규칙 파일을 만든다.
         - name: filesystem
-          image: ghcr.io/pyrra-dev/pyrra:v0.10.1
+          image: ghcr.io/pyrra-dev/pyrra:v0.10.2
           args:
             - filesystem
             - --config-files=/etc/pyrra/*.yaml

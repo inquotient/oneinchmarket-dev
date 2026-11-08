@@ -18,12 +18,12 @@
 #   베어러 토큰 보관이 미결이다. 켜려면 §8-76 의 "남는 것" 을 먼저 볼 것 —
 #   DB 프록시가 processlist·쿼리 통계를 AI 에 노출하는 것은 데이터 노출면이다.
 
-ARG PROXYSQL_VERSION=4.0.11
+ARG PROXYSQL_VERSION=4.0.12
 # ★ 릴리스가 게시한 값이다. 올릴 때 **반드시 함께 갱신할 것.**
 #   https://github.com/sysown/proxysql/releases/download/v<VER>/proxysql-<VER>-linux-amd64.tar.gz.sha256
-ARG PROXYSQL_SHA256=635f0eb0385c61b205562b9226aa64abb0a3ebd0286c66748ffe4f88a0aa65cb
+ARG PROXYSQL_SHA256=518289c84196dd431f8c0059824987228877619e7971bd8238f1771d0f248b87
 
-FROM docker.io/library/debian:13.6-slim AS fetch
+FROM docker.io/library/debian:13.7-slim AS fetch
 ARG PROXYSQL_VERSION
 ARG PROXYSQL_SHA256
 RUN set -eux; \
@@ -43,7 +43,7 @@ RUN set -eux; \
 #   실측으로 29.7 MB·40.5 MB 짜리 부분 파일이 두 번 나왔고 둘 다 "동작하는 것처럼"
 #   보였다. 위의 sha256sum -c 만이 그것을 잡는다(Gotcha 12).
 
-FROM docker.io/library/debian:13.6-slim
+FROM docker.io/library/debian:13.7-slim
 LABEL org.opencontainers.image.title="proxysql" \
       org.opencontainers.image.version="4.0.11" \
       org.opencontainers.image.description="ProxySQL 4.0.11 - upstream publishes no container image for 4.x. See docs/LOCAL-DEPLOYMENT.md 8-76." \

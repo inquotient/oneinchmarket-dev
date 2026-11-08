@@ -37,7 +37,7 @@ log() { echo "[build] $*"; }
 #   구조적으로 어긋날 수 없다.
 #   ★ :latest 는 넣지 않는다. 매니페스트가 쓰지 않고 Kyverno disallow-latest
 #     가 막는 이름이다.
-IMAGE_TAGS="spark-iceberg:3.5.9 livy:0.9.0-incubating-spark3.5.9 ranger-usersync:2.9.0 hbase:3.0.0 ranger-hdfs-plugin:2.9.0-jersey2 ranger-hbase-plugin:2.9.0-hbase3 ranger-hive-plugin:2.9.0-hive4 ranger-knox-plugin:2.9.0-knox3-jetty9 ranger-kafka-plugin:2.9.0-kafka44-solrj9 ranger-solr-plugin:2.9.0-solr10 jenkins:2.568.3-lts proxysql:4.0.11 kafka-connect:4.4.0-dbz3.7.1 backstage:1.54.0 trivy-operator:0.36.1-sevfix"
+IMAGE_TAGS="spark-iceberg:3.5.9 livy:0.9.0-incubating-spark3.5.9 ranger-usersync:2.9.0 hbase:3.0.0 ranger-hdfs-plugin:2.9.0-jersey2 ranger-hbase-plugin:2.9.0-hbase3 ranger-hive-plugin:2.9.0-hive4 ranger-knox-plugin:2.9.0-knox3-jetty9 ranger-kafka-plugin:2.9.0-kafka44-solrj9 ranger-solr-plugin:2.9.0-solr10 jenkins:2.568.3-lts proxysql:4.0.12 kafka-connect:4.4.0-dbz3.7.1 backstage:1.54.0 trivy-operator:0.36.1-sevfix"
 ALL_IMAGES="$(for _it in $IMAGE_TAGS; do printf '%s ' "${_it%%:*}"; done)"
 if [ "${1:-}" = "--list" ]; then
   for n in $ALL_IMAGES; do echo "  $n"; done
@@ -189,7 +189,7 @@ if want proxysql; then
   # 그래서 릴리스 tarball 로 직접 굽는다. 상세는 docker/proxysql/Dockerfile 과 §8-76.
   # ★ 업스트림이 4.x 컨테이너를 내기 시작하면 이 항목과 docker/proxysql 을 지울 것.
   sudo podman build --format docker --network host \
-    -t oneinch/proxysql:latest -t oneinch/proxysql:4.0.11 \
+    -t oneinch/proxysql:latest -t oneinch/proxysql:4.0.12 \
     "${REPO_ROOT}/docker/proxysql"
 fi
 

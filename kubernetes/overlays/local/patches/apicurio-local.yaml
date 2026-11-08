@@ -50,7 +50,7 @@ spec:
       #   저장소 내용은 공개 신뢰 앵커뿐이라 기본 암호(changeit)를 그대로 쓴다.
       initContainers:
         - name: truststore
-          image: docker.io/apicurio/apicurio-registry:3.3.2
+          image: docker.io/apicurio/apicurio-registry:3.3.4
           command: ["/bin/bash", "-c"]
           args:
             - |

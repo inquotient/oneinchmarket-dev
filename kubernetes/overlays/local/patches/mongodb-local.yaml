@@ -48,7 +48,7 @@ spec:
     spec:
       containers:
         - name: mongodb
-          image: docker.io/percona/percona-server-mongodb:7.0.43-23
+          image: docker.io/percona/percona-server-mongodb:7.0.45-24
 # ★★ 서버만 내린다 — 같은 이미지를 쓰는 **클라이언트 넷은 8.0.29-13 그대로**다:
 #   gravitee-gateway·gravitee-management-api 의 대기 initContainer,
 #   rotate-mongodb-password CronJob, mongodb-bootstrap Job.

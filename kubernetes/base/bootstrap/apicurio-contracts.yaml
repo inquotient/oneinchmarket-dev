@@ -75,7 +75,7 @@ spec:
         - name: publish
           # curl 때문에 레지스트리 이미지를 쓴다(apicurio-rules 와 같다). python·jq 는
           # 없으므로 요청 본문은 생성기가 미리 만들어 둔다.
-          image: docker.io/apicurio/apicurio-registry:3.3.2
+          image: docker.io/apicurio/apicurio-registry:3.3.4
           env:
             # 비우면 인증 없이 쓴다. overlays/local/patches/apicurio-local.yaml 이 채운다.
             - name: APICURIO_CLIENT_ID
