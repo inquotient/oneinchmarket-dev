@@ -7,8 +7,8 @@
 #   (rotate-seaweedfs-password · rotate-seaweedfs-root 가 SA 하나를 나눠 쓰는 것과 같은 모양이다.)
 #
 # 대상
-#   MariaDB  cmmn-api,cmmn   cmmn-api-secret/db-password   ★ 'cmmn-api' 가 앱이 실제로 쓰는 계정이다(mariadb-bootstrap 머리말).
-#                                                           'cmmn' 은 같은 값으로 두는 옛 계정이라 함께 바꾼다
+#   MariaDB  cmmn-api        cmmn-api-secret/db-password   ★ 'cmmn-api' 가 앱이 실제로 쓰는 계정이다(mariadb-bootstrap 머리말).
+#                                                           (옛 'cmmn' 은 2026-11-08 에 지웠다 — mariadb-bootstrap)
 #            debezium        mariadb-secret/debezium-password   kafka-connect 가 파일(secret 볼륨)로 읽는다
 #            proxysql-monitor proxysql-secret/monitor-password
 #   MongoDB  gravitee        gravitee-secret/db-password
@@ -86,7 +86,7 @@ spec:
                   B=/tools/bao
                   export BAO_ADDR=http://openbao.local.svc.cluster.local:8200 HOME=/tmp
                   # 사용자(첫째가 확인용, 쉼표로 함께 바꿀 계정) · 접속 확인 DB(- 는 없음) · Secret · 키
-                  TABLE="cmmn-api,cmmn cmmn cmmn-api-secret db-password
+                  TABLE="cmmn-api cmmn cmmn-api-secret db-password
                   debezium - mariadb-secret debezium-password
                   proxysql-monitor - proxysql-secret monitor-password"
                   sha() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }

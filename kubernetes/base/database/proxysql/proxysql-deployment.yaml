@@ -91,7 +91,7 @@ spec:
             - name: MONITOR_PASSWORD
               valueFrom:
                 secretKeyRef: { name: proxysql-secret, key: monitor-password }
-            # ★ 백엔드 앱 계정. mariadb-bootstrap 이 만드는 'cmmn'@'%' 의
+            # ★ 백엔드 앱 계정. mariadb-bootstrap 이 만드는 'cmmn-api'@'%' 의
             #   비밀번호와 같아야 한다 — ProxySQL 은 자격을 중계할 뿐이다.
             - name: APP_PASSWORD
               valueFrom:

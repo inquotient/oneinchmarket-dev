@@ -68,13 +68,12 @@ spec:
               until mariadb-admin ping -h mariadb-headless -u root -p"$MARIADB_ROOT_PASSWORD" --silent 2>/dev/null; do sleep 3; done
               mariadb -h mariadb-headless -u root -p"$MARIADB_ROOT_PASSWORD" <<SQL
               CREATE DATABASE IF NOT EXISTS cmmn CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-              CREATE USER IF NOT EXISTS 'cmmn'@'%' IDENTIFIED BY '${CMMN_PASSWORD}';
-              ALTER USER 'cmmn'@'%' IDENTIFIED BY '${CMMN_PASSWORD}';
-              GRANT ALL PRIVILEGES ON cmmn.* TO 'cmmn'@'%';
               -- ★★ 앱이 실제로 쓰는 계정은 'cmmn-api' 다(cmmn-api-statefulset 의 DB_USERNAME · ProxySQL mysql_users).
               --   2026-11-07 까지 이 Job 은 쓰이지 않는 'cmmn' 만 만들었고 'cmmn-api' 는 git 밖에서 손으로 만들어져
               --   있었다(실측: 연결 cmmn-api 10 · cmmn 0). 클러스터를 새로 세우면 앱이 붙지 못했을 것이다.
-              --   'cmmn' 은 지우지 않고 같은 값으로 둔다 — 쓰는 곳이 0 인 것을 확인한 뒤 정리할 것.
+              --   옛 'cmmn' 은 2026-11-08 에 지웠다 — 연결 0 · MariaDB 13 기동 뒤 로그인 시도 0 · 쓰는 곳은
+              --   이 Job 과 회전기뿐이었다. 남은 클러스터에서도 사라지게 DROP 을 둔다(없으면 아무 일도 없다).
+              DROP USER IF EXISTS 'cmmn'@'%';
               CREATE USER IF NOT EXISTS 'cmmn-api'@'%' IDENTIFIED BY '${CMMN_PASSWORD}';
               ALTER USER 'cmmn-api'@'%' IDENTIFIED BY '${CMMN_PASSWORD}';
               GRANT ALL PRIVILEGES ON cmmn.* TO 'cmmn-api'@'%';
