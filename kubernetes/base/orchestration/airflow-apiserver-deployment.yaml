@@ -47,7 +47,7 @@ spec:
         #   그리고 하나도 못 옮겼으면 **기동을 거부한다** — 조용한 빈 폴더보다
         #   시끄러운 실패가 낫다(Gotcha 86).
         - name: copy-dags
-          image: docker.io/apache/airflow:3.3.1
+          image: docker.io/apache/airflow:3.4.0
           imagePullPolicy: IfNotPresent
           command: ["/bin/bash", "-c"]
           args:
@@ -69,7 +69,7 @@ spec:
             limits:   { cpu: 200m, memory: 128Mi }
       containers:
         - name: apiserver
-          image: docker.io/apache/airflow:3.3.1
+          image: docker.io/apache/airflow:3.4.0
           imagePullPolicy: IfNotPresent
           args: ["api-server"]
           ports:
