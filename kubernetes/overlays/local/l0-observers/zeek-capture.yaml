@@ -98,7 +98,13 @@ spec:
           # ★ 2026-11-08 에 7.0 LTS → 8.0 LTS(8.0.11). 같은 pcap(18 MB)을 두 판에 넣어 비교했다:
           #   conn.log 에 `ip_proto` 필드 하나가 더해졌고(받는 쪽은 동적 매핑이라 무해),
           #   analyzer.log 는 8.0 에서 나오지 않는다(zeek-ship 의 WATCH 에 없다). 바이너리 경로 그대로.
-          image: docker.io/zeek/zeek:8.0.11
+          # ★ 2026-11-09 에 8.0 LTS → 9.0(9.0.1, 사용자 결정). 노드 NIC 에서 뜬 pcap(34 MB · 6만 패킷)을
+          #   두 판에 넣어 비교했다: TCP·UDP·ICMP 흐름은 conn.log 가 **완전히 같다**(필드도 같다).
+          #   다른 것 둘 — dns.log 에 `opcode`·`opcode_name` 이 더해졌고, conn.log 에서 IGMP 같은
+          #   `unknown_transport` 흐름(멀티캐스트 224.0.0.x·239.255.255.250, 11건)이 더는 나오지 않는다.
+          #   그 필드·프로토콜에 기대는 규칙·대시보드는 레포에 0건이다. 바이너리 경로·pgrep 그대로,
+          #   `-i enp86s0` 실시간 청취도 시험했다(15초 7,465패킷 · 드롭 0).
+          image: docker.io/zeek/zeek:9.0.1
           command: ["/bin/bash", "-c"]
           args:
             - |
