@@ -81,6 +81,11 @@ spec:
     #   "git 에만 있다 = 만들어야 한다" 로 오판한다.
     - group: scheduling.k8s.io
       kind: PriorityClass
+    # ★ 2026-11-09 Livy SA 가 만드는 NetworkPolicy 의 모양을 묶는 정책(base/data-lakehouse/livy/livy-networkpolicy-guard.yaml).
+    - group: admissionregistration.k8s.io
+      kind: ValidatingAdmissionPolicy
+    - group: admissionregistration.k8s.io
+      kind: ValidatingAdmissionPolicyBinding
 
   namespaceResourceWhitelist:
     - group: ""

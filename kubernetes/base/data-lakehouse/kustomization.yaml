@@ -27,6 +27,7 @@ resources:
   # Apache Livy - REST 세션 게이트웨이 (Jupyter/Zeppelin 백엔드)
   - livy/livy-configmap.yaml
   - livy/livy-rbac.yaml
+  - livy/livy-networkpolicy-guard.yaml
   - livy/livy-statefulset.yaml
   - livy/livy-headless.yaml
 

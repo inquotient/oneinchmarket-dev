@@ -1,0 +1,71 @@
+# ★★ Spark 4.2 의 spark-submit(cluster 모드)은 드라이버마다 NetworkPolicy 를 하나 만든다(2026-11-09).
+#   `KubernetesDriverBuilder` 가 `NetworkPolicyFeatureStep` 을 **조건 없이** 넣고 끄는 설정 키가 없다(v4.2.1 소스).
+#   그 정책은 "이 앱의 익스큐터는 같은 앱의 파드에서만 받는다" 로 **좁히는** 쪽이라 그 자체는 무해하다.
+#   Livy SA 에 권한이 없으면 세션이 `cannot patch resource "networkpolicies"` 로 바로 dead 다.
+# ★★★ 그러나 그 권한을 그냥 주면 위험하다 — NetworkPolicy 의 허용은 **합집합**이라 Livy SA 가 아무 파드의
+#   ingress 를 열 수 있게 된다(default-deny 를 우회한다). 그래서 Role 에 권한을 주는 대신 이 정책이
+#   **Livy SA 가 만드는 NetworkPolicy 를 Spark 가 만드는 그 모양 하나로** 묶는다:
+#     podSelector = {spark-role: executor, spark-app-selector: <그 정책의 앱 라벨>} (정확히 그 둘)
+#     ingress 한 항목 · from 한 항목 · podSelector = {spark-app-selector: <같은 앱>} · 포트·ipBlock·namespaceSelector 없음
+#     egress 없음 · policyTypes 는 없거나 [Ingress]
+#   Kyverno 가 아니라 API 서버 안의 ValidatingAdmissionPolicy 로 둔다 — webhook 이 내려가도 가드가 사라지지 않는다.
+#   ★ 복귀 조건: Spark 에 이 단계를 끄는 설정이 생기면 그것으로 끄고 이 파일·Role 의 networkpolicies 줄을 지울 것.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: livy-spark-networkpolicy-shape
+  labels:
+    app.kubernetes.io/name: livy
+    app.kubernetes.io/component: data-lakehouse
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["networking.k8s.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["networkpolicies"]
+  matchConditions:
+    # 그 네임스페이스의 livy SA 가 보낸 요청에만 걸린다(오버레이마다 네임스페이스가 다르다).
+    - name: from-livy
+      expression: "request.userInfo.username == 'system:serviceaccount:' + request.namespace + ':livy'"
+  variables:
+    - name: app
+      expression: "has(object.metadata.labels) && 'spark-app-selector' in object.metadata.labels ? object.metadata.labels['spark-app-selector'] : ''"
+  validations:
+    - expression: "variables.app != ''"
+      message: "livy 가 만드는 NetworkPolicy 에는 spark-app-selector 라벨이 있어야 한다"
+    - expression: >-
+        has(object.spec.podSelector.matchLabels) && !has(object.spec.podSelector.matchExpressions) &&
+        object.spec.podSelector.matchLabels == {'spark-role': 'executor', 'spark-app-selector': variables.app}
+      message: "podSelector 는 그 앱의 익스큐터({spark-role: executor, spark-app-selector}) 여야 한다"
+    - expression: "!has(object.spec.egress) || size(object.spec.egress) == 0"
+      message: "egress 규칙을 둘 수 없다"
+    - expression: "!has(object.spec.policyTypes) || object.spec.policyTypes == ['Ingress']"
+      message: "policyTypes 는 Ingress 만 허용한다"
+    - expression: >-
+        has(object.spec.ingress) && size(object.spec.ingress) == 1 &&
+        !has(object.spec.ingress[0].ports) &&
+        has(object.spec.ingress[0].from) && size(object.spec.ingress[0].from) == 1 &&
+        !has(object.spec.ingress[0].from[0].ipBlock) &&
+        !has(object.spec.ingress[0].from[0].namespaceSelector) &&
+        has(object.spec.ingress[0].from[0].podSelector) &&
+        !has(object.spec.ingress[0].from[0].podSelector.matchExpressions) &&
+        has(object.spec.ingress[0].from[0].podSelector.matchLabels) &&
+        object.spec.ingress[0].from[0].podSelector.matchLabels == {'spark-app-selector': variables.app}
+      message: "ingress 는 같은 앱(spark-app-selector)의 파드에서 오는 것 하나만 허용한다"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: livy-spark-networkpolicy-shape
+  labels:
+    app.kubernetes.io/name: livy
+    app.kubernetes.io/component: data-lakehouse
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  policyName: livy-spark-networkpolicy-shape
+  validationActions: ["Deny"]

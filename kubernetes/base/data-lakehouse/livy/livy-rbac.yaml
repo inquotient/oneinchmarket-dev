@@ -36,6 +36,12 @@ rules:
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
     verbs: ["get", "list", "create", "delete", "deletecollection"]
+  # ★ Spark 4.2 는 드라이버마다 NetworkPolicy 를 server-side apply 로 만든다(2026-11-09 실측 Forbidden).
+  #   지우는 것은 드라이버 파드의 ownerReference 를 따라 GC 가 한다 — delete 는 주지 않는다.
+  #   ★★ 모양은 livy-networkpolicy-guard.yaml(ValidatingAdmissionPolicy)이 묶는다 — 그것 없이 이 줄만 두지 말 것.
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "create", "patch"]
 ---
 # ★★ Livy 0.9 의 앱 감시자(SparkKubernetesApp)는 드라이버 파드를 **모든 네임스페이스에서** 라벨로
 #   찾는다(`GET /api/v1/pods?labelSelector=spark-role=driver,...` — 2026-11-06 실측 Forbidden). 범위를
