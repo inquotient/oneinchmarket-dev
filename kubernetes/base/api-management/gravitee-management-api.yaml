@@ -90,7 +90,7 @@ spec:
         # MongoDB 가 없으면 기동에 실패한다. 기다린다.
         # ★ 대기 루프에서 -q 로 출력을 죽이지 않는다(Gotcha 120).
         - name: wait-mongodb
-          image: docker.io/percona/percona-server-mongodb:8.0.29-13
+          image: docker.io/percona/percona-server-mongodb:8.0.34-15
           command:
             - /bin/sh
             - -c

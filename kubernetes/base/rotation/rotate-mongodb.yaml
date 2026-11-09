@@ -8,7 +8,7 @@
 #   쓰인다) · mongodb-bootstrap 훅(root-password). 두 별칭 키(root-password · mongodb-root-password)를 함께 갱신한다.
 #   readiness 는 인증 없는 ping 이라 비밀번호와 무관하다.
 # ★ 비밀번호를 mongosh 인자로 넘기지 않는다 — 인증 없이 붙어 스크립트 안에서 `process.env` 로 auth 한다.
-# ★ 클라이언트 8.0.29-13 · 서버 7.0.45-24(local) — mongosh 8 은 7.0 서버를 지원한다(overlays/local/patches/mongodb-local.yaml).
+# ★ 클라이언트 8.0.34-15 · 서버 7.0.45-24(local) — mongosh 8 은 7.0 서버를 지원한다(overlays/local/patches/mongodb-local.yaml).
 #
 # ★ suspend: true — 수동 실행:
 #     kubectl -n local create job --from=cronjob/rotate-mongodb-password rotate-mongodb-manual-$(date +%s)
@@ -113,7 +113,7 @@ spec:
                 readOnlyRootFilesystem: true
                 capabilities: {drop: ["ALL"]}
             - name: rotate
-              image: docker.io/percona/percona-server-mongodb:8.0.29-13
+              image: docker.io/percona/percona-server-mongodb:8.0.34-15
               command:
                 - /bin/bash
                 - -c

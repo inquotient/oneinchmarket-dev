@@ -246,7 +246,7 @@ spec:
                 readOnlyRootFilesystem: true
                 capabilities: {drop: ["ALL"]}
             - name: rotate
-              image: docker.io/percona/percona-server-mongodb:8.0.29-13
+              image: docker.io/percona/percona-server-mongodb:8.0.34-15
               command:
                 - /bin/bash
                 - -c

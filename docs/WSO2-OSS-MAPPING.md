@@ -470,7 +470,7 @@ OpenBao 에서는 무료다. B2B 테넌트별 시크릿 격리가 여기서 성�
 
 | 컴포넌트 | 실제 이미지 | 저장 시 암호화 경로 | KMIP |
 |---|---|---|---|
-| MongoDB | `percona/percona-server-mongodb:8.0.29-13` | **Vault 네이티브** 키 관리(`--vaultServerName` 등) | 불필요 |
+| MongoDB | `percona/percona-server-mongodb:8.0.34-15` | **Vault 네이티브** 키 관리(`--vaultServerName` 등) | 불필요 |
 | MinIO | `minio/minio:RELEASE.2025-09-07T16-13-09Z` | SSE → **KES** → **Vault 네이티브** | 불필요 |
 | MariaDB | `mariadb:12.3.3` (커뮤니티) | `file_key_management` · `aws_key_management` | **KMIP 는 Enterprise 전용** — 서버를 세워도 못 쓴다 |
 | PostgreSQL | `postgres:18.6` (커뮤니티) | TDE 자체가 없다(pgcrypto 는 컬럼 단위) | 해당 없음 |

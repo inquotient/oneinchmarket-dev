@@ -30,6 +30,16 @@ log "ArgoCD ${ARGOCD_VERSION} 설치"
 kubectl apply -n argocd --server-side --force-conflicts \
   -f "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/install.yaml"
 
+# ★ 번들 이미지 덮어쓰기(2026-11-09). v3.6.1 의 install.yaml 이 dex v2.46.0 · redis 8.10.1-alpine 을
+#   묶어 두었고 그 위의 ArgoCD 패치가 아직 없어 패치 판으로 직접 올린다. 다음 ArgoCD 판의 install.yaml 이
+#   같거나 더 새 판을 묶으면 이 두 줄을 지울 것(낡은 덮어쓰기가 남으면 다음 판을 거꾸로 내린다).
+#   ★ dex 는 argocd-cm 에 dex.config 가 없어 떠 있기만 하고 쓰이지 않는다.
+ARGOCD_DEX_IMAGE="${ARGOCD_DEX_IMAGE:-ghcr.io/dexidp/dex:v2.46.1}"
+ARGOCD_REDIS_IMAGE="${ARGOCD_REDIS_IMAGE:-public.ecr.aws/docker/library/redis:8.10.3-alpine}"
+log "번들 이미지 덮어쓰기: dex=${ARGOCD_DEX_IMAGE} redis=${ARGOCD_REDIS_IMAGE}"
+kubectl -n argocd set image deploy/argocd-dex-server dex="${ARGOCD_DEX_IMAGE}" >/dev/null
+kubectl -n argocd set image deploy/argocd-redis redis="${ARGOCD_REDIS_IMAGE}" >/dev/null
+
 log "기동 대기"
 kubectl -n argocd rollout status deploy/argocd-repo-server            --timeout=600s || true
 kubectl -n argocd rollout status deploy/argocd-server                 --timeout=600s || true
