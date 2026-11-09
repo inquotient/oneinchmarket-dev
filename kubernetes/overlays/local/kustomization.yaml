@@ -42,6 +42,8 @@ resources:
   #   둘 다 실제 토픽 `edge.*` 안에 갇힌다. 사유와 한계는 그 디렉터리의
   #   kustomization.yaml 머리말.
   - kafka-edge
+  # Knative(Serving + Eventing) 의 클러스터 쪽 전제 — 컨트롤러는 local/install-knative.sh(ArgoCD 밖).
+  - knative
   # Knox 의 Ranger 플러그인 설정 — patches/knox-local.yaml 의 짝(새 리소스라 여기 둔다).
   - knox-ranger-config.yaml
   # 노드 -> GitLab 레지스트리(80·5050) — build-images.sh 의 push 경로(2026-11-07, CiliumNetworkPolicy).

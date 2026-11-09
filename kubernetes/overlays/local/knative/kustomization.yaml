@@ -1,0 +1,18 @@
+# Knative(local 전용, 2026-11-10 · 사용자 결정 — Serving + Eventing(Kafka 브로커), 네트워킹 net-gateway-api).
+#
+# ★ 컨트롤러·CRD·설정 ConfigMap 은 ArgoCD 밖이다(local/install-knative.sh — 오퍼레이터 계층, Gotcha 80).
+#   여기에는 그것이 기대는 **클러스터 쪽 전제**만 둔다:
+#   · knative-local Gateway — 클러스터 안 전용(ClusterIP) 진입점. Knative 의 cluster-local 라우트를 외부
+#     `ingress` 게이트웨이에 붙이면 밖에서 닿는다 — 그래서 따로 둔다.
+#   · NetworkPolicy — `local` 은 default-deny 다. knative-serving 은 메시 밖이라(아래) 평문으로 들어온다.
+# ★ Knative Service 는 `local` 에 둔다 — 외부 Gateway `ingress` 가 같은 네임스페이스의 라우트만 받고
+#   (allowedRoutes: Same), 와일드카드 인증서 `*.oneinchmarket.local` 이 한 단계만 덮으므로 호스트는
+#   `<이름>-<네임스페이스>.oneinchmarket.local` 이다(config-network 의 domain-template).
+# ★ knative-serving 은 ambient 에 넣지 않는다 — activator·autoscaler 는 메시 신원이 없어도 되고(그들을
+#   고르는 AuthorizationPolicy 가 없다), 넣으면 activator 의 프록시 경로가 이중 프록시가 된다(ingress
+#   게이트웨이와 같은 이유). 그래서 그쪽에서 오는 트래픽은 아래 NetworkPolicy 로 연다.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - knative-local-gateway.yaml
+  - netpol.yaml
