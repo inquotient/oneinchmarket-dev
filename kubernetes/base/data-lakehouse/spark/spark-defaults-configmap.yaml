@@ -13,7 +13,7 @@ data:
   spark-defaults.conf: |
     spark.master                                    k8s://https://kubernetes.default.svc.cluster.local:443
     spark.submit.deployMode                         cluster
-    spark.kubernetes.container.image                gitlab-registry.local.svc.cluster.local:5050/oneinch/spark-iceberg:4.1.2
+    spark.kubernetes.container.image                gitlab-registry.local.svc.cluster.local:5050/oneinch/spark-iceberg:4.1.2-r2
     # ★★ cluster 모드에서 spark-submit 이 **로컬 파일**(Livy 의 repl jar · pyspark 등)을 드라이버가
     #   받을 수 있는 곳에 올린다(2026-11-06). 이 키가 없어 Livy 세션이 전부
     #   `Please specify spark.kubernetes.file.upload.path property.` 로 죽었다 — 드라이버 파드조차
