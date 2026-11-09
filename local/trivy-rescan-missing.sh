@@ -15,6 +15,8 @@
 #   (기본·--check)  빠진 (워크로드, 컨테이너) 를 이미지·노드와 함께 출력한다. 고치지 않는다.
 #   --fix           ① 그 이미지가 있는 노드마다 `ctr images check` 로 블롭 누락을 보고 있으면
 #                     `content fetch` 로 채운다(Gotcha 134 — `images pull` 은 소용없다)
+#                   ①' 소유자 없는 scan-*-regcred Secret(10분 넘은 것)을 지운다 — 남아 있으면 오퍼레이터가
+#                     로그 없이 그 워크로드의 Job 생성을 건너뛴다(2026-11-09 실측 · solr)
 #                   ② 워크로드에 임시 어노테이션을 달아 오퍼레이터에 변경 이벤트를 준다
 #                     (메타데이터만 바뀐다 — 파드 템플릿이 아니라 파드는 재시작하지 않는다)
 #                   ③ 리포트가 생길 때까지 기다린 뒤 어노테이션을 지운다
@@ -88,6 +90,25 @@ while read -r ns kind name ctr img nodes age; do
 done < "$TMP/missing.txt"
 echo "빠짐 $FAIL · 대기 $PEND"
 
+# 고아 regcred Secret (2026-11-09 실측, Gotcha 221). SubmitScanJob 은 Job 보다 먼저
+# scan-vulnerabilityreport-<해시>-regcred 를 만들고, 그 Secret 이 이미 있으면 **로그 없이 return nil**
+# 한다(workload.go: IsAlreadyExists -> return nil). Secret 은 만들어졌는데 Job 생성이 실패하면
+# (그때는 Kyverno webhook 에 엔드포인트가 없었다) 소유자 없는 Secret 이 남아 그 워크로드의 스캔을
+# 영원히 막는다 — 어노테이션도 오퍼레이터 재시작도 소용없다. 값은 읽지 않고 이름·소유자만 본다.
+kubectl -n trivy-system get secrets \
+  -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.creationTimestamp} {.metadata.ownerReferences[*].kind}{"\n"}{end}' \
+  2>/dev/null | python3 -c '
+import sys, datetime as d
+now = d.datetime.now(d.timezone.utc)
+for l in sys.stdin:
+    p = l.split()
+    if len(p) != 2 or not (p[0].startswith("scan-") and p[0].endswith("-regcred")):
+        continue  # 소유자(Job)가 있거나 스캔 Secret 이 아니다
+    if (now - d.datetime.fromisoformat(p[1].replace("Z", "+00:00"))).total_seconds() >= 600:
+        print(p[0])
+' > "$TMP/orphans.txt"
+while read -r s; do echo "[고아] trivy-system/secret/$s — 이것이 있는 동안 그 워크로드의 스캔 Job 이 만들어지지 않는다"; done < "$TMP/orphans.txt"
+
 SELF_IPS=" $(hostname -I 2>/dev/null) "
 on_node() {  # on_node <ip> <명령>
   case "$SELF_IPS" in
@@ -113,6 +134,11 @@ if [ "$MODE" = fix ] && [ "$FAIL" -gt 0 ]; then
       *) echo "  ★ 판정 불가 $img  ($ip): $(printf %s "$out" | head -c 160)" ;;
     esac
   done < "$TMP/imgnode.txt"
+
+  echo "== 고아 regcred Secret 정리"
+  while read -r s; do
+    if kubectl -n trivy-system delete secret "$s" >/dev/null 2>&1; then echo "  지움 $s"; else echo "  ★ 지우기 실패 $s"; fi
+  done < "$TMP/orphans.txt"
 
   echo "== 재스캔 유도(임시 어노테이션 $ANN)"
   awk -v g="$GRACE_MIN" '$7>=g {print $1, $2, $3}' "$TMP/missing.txt" | sort -u > "$TMP/owners.txt"
