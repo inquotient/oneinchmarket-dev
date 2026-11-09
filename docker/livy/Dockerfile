@@ -22,7 +22,10 @@ RUN if [ -n "${LIVY_SRC_SHA256}" ]; then echo "${LIVY_SRC_SHA256}  livy.tar.gz" 
  && tar -xzf livy.tar.gz && mv livy-${LIVY_COMMIT} livy
 WORKDIR /src/livy
 # 테스트는 Spark·R·Python 런타임을 띄우므로 건너뛴다. assembly 와 그것이 의존하는 모듈만 빌드한다.
+# ★ 실행할 Spark 판(spark-iceberg 의 베이스)으로 컴파일한다 — pom 기본값(4.1.2)과 다를 수 있다.
+ARG SPARK_VERSION=4.2.1
 RUN mvn -B -ntp -DskipTests -DskipITs -DskipRTests -Dmaven.javadoc.skip=true \
+      -Dspark.version=${SPARK_VERSION} \
       -pl assembly -am package \
  && ls -l assembly/target/*.zip
 
