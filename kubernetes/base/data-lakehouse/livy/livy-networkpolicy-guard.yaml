@@ -39,7 +39,7 @@ spec:
       message: "livy 가 만드는 NetworkPolicy 에는 spark-app-selector 라벨이 있어야 한다"
     - expression: >-
         has(object.spec.podSelector.matchLabels) && !has(object.spec.podSelector.matchExpressions) &&
-        object.spec.podSelector.matchLabels == {'spark-role': 'executor', 'spark-app-selector': variables.app}
+        object.spec.podSelector.matchLabels == {'spark-role': 'executor', 'spark-app-selector': string(variables.app)}
       message: "podSelector 는 그 앱의 익스큐터({spark-role: executor, spark-app-selector}) 여야 한다"
     - expression: "!has(object.spec.egress) || size(object.spec.egress) == 0"
       message: "egress 규칙을 둘 수 없다"
@@ -54,7 +54,7 @@ spec:
         has(object.spec.ingress[0].from[0].podSelector) &&
         !has(object.spec.ingress[0].from[0].podSelector.matchExpressions) &&
         has(object.spec.ingress[0].from[0].podSelector.matchLabels) &&
-        object.spec.ingress[0].from[0].podSelector.matchLabels == {'spark-app-selector': variables.app}
+        object.spec.ingress[0].from[0].podSelector.matchLabels == {'spark-app-selector': string(variables.app)}
       message: "ingress 는 같은 앱(spark-app-selector)의 파드에서 오는 것 하나만 허용한다"
 ---
 apiVersion: admissionregistration.k8s.io/v1
