@@ -1,0 +1,18 @@
+# Knative Service 전용 네임스페이스 `kn`(local 전용, 2026-11-10). ArgoCD Application `oneinchmarket-local-kn` 이 적용한다.
+#
+# ★★ 왜 `local` 이 아니라 따로인가 — **평문 HTTP 를 막기 위해서다.** net-gateway-api 는 HTTPRoute 를 Gateway 의
+#   **호스트가 맞는 모든 리스너**에 붙이고 리스너를 고르는 설정이 없다(config-gateway 의 키는 class·gateway·service·
+#   supported-features·proxy-protocol-enabled 뿐). 그래서 `local` 에 두면 Knative 의 정확한 호스트 라우트가
+#   80 리스너에도 붙어 와일드카드 리다이렉트(https-redirect)를 이기고 **평문으로 서비스했다**(2026-11-10 실측 200).
+#   `http-protocol` 의 Redirected·Disabled 는 Knative 가 TLS 를 직접 다룰 때만 뜻이 있어 효과가 없었다.
+#   네임스페이스를 가르면 `ingress` 의 80 리스너(allowedRoutes: Same = local)는 Knative 라우트를 받지 않고,
+#   443 리스너만 `kn` 을 받는다(overlays/local/patches/gateway-allow-kn.yaml) — 평문 요청은 기존 리다이렉트로 간다.
+# ★ 이 디렉터리를 `overlays/local` 아래에 두지 않은 이유: 그 오버레이는 `namespace: local` 로 모든 리소스의
+#   네임스페이스를 덮는다. 그 전역 설정을 바꾸는 대신 Application 을 하나 더 둔다.
+# ★ 호스트는 `<이름>-kn.oneinchmarket.local` 이다(domain-template `{{.Name}}-{{.Namespace}}.{{.Domain}}`).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: kn
+resources:
+  - namespace.yaml
+  - netpol.yaml

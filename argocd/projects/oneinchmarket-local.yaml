@@ -49,6 +49,9 @@ spec:
     # 네임스페이스 생성 등을 위해 목적지로 허용해 둔다.
     - namespace: argocd
       server: https://kubernetes.default.svc
+    # ★ 2026-11-10 Knative Service 전용(Application oneinchmarket-local-kn · kubernetes/overlays/local-kn).
+    - namespace: kn
+      server: https://kubernetes.default.svc
 
   clusterResourceWhitelist:
     - group: ""

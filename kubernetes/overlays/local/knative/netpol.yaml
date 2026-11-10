@@ -1,37 +1,8 @@
+# 클러스터 안 -> knative-local 게이트웨이(80). 그 파드는 메시 밖이라(dataplane-mode none) 평문으로 받는다.
+#   부르는 쪽: `kn`·`local` 의 앱 · Kafka 브로커 데이터플레인(knative-eventing) · activator(knative-serving).
 # ★ 셀렉터는 matchExpressions 로 쓴다 — 오버레이의 라벨 변환기가 matchLabels 에 `environment: local` 을 주입하는데
-#   Knative·Istio 가 만드는 파드에는 그 라벨이 없어 **아무것도 고르지 않게 된다**(Gotcha 185).
-#
-# ① knative-serving(메시 밖) -> 리비전 파드의 queue-proxy.
-#    activator 가 요청을 대신 보내고(8012 http · 8013 h2c), autoscaler 가 지표를 긁는다(9090 · 9091),
-#    상태 확인은 8022(queue-proxy admin). 앱 컨테이너 포트로는 열지 않는다 — 모든 트래픽은 queue-proxy 를 지난다.
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-knative-serving-to-revisions
-  labels:
-    app.kubernetes.io/name: knative
-    app.kubernetes.io/component: service-mesh
-    app.kubernetes.io/part-of: oneinchmarket
-    app.kubernetes.io/managed-by: kustomize
-spec:
-  podSelector:
-    matchExpressions:
-      - {key: serving.knative.dev/revision, operator: Exists}
-  policyTypes: [Ingress]
-  ingress:
-    - from:
-        - namespaceSelector:
-            matchExpressions:
-              - {key: kubernetes.io/metadata.name, operator: In, values: [knative-serving]}
-      ports:
-        - {port: 8012, protocol: TCP}
-        - {port: 8013, protocol: TCP}
-        - {port: 8022, protocol: TCP}
-        - {port: 9090, protocol: TCP}
-        - {port: 9091, protocol: TCP}
----
-# ② 클러스터 안 -> knative-local 게이트웨이(8081). 그 파드는 메시 밖이라(dataplane-mode none) 평문으로 받는다.
-#    부르는 쪽은 이 네임스페이스의 앱 · Kafka 브로커 데이터플레인(knative-eventing) · activator 다.
+#   Istio 가 만드는 게이트웨이 파드에는 그 라벨이 없어 **아무것도 고르지 않게 된다**(Gotcha 185).
+# ★ 리비전 파드로 가는 허용은 그 파드가 사는 `kn` 쪽에 있다(overlays/local-kn/netpol.yaml).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -50,6 +21,6 @@ spec:
     - from:
         - namespaceSelector:
             matchExpressions:
-              - {key: kubernetes.io/metadata.name, operator: In, values: [local, knative-serving, knative-eventing]}
+              - {key: kubernetes.io/metadata.name, operator: In, values: [local, kn, knative-serving, knative-eventing]}
       ports:
-        - {port: 8081, protocol: TCP}
+        - {port: 80, protocol: TCP}

@@ -116,6 +116,12 @@ patches:
   #   만들어서 라벨이 없다. 그대로 두면 externalIPs Service 가 **아무것도
   #   선택하지 않아 443 이 전부 000** 이다(실측). 자세한 것은 그 패치 머리말.
   - path: patches/gateway-labels-local.yaml
+  # 443 리스너만 Knative 네임스페이스 `kn` 의 라우트를 받는다 — 80 은 local 그대로(평문 차단). 사유는 그 패치 머리말.
+  - path: patches/gateway-allow-kn.yaml
+    target:
+      group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ingress
 
   # cmmn-api 의 테이블을 Hibernate 가 만들게 한다 — local 전용 스톱갓(§8-99)
   - path: patches/cmmn-api-schema-local.yaml

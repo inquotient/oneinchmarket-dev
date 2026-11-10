@@ -19,9 +19,16 @@ spec:
       istio.io/dataplane-mode: none
   gatewayClassName: istio
   listeners:
+    # ★ 80 이어야 한다 — Knative 가 만드는 cluster-local Service(`<이름>` ExternalName -> knative-local-istio)가
+    #   **포트 80** 이다. 처음에 Istio 예시대로 8081 로 두었다가 Service 에 80 이 없어 `Connection reset by peer`
+    #   였다(2026-11-10 실측).
+    # ★ 라우트는 Knative Service 가 사는 `kn` 에서만 받는다.
     - name: http
-      port: 8081
+      port: 80
       protocol: HTTP
       allowedRoutes:
         namespaces:
-          from: Same
+          from: Selector
+          selector:
+            matchExpressions:
+              - {key: kubernetes.io/metadata.name, operator: In, values: [kn]}

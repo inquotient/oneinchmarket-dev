@@ -1,0 +1,36 @@
+# Knative Service 전용 네임스페이스 `kn` — kubernetes/overlays/local-kn 의 머리말이 사유다.
+# ★ 이 Application 은 git 으로 관리되지 않는다 — `kubectl apply -f argocd/applications/oneinchmarket-local-kn.yaml`
+#   로 한 번 적용한다(메인 Application 과 같다, Gotcha 57). AppProject 의 destinations 에 `kn` 이 먼저 있어야 한다.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: oneinchmarket-local-kn
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: argocd
+    environment: local
+spec:
+  project: oneinchmarket-local
+  source:
+    repoURL: https://github.com/inquotient/oneinchmarket-dev.git
+    targetRevision: local
+    path: kubernetes/overlays/local-kn
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kn
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: false
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=false
+      - ServerSideApply=true
+      - Validate=false
+    retry:
+      limit: 5
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 3m

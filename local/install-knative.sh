@@ -40,6 +40,8 @@ check() {
   [ "$cls" = "gateway-api.ingress.networking.knative.dev" ] && echo "[ok]  ingress-class=$cls" || { echo "[FAIL] ingress-class=$cls"; rc=1; }
   kubectl -n local get gateway knative-local >/dev/null 2>&1 && echo "[ok]  local/knative-local Gateway" \
     || { echo "[FAIL] local/knative-local Gateway 가 없다 — ArgoCD 동기화(kubernetes/overlays/local/knative)를 먼저"; rc=1; }
+  kubectl get ns kn >/dev/null 2>&1 && echo "[ok]  Knative Service 네임스페이스 kn" \
+    || { echo "[FAIL] 네임스페이스 kn 이 없다 — Application oneinchmarket-local-kn(argocd/applications)을 적용할 것"; rc=1; }
   return $rc
 }
 
@@ -66,8 +68,10 @@ done
 #   kubectl patch(merge)로 우리 키만 넣는다. 릴리스를 다시 적용하면 `_example` 만 있는 원본으로
 #   돌아가므로 **이 스크립트를 다시 돌릴 것**(Gotcha 80).
 log "config-network: ingress-class · 호스트 템플릿 · http 는 https 로 돌린다"
-# http-protocol=Redirected — 평문 80 의 리다이렉트를 Knative 가 한다. Enabled 로 두면 Knative 의 더 구체적인
-#   호스트 라우트가 기존 http 리스너의 리다이렉트(HTTPRoute http-redirect)를 이겨 **평문으로 서비스한다**.
+# ★ http-protocol 로는 평문을 막을 수 없다(2026-11-10 실측) — Redirected·Disabled 는 Knative 가 TLS 를 직접 다룰 때만
+#   뜻이 있고, net-gateway-api 는 라우트를 호스트가 맞는 **모든 리스너**에 붙인다. 평문 차단은 네임스페이스 분리가 한다:
+#   Knative Service 는 `kn` 에 두고 `ingress` 의 80 리스너는 `local` 라우트만 받는다(overlays/local-kn 머리말).
+#   Redirected 는 TLS 를 켜는 날을 위해 둔다.
 kubectl -n knative-serving patch cm config-network --type merge -p "$(cat <<'EOF'
 {"data":{"ingress-class":"gateway-api.ingress.networking.knative.dev",
          "domain-template":"{{.Name}}-{{.Namespace}}.{{.Domain}}",

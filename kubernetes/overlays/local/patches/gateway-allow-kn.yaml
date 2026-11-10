@@ -1,0 +1,19 @@
+# `ingress` 의 **443 리스너만** Knative Service 네임스페이스 `kn` 의 라우트를 받게 한다(2026-11-10).
+# ★ 80 리스너는 그대로 `Same`(local) — 그래서 Knative 라우트가 80 에 붙지 않고, 평문 요청은 기존 https-redirect 로 간다.
+#   사유는 overlays/local-kn/kustomization.yaml 머리말.
+# ★ JSON 패치 — CRD 의 listeners 는 전략 병합 키가 없어 통째로 바뀐다. 첫 op 가 0번이 https 인지 **검사**한다:
+#   base 의 리스너 순서가 바뀌면 렌더가 실패한다(엉뚱한 리스너를 여는 것보다 낫다).
+- op: test
+  path: /spec/listeners/0/name
+  value: https
+- op: replace
+  path: /spec/listeners/0/allowedRoutes
+  value:
+    namespaces:
+      from: Selector
+      selector:
+        matchExpressions:
+          - {key: kubernetes.io/metadata.name, operator: In, values: [local, kn]}
+- op: test
+  path: /spec/listeners/1/name
+  value: http
