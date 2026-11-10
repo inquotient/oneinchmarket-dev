@@ -101,7 +101,8 @@ spec:
             - |
               set -eu
               export KAFKA_NODE_ID=${HOSTNAME##*-}
-              export KAFKA_ADVERTISED_LISTENERS="SASL://${HOSTNAME}.kafka-headless:9094,TLS://${HOSTNAME}.kafka-headless:9095"
+              # ★ FQDN(2026-11-11, Gotcha 229 ④) — 9095 인증서(kafka-tls)의 SAN 에 이미 FQDN 이 있다.
+              export KAFKA_ADVERTISED_LISTENERS="SASL://${HOSTNAME}.kafka-headless.${POD_NAMESPACE}.svc.cluster.local:9094,TLS://${HOSTNAME}.kafka-headless.${POD_NAMESPACE}.svc.cluster.local:9095"
               mkdir -p /tmp/kafka-tls
               umask 077
               cat /etc/kafka-tls/tls.key /etc/kafka-tls/tls.crt > /tmp/kafka-tls/keystore.pem

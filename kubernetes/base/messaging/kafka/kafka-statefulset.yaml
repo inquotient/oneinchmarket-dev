@@ -38,7 +38,9 @@ spec:
             - -c
             - |
               export KAFKA_NODE_ID=${HOSTNAME##*-}
-              export KAFKA_ADVERTISED_LISTENERS="SASL://${HOSTNAME}.kafka-headless:9094"
+              # ★ FQDN 으로 알린다(2026-11-11) — 짧은 이름(kafka-0.kafka-headless)은 이 네임스페이스 밖에서
+              #   풀리지 않는다. 클라이언트는 bootstrap(kafka-headless)으로 붙은 뒤 이 주소로 다시 붙는다(Gotcha 229 ④).
+              export KAFKA_ADVERTISED_LISTENERS="SASL://${HOSTNAME}.kafka-headless.${POD_NAMESPACE}.svc.cluster.local:9094"
               /etc/kafka/docker/run
           ports:
             - containerPort: 9093
@@ -56,6 +58,10 @@ spec:
           # ★ `$(OIM_KAFKA_BROKER_PASSWORD)` 는 쿠버네티스가 앞 항목으로 펼친다 —
           #   순서를 바꾸지 말 것.
           env:
+            # 광고 주소(FQDN)에 쓴다 — 오버레이마다 네임스페이스가 다르다.
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef: {fieldPath: metadata.namespace}
             - name: OIM_KAFKA_BROKER_PASSWORD
               valueFrom:
                 secretKeyRef: {name: kafka-secret, key: broker-password}
