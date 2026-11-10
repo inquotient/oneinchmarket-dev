@@ -1,0 +1,24 @@
+{
+  "service": "oim-kafka",
+  "policy": "knative-broker-* 토픽 (Knative Kafka 브로커)",
+  "_why": "2026-11-10 Knative Eventing. 브로커마다 토픽 knative-broker-<ns>-<이름> 을 컨트롤러가 만들고(create) 지우며(delete), receiver 가 쓰고(publish) dispatcher 가 읽는다(consume). 이름은 config-kafka-features 의 brokers-topic-template 이 정한다 - 그 템플릿을 바꾸면 이 리소스도 바꿀 것. 컨트롤러와 데이터플레인이 같은 사용자 knative 로 붙는다(브로커 인증 Secret 하나)",
+  "resources": {
+    "topic": [
+      "knative-broker-*"
+    ]
+  },
+  "item": {
+    "users": [
+      "knative"
+    ],
+    "groups": [],
+    "accesses": [
+      {"type": "publish", "isAllowed": true},
+      {"type": "consume", "isAllowed": true},
+      {"type": "describe", "isAllowed": true},
+      {"type": "create", "isAllowed": true},
+      {"type": "delete", "isAllowed": true},
+      {"type": "describe_configs", "isAllowed": true}
+    ]
+  }
+}

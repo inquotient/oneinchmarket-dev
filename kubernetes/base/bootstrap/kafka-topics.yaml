@@ -113,9 +113,19 @@ spec:
             requests: { cpu: 100m, memory: 256Mi }
             limits:   { cpu: 500m, memory: 512Mi }
           volumeMounts:
-            - {name: kafka-users, mountPath: /etc/kafka-users, readOnly: true}
+            - {name: kafka-users-all, mountPath: /etc/kafka-users, readOnly: true}
       volumes:
-        - name: kafka-users
-          secret:
-            secretName: kafka-secret
+        # ★ 2026-11-10 사용자 원천이 둘이다 — kafka-secret 과 kafka-knative-secret(optional).
+        #   Knative Kafka 브로커의 사용자를 kafka-secret 에 넣지 않은 이유: 그 Secret 은 브로커·OpenMeter·logstash 등
+        #   15개 워크로드가 참조해 키 하나만 더해도 Reloader 가 전부 재시작한다(과금 경로). 별도 Secret 은 이 Job 만 읽는다.
+        #   optional 이라 dev·prod 처럼 없으면 건너뛴다. 키 이름이 겹치면 projected 가 실패하므로 `<사용자>-password` 를 겹치지 말 것.
+        # ★ 볼륨 이름을 바꿨다(kafka-users -> kafka-users-all) — 같은 이름에서 타입을 바꾸면 SSA 가 거부한다(Gotcha 113).
+        - name: kafka-users-all
+          projected:
             defaultMode: 0440
+            sources:
+              - secret:
+                  name: kafka-secret
+              - secret:
+                  name: kafka-knative-secret
+                  optional: true

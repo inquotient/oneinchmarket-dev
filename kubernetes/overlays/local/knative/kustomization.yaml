@@ -16,3 +16,4 @@ kind: Kustomization
 resources:
   - knative-local-gateway.yaml
   - netpol.yaml
+  - kafka-authz.yaml

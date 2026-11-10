@@ -1,0 +1,21 @@
+{
+  "service": "oim-kafka",
+  "policy": "knative-trigger-* 컨슈머 그룹 (Knative Kafka 브로커)",
+  "_why": "2026-11-10 Knative Eventing. 트리거마다 컨슈머 그룹 knative-trigger-<ns>-<이름> 으로 dispatcher 가 읽고, 트리거를 지우면 컨트롤러가 그룹을 지운다. 이름은 config-kafka-features 의 triggers-consumergroup-template 이 정한다",
+  "resources": {
+    "consumergroup": [
+      "knative-trigger-*"
+    ]
+  },
+  "item": {
+    "users": [
+      "knative"
+    ],
+    "groups": [],
+    "accesses": [
+      {"type": "consume", "isAllowed": true},
+      {"type": "describe", "isAllowed": true},
+      {"type": "delete", "isAllowed": true}
+    ]
+  }
+}

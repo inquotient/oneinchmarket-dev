@@ -1,0 +1,30 @@
+# Knative Kafka 브로커 -> Kafka(SASL 9094). 메시 인가(ztunnel)가 먼저 신원을 보고, 그 다음 SCRAM 사용자 knative 를
+#   Ranger(oim-kafka-knative-*)가 본다 — 두 선이 따로 있다(Gotcha 204).
+# ★ 기존 allow-messaging-access 를 고치지 않고 정책을 하나 더 둔다 — Istio ALLOW 는 합집합이다(Gotcha 200).
+# ★ knative-eventing 은 install-knative.sh 가 ambient 에 넣는다 — 그래야 이 신원이 생긴다(메시 밖이면 거부된다).
+#   kafka-controller: 토픽·그룹을 만들고 지운다 · knative-kafka-broker-data-plane: receiver(쓰기)·dispatcher(읽기).
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-knative-kafka
+  labels:
+    app.kubernetes.io/name: allow-knative-kafka
+    app.kubernetes.io/component: messaging
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafka
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - "cluster.local/ns/knative-eventing/sa/kafka-controller"
+              - "cluster.local/ns/knative-eventing/sa/knative-kafka-broker-data-plane"
+      to:
+        - operation:
+            ports: ["9094"]

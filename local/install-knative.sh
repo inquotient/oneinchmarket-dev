@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Knative 설치 — local 클러스터용(오퍼레이터 계층 · ArgoCD 밖). 2026-11-10 사용자 결정.
-#   bash local/install-knative.sh            # Serving + net-gateway-api (+ Eventing 은 단계 2)
+#   bash local/install-knative.sh            # Serving + net-gateway-api + Eventing(Kafka 브로커)
+#   bash local/install-knative.sh --eventing # Eventing 만(Serving 이 이미 있을 때)
+#   SKIP_EVENTING=1 bash local/install-knative.sh  # Serving 만
 #   bash local/install-knative.sh --check    # 설치 상태만 본다(0 정상 · 1 문제 · 2 측정 불가)
 #
 # ★ 구성: Serving + net-gateway-api(기존 Istio Gateway `local/ingress` 에 HTTPRoute 로 붙는다).
@@ -42,10 +44,85 @@ check() {
     || { echo "[FAIL] local/knative-local Gateway 가 없다 — ArgoCD 동기화(kubernetes/overlays/local/knative)를 먼저"; rc=1; }
   kubectl get ns kn >/dev/null 2>&1 && echo "[ok]  Knative Service 네임스페이스 kn" \
     || { echo "[FAIL] 네임스페이스 kn 이 없다 — Application oneinchmarket-local-kn(argocd/applications)을 적용할 것"; rc=1; }
+  if kubectl get ns knative-eventing >/dev/null 2>&1; then
+    for d in eventing-controller eventing-webhook kafka-controller kafka-webhook-eventing kafka-broker-receiver; do
+      if [ "$(kubectl -n knative-eventing get deploy "$d" -o jsonpath='{.status.availableReplicas}' 2>/dev/null)" -ge 1 ] 2>/dev/null; then
+        echo "[ok]  knative-eventing/$d"
+      else echo "[FAIL] knative-eventing/$d 가 Available 이 아니다"; rc=1; fi
+    done
+    [ "$(kubectl -n knative-eventing get sts kafka-broker-dispatcher -o jsonpath='{.status.readyReplicas}' 2>/dev/null)" -ge 1 ] 2>/dev/null \
+      && echo "[ok]  knative-eventing/kafka-broker-dispatcher" || { echo "[FAIL] kafka-broker-dispatcher 가 Ready 가 아니다"; rc=1; }
+    [ "$(kubectl get ns knative-eventing -o jsonpath='{.metadata.labels.istio\.io/dataplane-mode}')" = ambient ] \
+      && echo "[ok]  knative-eventing 은 ambient" || { echo "[FAIL] knative-eventing 이 ambient 가 아니다 — Kafka 에 메시 신원 없이 붙어 거부된다"; rc=1; }
+  else
+    echo "[--]  Eventing 은 아직 설치하지 않았다(--eventing)"
+  fi
   return $rc
 }
 
+eventing() {
+  # ── Eventing + Kafka 브로커(2026-11-10) ─────────────────────
+  # ★ 전제 넷 — 하나라도 빠지면 브로커가 Ready 가 아니다:
+  #   ① local/kafka-knative-secret(knative-password) — create-secrets.sh. kafka-secret 이 아니다(그 사유는 그 파일)
+  #   ② SCRAM 사용자 knative — kafka-topics Job(Sync 훅)이 ①로 만든다
+  #   ③ Ranger 정책 oim-kafka-knative-* — local/ranger-bootstrap.sh(+ ranger-kafka-seed.sh 로 시드 갱신)
+  #   ④ 메시 허용 allow-knative-kafka — overlays/local/knative/kafka-authz.yaml(ArgoCD)
+  kubectl -n local get secret kafka-knative-secret >/dev/null 2>&1 \
+    || { echo "[knative] local/kafka-knative-secret 이 없다 — create-secrets.sh 의 그 줄을 먼저" >&2; exit 1; }
+  kubectl -n local get authorizationpolicy allow-knative-kafka >/dev/null 2>&1 \
+    || { echo "[knative] local/allow-knative-kafka 가 없다 — ArgoCD 동기화를 먼저" >&2; exit 1; }
+
+  log "Eventing ${KNATIVE_VERSION} + Kafka 브로커"
+  fetch knative/eventing eventing-crds.yaml 'name: brokers.eventing.knative.dev'
+  fetch knative/eventing eventing-core.yaml 'name: eventing-controller'
+  fetch knative-extensions/eventing-kafka-broker eventing-kafka-controller.yaml 'name: kafka-controller'
+  fetch knative-extensions/eventing-kafka-broker eventing-kafka-broker.yaml 'name: kafka-broker-receiver'
+  # ★ 네임스페이스를 **먼저** 만들고 ambient 에 넣는다 — 데이터플레인이 메시 신원으로 Kafka 에 붙어야
+  #   allow-knative-kafka 가 그것을 허용한다(메시 밖이면 ztunnel 이 거부한다). 파드가 뜬 뒤 라벨을 붙이면
+  #   편입이 파드 단위로 어긋날 수 있다(Gotcha 195).
+  kubectl create ns knative-eventing --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  kubectl label ns knative-eventing istio.io/dataplane-mode=ambient --overwrite >/dev/null
+  kubectl apply --server-side --force-conflicts -f "$DL/eventing-crds.yaml"
+  kubectl wait --for=condition=Established --timeout=120s crd/brokers.eventing.knative.dev crd/triggers.eventing.knative.dev
+  kubectl apply --server-side --force-conflicts -f "$DL/eventing-core.yaml"
+  kubectl apply --server-side --force-conflicts -f "$DL/eventing-kafka-controller.yaml"
+  kubectl apply --server-side --force-conflicts -f "$DL/eventing-kafka-broker.yaml"
+  for d in eventing-webhook eventing-controller kafka-webhook-eventing kafka-controller; do
+    kubectl -n knative-eventing rollout status deploy/"$d" --timeout=300s
+  done
+
+  # 브로커 인증 Secret — 값은 stdin 으로만 지난다(인자·로그에 남기지 않는다, Gotcha 186).
+  log "브로커 인증 Secret knative-eventing/kafka-knative-auth"
+  kubectl -n local get secret kafka-knative-secret -o jsonpath='{.data.knative-password}' | base64 -d \
+    | kubectl -n knative-eventing create secret generic kafka-knative-auth \
+        --from-literal=protocol=SASL_PLAINTEXT --from-literal=sasl.mechanism=SCRAM-SHA-512 \
+        --from-literal=user=knative --from-file=password=/dev/stdin \
+        --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  [ "$(kubectl -n knative-eventing get secret kafka-knative-auth -o jsonpath='{.data.password}' | base64 -d | wc -c)" -ge 16 ] \
+    || { echo "[knative] kafka-knative-auth 의 password 가 비었다" >&2; exit 1; }
+
+  log "kafka-broker-config: SASL 9094 · 파티션 3 · 복제 1(단일 브로커)"
+  kubectl -n knative-eventing patch cm kafka-broker-config --type merge -p '{"data":{
+    "bootstrap.servers":"kafka-headless.local.svc.cluster.local:9094",
+    "default.topic.partitions":"3","default.topic.replication.factor":"1",
+    "auth.secret.ref.name":"kafka-knative-auth"}}'
+  # 기본 브로커 클래스를 Kafka 로 — 아니면 MTChannelBasedBroker(InMemoryChannel)가 되어 재시작에 이벤트가 사라진다.
+  kubectl -n knative-eventing patch cm config-br-defaults --type merge -p "$(cat <<'EOF'
+{"data":{"default-br-config":"clusterDefault:\n  brokerClass: Kafka\n  apiVersion: v1\n  kind: ConfigMap\n  name: kafka-broker-config\n  namespace: knative-eventing\n  delivery:\n    retry: 10\n    backoffPolicy: exponential\n    backoffDelay: PT0.2S\n"}}
+EOF
+)"
+  # ★ dispatcher 의 기본 requests 가 cpu 1000m 다 — 이 클러스터의 트리거 수에 과하다. limit(2000m)은 그대로 둔다.
+  #   릴리스를 다시 적용하면 되돌아가므로 이 스크립트를 다시 돌릴 것(Gotcha 80).
+  kubectl -n knative-eventing patch statefulset kafka-broker-dispatcher --type=json \
+    -p '[{"op":"replace","path":"/spec/template/spec/containers/0/resources/requests/cpu","value":"200m"}]' >/dev/null
+  kubectl -n knative-eventing rollout status statefulset/kafka-broker-dispatcher --timeout=300s
+  kubectl -n knative-eventing rollout status deploy/kafka-broker-receiver --timeout=300s
+  [ "$(kubectl -n knative-eventing get cm kafka-broker-config -o jsonpath='{.data.auth\.secret\.ref\.name}')" = kafka-knative-auth ] \
+    || { echo "[knative] kafka-broker-config 가 반영되지 않았다" >&2; exit 1; }
+}
+
 if [ "${1:-}" = "--check" ]; then check; exit $?; fi
+if [ "${1:-}" = "--eventing" ]; then eventing; check; exit $?; fi
 
 kubectl -n local get gateway knative-local >/dev/null 2>&1 \
   || { echo "[knative] local/knative-local Gateway 가 없다 — git(kubernetes/overlays/local/knative)이 먼저 동기화돼야 한다" >&2; exit 1; }
@@ -95,5 +172,6 @@ kubectl -n knative-serving patch cm config-features --type merge -p '{"data":{"s
 kubectl -n knative-serving get cm config-gateway -o jsonpath='{.data.external-gateways}' | grep -q 'gateway: local/ingress' \
   || { echo "[knative] config-gateway 가 반영되지 않았다" >&2; exit 1; }
 
+[ "${SKIP_EVENTING:-0}" = 1 ] || eventing
 check
-log "완료 — 실제 요청 확인은 kubernetes/overlays/local/knative 의 머리말 참조"
+log "완료"

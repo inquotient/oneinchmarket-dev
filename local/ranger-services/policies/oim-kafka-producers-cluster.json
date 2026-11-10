@@ -12,7 +12,8 @@
       "zilla",
       "edge",
       "kafka-bridge",
-      "akhq"
+      "akhq",
+      "knative"
     ],
     "groups": [],
     "accesses": [

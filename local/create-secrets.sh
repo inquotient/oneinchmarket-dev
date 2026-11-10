@@ -101,6 +101,10 @@ mk kafka-secret "broker-password=$(gen 32)" \
    "akhq-password=$(gen)" "data-prepper-password=$(gen)" "falcosidekick-password=$(gen)" \
    "logstash-password=$(gen)" "otel-password=$(gen)" "openmeter-password=$(gen)" \
    "zilla-password=$(gen)" "edge-password=$(gen)"
+# Knative Kafka 브로커의 SCRAM 사용자(2026-11-10). ★ kafka-secret 에 넣지 않는다 — 그 Secret 을 참조하는 워크로드
+#   15개(브로커·OpenMeter·logstash …)가 키 하나에도 Reloader 로 재시작한다. 이것은 kafka-topics Job 만 읽는다
+#   (projected · optional). knative-eventing 의 브로커 인증 Secret 은 local/install-knative.sh 가 이 값으로 만든다.
+mk kafka-knative-secret "knative-password=$(gen)"
 # ShardingSphere-Proxy 의 프록시 사용자(proxyadmin). 뒤쪽 PostgreSQL 자격과
 # **별개**여야 한다 — 프록시 자격이 새도 DB 자격은 지켜진다(§8-44 와 같은 이유).
 # Backstage — db-password 는 PostgreSQL 롬, backend-secret 은 세션·토큰
