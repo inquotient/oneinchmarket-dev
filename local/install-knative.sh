@@ -50,8 +50,14 @@ check() {
         echo "[ok]  knative-eventing/$d"
       else echo "[FAIL] knative-eventing/$d 가 Available 이 아니다"; rc=1; fi
     done
-    [ "$(kubectl -n knative-eventing get sts kafka-broker-dispatcher -o jsonpath='{.status.readyReplicas}' 2>/dev/null)" -ge 1 ] 2>/dev/null \
-      && echo "[ok]  knative-eventing/kafka-broker-dispatcher" || { echo "[FAIL] kafka-broker-dispatcher 가 Ready 가 아니다"; rc=1; }
+    # ★ dispatcher 는 kafka-controller 의 스케줄러가 replicas 를 정한다 — 트리거가 0개면 replicas 0 이 정상이다
+    #   (2026-11-10 실측: 설치 직후 spec.replicas=0). ready >= spec 으로 판정한다.
+    local want got
+    want=$(kubectl -n knative-eventing get sts kafka-broker-dispatcher -o jsonpath='{.spec.replicas}' 2>/dev/null)
+    got=$(kubectl -n knative-eventing get sts kafka-broker-dispatcher -o jsonpath='{.status.readyReplicas}' 2>/dev/null)
+    if [ -n "$want" ] && [ "${got:-0}" -ge "$want" ]; then
+      echo "[ok]  knative-eventing/kafka-broker-dispatcher (ready ${got:-0}/${want} — 트리거가 없으면 0)"
+    else echo "[FAIL] kafka-broker-dispatcher ready ${got:-0}/${want:-?}"; rc=1; fi
     [ "$(kubectl get ns knative-eventing -o jsonpath='{.metadata.labels.istio\.io/dataplane-mode}')" = ambient ] \
       && echo "[ok]  knative-eventing 은 ambient" || { echo "[FAIL] knative-eventing 이 ambient 가 아니다 — Kafka 에 메시 신원 없이 붙어 거부된다"; rc=1; }
   else
@@ -111,6 +117,19 @@ eventing() {
 {"data":{"default-br-config":"clusterDefault:\n  brokerClass: Kafka\n  apiVersion: v1\n  kind: ConfigMap\n  name: kafka-broker-config\n  namespace: knative-eventing\n  delivery:\n    retry: 10\n    backoffPolicy: exponential\n    backoffDelay: PT0.2S\n"}}
 EOF
 )"
+  # ★★ Kafka 브로커는 자기 주소를 **짧은 이름** `kafka-0.kafka-headless:9094` 로 알린다(kafka-statefulset.yaml 의
+  #   KAFKA_ADVERTISED_LISTENERS). `local` 밖에서는 그 이름이 풀리지 않아 브로커가
+  #   `Failed to create topic ... lookup kafka-0.kafka-headless ... no such host` 였다(2026-11-10 실측 — SASL·메시는
+  #   이미 통과했다: 메타데이터를 받은 뒤의 실패다). 그래서 Knative 의 Kafka 워크로드 셋에 검색 도메인
+  #   `local.svc.cluster.local` 을 더한다 — Kafka 를 재시작하지 않는다.
+  #   ★ 근본 처방은 브로커가 FQDN 을 알리는 것이다 — 그러려면 Kafka 를 재시작하고 9095(TLS, OpenMeter) 인증서의
+  #   SAN 이 그 이름을 덮는지 확인해야 한다(과금 경로). 다음 Kafka 점검 때 하고 그때 이 패치를 지울 것.
+  local w
+  for w in deploy/kafka-controller deploy/kafka-broker-receiver statefulset/kafka-broker-dispatcher; do
+    kubectl -n knative-eventing patch "$w" --type merge \
+      -p '{"spec":{"template":{"spec":{"dnsConfig":{"searches":["local.svc.cluster.local"]}}}}}' >/dev/null
+  done
+  kubectl -n knative-eventing rollout status deploy/kafka-controller --timeout=300s
   # ★ dispatcher 의 기본 requests 가 cpu 1000m 다 — 이 클러스터의 트리거 수에 과하다. limit(2000m)은 그대로 둔다.
   #   릴리스를 다시 적용하면 되돌아가므로 이 스크립트를 다시 돌릴 것(Gotcha 80).
   kubectl -n knative-eventing patch statefulset kafka-broker-dispatcher --type=json \
