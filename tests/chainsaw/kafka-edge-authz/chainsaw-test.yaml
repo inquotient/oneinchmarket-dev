@@ -1,0 +1,45 @@
+# Kafka 권한(Ranger oim-kafka) — Gotcha 204 ⑧⑩. 사용자 edge 는 edge.* 토픽·그룹 안에서만 움직인다.
+#   기본 정책이 그룹 public 에게 전권을 주므로(oim-kafka-0-defaults-no-public.json 이 뺀다) 그것이 되살아나면
+#   아래 거부 둘이 허용으로 바뀐다. 네 경우(허용·거부를 같은 동작으로 짝지었다):
+#     ① edge.events 에 쓰기       -> 허용
+#     ② falco-alerts 에 쓰기      -> 거부(TopicAuthorization)
+#     ③ 그룹 edge.cs-* 로 읽기    -> 허용(①이 쓴 표식을 읽는다 — 끝에서 끝까지)
+#     ④ 그룹 cs-* 로 읽기         -> 거부(GroupAuthorization)
+# ★ 과금 토픽(api-usage)은 건드리지 않는다(CLAUDE.md). 쓰는 것은 edge.events 의 표식 메시지 하나뿐이다.
+# ★ console producer 는 인가 실패에도 exit 0 일 수 있다 — 출력의 *AuthorizationException 으로 가른다(Gotcha 204 ⑩).
+# ★ 비밀번호는 Secret 에서 읽어 stdin 첫 줄로만 넘긴다 — 인자·로그에 남지 않는다. 오프셋은 커밋하지 않는다.
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: kafka-edge-authz
+spec:
+  namespace: local
+  steps:
+    - name: edge-matrix
+      try:
+        - script:
+            timeout: 3m
+            content: |
+              set -eu
+              pw=$(kubectl -n local get secret kafka-secret -o jsonpath='{.data.edge-password}' | base64 -d)
+              [ -n "$pw" ] || { echo "kafka-secret/edge-password 가 비었다"; exit 2; }
+              marker="chainsaw-$(date +%s)-$$"
+              { printf '%s\n' "$pw"; cat <<EOS; } | kubectl -n local exec -i kafka-0 -c kafka -- sh -c 'IFS= read -r OIM_EDGE_PW; export OIM_EDGE_PW; exec sh -s'
+              set -u
+              umask 077
+              cfg=/tmp/cs-edge.cfg
+              trap 'rm -f \$cfg' EXIT
+              printf 'security.protocol=SASL_PLAINTEXT\nsasl.mechanism=SCRAM-SHA-512\nsasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username="edge" password="%s";\n' "\$OIM_EDGE_PW" > \$cfg
+              B=/opt/kafka/bin
+              P="--producer-property max.block.ms=15000 --producer-property delivery.timeout.ms=30000 --producer-property request.timeout.ms=15000"
+              fail=0
+              out=\$(echo "$marker" | timeout 60 \$B/kafka-console-producer.sh --bootstrap-server localhost:9094 --topic edge.events --command-config \$cfg \$P 2>&1) || true
+              if echo "\$out" | grep -qiE "exception|error"; then echo "FAIL 1 edge.events 쓰기가 실패: \$(echo "\$out" | grep -iE 'exception|error' | head -2)"; fail=1; else echo "ok   1 edge.events 쓰기 허용"; fi
+              out=\$(echo "$marker" | timeout 60 \$B/kafka-console-producer.sh --bootstrap-server localhost:9094 --topic falco-alerts --command-config \$cfg \$P 2>&1) || true
+              if echo "\$out" | grep -qE "TopicAuthorizationException|Not authorized to access topics"; then echo "ok   2 falco-alerts 쓰기 거부"; else echo "FAIL 2 falco-alerts 쓰기가 거부되지 않았다: \$(echo "\$out" | tail -2)"; fail=1; fi
+              out=\$(timeout 90 \$B/kafka-console-consumer.sh --bootstrap-server localhost:9094 --topic edge.events --group "edge.cs-\$\$" --from-beginning --timeout-ms 30000 --command-config \$cfg --consumer-property enable.auto.commit=false 2>&1) || true
+              if echo "\$out" | grep -qx "$marker"; then echo "ok   3 그룹 edge.cs-* 로 표식을 읽었다"; else echo "FAIL 3 표식을 읽지 못했다: \$(echo "\$out" | grep -iE 'exception|error' | head -2)"; fail=1; fi
+              out=\$(timeout 90 \$B/kafka-console-consumer.sh --bootstrap-server localhost:9094 --topic edge.events --group "cs-\$\$" --from-beginning --timeout-ms 20000 --command-config \$cfg --consumer-property enable.auto.commit=false 2>&1) || true
+              if echo "\$out" | grep -qE "GroupAuthorizationException|Not authorized to access group"; then echo "ok   4 그룹 cs-* 읽기 거부"; else echo "FAIL 4 그룹 cs-* 가 거부되지 않았다: \$(echo "\$out" | tail -2)"; fail=1; fi
+              exit \$fail
+              EOS

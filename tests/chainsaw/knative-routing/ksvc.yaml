@@ -1,0 +1,66 @@
+# 시험용 ksvc 둘. 끝나면 Chainsaw 가 지운다.
+# ★ 파드 수준 securityContext 를 쓰지 않는다 — Knative 가 거부한다(Gotcha 229 ⑥). 나머지는 secure-pod-defaults 가 채운다.
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: cs-public
+  labels:
+    app.kubernetes.io/name: chainsaw-knative
+    app.kubernetes.io/component: test
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: chainsaw
+spec:
+  template:
+    metadata:
+      annotations:
+        # 콜드 스타트 시험을 위해 빨리 0 으로 줄인다(기본 창 60s — 6s 가 최소값이다). 이 시험 ksvc 에만 건다.
+        autoscaling.knative.dev/window: "6s"
+    spec:
+      containers:
+        - image: docker.io/library/python:3.12-slim
+          command: ["python3", "-u", "-c"]
+          args:
+            - |
+              import http.server
+              class H(http.server.BaseHTTPRequestHandler):
+                  def do_GET(self):
+                      self.send_response(200); self.send_header("content-type", "text/plain"); self.end_headers()
+                      self.wfile.write(b"chainsaw\n")
+                  def log_message(self, *a): pass
+              http.server.HTTPServer(("", 8080), H).serve_forever()
+          ports: [{containerPort: 8080}]
+          securityContext: {runAsUser: 1000, runAsGroup: 1000}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 200m, memory: 128Mi}
+---
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: cs-private
+  labels:
+    networking.knative.dev/visibility: cluster-local
+    app.kubernetes.io/name: chainsaw-knative
+    app.kubernetes.io/component: test
+    app.kubernetes.io/part-of: oneinchmarket
+    app.kubernetes.io/managed-by: chainsaw
+spec:
+  template:
+    spec:
+      containers:
+        - image: docker.io/library/python:3.12-slim
+          command: ["python3", "-u", "-c"]
+          args:
+            - |
+              import http.server
+              class H(http.server.BaseHTTPRequestHandler):
+                  def do_GET(self):
+                      self.send_response(200); self.send_header("content-type", "text/plain"); self.end_headers()
+                      self.wfile.write(b"chainsaw\n")
+                  def log_message(self, *a): pass
+              http.server.HTTPServer(("", 8080), H).serve_forever()
+          ports: [{containerPort: 8080}]
+          securityContext: {runAsUser: 1000, runAsGroup: 1000}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 200m, memory: 128Mi}

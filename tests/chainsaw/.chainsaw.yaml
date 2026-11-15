@@ -1,0 +1,17 @@
+# Chainsaw 설정 — 실행은 local/run-chainsaw.sh 로 한다(노드 103, root).
+# 시나리오끼리 공유하는 것이 없지만 하나씩 돌린다: 실패했을 때 무엇이 겹쳤는지 따지지 않게.
+apiVersion: chainsaw.kyverno.io/v1alpha2
+kind: Configuration
+metadata:
+  name: oneinchmarket
+spec:
+  timeouts:
+    apply: 30s
+    assert: 4m
+    cleanup: 3m
+    delete: 3m
+    error: 30s
+    exec: 3m
+  execution:
+    parallel: 1
+    failFast: false
