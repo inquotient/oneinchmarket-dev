@@ -1000,7 +1000,18 @@ python3 local/check-wave-order.py  --check          # wave 뒤집힌 의존 전�
 python3 local/check-nonroot-caps.py --check          # 비-root 컨테이너의 무력한 capability (0 이어야 한다)
 python3 local/render-external-access.py --check      # 외부 노출 생성물이 뒤처졌는지 (0 이어야 한다)
 python3 local/render-contracts.py --check            # 계약 게시 ConfigMap 이 contracts/ 를 따라왔는지 (0 이어야 한다)
+bash local/run-chainsaw.sh                           # 배포 뒤 동작 회귀 — tests/chainsaw/ (0 통과 · 1 실패 · 2 측정 불가)
 ```
+
+**배포 뒤 동작 회귀는 Chainsaw 다**(2026-11-16, `tests/chainsaw/` · `local/run-chainsaw.sh`, 노드 103 root —
+이 PC 에서는 스크립트 머리말의 `git archive | ssh` 한 줄로 돌린다). 손으로 한 실측 중 다시 깨지면 조용한 것을
+시나리오로 고정했다: `knative-routing`(https 200 · 평문 301 · cluster-local 외부 404/안쪽 200 · 콜드 스타트, Gotcha 229) ·
+`livy-networkpolicy-guard`(서버측 dry-run 4건 — 거부는 **가드의 이름**으로 가른다, RBAC 거부로 통과하지 않게, Gotcha 228 ⑧) ·
+`kafka-edge-authz`(edge 의 쓰기·읽기 허용/거부 짝 — 출력의 *AuthorizationException 으로 가른다, Gotcha 204 ⑩).
+실측 2026-11-16: 3/3 통과(약 2분). ★ 만드는 것은 kn 의 ksvc 둘(끝나면 지운다)과 edge.events 의 표식 하나다.
+Knative 시험 요청 넷은 ingress 게이트웨이를 지나 subject 없는 계량 이벤트로 남는다(청구되지 않는다 — Telemetry
+api-usage 가 그 게이트웨이의 모든 호스트를 계량한다). ★ 시나리오를 더할 때 과금 경로(api 호스트·api-usage 토픽)는 넣지 말 것.
+★ 콜드 스타트를 파드 수로 재지 말 것 — Terminating 파드가 세어져 "줄지 않았다" 로 읽힌다(첫 판이 그렇게 실패했다).
 
 **★★ 노드가 재부팅 뒤 스스로 돌아오는지 보는 것은 따로 있다** —
 `local/node-rejoin-check.sh` 다. 부트스트랩의 `--check` 는 **설치 전·자기
